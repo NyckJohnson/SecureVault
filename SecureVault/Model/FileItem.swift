@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct FileItem: Identifiable, Hashable {
+nonisolated struct FileItem: Identifiable, Sendable, Hashable {
     let id: UUID
     var name: String
     var url: URL
@@ -19,11 +19,19 @@ struct FileItem: Identifiable, Hashable {
         self.id    = UUID()
         self.url   = url
         self.name  = url.lastPathComponent
-
+        
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey])
-
+        
         self.isDirectory  = values?.isDirectory ?? false
-        self.dateModified = values?.contentModificationDateKey
+        self.dateModified = values?.contentModificationDate ?? Date()
         self.fileSize     = values?.fileSize
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: FileItem, rhs: FileItem) -> Bool {
+        lhs.id == rhs.id
     }
 }

@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPhotoLibraryDescription</key>
+	<string>&quot;Import photos and videos&quot;</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>&quot;Save photos and videos to your camera roll&quot;</string>
+	<key>CFBundleIdentifier</key>
+	<string></string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

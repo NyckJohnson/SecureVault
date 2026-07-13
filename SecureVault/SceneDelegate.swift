@@ -13,10 +13,19 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
-        // Use this method to optionally configure and attach the UIWindow `window` to the provided UIWindowScene `scene`.
-        // If using a storyboard, the `window` property will automatically be initialized and attached to the scene.
-        // This delegate does not imply the connecting scene or session are new (see `application:configurationForConnectingSceneSession` instead).
-        guard let _ = (scene as? UIWindowScene) else { return }
+        guard let windowScene = (scene as? UIWindowScene) else { return }
+        let root = FileBrowserViewController(directory: FileStoreService.shared.rootURL)
+        let nav = UINavigationController(rootViewController: root)
+        nav.navigationBar.prefersLargeTitles = true
+        window = UIWindow(windowScene: windowScene)
+        window?.rootViewController = nav
+        window?.makeKeyAndVisible()
+
+        if !UserDefaults.standard.bool(forKey: "hasCompletedSetup") {
+            let wizard = SetupWizardViewController()
+            wizard.modalPresentationStyle = .fullScreen
+            nav.present(wizard, animated: false)
+        }
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
@@ -27,13 +36,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
-        // Called when the scene has moved from an inactive state to an active state.
-        // Use this method to restart any tasks that were paused (or not yet started) when the scene was inactive.
+        if AuthService.shared.appDidForeground() {
+            showLockScreen()
+        }
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
-        // Called when the scene will move from an active state to an inactive state.
-        // This may occur due to temporary interruptions (ex. an incoming phone call).
+        AuthService.shared.appDidBackground()
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {
@@ -47,6 +56,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // to restore the scene back to its current state.
     }
 
-
+    private func showLockScreen() {
+        guard let root = window?.rootViewController else { return }
+        guard !(root.presentedViewController is LockScreenViewController) else { return }
+        let lock = LockScreenViewController()
+        lock.delegate = self
+        lock.modalPresentationStyle = .fullScreen
+        root.present(lock, animated: false)
+    }
 }
 
+extension SceneDelegate: LockScreenDelegate {
+    func lockScreenDidAuthenticate() {
+        window?.rootViewController?.dismiss(animated: true)
+    }
+}
