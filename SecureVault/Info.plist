@@ -4,12 +4,6 @@
 <dict>
 	<key>NSPhotoLibraryDescription</key>
 	<string>&quot;Import photos and videos&quot;</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>&quot;Save photos and videos to your camera roll&quot;</string>
-	<key>CFBundleIdentifier</key>
-	<string></string>
-	<key>UIRequiresFullScreen</key>
-	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -23,8 +17,6 @@
 					<string>Default Configuration</string>
 					<key>UISceneDelegateClassName</key>
 					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
-					<key>UISceneStoryboardFile</key>
-					<string>Main</string>
 				</dict>
 			</array>
 		</dict>

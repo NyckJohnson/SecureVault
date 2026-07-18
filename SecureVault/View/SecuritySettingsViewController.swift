@@ -15,7 +15,6 @@ final class SecuritySettingsViewController: UIViewController {
     // MARK: - Sections
     private enum Section: Int, CaseIterable {
         case lockMode
-        case timeout
         case password
     }
 
@@ -45,7 +44,6 @@ extension SecuritySettingsViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section)! {
         case .lockMode: return 3
-        case .timeout:  return authService.lockMode == .none ? 0 : 4
         case .password: return authService.lockMode == .none ? 0 : 1
         }
     }
@@ -53,7 +51,6 @@ extension SecuritySettingsViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section)! {
         case .lockMode: return "Lock Mode"
-        case .timeout:  return authService.lockMode == .none ? nil : "Lock After"
         case .password: return authService.lockMode == .none ? nil : "Password"
         }
     }
@@ -77,17 +74,6 @@ extension SecuritySettingsViewController: UITableViewDataSource {
                 cell.textLabel?.textColor = authService.biometricsAvailable ? .label : .secondaryLabel
             default: break
             }
-
-        case .timeout:
-            let timeouts: [(String, TimeInterval)] = [
-                ("Immediately", -1),
-                ("1 Minute", 60),
-                ("5 Minutes", 300),
-                ("15 Minutes", 900)
-            ]
-            let (title, value) = timeouts[indexPath.row]
-            cell.textLabel?.text = title
-            cell.accessoryType = authService.lockTimeout == value ? .checkmark : .none
 
         case .password:
             cell.textLabel?.text = "Change Password"
@@ -113,11 +99,6 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             default: break
             }
 
-        case .timeout:
-            let timeouts: [TimeInterval] = [-1, 60, 300, 900]
-            authService.lockTimeout = timeouts[indexPath.row]
-            tableView.reloadSections(IndexSet(integer: Section.timeout.rawValue), with: .none)
-
         case .password:
             promptChangePassword()
         }
@@ -125,24 +106,33 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 
     private func setLockMode(_ mode: LockMode) {
         if mode == .none {
-            let alert = UIAlertController(title: "Remove Lock?", message: "Your files will no longer be protected.", preferredStyle: .alert)
+            let alert = UIAlertController(title: "Remove Lock?", message: "Your files will be decrypted and no longer protected.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
                 self.authService.lockMode = .none
                 self.authService.removePassword()
-                self.tableView.reloadData()
+                let migration = MigrationViewController(type: .decrypt) {
+                    self.tableView.reloadData()
+                }
+                self.present(migration, animated: true)
             })
             present(alert, animated: true)
         } else if !authService.hasPassword() {
-            promptSetPassword(for: mode)
+            promptSetPassword(for: mode) { [weak self] in
+                guard let self else { return }
+                let migration = MigrationViewController(type: .encrypt) {
+                    self.tableView.reloadData()
+                }
+                self.present(migration, animated: true)
+            }
         } else {
             authService.lockMode = mode
             tableView.reloadData()
         }
     }
 
-    private func promptSetPassword(for mode: LockMode) {
+    private func promptSetPassword(for mode: LockMode, completion: @escaping () -> Void = {}) {
         let alert = UIAlertController(title: "Set Password", message: nil, preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "Password"; $0.isSecureTextEntry = true }
         alert.addTextField { $0.placeholder = "Confirm password"; $0.isSecureTextEntry = true }
@@ -157,8 +147,9 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             }
             do {
                 try self.authService.setPassword(password)
+                try CryptoService.shared.loadKey(from: password)
                 self.authService.lockMode = mode
-                self.tableView.reloadData()
+                completion()
             } catch {
                 self.showError("Failed to save password")
             }

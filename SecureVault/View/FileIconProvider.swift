@@ -8,11 +8,13 @@
 import UIKit
 
 enum FileIconProvider {
-    static func icon(for item: FileItem) -> UIImage? {
+    static func icon(for item: VaultItem) -> UIImage? {
         if item.isDirectory {
             return UIImage(systemName: "folder.fill")
         }
-        switch item.url.pathExtension.lowercased() {
+        
+        let ext = (item.name as NSString).pathExtension.lowercased()
+        switch ext {
             case "jpg", "jpeg", "png", "heic", "gif", "webp":
                 return UIImage(systemName: "photo")
             case "mp4", "mov", "m4v", "avi":
@@ -36,9 +38,10 @@ enum FileIconProvider {
         }
     }
         
-    static func iconColor(for item: FileItem) -> UIColor {
+    static func iconColor(for item: VaultItem) -> UIColor {
         if item.isDirectory {return .systemYellow }
-        switch item.url.pathExtension.lowercased() {
+        let ext = (item.name as NSString).pathExtension.lowercased()
+        switch ext {
             case "jpg", "jpeg", "png", "heic", "gif", "webp": return .systemGreen
             case "mp4", "mov", "m4v", "avi": return .systemPurple
             case "mp3", "m4a", "wav", "aac": return .systemPink

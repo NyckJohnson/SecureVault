@@ -8,20 +8,20 @@
 import UIKit
 
 protocol FolderPickerDelegate: AnyObject {
-    func folderPicker(_ picker: FolderPickerViewController, didSelectFolder url: URL)
+    func folderPicker(_ picker: FolderPickerViewController, didSelectFolder directory: VaultDirectory)
 }
 
 final class FolderPickerViewController: UIViewController {
     
     weak var delegate: FolderPickerDelegate?
-    private let rootURL: URL
-    private let currentDirectory: URL
-    private var items: [FileItem] = []
+    private let rootDirectory: VaultDirectory
+    private let currentDirectory: VaultDirectory
+    private var items: [VaultItem] = []
     private var tableView: UITableView!
     
-    init(rootURL: URL, currentDirectory: URL) {
+    init(rootDirectory: VaultDirectory, currentDirectory: VaultDirectory) {
         print("FolderPickerViewController init called")
-        self.rootURL = rootURL
+        self.rootDirectory = rootDirectory
         self.currentDirectory = currentDirectory
         super.init(nibName: nil, bundle: nil)
     }
@@ -32,18 +32,15 @@ final class FolderPickerViewController: UIViewController {
         print("FolderPickerViewController viewDidLoad called")
         super.viewDidLoad()
         print("superDidLoad passed")
-        title = "Move to"
+        
         view.backgroundColor = .systemBackground
-        print("title and backgound color set")
         
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: "Cancel", style: .plain, target: self, action: #selector(cancel)
         )
-        print("left button passed")
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: "Move Here", style: .done, target: self, action: #selector(moveHere)
         )
-        print("right button passed")
         
         tableView = UITableView(frame: view.bounds, style: .plain)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -58,7 +55,7 @@ final class FolderPickerViewController: UIViewController {
     }
     
     private func loadContents() {
-        let all = (try? FileStoreService.shared.contents(of: currentDirectory)) ?? []
+        let all = (try? FileSystem.shared.contents(of: currentDirectory)) ?? []
         items = all.filter { $0.isDirectory }
         DispatchQueue.main.async {
             self.tableView.reloadData()
@@ -96,7 +93,10 @@ extension FolderPickerViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let folder = items[indexPath.row]
-        let next = FolderPickerViewController(rootURL: rootURL, currentDirectory: folder.url)
+        let next = FolderPickerViewController(
+            rootDirectory: rootDirectory,
+            currentDirectory: VaultDirectory(name: folder.name, diskURL: folder.diskURL)
+        )
         next.delegate = delegate
         navigationController?.pushViewController(next, animated: true)
     }

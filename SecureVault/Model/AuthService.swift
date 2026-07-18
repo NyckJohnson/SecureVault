@@ -8,6 +8,7 @@
 import Foundation
 import LocalAuthentication
 import Security
+import UIKit
 
 enum LockMode: String {
     case none
@@ -27,20 +28,13 @@ final class AuthService {
     private init() {}
 
     // MARK: - Keys
-    private let lockModeKey        = "lockMode"
-    private let lockTimeoutKey     = "lockTimeout"
+    private let lockModeKey         = "lockMode"
     private let passwordKeychainKey = "com.securevault.password"
 
     // MARK: - Lock Mode
     var lockMode: LockMode {
         get { LockMode(rawValue: UserDefaults.standard.string(forKey: lockModeKey) ?? "none") ?? .none }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: lockModeKey) }
-    }
-
-    // MARK: - Lock Timeout (in seconds, -1 = immediately)
-    var lockTimeout: TimeInterval {
-        get { UserDefaults.standard.double(forKey: lockTimeoutKey) == 0 ? -1 : UserDefaults.standard.double(forKey: lockTimeoutKey) }
-        set { UserDefaults.standard.set(newValue, forKey: lockTimeoutKey) }
     }
 
     // MARK: - Password
@@ -71,6 +65,7 @@ final class AuthService {
             throw AuthError.keychainError
         }
         guard stored == password else { throw AuthError.wrongPassword }
+        try CryptoService.shared.loadKey(from: password)
     }
 
     func hasPassword() -> Bool {
@@ -110,32 +105,108 @@ final class AuthService {
         context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,
             localizedReason: "Unlock SecureVault"
-        ) { success, error in
-            DispatchQueue.main.async {
-                completion(success, error)
+        ) { [weak self] success, error in
+            guard let self else { return }
+            if success {
+                let query: [String: Any] = [
+                    kSecClass as String:       kSecClassGenericPassword,
+                    kSecAttrAccount as String: self.passwordKeychainKey,
+                    kSecReturnData as String:  true,
+                    kSecMatchLimit as String:  kSecMatchLimitOne
+                ]
+                var result: AnyObject?
+                if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+                   let data = result as? Data,
+                   let password = String(data: data, encoding: .utf8) {
+                    try? CryptoService.shared.loadKey(from: password)
+                }
             }
+            DispatchQueue.main.async { completion(success, error) }
         }
     }
 
     // MARK: - Lock State
-    private var backgroundedAt: Date?
-    var isLocked = false
+    var isLocked         = false
+    var hasAuthenticated = false
 
-    func appDidBackground() {
-        backgroundedAt = Date()
+    // MARK: - Scene Lifecycle
+    func handleBackground(in window: UIWindow?) {
+        guard hasAuthenticated, lockMode != .none else { return }
+        isLocked = true
+        CryptoService.shared.wipeKey()
+        FileSystem.shared.cleanupTempFiles()
+        ThumbnailService.shared.clearCache()
+        showPrivacyScreen(in: window)
     }
 
-    func appDidForeground() -> Bool {
-        guard lockMode != .none else { return false }
-        guard let backgroundedAt else {
-            isLocked = true
-            return true
+    func handleForeground(in window: UIWindow?) {
+        if lockMode == .none {
+            hasAuthenticated = true
+            hidePrivacyScreen(in: window)
+            return
         }
-        let elapsed = Date().timeIntervalSince(backgroundedAt)
-        if lockTimeout == -1 || elapsed >= lockTimeout {
-            isLocked = true
-            return true
+        if isLocked {
+            showLockScreen(in: window)
+        } else {
+            hidePrivacyScreen(in: window)
         }
-        return false
+    }
+
+    func handleInitialLaunch(in window: UIWindow?) {
+        guard lockMode != .none else { return }
+        isLocked = true
+        showLockScreen(in: window)
+    }
+
+    // MARK: - Auth Success
+    func didAuthenticate(in window: UIWindow?) {
+        isLocked = false
+        hasAuthenticated = true
+        window?.rootViewController?.dismiss(animated: true) {
+            self.hidePrivacyScreen(in: window)
+            self.reloadFileBrowser(in: window)
+        }
+    }
+
+    // MARK: - Privacy Screen
+    private func showPrivacyScreen(in window: UIWindow?) {
+        guard window?.viewWithTag(999) == nil else { return }
+        let privacy = UIView()
+        privacy.backgroundColor = .systemBackground
+        privacy.tag = 999
+        let logo = UIImageView(image: UIImage(systemName: "lock.fill"))
+        logo.tintColor = .systemBlue
+        logo.contentMode = .scaleAspectFit
+        logo.translatesAutoresizingMaskIntoConstraints = false
+        privacy.addSubview(logo)
+        NSLayoutConstraint.activate([
+            logo.centerXAnchor.constraint(equalTo: privacy.centerXAnchor),
+            logo.centerYAnchor.constraint(equalTo: privacy.centerYAnchor),
+            logo.widthAnchor.constraint(equalToConstant: 60),
+            logo.heightAnchor.constraint(equalToConstant: 60),
+        ])
+        privacy.frame = window?.bounds ?? .zero
+        window?.addSubview(privacy)
+    }
+
+    private func hidePrivacyScreen(in window: UIWindow?) {
+        window?.viewWithTag(999)?.removeFromSuperview()
+    }
+
+    // MARK: - Lock Screen
+    private func showLockScreen(in window: UIWindow?) {
+        guard let root = window?.rootViewController else { return }
+        guard !(root.presentedViewController is LockScreenViewController) else { return }
+        let lock = LockScreenViewController()
+        lock.modalPresentationStyle = .fullScreen
+        root.present(lock, animated: false)
+    }
+
+    // MARK: - File Browser Reload
+    private func reloadFileBrowser(in window: UIWindow?) {
+        if let nav = window?.rootViewController as? UINavigationController,
+           let browser = nav.viewControllers.first as? FileBrowserViewController {
+            browser.reloadAfterAuth()
+        }
     }
 }

@@ -7,13 +7,8 @@
 
 import UIKit
 
-protocol LockScreenDelegate: AnyObject {
-    func lockScreenDidAuthenticate()
-}
-
 final class LockScreenViewController: UIViewController {
 
-    weak var delegate: LockScreenDelegate?
     private let authService = AuthService.shared
 
     // MARK: - UI
@@ -34,7 +29,7 @@ final class LockScreenViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if authService.lockMode == .passwordAndBiometrics {
-            authenticateWithBiometrics()
+            attemptUnlock()
         }
     }
 
@@ -58,7 +53,7 @@ final class LockScreenViewController: UIViewController {
 
         unlockButton.setTitle("Unlock", for: .normal)
         unlockButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        unlockButton.addTarget(self, action: #selector(unlockWithPassword), for: .touchUpInside)
+        unlockButton.addTarget(self, action: #selector(unlockButtonTapped), for: .touchUpInside)
         unlockButton.translatesAutoresizingMaskIntoConstraints = false
 
         errorLabel.textColor = .systemRed
@@ -68,7 +63,7 @@ final class LockScreenViewController: UIViewController {
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
 
         biometricButton.setTitle("Use \(authService.biometricType)", for: .normal)
-        biometricButton.addTarget(self, action: #selector(authenticateWithBiometrics), for: .touchUpInside)
+        biometricButton.addTarget(self, action: #selector(biometricButtonTapped), for: .touchUpInside)
         biometricButton.isHidden = authService.lockMode != .passwordAndBiometrics || !authService.biometricsAvailable
         biometricButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -104,37 +99,50 @@ final class LockScreenViewController: UIViewController {
     }
 
     // MARK: - Actions
-    @objc private func unlockWithPassword() {
+    @objc private func unlockButtonTapped() {
         guard let password = passwordField.text, !password.isEmpty else { return }
-        do {
-            try authService.verifyPassword(password)
-            authService.isLocked = false
-            delegate?.lockScreenDidAuthenticate()
-        } catch {
-            errorLabel.text = "Incorrect password"
-            errorLabel.isHidden = false
-            passwordField.text = ""
-        }
+        attemptUnlock(with: password)
     }
 
-    @objc private func authenticateWithBiometrics() {
-        authService.authenticateWithBiometrics { [weak self] success, _ in
-            guard let self else { return }
-            if success {
-                self.authService.isLocked = false
-                self.delegate?.lockScreenDidAuthenticate()
-            } else {
-                self.errorLabel.text = "Biometric authentication failed"
-                self.errorLabel.isHidden = false
+    @objc private func biometricButtonTapped() {
+        attemptUnlock()
+    }
+    
+    private func attemptUnlock(with password: String? = nil) {
+        if let password {
+            do {
+                try authService.verifyPassword(password)
+                unlockSucceeded()
+            } catch {
+                showError("Incorrect password")
+            }
+        } else {
+            authService.authenticateWithBiometrics { [weak self] success, _ in
+                guard let self else { return }
+                if success {
+                    self.unlockSucceeded()
+                } else {
+                    self.showError("Biometric authentication failed")
+                }
             }
         }
     }
+
+    private func unlockSucceeded() {
+        AuthService.shared.didAuthenticate(in: view.window)
+    }
+
+    private func showError(_ message: String) {
+        errorLabel.text = message
+        errorLabel.isHidden = false
+        passwordField.text = ""
+    }
 }
 
-// MARK: - UITextFieldDelegate
 extension LockScreenViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        unlockWithPassword()
+        guard let password = passwordField.text, !password.isEmpty else { return true }
+        attemptUnlock(with: password)
         return true
     }
 }

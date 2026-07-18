@@ -10,14 +10,15 @@ import AVKit
 import QuickLook
 
 final class FilePageViewController: UIViewController {
-    let item: FileItem
+    let item: VaultItem
     private weak var viewer: FileViewerViewController?
     private var playerLayer: AVPlayerLayer?
+    private var previewURL: URL?
     private var imageView:   UIImageView?
     private var scrollView:  UIScrollView?
     
-    init(item: FileItem, viewer: FileViewerViewController) {
-        self.item   = item
+    init(item: VaultItem, viewer: FileViewerViewController) {
+        self.item = item
         self.viewer = viewer
         super.init(nibName: nil, bundle: nil)
     }
@@ -27,7 +28,7 @@ final class FilePageViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        let ext = item.url.pathExtension.lowercased()
+        let ext = (item.name as NSString).pathExtension.lowercased()
         if ["jpg","jpeg","png","heic","gif","webp"].contains(ext) {
             setupImageView()
         } else if ["mp4","mov","m4v","avi"].contains(ext) {
@@ -50,7 +51,8 @@ final class FilePageViewController: UIViewController {
     }
     
     private func setupImageView() {
-        let scrollView              = UIScrollView()
+        guard let url = try? FileSystem.shared.open(item) else { return }
+        let scrollView = UIScrollView()
             scrollView.delegate         = self
             scrollView.minimumZoomScale = 1.0
             scrollView.maximumZoomScale = 5.0
@@ -68,7 +70,7 @@ final class FilePageViewController: UIViewController {
         
         let imageView = UIImageView()
             imageView.contentMode = .scaleAspectFit
-            imageView.image       = UIImage(contentsOfFile: item.url.path)
+            imageView.image       = UIImage(contentsOfFile: url.path)
             imageView.frame       = view.bounds
         
         scrollView.addSubview(imageView)
@@ -94,7 +96,8 @@ final class FilePageViewController: UIViewController {
     }
     
     private func setupVideoPlayer() {
-        let player = AVPlayer(url: item.url)
+        guard let url = try? FileSystem.shared.open(item) else { return }
+        let player = AVPlayer(url: url)
         viewer?.player = player
         viewer?.updatePlayPauseButton(isPlaying: false)
         let layer = AVPlayerLayer(player: player)
@@ -105,13 +108,14 @@ final class FilePageViewController: UIViewController {
     }
     
     private func openInTextEditor() {
-        let editor = TextEditorViewController(fileURL: item.url)
+        let editor = TextEditorViewController(item: item)
         let nav = UINavigationController(rootViewController: editor)
         nav.modalPresentationStyle = .fullScreen
         present(nav, animated: true)
     }
     
     private func setupQuickLook() {
+        previewURL = try? FileSystem.shared.open(item)
         let qlController = QLPreviewController()
         qlController.dataSource = self
         addChild(qlController)
@@ -127,7 +131,7 @@ final class FilePageViewController: UIViewController {
 extension FilePageViewController: QLPreviewControllerDataSource {
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
-        item.url as QLPreviewItem
+        (previewURL ?? item.diskURL) as QLPreviewItem
     }
 }
 

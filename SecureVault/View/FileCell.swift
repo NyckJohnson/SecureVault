@@ -14,8 +14,8 @@ final class FileCell: UICollectionViewCell {
     private let iconView    = UIImageView()
     private let nameLabel   = UILabel()
     private let detailLabel = UILabel()
-    private var thumbnailTask: QLThumbnailGenerator.Request?
     private var checkmark = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
+    private var thumbnailRequest: QLThumbnailGenerator.Request?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -72,23 +72,18 @@ final class FileCell: UICollectionViewCell {
         ])
     }
     
-    func configure(with item: FileItem, gridMode: Bool) {
-        let config = UIImage.SymbolConfiguration(pointSize: 80, weight: .regular)
-        iconView.image              = FileIconProvider.icon(for: item)?.withConfiguration(config)
-        iconView.tintColor          = FileIconProvider.iconColor(for: item)
-        iconView.contentMode        = .center
-        iconView.layer.cornerRadius = 0
-        iconView.clipsToBounds      = false
-        
-        nameLabel.text       = item.name
-        detailLabel.text     = item.isDirectory ? "" : formattedSize(item.fileSize)
-        nameLabel.textAlignment   = gridMode ? .center : .left
-        detailLabel.textAlignment = gridMode ? .center : .left
-        
-        if item.isDirectory {
-            loadFolderThumbnail(for: item)
-        } else if !item.isDirectory {
-            loadThumbnail(for: item)
+    func configure(with item: VaultItem, gridMode: Bool) {
+        let config = UIImage.SymbolConfiguration(pointSize: 50, weight: .regular)
+        iconView.image = FileIconProvider.icon(for: item)?.withConfiguration(config)
+        iconView.tintColor = FileIconProvider.iconColor(for: item)
+        iconView.contentMode = .center
+        nameLabel.text = item.name
+        detailLabel.text = item.isDirectory ? "" : formattedSize(item.fileSize)
+
+        thumbnailRequest = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 100, height: 100)) { [weak self] image in
+            guard let self, let image else { return }
+            self.iconView.image = image
+            self.iconView.contentMode = .scaleAspectFit
         }
     }
     
@@ -102,64 +97,11 @@ final class FileCell: UICollectionViewCell {
         return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
     }
     
-    private func generateThumbnail(for url: URL, completion: @escaping (UIImage) -> Void) {
-        let size = CGSize(width: 100, height: 100)
-        let request = QLThumbnailGenerator.Request(
-            fileAt: url,
-            size:   size,
-            scale:  UIScreen.main.scale,
-            representationTypes: .thumbnail
-        )
-        thumbnailTask = request
-        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] thumbnail, _ in
-            guard let self, self.thumbnailTask === request, let thumbnail else { return }
-            DispatchQueue.main.async { completion(thumbnail.uiImage) }
-        }
-    }
-    
-    private func loadThumbnail(for item: FileItem) {
-        generateThumbnail(for: item.url) { [weak self] image in
-            self?.iconView.image = image
-            self?.iconView.contentMode = .scaleAspectFit
-        }
-    }
-    
-    private func loadFolderThumbnail(for item: FileItem) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            
-            let contents = try? FileStoreService.shared.contents(of: item.url)
-            let mediaItem = contents?.first(where: {
-                !$0.isDirectory && ["jpg","jpeg","png","heic","gif","webp","mp4","mov","m4v"].contains($0.url.pathExtension.lowercased())
-            })
-            
-            guard let mediaItem else { return }
-            
-            self.generateThumbnail(for: mediaItem.url) { [weak self] image in
-                guard let self else { return }
-                
-                let overlay                = UIImageView(image: image)
-                overlay.contentMode        = .scaleAspectFill
-                overlay.clipsToBounds      = true
-                overlay.layer.cornerRadius = 3
-                overlay.translatesAutoresizingMaskIntoConstraints = false
-                self.iconView.addSubview(overlay)
-                
-                NSLayoutConstraint.activate([
-                    overlay.centerXAnchor.constraint(equalTo: self.iconView.centerXAnchor),
-                    overlay.centerYAnchor.constraint(equalTo: self.iconView.centerYAnchor, constant: 6),
-                    overlay.widthAnchor.constraint(equalTo: self.iconView.widthAnchor, multiplier: 0.8),
-                    overlay.heightAnchor.constraint(equalTo: self.iconView.heightAnchor, multiplier: 0.6),
-                ])
-            }
-        }
-    }
-    
     override func prepareForReuse() {
         super.prepareForReuse()
-        thumbnailTask               = nil
-        iconView.subviews.forEach   { $0.removeFromSuperview() }
-        iconView.image              = nil
-        iconView.contentMode        = .center
+        thumbnailRequest = nil
+        iconView.subviews.forEach { $0.removeFromSuperview() }
+        iconView.image = nil
+        iconView.contentMode = .center
     }
 }

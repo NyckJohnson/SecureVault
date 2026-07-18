@@ -9,7 +9,7 @@ import UIKit
 import AVKit
 
 final class FileViewerViewController: UIViewController {
-    private let items:              [FileItem]
+    private let items:              [VaultItem]
     private var currentIndex:       Int
     private var pageViewController: UIPageViewController!
     private var isNavBarHidden      = false
@@ -26,7 +26,7 @@ final class FileViewerViewController: UIViewController {
     private let skipForwardButton = UIButton(type: .system)
     var player: AVPlayer?
     
-    init(items: [FileItem], startingAt index: Int) {
+    init(items: [VaultItem], startingAt index: Int) {
         self.items = items
         self.currentIndex = index
         super.init(nibName: nil, bundle: nil)
@@ -167,9 +167,9 @@ final class FileViewerViewController: UIViewController {
     }
     
     // MARK: - UI Updates
-    func updateUI(for item: FileItem) {
+    func updateUI(for item: VaultItem) {
         titleLabel.text = item.name
-        let isVideo = ["mp4", "mov", "m4v", "avi"].contains(item.url.pathExtension.lowercased())
+        let isVideo = ["mp4","mov","m4v","avi"].contains((item.name as NSString).pathExtension.lowercased())
         videoControls.isHidden = !isVideo
     }
     
@@ -220,7 +220,7 @@ extension FileViewerViewController: UIPageViewControllerDataSource {
         guard currentIndex > 0 else { return nil }
         return FilePageViewController(item: items[currentIndex - 1], viewer: self)
     }
-    
+
     func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
         guard currentIndex < items.count - 1 else { return nil }
         return FilePageViewController(item: items[currentIndex + 1], viewer: self)

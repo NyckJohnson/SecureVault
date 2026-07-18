@@ -10,14 +10,14 @@ import UIKit
 final class TextEditorViewController: UIViewController {
 
     // MARK: - Properties
-    private let fileURL: URL
+    private let item: VaultItem
     private var textView: UITextView!
     private var toolbar: UIToolbar!
     private var saveTimer: Timer?
 
     // MARK: - Init
-    init(fileURL: URL) {
-        self.fileURL = fileURL
+    init(item: VaultItem) {
+        self.item = item
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -27,7 +27,7 @@ final class TextEditorViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        title = fileURL.lastPathComponent
+        title = item.name
         setupNavigationBar()
         setupTextView()
         setupFormattingToolbar()
@@ -85,9 +85,9 @@ final class TextEditorViewController: UIViewController {
 
     // MARK: - Document
     private func loadDocument() {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
         do {
-            let data = try Data(contentsOf: fileURL)
+            let url = try FileSystem.shared.open(item)
+            let data = try Data(contentsOf: url)
             let attributed = try NSAttributedString(
                 data: data,
                 options: [.documentType: NSAttributedString.DocumentType.rtf],
@@ -95,8 +95,7 @@ final class TextEditorViewController: UIViewController {
             )
             textView.attributedText = attributed
         } catch {
-            // fallback to plain text
-            textView.text = try? String(contentsOf: fileURL)
+            textView.text = ""
         }
     }
 
@@ -106,7 +105,7 @@ final class TextEditorViewController: UIViewController {
                 from: NSRange(location: 0, length: textView.attributedText.length),
                 documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
             )
-            try data.write(to: fileURL)
+            try FileSystem.shared.write(data: data, to: item)
         } catch {
             print("Save failed: \(error)")
         }
