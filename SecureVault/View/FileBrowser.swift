@@ -9,7 +9,7 @@ import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
 
-final class FileBrowserViewController: UIViewController {
+final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
     private let directory: VaultDirectory
@@ -40,6 +40,7 @@ final class FileBrowserViewController: UIViewController {
         setupCollectionView()
         configureDataSource()
         loadContents()
+        NotificationCenter.default.addObserver(self, selector: #selector(reloadAfterRestore), name: NSNotification.Name("FileRestored"), object: nil)
     }
 
     // MARK: - Navigation Bar
@@ -50,22 +51,29 @@ final class FileBrowserViewController: UIViewController {
             deleteButton.tintColor = .systemRed
             let moveButton = UIBarButtonItem(image: UIImage(systemName: "arrow.right.circle"), style: .plain, target: self, action: #selector(bulkMove))
             let exportButton = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(bulkExport))
+            let copyButton = UIBarButtonItem(image: UIImage(systemName: "doc.on.doc"), style: .plain, target: self, action: #selector(bulkCopy))
+            
             navigationItem.leftBarButtonItem = cancel
             navigationItem.title = selectedItems.isEmpty ? "Select Items" : "\(selectedItems.count) Selected"
-            navigationItem.rightBarButtonItems = [deleteButton, moveButton, exportButton]
+            navigationItem.rightBarButtonItems = [deleteButton, moveButton, exportButton, copyButton]
         } else {
+            //Left side
             if directory.diskURL == VaultDirectory.root.diskURL {
                 let settingsButton = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(openSettings))
                 navigationItem.leftBarButtonItem = settingsButton
             } else {
                 navigationItem.leftBarButtonItem = nil
             }
+            
+            // Right side
             let selectButton    = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(enterSelectMode))
             let importButton    = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.down"), style: .plain, target: self, action: #selector(promptImport))
             let newDocButton    = UIBarButtonItem(image: UIImage(systemName: "doc.badge.plus"), style: .plain, target: self, action: #selector(promptNewDocument))
             let newFolderButton = UIBarButtonItem(image: UIImage(systemName: "folder.badge.plus"), style: .plain, target: self, action: #selector(promptNewFolder))
+            let sortButton      = UIBarButtonItem(image: UIImage(systemName: "arrow.up.arrow.down"), style: .plain, target: self, action: #selector(promptSort))
+            
             navigationItem.title = directory.name
-            navigationItem.rightBarButtonItems = [newFolderButton, newDocButton, importButton, selectButton]
+            navigationItem.rightBarButtonItems = [newFolderButton, newDocButton, importButton, sortButton, selectButton]
         }
     }
 
@@ -235,8 +243,49 @@ final class FileBrowserViewController: UIViewController {
         guard !selectedItems.isEmpty else { return }
         ExportService.shared.exportMultiple(Array(selectedItems), from: self, barButtonItem: navigationItem.rightBarButtonItems?.first)
     }
+    
+    @objc private func bulkCopy() {
+        guard !selectedItems.isEmpty else { return }
+        for item in selectedItems {
+            try? FileSystem.shared.copy(item, to: directory)
+        }
+        exitSelectMode()
+        loadContents()
+    }
 
     // MARK: - Helpers
+    @objc private func reloadAfterRestore() {
+        loadContents()
+    }
+    
+    @objc private func promptSort() {
+        let sheet = UIAlertController(title: "Sort By", message: nil, preferredStyle: .actionSheet)
+
+        for option in SortOption.allCases {
+            let isCurrent = PreferencesService.shared.sortOption == option
+            let direction = PreferencesService.shared.sortDirection
+            let dirSymbol = direction == .ascending ? "↑" : "↓"
+            let title = isCurrent ? "\(option.displayName) \(dirSymbol)" : option.displayName
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                if isCurrent {
+                    // toggle direction if same option tapped
+                    PreferencesService.shared.sortDirection = direction == .ascending ? .descending : .ascending
+                } else {
+                    PreferencesService.shared.sortOption = option
+                    PreferencesService.shared.sortDirection = .ascending
+                }
+                self?.loadContents()
+            })
+        }
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.barButtonItem = navigationItem.rightBarButtonItems?.first(where: { $0.action == #selector(promptSort) })
+        }
+        present(sheet, animated: true)
+    }
+    
     private func emptyStateLabel() -> UILabel {
         let label = UILabel()
         label.text = "No files yet"
@@ -244,12 +293,6 @@ final class FileBrowserViewController: UIViewController {
         label.textColor = .secondaryLabel
         label.font = .preferredFont(forTextStyle: .body)
         return label
-    }
-
-    private func showError(_ error: Error) {
-        let alert = UIAlertController(title: "Error", message: error.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
     }
 
     private func promptRename(item: VaultItem) {
@@ -400,7 +443,16 @@ extension FileBrowserViewController: UICollectionViewDelegate {
                 self.itemPendingMove = item
                 self.presentFolderPicker(for: item)
             }
-            return UIMenu(title: item.name, children: [export, move, rename, delete])
+            let copy = UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+                guard let self else { return }
+                do {
+                    try FileSystem.shared.copy(item, to: self.directory)
+                    self.loadContents()
+                } catch {
+                    self.showError(error)
+                }
+            }
+            return UIMenu(title: item.name, children: [export, move, copy, rename, delete])
         }
     }
 

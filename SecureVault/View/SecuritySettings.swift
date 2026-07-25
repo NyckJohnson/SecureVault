@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class SecuritySettingsViewController: UIViewController {
+final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
 
     private let authService = AuthService.shared
     private var tableView: UITableView!
@@ -16,6 +16,7 @@ final class SecuritySettingsViewController: UIViewController {
     private enum Section: Int, CaseIterable {
         case lockMode
         case password
+        case trash
     }
 
     override func viewDidLoad() {
@@ -43,15 +44,17 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section)! {
-        case .lockMode: return 3
-        case .password: return authService.lockMode == .none ? 0 : 1
+            case .lockMode: return 3
+            case .password: return authService.lockMode == .none ? 0 : 1
+            case .trash: return 1
         }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section)! {
-        case .lockMode: return "Lock Mode"
-        case .password: return authService.lockMode == .none ? nil : "Password"
+            case .lockMode: return "Lock Mode"
+            case .password: return authService.lockMode == .none ? nil : "Password"
+            case .trash: return "Storage"
         }
     }
 
@@ -74,10 +77,14 @@ extension SecuritySettingsViewController: UITableViewDataSource {
                 cell.textLabel?.textColor = authService.biometricsAvailable ? .label : .secondaryLabel
             default: break
             }
-
+            
         case .password:
             cell.textLabel?.text = "Change Password"
             cell.textLabel?.textColor = .systemBlue
+            
+        case .trash:
+            cell.textLabel?.text = "Recently Deleted"
+            cell.accessoryType = .disclosureIndicator
         }
         return cell
     }
@@ -87,7 +94,7 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 extension SecuritySettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-
+        
         switch Section(rawValue: indexPath.section)! {
         case .lockMode:
             switch indexPath.row {
@@ -98,9 +105,13 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 setLockMode(.passwordAndBiometrics)
             default: break
             }
-
+            
         case .password:
             promptChangePassword()
+            
+        case .trash:
+            let vc = RecentlyDeletedViewController()
+            navigationController?.pushViewController(vc, animated: true)
         }
     }
 
@@ -182,18 +193,6 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 self.showError("Failed to change password")
             }
         })
-        present(alert, animated: true)
-    }
-
-    private func showError(_ message: String) {
-        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-
-    private func showSuccess(_ message: String) {
-        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
 }

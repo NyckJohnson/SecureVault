@@ -10,12 +10,6 @@ import LocalAuthentication
 import Security
 import UIKit
 
-enum LockMode: String {
-    case none
-    case password
-    case passwordAndBiometrics
-}
-
 enum AuthError: Error {
     case noPasswordSet
     case wrongPassword
@@ -28,13 +22,12 @@ final class AuthService {
     private init() {}
 
     // MARK: - Keys
-    private let lockModeKey         = "lockMode"
     private let passwordKeychainKey = "com.securevault.password"
 
     // MARK: - Lock Mode
     var lockMode: LockMode {
-        get { LockMode(rawValue: UserDefaults.standard.string(forKey: lockModeKey) ?? "none") ?? .none }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: lockModeKey) }
+        get { PreferencesService.shared.lockMode }
+        set { PreferencesService.shared.lockMode = newValue }
     }
 
     // MARK: - Password

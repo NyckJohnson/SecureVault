@@ -55,7 +55,7 @@ final class FileSystem {
 
     // MARK: - Encryption state
     private var isEncryptionEnabled: Bool {
-        AuthService.shared.lockMode != .none
+        CryptoService.shared.isKeyLoaded
     }
 
     // MARK: - Browse
@@ -97,10 +97,7 @@ final class FileSystem {
                     isEncrypted: false
                 )
             }
-        }.sorted(by: {
-            if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
-            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-        })
+        }.sorted(by: sortComparator)
     }
 
     // MARK: - Import
@@ -117,8 +114,11 @@ final class FileSystem {
     }
 
     private func importSingleFile(from url: URL, to directory: VaultDirectory) throws {
-        let name = resolvedName(for: url.lastPathComponent, in: directory.diskURL)
+        let originalName = url.lastPathComponent
         if isEncryptionEnabled && CryptoService.shared.isKeyLoaded {
+            // resolve conflicts against existing mapped names
+            let existingNames = loadMapping(from: directory.diskURL).values.map { $0.originalName }
+            let name = resolvedNameInMapping(for: originalName, existingNames: existingNames)
             let uuid = UUID().uuidString
             let destination = directory.diskURL.appendingPathComponent(uuid)
             try CryptoService.shared.encryptFile(at: url, to: destination)
@@ -126,6 +126,7 @@ final class FileSystem {
             mapping[uuid] = VaultMapping(originalName: name)
             try saveMapping(mapping, to: directory.diskURL)
         } else {
+            let name = resolvedName(for: originalName, in: directory.diskURL)
             let destination = directory.diskURL.appendingPathComponent(name)
             try FileManager.default.copyItem(at: url, to: destination)
         }
@@ -312,13 +313,172 @@ final class FileSystem {
     }
 
     func delete(_ item: VaultItem) throws {
-        try FileManager.default.removeItem(at: item.diskURL)
+        try moveToTrash(item)
+    }
+    
+    private func resolvedNameInMapping(for name: String, existingNames: [String]) -> String {
+        let ext = (name as NSString).pathExtension
+        let base = (name as NSString).deletingPathExtension
+
+        let strippedBase: String
+        if let range = base.range(of: #" \d+$"#, options: .regularExpression) {
+            strippedBase = String(base[base.startIndex..<range.lowerBound])
+        } else {
+            strippedBase = base
+        }
+
+        var candidate = name
+        var counter = 1
+        while existingNames.contains(candidate) {
+            candidate = ext.isEmpty ? "\(strippedBase) \(counter)" : "\(strippedBase) \(counter).\(ext)"
+            counter += 1
+        }
+        return candidate
+    }
+    
+    // MARK: - Trash
+    private let trashFolderName = ".trash"
+    private let trashMapName = ".trash_map"
+
+    private struct TrashEntry: Codable {
+        let originalPath: String  // relative to root
+        let deletedAt: Date
+        let isEncrypted: Bool
+        let originalName: String
+    }
+
+    var trashDirectory: VaultDirectory {
+        let url = VaultDirectory.root.diskURL.appendingPathComponent(trashFolderName)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return VaultDirectory(name: "Recently Deleted", diskURL: url)
+    }
+
+    func moveToTrash(_ item: VaultItem) throws {
+        let rootPath     = VaultDirectory.root.diskURL.resolvingSymlinksInPath().path
+        let itemPath     = item.diskURL.resolvingSymlinksInPath().path
+        let relativePath = itemPath.replacingOccurrences(of: rootPath, with: "")
+        let trashURL     = trashDirectory.diskURL
+        let uuid         = UUID().uuidString
+        let destination  = trashURL.appendingPathComponent(uuid)
+        
+        try FileManager.default.moveItem(at: item.diskURL, to: destination)
+
+        // update source mapping if encrypted
         if item.isEncrypted {
-            let uuid = item.diskURL.lastPathComponent
-            let dir = item.diskURL.deletingLastPathComponent()
-            var mapping = loadMapping(from: dir)
-            mapping.removeValue(forKey: uuid)
-            try saveMapping(mapping, to: dir)
+            let sourceDir = item.diskURL.deletingLastPathComponent()
+            var sourceMapping = loadMapping(from: sourceDir)
+            sourceMapping.removeValue(forKey: item.diskURL.lastPathComponent)
+            try saveMapping(sourceMapping, to: sourceDir)
+        }
+
+        // save trash entry
+        var trashMap = loadTrashMap()
+        trashMap[uuid] = TrashEntry(
+            originalPath: item.diskURL.path.replacingOccurrences(of: VaultDirectory.root.diskURL.path, with: ""),
+            deletedAt: Date(),
+            isEncrypted: item.isEncrypted,
+            originalName: item.name
+        )
+        try saveTrashMap(trashMap)
+    }
+    
+    func restoreFromTrash(_ item: VaultItem) throws {
+        var trashMap = loadTrashMap()
+        guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key,
+              let entry = trashMap[uuid] else { return }
+
+        let rootPath = VaultDirectory.root.diskURL.resolvingSymlinksInPath().path
+        var cleanPath = entry.originalPath
+        if cleanPath.hasPrefix("/private") {
+            cleanPath = String(cleanPath.dropFirst("/private".count))
+        }
+        let originalURL = URL(fileURLWithPath: rootPath + cleanPath)
+        let originalDir = originalURL.deletingLastPathComponent()
+
+        try FileManager.default.createDirectory(at: originalDir, withIntermediateDirectories: true)
+
+        let diskName = item.diskURL.lastPathComponent
+        let destination = originalDir.appendingPathComponent(diskName)
+        try FileManager.default.moveItem(at: item.diskURL, to: destination)
+
+        if entry.isEncrypted {
+            var mapping = loadMapping(from: originalDir)
+            mapping[diskName] = VaultMapping(originalName: entry.originalName)
+            try saveMapping(mapping, to: originalDir)
+        }
+
+        trashMap.removeValue(forKey: uuid)
+        try saveTrashMap(trashMap)
+    }
+
+    func contentsOfTrash() -> [VaultItem] {
+        let trashMap = loadTrashMap()
+        let trashURL = trashDirectory.diskURL
+        return trashMap.compactMap { uuid, entry in
+            let diskURL = trashURL.appendingPathComponent(uuid)
+            guard FileManager.default.fileExists(atPath: diskURL.path) else { return nil }
+            return VaultItem(
+                id: UUID(),
+                name: entry.originalName,
+                isDirectory: false,
+                dateModified: entry.deletedAt,
+                fileSize: nil,
+                diskURL: diskURL,
+                isEncrypted: entry.isEncrypted
+            )
+        }.sorted { $0.dateModified > $1.dateModified }
+    }
+
+    func permanentlyDelete(_ item: VaultItem) throws {
+        var trashMap = loadTrashMap()
+        guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key else { return }
+        try FileManager.default.removeItem(at: item.diskURL)
+        trashMap.removeValue(forKey: uuid)
+        try saveTrashMap(trashMap)
+    }
+
+    func emptyTrash() throws {
+        let items = contentsOfTrash()
+        for item in items {
+            try? FileManager.default.removeItem(at: item.diskURL)
+        }
+        let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
+        try? FileManager.default.removeItem(at: mapURL)
+    }
+
+    func cleanupExpiredTrashItems() {
+        var trashMap = loadTrashMap()
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60) // 30 days
+        var changed = false
+        for (uuid, entry) in trashMap {
+            if entry.deletedAt < cutoff {
+                let diskURL = trashDirectory.diskURL.appendingPathComponent(uuid)
+                try? FileManager.default.removeItem(at: diskURL)
+                trashMap.removeValue(forKey: uuid)
+                changed = true
+            }
+        }
+        if changed { try? saveTrashMap(trashMap) }
+    }
+
+    private func loadTrashMap() -> [String: TrashEntry] {
+        let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
+        guard let data = try? Data(contentsOf: mapURL) else { return [:] }
+        if CryptoService.shared.isKeyLoaded,
+           let decrypted = try? CryptoService.shared.decrypt(data: data) {
+            return (try? JSONDecoder().decode([String: TrashEntry].self, from: decrypted)) ?? [:]
+        }
+        return (try? JSONDecoder().decode([String: TrashEntry].self, from: data)) ?? [:]
+    }
+
+    private func saveTrashMap(_ map: [String: TrashEntry]) throws {
+        let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
+        let data = try JSONEncoder().encode(map)
+        if CryptoService.shared.isKeyLoaded {
+            let encrypted = try CryptoService.shared.encrypt(data: data)
+            try encrypted.write(to: mapURL)
+        } else {
+            try data.write(to: mapURL)
         }
     }
 
@@ -385,10 +545,19 @@ final class FileSystem {
     private func resolvedName(for name: String, in directory: URL) -> String {
         let ext = (name as NSString).pathExtension
         let base = (name as NSString).deletingPathExtension
+
+        // strip existing " N" suffix from base name
+        let strippedBase: String
+        if let range = base.range(of: #" \d+$"#, options: .regularExpression) {
+            strippedBase = String(base[base.startIndex..<range.lowerBound])
+        } else {
+            strippedBase = base
+        }
+
         var candidate = name
         var counter = 1
         while FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path) {
-            candidate = ext.isEmpty ? "\(base) \(counter)" : "\(base) \(counter).\(ext)"
+            candidate = ext.isEmpty ? "\(strippedBase) \(counter)" : "\(strippedBase) \(counter).\(ext)"
             counter += 1
         }
         return candidate
@@ -416,6 +585,33 @@ final class FileSystem {
             try encrypted.write(to: mapURL)
         } else {
             try data.write(to: mapURL)
+        }
+    }
+    
+    private var sortComparator: (VaultItem, VaultItem) -> Bool {
+        let option    = PreferencesService.shared.sortOption
+        let ascending = PreferencesService.shared.sortDirection == .ascending
+
+        return { a, b in
+            // folders always first
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+
+            let result: Bool
+            switch option {
+            case .name:
+                result = a.name.localizedStandardCompare(b.name) == .orderedAscending
+            case .type:
+                let extA = (a.name as NSString).pathExtension.lowercased()
+                let extB = (b.name as NSString).pathExtension.lowercased()
+                if extA != extB {
+                    result = extA.localizedStandardCompare(extB) == .orderedAscending
+                } else {
+                    result = a.name.localizedStandardCompare(b.name) == .orderedAscending
+                }
+            case .dateModified:
+                result = a.dateModified < b.dateModified
+            }
+            return ascending ? result : !result
         }
     }
 }

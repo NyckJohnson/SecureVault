@@ -19,13 +19,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.rootViewController = nav
         window?.makeKeyAndVisible()
 
-        if !UserDefaults.standard.bool(forKey: "hasCompletedSetup") {
+        if !PreferencesService.shared.hasCompletedSetup {
             let wizard = SetupWizardViewController()
             wizard.modalPresentationStyle = .fullScreen
             nav.present(wizard, animated: false)
         } else {
             AuthService.shared.handleInitialLaunch(in: window)
         }
+        
+        // check trash folder for expired items
+        FileSystem.shared.cleanupExpiredTrashItems()
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {

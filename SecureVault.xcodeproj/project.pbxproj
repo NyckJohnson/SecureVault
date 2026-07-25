@@ -6,7 +6,18 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		CD34ACD5300EE9E60092DA80 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CDA9AA902FB144D300492A09 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CDA9AA972FB144D300492A09;
+			remoteInfo = SecureVault;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		CD34ACD1300EE9E60092DA80 /* SecureVaultTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SecureVaultTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CDA9AA982FB144D300492A09 /* SecureVault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SecureVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -21,6 +32,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		CD34ACD2300EE9E60092DA80 /* SecureVaultTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SecureVaultTests;
+			sourceTree = "<group>";
+		};
 		CDA9AA9A2FB144D300492A09 /* SecureVault */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -32,6 +48,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		CD34ACCE300EE9E60092DA80 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CDA9AA952FB144D300492A09 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -46,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				CDA9AA9A2FB144D300492A09 /* SecureVault */,
+				CD34ACD2300EE9E60092DA80 /* SecureVaultTests */,
 				CDA9AA992FB144D300492A09 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				CDA9AA982FB144D300492A09 /* SecureVault.app */,
+				CD34ACD1300EE9E60092DA80 /* SecureVaultTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,6 +86,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		CD34ACD0300EE9E60092DA80 /* SecureVaultTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CD34ACD7300EE9E60092DA80 /* Build configuration list for PBXNativeTarget "SecureVaultTests" */;
+			buildPhases = (
+				CD34ACCD300EE9E60092DA80 /* Sources */,
+				CD34ACCE300EE9E60092DA80 /* Frameworks */,
+				CD34ACCF300EE9E60092DA80 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CD34ACD6300EE9E60092DA80 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				CD34ACD2300EE9E60092DA80 /* SecureVaultTests */,
+			);
+			name = SecureVaultTests;
+			packageProductDependencies = (
+			);
+			productName = SecureVaultTests;
+			productReference = CD34ACD1300EE9E60092DA80 /* SecureVaultTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		CDA9AA972FB144D300492A09 /* SecureVault */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CDA9AAAB2FB144D400492A09 /* Build configuration list for PBXNativeTarget "SecureVault" */;
@@ -90,9 +138,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
+				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					CD34ACD0300EE9E60092DA80 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = CDA9AA972FB144D300492A09;
+					};
 					CDA9AA972FB144D300492A09 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -113,11 +165,19 @@
 			projectRoot = "";
 			targets = (
 				CDA9AA972FB144D300492A09 /* SecureVault */,
+				CD34ACD0300EE9E60092DA80 /* SecureVaultTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		CD34ACCF300EE9E60092DA80 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CDA9AA962FB144D300492A09 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -128,6 +188,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		CD34ACCD300EE9E60092DA80 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CDA9AA942FB144D300492A09 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -137,7 +204,59 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		CD34ACD6300EE9E60092DA80 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CDA9AA972FB144D300492A09 /* SecureVault */;
+			targetProxy = CD34ACD5300EE9E60092DA80 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		CD34ACD8300EE9E60092DA80 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JGRLGUY77Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = nej.SecureVaultTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SecureVault.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SecureVault";
+			};
+			name = Debug;
+		};
+		CD34ACD9300EE9E60092DA80 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JGRLGUY77Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = nej.SecureVaultTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SecureVault.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SecureVault";
+			};
+			name = Release;
+		};
 		CDA9AAAC2FB144D400492A09 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -330,6 +449,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		CD34ACD7300EE9E60092DA80 /* Build configuration list for PBXNativeTarget "SecureVaultTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CD34ACD8300EE9E60092DA80 /* Debug */,
+				CD34ACD9300EE9E60092DA80 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CDA9AA932FB144D300492A09 /* Build configuration list for PBXProject "SecureVault" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

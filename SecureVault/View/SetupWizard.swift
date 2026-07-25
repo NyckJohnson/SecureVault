@@ -221,7 +221,7 @@ final class SetupWizardViewController: UIViewController {
     }
 
     private func completeSetup() {
-        UserDefaults.standard.set(true, forKey: "hasCompletedSetup")
+        PreferencesService.shared.hasCompletedSetup = true
         dismiss(animated: true)
     }
 }
