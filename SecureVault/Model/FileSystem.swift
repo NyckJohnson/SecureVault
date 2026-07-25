@@ -290,7 +290,9 @@ final class FileSystem {
             let destination = directory.diskURL.appendingPathComponent(newUUID)
             try FileManager.default.copyItem(at: item.diskURL, to: destination)
             var mapping = loadMapping(from: directory.diskURL)
-            mapping[newUUID] = VaultMapping(originalName: item.name)
+            let existingNames = mapping.values.map { $0.originalName }
+            let resolvedName = resolvedNameInMapping(for: item.name, existingNames: existingNames)
+            mapping[newUUID] = VaultMapping(originalName: resolvedName)
             try saveMapping(mapping, to: directory.diskURL)
         } else {
             let name = resolvedName(for: item.name, in: directory.diskURL)
@@ -341,7 +343,8 @@ final class FileSystem {
     private let trashMapName = ".trash_map"
 
     private struct TrashEntry: Codable {
-        let originalPath: String  // relative to root
+        let originalDiskName: String
+        let originalDirectoryURL: String
         let deletedAt: Date
         let isEncrypted: Bool
         let originalName: String
@@ -354,16 +357,11 @@ final class FileSystem {
     }
 
     func moveToTrash(_ item: VaultItem) throws {
-        let rootPath     = VaultDirectory.root.diskURL.resolvingSymlinksInPath().path
-        let itemPath     = item.diskURL.resolvingSymlinksInPath().path
-        let relativePath = itemPath.replacingOccurrences(of: rootPath, with: "")
-        let trashURL     = trashDirectory.diskURL
-        let uuid         = UUID().uuidString
-        let destination  = trashURL.appendingPathComponent(uuid)
-        
+        let trashURL = trashDirectory.diskURL
+        let uuid = UUID().uuidString
+        let destination = trashURL.appendingPathComponent(uuid)
         try FileManager.default.moveItem(at: item.diskURL, to: destination)
 
-        // update source mapping if encrypted
         if item.isEncrypted {
             let sourceDir = item.diskURL.deletingLastPathComponent()
             var sourceMapping = loadMapping(from: sourceDir)
@@ -371,10 +369,10 @@ final class FileSystem {
             try saveMapping(sourceMapping, to: sourceDir)
         }
 
-        // save trash entry
         var trashMap = loadTrashMap()
         trashMap[uuid] = TrashEntry(
-            originalPath: item.diskURL.path.replacingOccurrences(of: VaultDirectory.root.diskURL.path, with: ""),
+            originalDiskName: item.diskURL.lastPathComponent,
+            originalDirectoryURL: item.diskURL.deletingLastPathComponent().path,
             deletedAt: Date(),
             isEncrypted: item.isEncrypted,
             originalName: item.name
@@ -387,23 +385,15 @@ final class FileSystem {
         guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key,
               let entry = trashMap[uuid] else { return }
 
-        let rootPath = VaultDirectory.root.diskURL.resolvingSymlinksInPath().path
-        var cleanPath = entry.originalPath
-        if cleanPath.hasPrefix("/private") {
-            cleanPath = String(cleanPath.dropFirst("/private".count))
-        }
-        let originalURL = URL(fileURLWithPath: rootPath + cleanPath)
-        let originalDir = originalURL.deletingLastPathComponent()
-
+        let originalDir = URL(fileURLWithPath: entry.originalDirectoryURL)
         try FileManager.default.createDirectory(at: originalDir, withIntermediateDirectories: true)
 
-        let diskName = item.diskURL.lastPathComponent
-        let destination = originalDir.appendingPathComponent(diskName)
+        let destination = originalDir.appendingPathComponent(entry.originalDiskName)
         try FileManager.default.moveItem(at: item.diskURL, to: destination)
 
         if entry.isEncrypted {
             var mapping = loadMapping(from: originalDir)
-            mapping[diskName] = VaultMapping(originalName: entry.originalName)
+            mapping[entry.originalDiskName] = VaultMapping(originalName: entry.originalName)
             try saveMapping(mapping, to: originalDir)
         }
 
