@@ -1,0 +1,31 @@
+{
+  "configurations" : [
+    {
+      "id" : "CF394032-073B-4C0F-9DC3-BFC98B99A750",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:SecureVault.xcodeproj",
+        "identifier" : "CD34ACD0300EE9E60092DA80",
+        "name" : "SecureVaultTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:SecureVault.xcodeproj",
+        "identifier" : "CD34AD99301552490092DA80",
+        "name" : "SecureVaultUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

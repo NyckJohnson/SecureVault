@@ -9,7 +9,7 @@ import UIKit
 
 final class MigrationViewController: UIViewController {
 
-    enum MigrationType {
+    nonisolated enum MigrationType {
         case encrypt
         case decrypt
     }

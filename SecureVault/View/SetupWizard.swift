@@ -68,6 +68,9 @@ final class SetupWizardViewController: UIViewController {
         continueButton.addTarget(self, action: #selector(continueSetup), for: .touchUpInside)
         continueButton.translatesAutoresizingMaskIntoConstraints = false
 
+        // for ui tests
+        continueButton.accessibilityIdentifier = "continueButton"
+        
         view.addSubview(titleLabel)
         view.addSubview(subtitleLabel)
         view.addSubview(stackView)

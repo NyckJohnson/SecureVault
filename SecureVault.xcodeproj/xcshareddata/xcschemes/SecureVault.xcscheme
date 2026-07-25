@@ -27,8 +27,7 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
       <PostActions>
          <ExecutionAction
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
@@ -47,6 +46,12 @@
             </ActionContent>
          </ExecutionAction>
       </PostActions>
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:SecureVaultUITests/SecureVault.xctestplan"
+            default = "YES">
+         </TestPlanReference>
+      </TestPlans>
       <Testables>
          <TestableReference
             skipped = "NO"
@@ -56,6 +61,17 @@
                BlueprintIdentifier = "CD34ACD0300EE9E60092DA80"
                BuildableName = "SecureVaultTests.xctest"
                BlueprintName = "SecureVaultTests"
+               ReferencedContainer = "container:SecureVault.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "CD34AD99301552490092DA80"
+               BuildableName = "SecureVaultUITests.xctest"
+               BlueprintName = "SecureVaultUITests"
                ReferencedContainer = "container:SecureVault.xcodeproj">
             </BuildableReference>
          </TestableReference>

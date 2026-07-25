@@ -74,6 +74,12 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             
             navigationItem.title = directory.name
             navigationItem.rightBarButtonItems = [newFolderButton, newDocButton, importButton, sortButton, selectButton]
+            
+            // for ui tests
+            navigationItem.leftBarButtonItem?.accessibilityIdentifier = "settingsButton"
+            newFolderButton.accessibilityIdentifier = "newFolderButton"
+            importButton.accessibilityIdentifier    = "importButton"
+            selectButton.accessibilityIdentifier    = "selectButton"
         }
     }
 
@@ -88,6 +94,9 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         collectionView.dragInteractionEnabled = true
         collectionView.register(FileCell.self, forCellWithReuseIdentifier: FileCell.reuseID)
         view.addSubview(collectionView)
+        
+        // for ui tests
+        collectionView.accessibilityIdentifier = "fileGrid"
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -135,7 +144,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         var snapshot = NSDiffableDataSourceSnapshot<Int, VaultItem>()
         snapshot.appendSections([0])
         snapshot.appendItems(items)
-        dataSource.apply(snapshot, animatingDifferences: true)
+        dataSource.apply(snapshot, animatingDifferences: false)
         collectionView.backgroundView = items.isEmpty ? emptyStateLabel() : nil
     }
 

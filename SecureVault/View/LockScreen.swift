@@ -73,6 +73,10 @@ final class LockScreenViewController: UIViewController {
         view.addSubview(unlockButton)
         view.addSubview(errorLabel)
         view.addSubview(biometricButton)
+        
+        // for ui tests
+        passwordField.accessibilityIdentifier = "passwordField"
+        unlockButton.accessibilityIdentifier = "unlockButton"
 
         NSLayoutConstraint.activate([
             logoImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
