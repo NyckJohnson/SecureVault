@@ -77,6 +77,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             
             // for ui tests
             navigationItem.leftBarButtonItem?.accessibilityIdentifier = "settingsButton"
+            sortButton.accessibilityIdentifier      = "sortButton"
             newFolderButton.accessibilityIdentifier = "newFolderButton"
             importButton.accessibilityIdentifier    = "importButton"
             selectButton.accessibilityIdentifier    = "selectButton"

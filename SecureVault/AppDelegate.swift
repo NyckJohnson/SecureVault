@@ -17,6 +17,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             PreferencesService.shared.hasCompletedSetup = false
             AuthService.shared.lockMode = .none
             AuthService.shared.removePassword()
+            UIView.setAnimationsEnabled(false)
+            try? FileSystem.shared.emptyTrash()  // add this
         }
         return true
     }

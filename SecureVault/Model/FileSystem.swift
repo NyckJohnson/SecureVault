@@ -342,7 +342,7 @@ final class FileSystem {
     private let trashFolderName = ".trash"
     private let trashMapName = ".trash_map"
 
-    private struct TrashEntry: Codable {
+    struct TrashEntry: Codable {
         let originalDiskName: String
         let originalDirectoryURL: String
         let deletedAt: Date
@@ -604,4 +604,11 @@ final class FileSystem {
             return ascending ? result : !result
         }
     }
+    
+    // MARK: - Testing Only
+    #if DEBUG
+    func testTrashMap() -> [String: TrashEntry] { loadTrashMap() }
+    func saveTestTrashMap(_ map: [String: TrashEntry]) throws { try saveTrashMap(map) }
+    typealias TrashEntryForTesting = TrashEntry
+    #endif
 }
