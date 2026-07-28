@@ -13,9 +13,13 @@ final class ThumbnailService {
     private init() {}
 
     private var cache = NSCache<NSString, UIImage>()
+    private var cancelledIDs = Set<UUID>()
+    private let decryptionSemaphore = DispatchSemaphore(value: 2)
+    private let thumbnailQueue = DispatchQueue(label: "com.securevault.thumbnails", attributes: .concurrent)
 
     // MARK: - Public
     func thumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
+        cancelledIDs.remove(item.id)
         let cacheKey = item.id.uuidString as NSString
 
         // return cached if available
@@ -31,6 +35,10 @@ final class ThumbnailService {
         }
     }
 
+    func cancelThumbnail(for item: VaultItem) {
+        cancelledIDs.insert(item.id)
+    }
+    
     func clearCache() {
         cache.removeAllObjects()
     }
@@ -41,7 +49,7 @@ final class ThumbnailService {
 
     // MARK: - File Thumbnail
     private func fileThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
-        let generateThumbnail: (URL) -> QLThumbnailGenerator.Request = { [weak self] url in
+        let generateThumbnail: (URL, Bool) -> QLThumbnailGenerator.Request = { [weak self] url, shouldCleanup in
             guard let self else { return QLThumbnailGenerator.Request(fileAt: url, size: size, scale: UIScreen.main.scale, representationTypes: .thumbnail) }
             let request = QLThumbnailGenerator.Request(
                 fileAt: url,
@@ -50,6 +58,7 @@ final class ThumbnailService {
                 representationTypes: .thumbnail
             )
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] thumbnail, _ in
+                if shouldCleanup { try? FileManager.default.removeItem(at: url) }
                 guard let self, let thumbnail else {
                     DispatchQueue.main.async { completion(nil) }
                     return
@@ -61,22 +70,32 @@ final class ThumbnailService {
         }
 
         if item.isEncrypted {
-            DispatchQueue.global(qos: .userInitiated).async {
+            thumbnailQueue.async { [weak self] in
+                guard let self else { return }
+                self.decryptionSemaphore.wait()
+                defer { self.decryptionSemaphore.signal() }
+                guard self.cache.object(forKey: item.id.uuidString as NSString) == nil else {
+                    DispatchQueue.main.async {
+                        completion(self.cache.object(forKey: item.id.uuidString as NSString))
+                    }
+                    return
+                }
                 guard let url = try? FileSystem.shared.open(item) else {
                     DispatchQueue.main.async { completion(nil) }
                     return
                 }
-                _ = generateThumbnail(url)
+                _ = generateThumbnail(url, true)
+                // remove the extra removeItem here — generateThumbnail handles cleanup via shouldCleanup:true
             }
             return nil
         } else {
-            return generateThumbnail(item.diskURL)
+            return generateThumbnail(item.diskURL, false)
         }
     }
 
     // MARK: - Folder Thumbnail
     private func folderThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        thumbnailQueue.async { [weak self] in
             guard let self else { return }
             let dir = VaultDirectory(name: item.name, diskURL: item.diskURL)
             let contents = (try? FileSystem.shared.contents(of: dir)) ?? []

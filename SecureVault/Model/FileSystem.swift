@@ -101,16 +101,50 @@ final class FileSystem {
     }
 
     // MARK: - Import
-    func importItems(from urls: [URL], to directory: VaultDirectory) throws {
+    func importItems(from urls: [URL], to directory: VaultDirectory, progress: ((Double) -> Void)? = nil) throws {
+        let total = Double(urls.reduce(0) { count, url in
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            return count + (url.hasDirectoryPath ? countFiles(in: url) : 1)
+        })
+
+        var completed = 0.0
         for url in urls {
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             if url.hasDirectoryPath {
-                try importFolder(from: url, to: directory)
+                try importFolder(from: url, to: directory) {
+                    completed += 1
+                    if total > 0 { progress?(completed / total) }
+                }
             } else {
                 try importSingleFile(from: url, to: directory)
+                completed += 1
+                if total > 0 { progress?(completed / total) }
             }
         }
+    }
+
+    private func countFiles(in url: URL) -> Int {
+        var count = 0
+        var queue = [url]
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            let contents = (try? FileManager.default.contentsOfDirectory(
+                at: current,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: .skipsHiddenFiles
+            )) ?? []
+            for item in contents {
+                let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if isDir {
+                    queue.append(item)
+                } else {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 
     private func importSingleFile(from url: URL, to directory: VaultDirectory) throws {
@@ -132,7 +166,7 @@ final class FileSystem {
         }
     }
 
-    private func importFolder(from url: URL, to directory: VaultDirectory) throws {
+    private func importFolder(from url: URL, to directory: VaultDirectory, onFileImported: (() -> Void)? = nil) throws {
         let folderName = resolvedName(for: url.lastPathComponent, in: directory.diskURL)
         let destination = directory.diskURL.appendingPathComponent(folderName)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -143,12 +177,15 @@ final class FileSystem {
             options: .skipsHiddenFiles
         )
         for item in contents {
-            let accessing = item.startAccessingSecurityScopedResource()
-            defer { if accessing { item.stopAccessingSecurityScopedResource() } }
-            if item.hasDirectoryPath {
-                try importFolder(from: item, to: subDirectory)
-            } else {
-                try importSingleFile(from: item, to: subDirectory)
+            try autoreleasepool {
+                let accessing = item.startAccessingSecurityScopedResource()
+                defer { if accessing { item.stopAccessingSecurityScopedResource() } }
+                if item.hasDirectoryPath {
+                    try importFolder(from: item, to: subDirectory, onFileImported: onFileImported)
+                } else {
+                    try importSingleFile(from: item, to: subDirectory)
+                    onFileImported?()
+                }
             }
         }
     }
@@ -197,9 +234,10 @@ final class FileSystem {
     }
 
     // MARK: - Export
-    func prepareForExport(_ items: [VaultItem]) throws -> [URL] {
-        return try items.map { item in
-            print("Exporting: \(item.name), isEncrypted: \(item.isEncrypted), diskURL: \(item.diskURL)")
+    func prepareForExport(_ items: [VaultItem], progress: ((Double) -> Void)? = nil) throws -> [URL] {
+        let total = Double(items.count)
+        return try items.enumerated().map { index, item in
+            defer { progress?(Double(index + 1) / total) }
             if item.isEncrypted {
                 let tempURL = tempDir.appendingPathComponent(item.name)
                 try CryptoService.shared.decryptFile(at: item.diskURL, to: tempURL)
@@ -530,6 +568,35 @@ final class FileSystem {
         let files = try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
         files?.forEach { try? FileManager.default.removeItem(at: $0) }
     }
+    
+    func diagnoseDiskState() {
+        let root = VaultDirectory.root.diskURL
+        let mapping = loadMapping(from: root)
+        let diskFiles = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? []
+        
+        print("Mapping entries: \(mapping.count)")
+        print("Disk files: \(diskFiles.count)")
+        
+        // find orphaned files (on disk but not in mapping)
+        let mappedUUIDs = Set(mapping.keys)
+        let orphaned = diskFiles.filter { url in
+            let name = url.lastPathComponent
+            let isUUID = name.count == 36 && name.contains("-")
+            return isUUID && !mappedUUIDs.contains(name)
+        }
+        print("Orphaned files: \(orphaned.count)")
+        
+        // find orphaned mapping entries (in mapping but not on disk)
+        let diskFileNames = Set(diskFiles.map { $0.lastPathComponent })
+        let orphanedMappings = mapping.filter { !diskFileNames.contains($0.key) }
+        print("Orphaned mapping entries: \(orphanedMappings.count)")
+        
+        // total size of orphaned files
+        let orphanedSize = orphaned.compactMap {
+            try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        }.reduce(0, +)
+        print("Orphaned file size: \(orphanedSize / 1024 / 1024)MB")
+    }
 
     // MARK: - Helpers
     private func resolvedName(for name: String, in directory: URL) -> String {
@@ -555,9 +622,7 @@ final class FileSystem {
 
     private func loadMapping(from directory: URL) -> [String: VaultMapping] {
         let mapURL = directory.appendingPathComponent(mappingFileName)
-        print("Looking for mapping at: \(mapURL.path)")
-        print("Mapping exists: \(FileManager.default.fileExists(atPath: mapURL.path))")
-        
+       
         guard FileManager.default.fileExists(atPath: mapURL.path),
               let data = try? Data(contentsOf: mapURL) else { return [:] }
         if CryptoService.shared.isKeyLoaded,

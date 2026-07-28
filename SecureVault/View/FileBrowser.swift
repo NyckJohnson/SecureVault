@@ -43,6 +43,17 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         NotificationCenter.default.addObserver(self, selector: #selector(reloadAfterRestore), name: NSNotification.Name("FileRestored"), object: nil)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        let tempFiles = (try? FileManager.default.contentsOfDirectory(
+            at: FileManager.default.temporaryDirectory,
+            includingPropertiesForKeys: [.fileSizeKey]
+        )) ?? []
+        let totalSize = tempFiles.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0, +)
+        print("Temp files: \(tempFiles.count), total size: \(totalSize / 1024 / 1024)MB")
+        FileSystem.shared.diagnoseDiskState()
+    }
+    
     // MARK: - Navigation Bar
     private func setupNavigationBar() {
         if isSelectMode {
@@ -477,12 +488,25 @@ extension FileBrowserViewController: UICollectionViewDelegate {
 // MARK: - UIDocumentPickerDelegate
 extension FileBrowserViewController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        do {
-            try FileSystem.shared.importItems(from: urls, to: directory)
-        } catch {
-            showError(error)
+        let overlay = ProgressOverlay.show(in: self, title: "Importing...")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                var lastUpdate = Date()
+                try FileSystem.shared.importItems(from: urls, to: self.directory) { progress in
+                    let now = Date()
+                    if now.timeIntervalSince(lastUpdate) > 0.1 || progress == 1.0 {
+                        lastUpdate = now
+                        overlay.update(progress: Float(progress), status: "\(min(100, Int(progress * 100)))% complete")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { self.showError(error) }
+            }
+            DispatchQueue.main.async {
+                overlay.dismiss()
+                self.loadContents()
+            }
         }
-        loadContents()
     }
 }
 
@@ -490,7 +514,10 @@ extension FileBrowserViewController: UIDocumentPickerDelegate {
 extension FileBrowserViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         dismiss(animated: true)
+        guard !results.isEmpty else { return }
+        let overlay = ProgressOverlay.show(in: self, title: "Importing Photos...")
         FileSystem.shared.importFromCameraRoll(results: results, to: directory) { [weak self] succeeded, failed in
+            overlay.dismiss()
             self?.loadContents()
             if failed > 0 {
                 let alert = UIAlertController(title: nil, message: "\(succeeded) imported, \(failed) failed", preferredStyle: .alert)

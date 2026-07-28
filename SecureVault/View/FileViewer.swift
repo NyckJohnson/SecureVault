@@ -24,7 +24,21 @@ final class FileViewerViewController: UIViewController {
     private let playPauseButton   = UIButton(type: .system)
     private let skipBackButton    = UIButton(type: .system)
     private let skipForwardButton = UIButton(type: .system)
-    var player: AVPlayer?
+    private let scrubber          = UISlider()
+    private let currentTimeLabel  = UILabel()
+    private let totalTimeLabel    = UILabel()
+    private let bufferView        = UIView()
+    private let spinner           = UIActivityIndicatorView(style: .medium)
+    private var isScrubbing       = false
+    private var bufferWidthConstraint: NSLayoutConstraint?
+    private var timeObserver: Any?
+    private var hideControlsTimer: Timer?
+    var player: AVPlayer? {
+        didSet {
+            oldValue.map { removeTimeObserver(from: $0) }
+            if let player { addTimeObserver(to: player) }
+        }
+    }
     
     init(items: [VaultItem], startingAt index: Int) {
         self.items = items
@@ -116,12 +130,12 @@ final class FileViewerViewController: UIViewController {
     }
     
     private func setupVideoControls() {
-        videoControls.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        videoControls.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         videoControls.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(videoControls)
-        
+
         let buttonConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .regular)
-        
+
         skipBackButton.setImage(UIImage(systemName: "gobackward.10", withConfiguration: buttonConfig), for: .normal)
         skipBackButton.tintColor = .white
         skipBackButton.addTarget(self, action: #selector(skipBack), for: .touchUpInside)
@@ -137,25 +151,89 @@ final class FileViewerViewController: UIViewController {
         skipForwardButton.addTarget(self, action: #selector(skipForward), for: .touchUpInside)
         skipForwardButton.translatesAutoresizingMaskIntoConstraints = false
 
+        currentTimeLabel.text = "0:00"
+        currentTimeLabel.textColor = .white
+        currentTimeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        currentTimeLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        totalTimeLabel.text = "0:00"
+        totalTimeLabel.textColor = .white
+        totalTimeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        totalTimeLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        // buffer background track
+        bufferView.backgroundColor = UIColor.white.withAlphaComponent(0.3)
+        bufferView.layer.cornerRadius = 1
+        bufferView.translatesAutoresizingMaskIntoConstraints = false
+
+        scrubber.minimumValue = 0
+        scrubber.maximumValue = 1
+        scrubber.value = 0
+        scrubber.minimumTrackTintColor = .white
+        scrubber.maximumTrackTintColor = .clear
+        scrubber.setThumbImage(makeThumbImage(), for: .normal)
+        scrubber.addTarget(self, action: #selector(scrubberTouchBegan), for: .touchDown)
+        scrubber.addTarget(self, action: #selector(scrubberValueChanged), for: .valueChanged)
+        scrubber.addTarget(self, action: #selector(scrubberTouchEnded), for: [.touchUpInside, .touchUpOutside])
+        scrubber.translatesAutoresizingMaskIntoConstraints = false
+
+        spinner.tintColor = .white
+        spinner.hidesWhenStopped = true
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+
+        videoControls.addSubview(bufferView)
+        videoControls.addSubview(scrubber)
+        videoControls.addSubview(currentTimeLabel)
+        videoControls.addSubview(totalTimeLabel)
         videoControls.addSubview(skipBackButton)
         videoControls.addSubview(playPauseButton)
         videoControls.addSubview(skipForwardButton)
-        
+        videoControls.addSubview(spinner)
+
+        let bufferWidth = bufferView.widthAnchor.constraint(equalToConstant: 0)
+        bufferWidthConstraint = bufferWidth
+
         NSLayoutConstraint.activate([
             videoControls.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             videoControls.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             videoControls.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            videoControls.heightAnchor.constraint(equalToConstant: 80),
+            videoControls.heightAnchor.constraint(equalToConstant: 100),
+
+            currentTimeLabel.leadingAnchor.constraint(equalTo: videoControls.leadingAnchor, constant: 16),
+            currentTimeLabel.topAnchor.constraint(equalTo: videoControls.topAnchor, constant: 12),
+
+            totalTimeLabel.trailingAnchor.constraint(equalTo: videoControls.trailingAnchor, constant: -16),
+            totalTimeLabel.topAnchor.constraint(equalTo: videoControls.topAnchor, constant: 12),
+
+            scrubber.leadingAnchor.constraint(equalTo: currentTimeLabel.trailingAnchor, constant: 8),
+            scrubber.trailingAnchor.constraint(equalTo: totalTimeLabel.leadingAnchor, constant: -8),
+            scrubber.centerYAnchor.constraint(equalTo: currentTimeLabel.centerYAnchor),
+
+            bufferView.leadingAnchor.constraint(equalTo: scrubber.leadingAnchor, constant: 2),
+            bufferWidth,
+            bufferView.centerYAnchor.constraint(equalTo: scrubber.centerYAnchor),
+            bufferView.heightAnchor.constraint(equalToConstant: 2),
 
             playPauseButton.centerXAnchor.constraint(equalTo: videoControls.centerXAnchor),
-            playPauseButton.centerYAnchor.constraint(equalTo: videoControls.centerYAnchor),
+            playPauseButton.topAnchor.constraint(equalTo: scrubber.bottomAnchor, constant: 8),
 
             skipBackButton.trailingAnchor.constraint(equalTo: playPauseButton.leadingAnchor, constant: -40),
-            skipBackButton.centerYAnchor.constraint(equalTo: videoControls.centerYAnchor),
+            skipBackButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
 
             skipForwardButton.leadingAnchor.constraint(equalTo: playPauseButton.trailingAnchor, constant: 40),
-            skipForwardButton.centerYAnchor.constraint(equalTo: videoControls.centerYAnchor),
+            skipForwardButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
+
+            spinner.centerXAnchor.constraint(equalTo: videoControls.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
         ])
+    }
+
+    private func makeThumbImage() -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 12, height: 12))
+        return renderer.image { ctx in
+            UIColor.white.setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(x: 0, y: 0, width: 12, height: 12))
+        }
     }
     
     @objc private func toggleNavBar() {
@@ -181,7 +259,9 @@ final class FileViewerViewController: UIViewController {
     
     // mark: - Actions
     @objc private func close() {
+        if let player { removeTimeObserver(from: player) }
         player?.pause()
+        FileSystem.shared.cleanupTempFiles()
         dismiss(animated: true)
     }
     
@@ -195,9 +275,11 @@ final class FileViewerViewController: UIViewController {
         if player.timeControlStatus == .playing {
             player.pause()
             updatePlayPauseButton(isPlaying: false)
+            cancelHideControlsTimer()
         } else {
             player.play()
             updatePlayPauseButton(isPlaying: true)
+            startHideControlsTimer()
         }
     }
     
@@ -211,6 +293,134 @@ final class FileViewerViewController: UIViewController {
         guard let player else { return }
         let newTime = CMTimeAdd(player.currentTime(), CMTimeMakeWithSeconds(10, preferredTimescale: 1))
         player.seek(to: newTime)
+    }
+    
+    // MARK: - Video Helpers
+    private func startHideControlsTimer() {
+        cancelHideControlsTimer()
+        guard !videoControls.isHidden else { return }
+        hideControlsTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            guard let self, self.player?.timeControlStatus == .playing else { return }
+            UIView.animate(withDuration: 0.3) {
+                self.navBar.alpha = 0
+                self.videoControls.alpha = 0
+                self.isNavBarHidden = true
+            }
+        }
+    }
+
+    private func cancelHideControlsTimer() {
+        hideControlsTimer?.invalidate()
+        hideControlsTimer = nil
+    }
+    
+    private func addTimeObserver(to player: AVPlayer) {
+        // observe playback time
+        let interval = CMTimeMakeWithSeconds(0.5, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self, !self.isScrubbing else { return }
+            self.updateScrubber(time: time, player: player)
+            self.updateBufferIndicator(player: player)
+            self.updateSpinner(player: player)
+        }
+
+        // observe buffering status
+        player.currentItem?.addObserver(self, forKeyPath: "playbackBufferEmpty", options: .new, context: nil)
+        player.currentItem?.addObserver(self, forKeyPath: "playbackLikelyToKeepUp", options: .new, context: nil)
+    }
+
+    private func removeTimeObserver(from player: AVPlayer) {
+        if let observer = timeObserver {
+            player.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        player.currentItem?.removeObserver(self, forKeyPath: "playbackBufferEmpty")
+        player.currentItem?.removeObserver(self, forKeyPath: "playbackLikelyToKeepUp")
+    }
+
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let player = self.player else { return }
+            self.updateSpinner(player: player)
+        }
+    }
+
+    private func updateScrubber(time: CMTime, player: AVPlayer) {
+        guard let duration = player.currentItem?.duration,
+              duration.isValid, !duration.isIndefinite else { return }
+        let current = CMTimeGetSeconds(time)
+        let total = CMTimeGetSeconds(duration)
+        scrubber.value = Float(current / total)
+        currentTimeLabel.text = formatTime(current)
+        totalTimeLabel.text = formatTime(total)
+    }
+
+    private func updateBufferIndicator(player: AVPlayer) {
+        guard let item = player.currentItem,
+              let duration = item.duration.isValid ? item.duration : nil,
+              !duration.isIndefinite else { return }
+        let total = CMTimeGetSeconds(duration)
+        guard total > 0 else { return }
+        let buffered = item.loadedTimeRanges.compactMap { $0.timeRangeValue }
+            .filter { CMTimeRangeContainsTime($0, time: player.currentTime()) }
+            .map { CMTimeGetSeconds($0.end) }
+            .max() ?? 0
+        let bufferFraction = CGFloat(min(buffered / total, 1.0))
+        let scrubberWidth = scrubber.bounds.width
+        UIView.animate(withDuration: 0.3) {
+            self.bufferWidthConstraint?.constant = scrubberWidth * bufferFraction
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func updateSpinner(player: AVPlayer) {
+        let isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        if isBuffering {
+            spinner.startAnimating()
+            playPauseButton.isHidden = true
+        } else {
+            spinner.stopAnimating()
+            playPauseButton.isHidden = false
+        }
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        guard !seconds.isNaN, !seconds.isInfinite else { return "0:00" }
+        let mins = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        return String(format: "%d:%02d", mins, secs)
+    }
+    
+    // MARK: - Scrubber actions
+    @objc private func scrubberTouchBegan() {
+        isScrubbing = true
+        cancelHideControlsTimer()
+    }
+
+    @objc private func scrubberValueChanged() {
+        guard let player,
+              let duration = player.currentItem?.duration,
+              duration.isValid, !duration.isIndefinite else { return }
+        let total = CMTimeGetSeconds(duration)
+        let newTime = Double(scrubber.value) * total
+        currentTimeLabel.text = formatTime(newTime)
+    }
+
+    @objc private func scrubberTouchEnded() {
+        guard let player,
+              let duration = player.currentItem?.duration,
+              duration.isValid, !duration.isIndefinite else {
+            isScrubbing = false
+            return
+        }
+        let total = CMTimeGetSeconds(duration)
+        let newTime = Double(scrubber.value) * total
+        player.seek(to: CMTimeMakeWithSeconds(newTime, preferredTimescale: 600),
+                    toleranceBefore: .zero,
+                    toleranceAfter: .zero) { [weak self] _ in
+            self?.isScrubbing = false
+            self?.startHideControlsTimer()
+        }
     }
 }
 

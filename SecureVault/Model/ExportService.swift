@@ -24,18 +24,29 @@ final class ExportService {
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
         sheet.addAction(UIAlertAction(title: "Save to Files", style: .default) { _ in
-            do {
-                let urls = try FileSystem.shared.prepareForExport(items)
-                let picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
-                if let barButtonItem {
-                    picker.popoverPresentationController?.barButtonItem = barButtonItem
-                } else if let sourceView {
-                    picker.popoverPresentationController?.sourceView = sourceView
-                    picker.popoverPresentationController?.sourceRect = sourceView.bounds
+            let overlay = ProgressOverlay.show(in: viewController, title: "Exporting...")
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let urls = try FileSystem.shared.prepareForExport(items) { progress in
+                        overlay.update(progress: Float(progress), status: "\(Int(progress * 100))% complete")
+                    }
+                    DispatchQueue.main.async {
+                        overlay.dismiss()
+                        let picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
+                        if let barButtonItem {
+                            picker.popoverPresentationController?.barButtonItem = barButtonItem
+                        } else if let sourceView {
+                            picker.popoverPresentationController?.sourceView = sourceView
+                            picker.popoverPresentationController?.sourceRect = sourceView.bounds
+                        }
+                        viewController.present(picker, animated: true)
+                    }
+                } catch {
+                    overlay.dismiss()
+                    DispatchQueue.main.async {
+                        viewController.present(Self.errorAlert(error.localizedDescription), animated: true)
+                    }
                 }
-                viewController.present(picker, animated: true)
-            } catch {
-                viewController.present(Self.errorAlert(error.localizedDescription), animated: true)
             }
         })
 

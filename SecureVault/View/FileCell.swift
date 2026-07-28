@@ -80,7 +80,7 @@ final class FileCell: UICollectionViewCell {
         nameLabel.text = item.name
         detailLabel.text = item.isDirectory ? "" : formattedSize(item.fileSize)
 
-        thumbnailRequest = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 100, height: 100)) { [weak self] image in
+        thumbnailRequest = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 40, height: 40)) { [weak self] image in
             guard let self, let image else { return }
             self.iconView.image = image
             self.iconView.contentMode = .scaleAspectFit

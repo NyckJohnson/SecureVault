@@ -91,9 +91,11 @@ final class CryptoService {
 
     // MARK: - File Operations
     func encryptFile(at url: URL, to destination: URL) throws {
-        let data = try Data(contentsOf: url)
-        let encrypted = try encrypt(data: data)
-        try encrypted.write(to: destination)
+        try autoreleasepool {
+            let data = try Data(contentsOf: url)
+            let encrypted = try encrypt(data: data)
+            try encrypted.write(to: destination)
+        }
     }
 
     func decryptFile(at url: URL, to destination: URL) throws {

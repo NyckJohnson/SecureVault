@@ -189,10 +189,15 @@ final class AuthService {
     // MARK: - Lock Screen
     private func showLockScreen(in window: UIWindow?) {
         guard let root = window?.rootViewController else { return }
-        guard !(root.presentedViewController is LockScreenViewController) else { return }
+        // find topmost presented view controller
+        var topVC = root
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+        guard !(topVC is LockScreenViewController) else { return }
         let lock = LockScreenViewController()
         lock.modalPresentationStyle = .fullScreen
-        root.present(lock, animated: false)
+        topVC.present(lock, animated: false)
     }
 
     // MARK: - File Browser Reload

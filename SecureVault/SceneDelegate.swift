@@ -29,6 +29,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         // check trash folder for expired items
         FileSystem.shared.cleanupExpiredTrashItems()
+        FileSystem.shared.cleanupTempFiles()
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
