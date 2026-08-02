@@ -8,10 +8,20 @@
 import UIKit
 
 enum FileIconProvider {
-    static func icon(for item: VaultItem) -> UIImage? {
-        if item.isDirectory {
-            return UIImage(systemName: "folder.fill")
+    private static let customFolderIconName = "nej_FolderIconB"
+    
+    static let hasCustomFolderAsset = UIImage(named: customFolderIconName) != nil
+    
+    static func folderImage(pointSize: CGFloat = 24) -> UIImage? {
+        guard let custom = UIImage(named: customFolderIconName) else {
+            let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+            return UIImage(systemName: "folder.fill")?.withConfiguration(config)
         }
+        return custom
+    }
+    
+    static func icon(for item: VaultItem) -> UIImage? {
+        if item.isDirectory { return folderImage() }
         
         let ext = (item.name as NSString).pathExtension.lowercased()
         switch ext {
@@ -39,7 +49,10 @@ enum FileIconProvider {
     }
         
     static func iconColor(for item: VaultItem) -> UIColor {
-        if item.isDirectory {return .systemYellow }
+        if item.isDirectory {
+            return UIImage(named: "nej_FolderIcon") != nil ? .clear : .systemYellow
+        }
+        
         let ext = (item.name as NSString).pathExtension.lowercased()
         switch ext {
             case "jpg", "jpeg", "png", "heic", "gif", "webp": return .systemGreen

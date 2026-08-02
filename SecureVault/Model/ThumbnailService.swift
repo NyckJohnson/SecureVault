@@ -6,12 +6,23 @@
 //
 
 import UIKit
+import AVFoundation
 import QuickLookThumbnailing
 
 final class ThumbnailService {
     static let shared = ThumbnailService()
     private init() {}
 
+    private enum FolderIconLayout {
+            static let symbolPointSizeRatio: CGFloat = 0.8
+            static let verticalOffsetRatio: CGFloat = 0.075
+            static let thumbInsetX: CGFloat = 0.05
+            static let thumbInsetY: CGFloat = 0.1
+            static let thumbWidthRatio: CGFloat = 0.9
+            static let thumbHeightRatio: CGFloat = 0.8
+            static let thumbCornerRadius: CGFloat = 3
+        }
+    
     private var cache = NSCache<NSString, UIImage>()
     private var cancelledIDs = Set<UUID>()
     private let decryptionSemaphore = DispatchSemaphore(value: 2)
@@ -103,7 +114,11 @@ final class ThumbnailService {
             guard let mediaItem = contents.first(where: {
                 !$0.isDirectory && mediaExtensions.contains(($0.name as NSString).pathExtension.lowercased())
             }) else {
-                DispatchQueue.main.async { completion(nil) }
+                let folderIcon = self.renderFolderImage(targetSize: size)
+                if let folderIcon {
+                    self.cache.setObject(folderIcon, forKey: item.id.uuidString as NSString)
+                }
+                DispatchQueue.main.async { completion(folderIcon) }
                 return
             }
 
@@ -112,7 +127,7 @@ final class ThumbnailService {
                     completion(nil)
                     return
                 }
-                let composed = self.composeFolderIcon(thumbnail: thumbnail)
+                let composed = self.composeFolderIcon(thumbnail: thumbnail, targetSize: size)
                 self.cache.setObject(composed, forKey: item.id.uuidString as NSString)
                 completion(composed)
             }
@@ -121,39 +136,42 @@ final class ThumbnailService {
     }
 
     // MARK: - Folder Icon Composition
-    private func composeFolderIcon(thumbnail: UIImage) -> UIImage {
-        let config = UIImage.SymbolConfiguration(pointSize: 60, weight: .regular)
-        let folderImage = UIImage(systemName: "folder.fill")?
-            .withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
-            .withConfiguration(config)
-        let size = folderImage?.size ?? CGSize(width: 80, height: 80)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { ctx in
-            folderImage?.draw(in: CGRect(origin: .zero, size: size))
+    private func renderFolderImage(targetSize: CGSize) -> UIImage? {
+        guard let baseFolderImage = FileIconProvider.folderImage(pointSize: targetSize.height * FolderIconLayout.symbolPointSizeRatio) else {
+            return nil
+        }
+        let folderImage = FileIconProvider.hasCustomFolderAsset
+            ? baseFolderImage
+            : baseFolderImage.withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
 
-            // Frame
-            let thumbWidth = size.width * 0.6
-            let thumbHeight = size.height * 0.8
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { ctx in
+            var folderDrawRect = AVMakeRect(aspectRatio: folderImage.size, insideRect: CGRect(origin: .zero, size: targetSize))
+            folderDrawRect.origin.y += targetSize.height * FolderIconLayout.verticalOffsetRatio
+            folderImage.draw(in: folderDrawRect)
+        }
+    }
+    
+    private func composeFolderIcon(thumbnail: UIImage, targetSize: CGSize) -> UIImage {
+        guard let folderBackground = renderFolderImage(targetSize: targetSize) else {
+            return thumbnail
+        }
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        return renderer.image { ctx in
+            folderBackground.draw(at: .zero)
+
+        // the window which thumbnail image can appear
             let thumbRect = CGRect(
-                x: (size.width - thumbWidth) / 2,
-                y: (size.height - thumbHeight) / 2,
-                width: thumbWidth,
-                height: thumbHeight
+                x: targetSize.width * FolderIconLayout.thumbInsetX,
+                y: targetSize.height * FolderIconLayout.thumbInsetY,
+                width: targetSize.width * FolderIconLayout.thumbWidthRatio,
+                height: targetSize.height * FolderIconLayout.thumbHeightRatio
             )
-            let clipPath = UIBezierPath(roundedRect: thumbRect, cornerRadius: 3)
+            let clipPath = UIBezierPath(roundedRect: thumbRect, cornerRadius: FolderIconLayout.thumbCornerRadius)
             clipPath.addClip()
-            
-            // picture in frame
-            let thumbSize = thumbnail.size
-            let scale = min(thumbRect.width / thumbSize.width, thumbRect.height / thumbSize.height)
-            let scaledWidth = thumbSize.width * scale
-            let scaledHeight = thumbSize.height * scale
-            let drawRect = CGRect(
-                x: thumbRect.midX - scaledWidth / 2,
-                y: thumbRect.midY - scaledHeight / 2,
-                width: scaledWidth,
-                height: scaledHeight
-            )
+            let drawRect = AVMakeRect(aspectRatio: thumbnail.size, insideRect: thumbRect)
             thumbnail.draw(in: drawRect)
         }
     }

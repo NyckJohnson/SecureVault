@@ -118,7 +118,9 @@ final class FileSystem {
                     if total > 0 { progress?(completed / total) }
                 }
             } else {
-                try importSingleFile(from: url, to: directory)
+                try autoreleasepool {
+                    try importSingleFile(from: url, to: directory)
+                }
                 completed += 1
                 if total > 0 { progress?(completed / total) }
             }
@@ -149,6 +151,8 @@ final class FileSystem {
 
     private func importSingleFile(from url: URL, to directory: VaultDirectory) throws {
         let originalName = url.lastPathComponent
+        guard !isDuplicate(sourceURL: url, originalName: originalName, in: directory.diskURL) else { return }
+        
         if isEncryptionEnabled && CryptoService.shared.isKeyLoaded {
             // resolve conflicts against existing mapped names
             let existingNames = loadMapping(from: directory.diskURL).values.map { $0.originalName }
@@ -167,10 +171,16 @@ final class FileSystem {
     }
 
     private func importFolder(from url: URL, to directory: VaultDirectory, onFileImported: (() -> Void)? = nil) throws {
-        let folderName = resolvedName(for: url.lastPathComponent, in: directory.diskURL)
+        let existingURL = directory.diskURL.appendingPathComponent(url.lastPathComponent)
+        var isDir: ObjCBool = false
+        let folderExists = FileManager.default.fileExists(atPath: existingURL.path, isDirectory: &isDir) && isDir.boolValue
+        let folderName = folderExists ? url.lastPathComponent : resolvedName(for: url.lastPathComponent, in: directory.diskURL)
         let destination = directory.diskURL.appendingPathComponent(folderName)
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        if !folderExists {
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        }
         let subDirectory = VaultDirectory(name: folderName, diskURL: destination)
+        
         let contents = try FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -213,6 +223,46 @@ final class FileSystem {
         group.notify(queue: .main) {
             completion(succeeded, failed)
         }
+    }
+    
+    private func isDuplicate(sourceURL: URL, originalName: String, in directory: URL) -> Bool {
+        guard let sourceHash = sha256Hex(ofFileAt: sourceURL) else { return false }
+
+        if isEncryptionEnabled && CryptoService.shared.isKeyLoaded {
+            let mapping = loadMapping(from: directory)
+            guard let existingUUID = mapping.first(where: { $0.value.originalName == originalName })?.key else {
+                return false
+            }
+            // decryptFile writes to a temp location so we can stream-hash it too
+            let tempURL = tempDir.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: tempURL) }
+            guard (try? CryptoService.shared.decryptFile(at: directory.appendingPathComponent(existingUUID), to: tempURL)) != nil,
+                  let existingHash = sha256Hex(ofFileAt: tempURL) else {
+                return false
+            }
+            return sourceHash == existingHash
+        } else {
+            let existingURL = directory.appendingPathComponent(originalName)
+            guard FileManager.default.fileExists(atPath: existingURL.path),
+                  let existingHash = sha256Hex(ofFileAt: existingURL) else {
+                return false
+            }
+            return sourceHash == existingHash
+        }
+    }
+
+    private func sha256Hex(ofFileAt url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        var hasher = SHA256()
+        while autoreleasepool(invoking: {
+            let chunk = handle.readData(ofLength: 1024 * 1024) // 1MB at a time
+            if chunk.isEmpty { return false }
+            hasher.update(data: chunk)
+            return true
+        }) {}
+        return hasher.finalize().compactMap { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Open

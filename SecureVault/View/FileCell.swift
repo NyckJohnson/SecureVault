@@ -52,12 +52,12 @@ final class FileCell: UICollectionViewCell {
         contentView.addSubview(checkmark)
 
         NSLayoutConstraint.activate([
-            iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            //iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3),
             iconView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             iconView.widthAnchor.constraint(equalTo: contentView.widthAnchor),
             iconView.heightAnchor.constraint(equalToConstant: 80),
 
-            nameLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: -8),
+            nameLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 0),
             nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
             nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
 
@@ -70,20 +70,42 @@ final class FileCell: UICollectionViewCell {
             checkmark.widthAnchor.constraint(equalToConstant: 24),
             checkmark.heightAnchor.constraint(equalToConstant: 24),
         ])
+        
+        /* debug borders
+        contentView.layer.borderWidth = 1
+        contentView.layer.borderColor = UIColor.red.cgColor
+
+        iconView.layer.borderWidth = 1
+        iconView.layer.borderColor = UIColor.blue.cgColor
+
+        nameLabel.layer.borderWidth = 1
+        nameLabel.layer.borderColor = UIColor.green.cgColor
+
+        detailLabel.layer.borderWidth = 1
+        detailLabel.layer.borderColor = UIColor.orange.cgColor
+        */
     }
     
     func configure(with item: VaultItem, gridMode: Bool) {
         let config = UIImage.SymbolConfiguration(pointSize: 50, weight: .regular)
-        iconView.image = FileIconProvider.icon(for: item)?.withConfiguration(config)
-        iconView.tintColor = FileIconProvider.iconColor(for: item)
-        iconView.contentMode = .center
-        nameLabel.text = item.name
-        detailLabel.text = item.isDirectory ? "" : formattedSize(item.fileSize)
+        let icon = FileIconProvider.icon(for: item)
+        
+        // only apply symbol config to SF Symbols, not custom assets
+        iconView.image       = item.isDirectory ? icon : icon?.withConfiguration(config)
+        iconView.tintColor   = FileIconProvider.iconColor(for: item)
+        iconView.contentMode = item.isDirectory ? .scaleAspectFit : .center
+        nameLabel.text       = item.name
+        detailLabel.text     = item.isDirectory ? "" : formattedSize(item.fileSize)
 
         thumbnailRequest = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 40, height: 40)) { [weak self] image in
             guard let self, let image else { return }
             self.iconView.image = image
             self.iconView.contentMode = .scaleAspectFit
+            
+            /* borders for dsign
+            self.iconView.layer.borderWidth = 2
+            self.iconView.layer.borderColor = UIColor.purple.cgColor
+            */
         }
     }
     
