@@ -7,8 +7,7 @@
 
 import UIKit
 
-final class RecentlyDeletedViewController: UIViewController {
-
+final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
     private var items: [VaultItem] = []
     private var tableView: UITableView!
 
@@ -64,8 +63,13 @@ final class RecentlyDeletedViewController: UIViewController {
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Empty Trash", style: .destructive) { [weak self] _ in
-            try? FileSystem.shared.emptyTrash()
-            self?.loadItems()
+            guard let self else { return }
+            do {
+                try FileSystem.shared.emptyTrash()
+                self.loadItems()
+            } catch {
+                self.showError(error)
+            }
         })
         present(alert, animated: true)
     }
@@ -82,7 +86,7 @@ extension RecentlyDeletedViewController: UITableViewDataSource {
         let item = items[indexPath.row]
         var config = cell.defaultContentConfiguration()
         config.text = item.name
-        let daysLeft = 30 - Int(Date().timeIntervalSince(item.dateModified) / 86400)
+        let daysLeft = 30 - Int(Date().timeIntervalSince(item.deletedAt ?? item.dateModified) / 86400)
         config.secondaryText = "Deletes in \(max(0, daysLeft)) day\(daysLeft == 1 ? "" : "s")"
         config.image = FileIconProvider.icon(for: item)
         config.imageProperties.tintColor = FileIconProvider.iconColor(for: item)
@@ -98,13 +102,23 @@ extension RecentlyDeletedViewController: UITableViewDelegate {
         let item = items[indexPath.row]
         let alert = UIAlertController(title: item.name, message: nil, preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Restore", style: .default) { [weak self] _ in
-            try? FileSystem.shared.restoreFromTrash(item)
-            self?.loadItems()
-            NotificationCenter.default.post(name: NSNotification.Name("FileRestored"), object: nil)
+            guard let self else { return }
+            do {
+                try FileSystem.shared.restoreFromTrash(item)
+                self.loadItems()
+                NotificationCenter.default.post(name: .fileRestored, object: nil)
+            } catch {
+                self.showError(error)
+            }
         })
         alert.addAction(UIAlertAction(title: "Delete Permanently", style: .destructive) { [weak self] _ in
-            try? FileSystem.shared.permanentlyDelete(item)
-            self?.loadItems()
+            guard let self else { return }
+            do {
+                try FileSystem.shared.permanentlyDelete(item)
+                self.loadItems()
+            } catch {
+                self.showError(error)
+            }
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         if let popover = alert.popoverPresentationController {

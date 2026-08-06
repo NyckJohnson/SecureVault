@@ -28,6 +28,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Sendable {
     var isDirectory: Bool
     var dateModified: Date
     var fileSize: Int?
+    var deletedAt: Date? = nil
     internal var diskURL: URL
     internal var isEncrypted: Bool
 
@@ -153,7 +154,7 @@ final class FileSystem {
         let originalName = url.lastPathComponent
         guard !isDuplicate(sourceURL: url, originalName: originalName, in: directory.diskURL) else { return }
         
-        if isEncryptionEnabled && CryptoService.shared.isKeyLoaded {
+        if isEncryptionEnabled {
             // resolve conflicts against existing mapped names
             let existingNames = loadMapping(from: directory.diskURL).values.map { $0.originalName }
             let name = resolvedNameInMapping(for: originalName, existingNames: existingNames)
@@ -228,7 +229,7 @@ final class FileSystem {
     private func isDuplicate(sourceURL: URL, originalName: String, in directory: URL) -> Bool {
         guard let sourceHash = sha256Hex(ofFileAt: sourceURL) else { return false }
 
-        if isEncryptionEnabled && CryptoService.shared.isKeyLoaded {
+        if isEncryptionEnabled {
             let mapping = loadMapping(from: directory)
             guard let existingUUID = mapping.first(where: { $0.value.originalName == originalName })?.key else {
                 return false
@@ -276,8 +277,15 @@ final class FileSystem {
     // MARK: - Write
     func write(data: Data, to item: VaultItem) throws {
         if item.isEncrypted {
-            let encrypted = try CryptoService.shared.encrypt(data: data)
-            try encrypted.write(to: item.diskURL)
+            let tempPlain = tempDir.appendingPathComponent(UUID().uuidString)
+            try data.write(to: tempPlain)
+            defer { try? FileManager.default.removeItem(at: tempPlain) }
+
+            let tempEncrypted = tempDir.appendingPathComponent(UUID().uuidString)
+            try CryptoService.shared.encryptFile(at: tempPlain, to: tempEncrypted)
+            defer { try? FileManager.default.removeItem(at: tempEncrypted) }
+
+            _ = try FileManager.default.replaceItemAt(item.diskURL, withItemAt: tempEncrypted)
         } else {
             try data.write(to: item.diskURL)
         }
@@ -299,9 +307,8 @@ final class FileSystem {
 
     func exportToCameraRoll(_ items: [VaultItem], completion: @escaping (Int, Int) -> Void) {
         let mediaItems = items.filter {
-            ["jpg","jpeg","png","heic","gif","webp","mp4","mov","m4v"].contains(
-                ($0.name as NSString).pathExtension.lowercased()
-            )
+            let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
+            return kind == .image || kind == .video
         }
         let total = mediaItems.count
         var succeeded = 0
@@ -323,7 +330,7 @@ final class FileSystem {
                 do {
                     let url = try self.open(item)
                     PHPhotoLibrary.shared().performChanges({
-                        if ["mp4","mov","m4v"].contains(ext) {
+                        if FileKind(extension: ext) == .video {
                             PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
                         } else {
                             guard let image = UIImage(contentsOfFile: url.path) else { return }
@@ -407,23 +414,7 @@ final class FileSystem {
     }
     
     private func resolvedNameInMapping(for name: String, existingNames: [String]) -> String {
-        let ext = (name as NSString).pathExtension
-        let base = (name as NSString).deletingPathExtension
-
-        let strippedBase: String
-        if let range = base.range(of: #" \d+$"#, options: .regularExpression) {
-            strippedBase = String(base[base.startIndex..<range.lowerBound])
-        } else {
-            strippedBase = base
-        }
-
-        var candidate = name
-        var counter = 1
-        while existingNames.contains(candidate) {
-            candidate = ext.isEmpty ? "\(strippedBase) \(counter)" : "\(strippedBase) \(counter).\(ext)"
-            counter += 1
-        }
-        return candidate
+        resolvedName(for: name) { existingNames.contains($0) }
     }
     
     // MARK: - Trash
@@ -501,6 +492,7 @@ final class FileSystem {
                 isDirectory: false,
                 dateModified: entry.deletedAt,
                 fileSize: nil,
+                deletedAt: entry.deletedAt,
                 diskURL: diskURL,
                 isEncrypted: entry.isEncrypted
             )
@@ -540,24 +532,11 @@ final class FileSystem {
     }
 
     private func loadTrashMap() -> [String: TrashEntry] {
-        let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
-        guard let data = try? Data(contentsOf: mapURL) else { return [:] }
-        if CryptoService.shared.isKeyLoaded,
-           let decrypted = try? CryptoService.shared.decrypt(data: data) {
-            return (try? JSONDecoder().decode([String: TrashEntry].self, from: decrypted)) ?? [:]
-        }
-        return (try? JSONDecoder().decode([String: TrashEntry].self, from: data)) ?? [:]
+        loadEncryptedJSON([String: TrashEntry].self, from: trashDirectory.diskURL.appendingPathComponent(trashMapName)) ?? [:]
     }
 
     private func saveTrashMap(_ map: [String: TrashEntry]) throws {
-        let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
-        let data = try JSONEncoder().encode(map)
-        if CryptoService.shared.isKeyLoaded {
-            let encrypted = try CryptoService.shared.encrypt(data: data)
-            try encrypted.write(to: mapURL)
-        } else {
-            try data.write(to: mapURL)
-        }
+        try saveEncryptedJSON(map, to: trashDirectory.diskURL.appendingPathComponent(trashMapName))
     }
 
     // MARK: - Migration
@@ -619,6 +598,7 @@ final class FileSystem {
         files?.forEach { try? FileManager.default.removeItem(at: $0) }
     }
     
+    #if DEBUG
     func diagnoseDiskState() {
         let root = VaultDirectory.root.diskURL
         let mapping = loadMapping(from: root)
@@ -647,9 +627,10 @@ final class FileSystem {
         }.reduce(0, +)
         print("Orphaned file size: \(orphanedSize / 1024 / 1024)MB")
     }
+    #endif
 
     // MARK: - Helpers
-    private func resolvedName(for name: String, in directory: URL) -> String {
+    private func resolvedName(for name: String, exists: (String) -> Bool) -> String {
         let ext = (name as NSString).pathExtension
         let base = (name as NSString).deletingPathExtension
 
@@ -663,34 +644,44 @@ final class FileSystem {
 
         var candidate = name
         var counter = 1
-        while FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path) {
+        while exists(candidate) {
             candidate = ext.isEmpty ? "\(strippedBase) \(counter)" : "\(strippedBase) \(counter).\(ext)"
             counter += 1
         }
         return candidate
     }
-
-    private func loadMapping(from directory: URL) -> [String: VaultMapping] {
-        let mapURL = directory.appendingPathComponent(mappingFileName)
-       
-        guard FileManager.default.fileExists(atPath: mapURL.path),
-              let data = try? Data(contentsOf: mapURL) else { return [:] }
+    
+    private func resolvedName(for name: String, in directory: URL) -> String {
+        resolvedName(for: name) { candidate in
+            FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path)
+        }
+    }
+    
+    private func loadEncryptedJSON<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
         if CryptoService.shared.isKeyLoaded,
            let decrypted = try? CryptoService.shared.decrypt(data: data) {
-            return (try? JSONDecoder().decode([String: VaultMapping].self, from: decrypted)) ?? [:]
+            return try? JSONDecoder().decode(T.self, from: decrypted)
         }
-        return (try? JSONDecoder().decode([String: VaultMapping].self, from: data)) ?? [:]
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func saveEncryptedJSON<T: Encodable>(_ value: T, to url: URL) throws {
+        let data = try JSONEncoder().encode(value)
+        if CryptoService.shared.isKeyLoaded {
+            let encrypted = try CryptoService.shared.encrypt(data: data)
+            try encrypted.write(to: url)
+        } else {
+            try data.write(to: url)
+        }
+    }
+    
+    private func loadMapping(from directory: URL) -> [String: VaultMapping] {
+        loadEncryptedJSON([String: VaultMapping].self, from: directory.appendingPathComponent(mappingFileName)) ?? [:]
     }
 
     private func saveMapping(_ mapping: [String: VaultMapping], to directory: URL) throws {
-        let mapURL = directory.appendingPathComponent(mappingFileName)
-        let data = try JSONEncoder().encode(mapping)
-        if CryptoService.shared.isKeyLoaded {
-            let encrypted = try CryptoService.shared.encrypt(data: data)
-            try encrypted.write(to: mapURL)
-        } else {
-            try data.write(to: mapURL)
-        }
+        try saveEncryptedJSON(mapping, to: directory.appendingPathComponent(mappingFileName))
     }
     
     private var sortComparator: (VaultItem, VaultItem) -> Bool {
@@ -726,4 +717,8 @@ final class FileSystem {
     func saveTestTrashMap(_ map: [String: TrashEntry]) throws { try saveTrashMap(map) }
     typealias TrashEntryForTesting = TrashEntry
     #endif
+}
+
+extension Notification.Name {
+    static let fileRestored = Notification.Name("FileRestored")
 }

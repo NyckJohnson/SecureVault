@@ -124,6 +124,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 self.authService.lockMode = .none
                 self.authService.removePassword()
                 let migration = MigrationViewController(type: .decrypt) {
+                    CryptoService.shared.wipeKey()
                     self.tableView.reloadData()
                 }
                 self.present(migration, animated: true)
@@ -152,8 +153,12 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             guard let self else { return }
             let password = alert.textFields?[0].text ?? ""
             let confirm  = alert.textFields?[1].text ?? ""
-            guard password == confirm, !password.isEmpty else {
-                self.showError("Passwords do not match or are empty")
+            guard !password.isEmpty else {
+                self.showError("Password cannot be empty")
+                return
+            }
+            guard password == confirm else {
+                self.showError("Passwords do not match")
                 return
             }
             do {
@@ -181,8 +186,12 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             let confirm = alert.textFields?[2].text ?? ""
             do {
                 try self.authService.verifyPassword(current)
-                guard new == confirm, !new.isEmpty else {
-                    self.showError("New passwords do not match or are empty")
+                guard !new.isEmpty else {
+                    self.showError("New password cannot be empty")
+                    return
+                }
+                guard new == confirm else {
+                    self.showError("New passwords do not match")
                     return
                 }
                 try self.authService.setPassword(new)

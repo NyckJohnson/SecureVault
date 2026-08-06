@@ -57,9 +57,7 @@ final class FolderPickerViewController: UIViewController {
     private func loadContents() {
         let all = (try? FileSystem.shared.contents(of: currentDirectory)) ?? []
         items = all.filter { $0.isDirectory }
-        DispatchQueue.main.async {
-            self.tableView.reloadData()
-        }
+        tableView.reloadData()
     }
     
     @objc private func cancel() {

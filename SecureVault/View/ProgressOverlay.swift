@@ -87,10 +87,9 @@ final class ProgressOverlay: UIView {
     }
 
     func update(progress: Float, status: String) {
-        DispatchQueue.main.sync {
+        DispatchQueue.main.async {
             self.progressBar.setProgress(progress, animated: false)
             self.statusLabel.text = status
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.001))
         }
     }
 

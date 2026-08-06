@@ -22,48 +22,38 @@ enum FileIconProvider {
     
     static func icon(for item: VaultItem) -> UIImage? {
         if item.isDirectory { return folderImage() }
-        
+
         let ext = (item.name as NSString).pathExtension.lowercased()
-        switch ext {
-            case "jpg", "jpeg", "png", "heic", "gif", "webp":
-                return UIImage(systemName: "photo")
-            case "mp4", "mov", "m4v", "avi":
-                return UIImage(systemName: "video")
-            case "mp3", "m4a", "wav", "aac":
-                return UIImage(systemName: "music.note")
-            case "pdf":
-                return UIImage(systemName: "doc.richtext")
-            case "doc", "docx":
-                return UIImage(systemName: "doc.text")
-            case "xls", "xlsx":
-                return UIImage(systemName: "tablecells")
-            case "ppt", "pptx":
-                return UIImage(systemName: "rectangle.stack")
-            case "zip", "rar", "7z":
-                return UIImage(systemName: "archivebox")
-            case "txt", "md":
-                return UIImage(systemName: "doc.plaintext")
-            default:
-                return UIImage(systemName: "doc")
+        switch FileKind(extension: ext) {
+            case .image: return UIImage(systemName: "photo")
+            case .video: return UIImage(systemName: "video")
+            case .audio: return UIImage(systemName: "music.note")
+            case .pdf: return UIImage(systemName: "doc.richtext")
+            case .word: return UIImage(systemName: "doc.text")
+            case .spreadsheet: return UIImage(systemName: "tablecells")
+            case .presentation: return UIImage(systemName: "rectangle.stack")
+            case .archive: return UIImage(systemName: "archivebox")
+            case .text: return UIImage(systemName: "doc.plaintext")
+            case .other: return UIImage(systemName: "doc")
         }
     }
         
     static func iconColor(for item: VaultItem) -> UIColor {
         if item.isDirectory {
-            return UIImage(named: "nej_FolderIcon") != nil ? .clear : .systemYellow
+            return UIImage(named: customFolderIconName) != nil ? .clear : .systemYellow
         }
-        
+
         let ext = (item.name as NSString).pathExtension.lowercased()
-        switch ext {
-            case "jpg", "jpeg", "png", "heic", "gif", "webp": return .systemGreen
-            case "mp4", "mov", "m4v", "avi": return .systemPurple
-            case "mp3", "m4a", "wav", "aac": return .systemPink
-            case "pdf": return .systemRed
-            case "doc", "docx": return .systemBlue
-            case "xls", "xlsx": return .systemGreen
-            case "ppt", "pptx": return .systemOrange
-            case "zip", "rar", "7z": return .systemBrown
-            default: return .systemGray
+        switch FileKind(extension: ext) {
+            case .image: return .systemGreen
+            case .video: return .systemPurple
+            case .audio: return .systemPink
+            case .pdf: return .systemRed
+            case .word: return .systemBlue
+            case .spreadsheet: return .systemGreen
+            case .presentation: return .systemOrange
+            case .archive: return .systemBrown
+            case .text, .other: return .systemGray
         }
     }
 }

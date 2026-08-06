@@ -247,8 +247,8 @@ final class FileViewerViewController: UIViewController {
     // MARK: - UI Updates
     func updateUI(for item: VaultItem) {
         titleLabel.text = item.name
-        let isVideo = ["mp4","mov","m4v","avi"].contains((item.name as NSString).pathExtension.lowercased())
-        videoControls.isHidden = !isVideo
+        let ext = (item.name as NSString).pathExtension.lowercased()
+        videoControls.isHidden = FileKind(extension: ext) != .video
     }
     
     func updatePlayPauseButton(isPlaying: Bool) {

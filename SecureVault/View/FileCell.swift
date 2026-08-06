@@ -38,7 +38,6 @@ final class FileCell: UICollectionViewCell {
         detailLabel.textAlignment = .center
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        checkmark = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
         checkmark.tintColor = .systemBlue
         checkmark.translatesAutoresizingMaskIntoConstraints = false
         checkmark.isHidden = true
@@ -122,7 +121,6 @@ final class FileCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         thumbnailRequest = nil
-        iconView.subviews.forEach { $0.removeFromSuperview() }
         iconView.image = nil
         iconView.contentMode = .center
     }

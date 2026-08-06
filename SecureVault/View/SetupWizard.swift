@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class SetupWizardViewController: UIViewController {
+final class SetupWizardViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
     private var selectedLockMode: LockMode = .none
@@ -211,15 +211,9 @@ final class SetupWizardViewController: UIViewController {
                 self.authService.lockMode = self.selectedLockMode
                 self.completeSetup()
             } catch {
-                self.showError("Failed to save password")
+                self.showError(error)
             }
         })
-        present(alert, animated: true)
-    }
-
-    private func showError(_ message: String) {
-        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
 

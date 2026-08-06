@@ -11,9 +11,7 @@ import Security
 import UIKit
 
 enum AuthError: Error {
-    case noPasswordSet
     case wrongPassword
-    case biometricsFailed
     case keychainError
 }
 
@@ -23,6 +21,7 @@ final class AuthService {
 
     // MARK: - Keys
     private let passwordKeychainKey = "com.securevault.password"
+    private let privacyScreenTag    = 999
 
     // MARK: - Lock Mode
     var lockMode: LockMode {
@@ -100,21 +99,31 @@ final class AuthService {
             localizedReason: "Unlock SecureVault"
         ) { [weak self] success, error in
             guard let self else { return }
-            if success {
-                let query: [String: Any] = [
-                    kSecClass as String:       kSecClassGenericPassword,
-                    kSecAttrAccount as String: self.passwordKeychainKey,
-                    kSecReturnData as String:  true,
-                    kSecMatchLimit as String:  kSecMatchLimitOne
-                ]
-                var result: AnyObject?
-                if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-                   let data = result as? Data,
-                   let password = String(data: data, encoding: .utf8) {
-                    try? CryptoService.shared.loadKey(from: password)
-                }
+            guard success else {
+                DispatchQueue.main.async { completion(false, error) }
+                return
             }
-            DispatchQueue.main.async { completion(success, error) }
+
+            let query: [String: Any] = [
+                kSecClass as String:       kSecClassGenericPassword,
+                kSecAttrAccount as String: self.passwordKeychainKey,
+                kSecReturnData as String:  true,
+                kSecMatchLimit as String:  kSecMatchLimitOne
+            ]
+            var result: AnyObject?
+            guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+                  let data = result as? Data,
+                  let password = String(data: data, encoding: .utf8) else {
+                DispatchQueue.main.async { completion(false, AuthError.keychainError) }
+                return
+            }
+
+            do {
+                try CryptoService.shared.loadKey(from: password)
+                DispatchQueue.main.async { completion(true, nil) }
+            } catch {
+                DispatchQueue.main.async { completion(false, AuthError.keychainError) }
+            }
         }
     }
 
@@ -163,10 +172,10 @@ final class AuthService {
 
     // MARK: - Privacy Screen
     private func showPrivacyScreen(in window: UIWindow?) {
-        guard window?.viewWithTag(999) == nil else { return }
+        guard window?.viewWithTag(privacyScreenTag) == nil else { return }
         let privacy = UIView()
         privacy.backgroundColor = .systemBackground
-        privacy.tag = 999
+        privacy.tag = privacyScreenTag
         let logo = UIImageView(image: UIImage(systemName: "lock.fill"))
         logo.tintColor = .systemBlue
         logo.contentMode = .scaleAspectFit
@@ -183,7 +192,7 @@ final class AuthService {
     }
 
     private func hidePrivacyScreen(in window: UIWindow?) {
-        window?.viewWithTag(999)?.removeFromSuperview()
+        window?.viewWithTag(privacyScreenTag)?.removeFromSuperview()
     }
 
     // MARK: - Lock Screen
@@ -202,6 +211,8 @@ final class AuthService {
 
     // MARK: - File Browser Reload
     private func reloadFileBrowser(in window: UIWindow?) {
+        // Assumes root is always UINavigationController with FileBrowserViewController as the first VC.
+        // Update this if the root view controller hierarchy ever changes (e.g. tab bar added).
         if let nav = window?.rootViewController as? UINavigationController,
            let browser = nav.viewControllers.first as? FileBrowserViewController {
             browser.reloadAfterAuth()

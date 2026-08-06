@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class TextEditorViewController: UIViewController {
+final class TextEditorViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
     private let item: VaultItem
@@ -88,6 +88,10 @@ final class TextEditorViewController: UIViewController {
         do {
             let url = try FileSystem.shared.open(item)
             let data = try Data(contentsOf: url)
+            guard !data.isEmpty else {
+                textView.text = ""
+                return
+            }
             let attributed = try NSAttributedString(
                 data: data,
                 options: [.documentType: NSAttributedString.DocumentType.rtf],
@@ -95,6 +99,7 @@ final class TextEditorViewController: UIViewController {
             )
             textView.attributedText = attributed
         } catch {
+            showError(error)
             textView.text = ""
         }
     }
@@ -107,7 +112,7 @@ final class TextEditorViewController: UIViewController {
             )
             try FileSystem.shared.write(data: data, to: item)
         } catch {
-            print("Save failed: \(error)")
+            showError(error)
         }
     }
 

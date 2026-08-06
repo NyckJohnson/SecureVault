@@ -67,13 +67,27 @@ final class FileSystemTests: XCTestCase {
         XCTAssertEqual(contents.first?.name, "test.txt")
     }
 
-    func testImportHandlesNameConflict() throws {
+    func testImportSameFileTwiceDoesNotDuplicate() throws {
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }
 
         try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
         try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
+        let contents = try FileSystem.shared.contents(of: testDirectory)
+        XCTAssertEqual(contents.count, 1)
+        XCTAssertTrue(contents.contains { $0.name == "test.txt" })
+    }
+
+    func testImportDifferentFileWithSameNameCreatesConflict() throws {
+        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
+        try "hello".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
+
+        try "goodbye".write(to: sourceURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
+
         let contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.count, 2)
         XCTAssertTrue(contents.contains { $0.name == "test.txt" })

@@ -9,7 +9,7 @@ import Foundation
 import CryptoKit
 import CommonCrypto
 
-final class CryptoService {
+nonisolated final class CryptoService: @unchecked Sendable {
     static let shared = CryptoService()
     private init() {}
 
@@ -90,45 +90,112 @@ final class CryptoService {
     }
 
     // MARK: - File Operations
+    private let streamChunkSize = 1 * 1024 * 1024 // 1MB
+    private let chunkedFormatMagic: [UInt8] = [0x53, 0x56, 0x43, 0x33] // "SVC3"
+    private let headerSize = 16 // magic(4) + chunkSize(4) + totalPlaintextSize(8)
+    private let gcmOverhead = 28 // 12-byte nonce + 16-byte tag
+
     func encryptFile(at url: URL, to destination: URL) throws {
-        try autoreleasepool {
-            let data = try Data(contentsOf: url)
-            let encrypted = try encrypt(data: data)
-            try encrypted.write(to: destination)
+        guard let key = symmetricKey else { throw CryptoError.noKeyLoaded }
+        let totalSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        guard let outputHandle = try? FileHandle(forWritingTo: destination),
+              let inputHandle = try? FileHandle(forReadingFrom: url) else {
+            throw CryptoError.encryptionFailed
         }
+        defer { try? outputHandle.close(); try? inputHandle.close() }
+
+        outputHandle.write(Data(chunkedFormatMagic))
+        outputHandle.write(uint32Data(UInt32(streamChunkSize)))
+        outputHandle.write(uint64Data(UInt64(totalSize)))
+
+        while try autoreleasepool(invoking: { () -> Bool in
+            let chunk = inputHandle.readData(ofLength: streamChunkSize)
+            guard !chunk.isEmpty else { return false }
+            guard let combined = try AES.GCM.seal(chunk, using: key).combined else {
+                throw CryptoError.encryptionFailed
+            }
+            outputHandle.write(uint32Data(UInt32(combined.count)))
+            outputHandle.write(combined)
+            return true
+        }) {}
     }
 
     func decryptFile(at url: URL, to destination: URL) throws {
-        let data = try Data(contentsOf: url)
-        let decrypted = try decrypt(data: data)
-        try decrypted.write(to: destination)
+        guard let inputHandle = try? FileHandle(forReadingFrom: url) else {
+            throw CryptoError.decryptionFailed
+        }
+        defer { try? inputHandle.close() }
+        let header = inputHandle.readData(ofLength: headerSize)
+        guard header.count == headerSize, Array(header.prefix(4)) == chunkedFormatMagic else {
+            throw CryptoError.decryptionFailed
+        }
+
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        guard let outputHandle = try? FileHandle(forWritingTo: destination) else {
+            throw CryptoError.decryptionFailed
+        }
+        defer { try? outputHandle.close() }
+
+        while try autoreleasepool(invoking: { () -> Bool in
+            let lengthData = inputHandle.readData(ofLength: 4)
+            guard lengthData.count == 4 else { return false }
+            let length = Int(uint32Value(lengthData))
+            let combined = inputHandle.readData(ofLength: length)
+            guard combined.count == length else { return false }
+            outputHandle.write(try decrypt(data: combined))
+            return true
+        }) {}
     }
 
-    // MARK: - File Name Mapping
-    private let mappingFileName = ".securevault_map"
-
-    func loadMapping(from directory: URL) throws -> [String: FileMapping] {
-        let mapURL = directory.appendingPathComponent(mappingFileName)
-        guard FileManager.default.fileExists(atPath: mapURL.path) else { return [:] }
-        let data = try Data(contentsOf: mapURL)
-        let decrypted = try decrypt(data: data)
-        return try JSONDecoder().decode([String: FileMapping].self, from: decrypted)
+    /// Reads only the header — no decryption — to learn plaintext size and chunk size.
+    func streamInfo(for url: URL) throws -> (totalSize: Int, chunkSize: Int) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { throw CryptoError.decryptionFailed }
+        defer { try? handle.close() }
+        let header = handle.readData(ofLength: headerSize)
+        guard header.count == headerSize, Array(header.prefix(4)) == chunkedFormatMagic else {
+            throw CryptoError.decryptionFailed
+        }
+        let chunkSize = Int(uint32Value(header.subdata(in: 4..<8)))
+        let totalSize = Int(uint64Value(header.subdata(in: 8..<16)))
+        return (totalSize, chunkSize)
     }
 
-    func saveMapping(_ mapping: [String: FileMapping], to directory: URL) throws {
-        let mapURL = directory.appendingPathComponent(mappingFileName)
-        let data = try JSONEncoder().encode(mapping)
-        let encrypted = try encrypt(data: data)
-        try encrypted.write(to: mapURL)
+    /// Decrypts a single chunk by index without touching any other chunk.
+    /// Relies on every chunk but the last being exactly `chunkSize` plaintext bytes,
+    /// so its on-disk offset can be computed directly.
+    func decryptChunk(at index: Int, from url: URL, chunkSize: Int, totalSize: Int) throws -> Data {
+        let fullCombinedSize = chunkSize + gcmOverhead
+        let offset = headerSize + index * (4 + fullCombinedSize)
+
+        guard let handle = try? FileHandle(forReadingFrom: url) else { throw CryptoError.decryptionFailed }
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(offset))
+
+        let lengthData = handle.readData(ofLength: 4)
+        guard lengthData.count == 4 else { throw CryptoError.decryptionFailed }
+        let combined = handle.readData(ofLength: Int(uint32Value(lengthData)))
+        return try decrypt(data: combined)
+    }
+
+    private func uint32Data(_ value: UInt32) -> Data {
+        var v = value.littleEndian
+        return withUnsafeBytes(of: &v) { Data($0) }
+    }
+    private func uint32Value(_ data: Data) -> UInt32 {
+        data.withUnsafeBytes { $0.load(as: UInt32.self) }.littleEndian
+    }
+    private func uint64Data(_ value: UInt64) -> Data {
+        var v = value.littleEndian
+        return withUnsafeBytes(of: &v) { Data($0) }
+    }
+    private func uint64Value(_ data: Data) -> UInt64 {
+        data.withUnsafeBytes { $0.load(as: UInt64.self) }.littleEndian
     }
 }
 
 // MARK: - Supporting Types
-struct FileMapping: Codable {
-    let originalName: String
-    let directory: String
-}
-
 enum CryptoError: Error {
     case noKeyLoaded
     case encryptionFailed

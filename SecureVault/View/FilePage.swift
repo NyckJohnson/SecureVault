@@ -16,6 +16,7 @@ final class FilePageViewController: UIViewController {
     private var previewURL: URL?
     private var imageView:   UIImageView?
     private var scrollView:  UIScrollView?
+    private var resourceLoaderDelegate: VaultResourceLoaderDelegate?
     
     init(item: VaultItem, viewer: FileViewerViewController) {
         self.item = item
@@ -29,14 +30,17 @@ final class FilePageViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
         let ext = (item.name as NSString).pathExtension.lowercased()
-        if ["jpg","jpeg","png","heic","gif","webp"].contains(ext) {
+        switch FileKind(extension: ext) {
+        case .image:
             setupImageView()
-        } else if ["mp4","mov","m4v","avi"].contains(ext) {
+        case .video:
             setupVideoPlayer()
-        } else if ["rtf"].contains(ext) {
-            openInTextEditor()
-        } else {
-            setupQuickLook()
+        default:
+            if ext == "rtf" {
+                openInTextEditor()
+            } else {
+                setupQuickLook()
+            }
         }
     }
     
@@ -96,8 +100,34 @@ final class FilePageViewController: UIViewController {
     }
     
     private func setupVideoPlayer() {
-        guard let url = try? FileSystem.shared.open(item) else { return }
-        let player = AVPlayer(url: url)
+        let ext = (item.name as NSString).pathExtension.lowercased()
+
+        guard item.isEncrypted,
+              let delegate = VaultResourceLoaderDelegate(encryptedURL: item.diskURL, fileExtension: ext) else {
+            // Not encrypted (or streaming setup failed) — play directly.
+            guard let url = try? FileSystem.shared.open(item) else { return }
+            installVideoPlayer(url: url)
+            return
+        }
+
+        resourceLoaderDelegate = delegate
+        var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false)!
+        comps.scheme = "vault-stream"
+        let asset = AVURLAsset(url: comps.url!)
+        asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue(label: "com.securevault.resourceloader"))
+        installVideoPlayer(url: nil, asset: asset)
+    }
+
+    private func installVideoPlayer(url: URL?, asset: AVURLAsset? = nil) {
+        let playerItem: AVPlayerItem
+        if let asset {
+            playerItem = AVPlayerItem(asset: asset)
+        } else if let url {
+            playerItem = AVPlayerItem(url: url)
+        } else {
+            return
+        }
+        let player = AVPlayer(playerItem: playerItem)
         viewer?.player = player
         viewer?.updatePlayPauseButton(isPlaying: false)
         let layer = AVPlayerLayer(player: player)

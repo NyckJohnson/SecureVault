@@ -40,7 +40,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         setupCollectionView()
         configureDataSource()
         loadContents()
-        NotificationCenter.default.addObserver(self, selector: #selector(reloadAfterRestore), name: NSNotification.Name("FileRestored"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(reloadAfterRestore), name: .fileRestored, object: nil)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -50,8 +50,11 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             includingPropertiesForKeys: [.fileSizeKey]
         )) ?? []
         let totalSize = tempFiles.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0, +)
+        
+        #if DEBUG
         print("Temp files: \(tempFiles.count), total size: \(totalSize / 1024 / 1024)MB")
         FileSystem.shared.diagnoseDiskState()
+        #endif
     }
     
     // MARK: - Navigation Bar
@@ -256,8 +259,10 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     @objc private func bulkMove() {
         guard !selectedItems.isEmpty else { return }
-        itemsPendingBulkAction = Array(selectedItems)
-        presentFolderPicker(for: itemsPendingBulkAction!.first!)
+        let itemsToMove = Array(selectedItems)
+        itemsPendingBulkAction = itemsToMove
+        guard let firstItem = itemsToMove.first else { return }
+        presentFolderPicker(for: firstItem)
     }
 
     @objc private func bulkExport() {
@@ -386,14 +391,11 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     }
 
     private func presentFolderPicker(for item: VaultItem) {
-        itemPendingMove = item
         let picker = FolderPickerViewController(rootDirectory: VaultDirectory.root, currentDirectory: VaultDirectory.root)
         picker.delegate = self
         let nav = UINavigationController(rootViewController: picker)
         nav.modalPresentationStyle = .formSheet
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.navigationController?.present(nav, animated: true)
-        }
+        navigationController?.present(nav, animated: true)
     }
 
     private func presentPhotoPicker() {
@@ -462,7 +464,7 @@ extension FileBrowserViewController: UICollectionViewDelegate {
             let move = UIAction(title: "Move", image: UIImage(systemName: "folder")) { [weak self] _ in
                 guard let self else { return }
                 self.itemPendingMove = item
-                self.presentFolderPicker(for: item)
+                self.pendingAction = { self.presentFolderPicker(for: item) }
             }
             let copy = UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
                 guard let self else { return }

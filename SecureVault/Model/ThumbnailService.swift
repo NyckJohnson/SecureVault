@@ -60,6 +60,12 @@ final class ThumbnailService {
 
     // MARK: - File Thumbnail
     private func fileThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
+        let ext = (item.name as NSString).pathExtension.lowercased()
+        if item.isEncrypted, FileKind(extension: ext) == .video {
+            videoThumbnail(for: item, size: size, completion: completion)
+            return nil
+        }
+        
         let generateThumbnail: (URL, Bool) -> QLThumbnailGenerator.Request = { [weak self] url, shouldCleanup in
             guard let self else { return QLThumbnailGenerator.Request(fileAt: url, size: size, scale: UIScreen.main.scale, representationTypes: .thumbnail) }
             let request = QLThumbnailGenerator.Request(
@@ -96,7 +102,6 @@ final class ThumbnailService {
                     return
                 }
                 _ = generateThumbnail(url, true)
-                // remove the extra removeItem here — generateThumbnail handles cleanup via shouldCleanup:true
             }
             return nil
         } else {
@@ -104,15 +109,51 @@ final class ThumbnailService {
         }
     }
 
+    private func videoThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) {
+        thumbnailQueue.async { [weak self] in
+            guard let self else { return }
+            let ext = (item.name as NSString).pathExtension.lowercased()
+            guard let delegate = VaultResourceLoaderDelegate(encryptedURL: item.diskURL, fileExtension: ext) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false)!
+            comps.scheme = "vault-stream"
+            let asset = AVURLAsset(url: comps.url!)
+            asset.resourceLoader.setDelegate(delegate, queue: self.thumbnailQueue)
+
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: size.width * UIScreen.main.scale,
+                                            height: size.height * UIScreen.main.scale)
+
+            // withStrongReferenceTo keeps `delegate` alive until generation completes,
+            // since AVAssetResourceLoader only holds its delegate weakly.
+            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: CMTime(seconds: 5, preferredTimescale: 600))]) { _, cgImage, _, _, _ in
+                withExtendedLifetime(delegate) {
+                    guard let cgImage else {
+                        DispatchQueue.main.async { completion(nil) }
+                        return
+                    }
+                    let image = UIImage(cgImage: cgImage)
+                    self.cache.setObject(image, forKey: item.id.uuidString as NSString)
+                    DispatchQueue.main.async { completion(image) }
+                }
+            }
+        }
+    }
+    
     // MARK: - Folder Thumbnail
     private func folderThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
         thumbnailQueue.async { [weak self] in
             guard let self else { return }
             let dir = VaultDirectory(name: item.name, diskURL: item.diskURL)
             let contents = (try? FileSystem.shared.contents(of: dir)) ?? []
-            let mediaExtensions = ["jpg","jpeg","png","heic","gif","webp","mp4","mov","m4v"]
             guard let mediaItem = contents.first(where: {
-                !$0.isDirectory && mediaExtensions.contains(($0.name as NSString).pathExtension.lowercased())
+                guard !$0.isDirectory else { return false }
+                let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
+                return kind == .image || kind == .video
             }) else {
                 let folderIcon = self.renderFolderImage(targetSize: size)
                 if let folderIcon {

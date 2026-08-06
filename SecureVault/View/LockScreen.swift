@@ -6,18 +6,20 @@
 //
 
 import UIKit
+import LocalAuthentication
 
 final class LockScreenViewController: UIViewController {
 
     private let authService = AuthService.shared
 
     // MARK: - UI
-    private let logoImageView   = UIImageView(image: UIImage(systemName: "lock.fill"))
-    private let titleLabel      = UILabel()
-    private let passwordField   = UITextField()
-    private let unlockButton    = UIButton(type: .system)
-    private let biometricButton = UIButton(type: .system)
-    private let errorLabel      = UILabel()
+    private let logoImageView    = UIImageView(image: UIImage(systemName: "lock.fill"))
+    private let titleLabel       = UILabel()
+    private let passwordField    = UITextField()
+    private let unlockButton     = UIButton(type: .system)
+    private let biometricButton  = UIButton(type: .system)
+    private let errorLabel       = UILabel()
+    private var isAuthenticating = false
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
@@ -113,6 +115,7 @@ final class LockScreenViewController: UIViewController {
     }
     
     private func attemptUnlock(with password: String? = nil) {
+        guard !isAuthenticating else { return }
         if let password {
             do {
                 try authService.verifyPassword(password)
@@ -121,21 +124,42 @@ final class LockScreenViewController: UIViewController {
                 showError("Incorrect password")
             }
         } else {
-            authService.authenticateWithBiometrics { [weak self] success, _ in
+            isAuthenticating = true
+            authService.authenticateWithBiometrics { [weak self] success, error in
                 guard let self else { return }
+                self.isAuthenticating = false
                 if success {
                     self.unlockSucceeded()
                 } else {
-                    self.showError("Biometric authentication failed")
+                    self.handleBiometricFailure(error)
                 }
             }
         }
     }
 
     private func unlockSucceeded() {
-        AuthService.shared.didAuthenticate(in: view.window)
+        authService.didAuthenticate(in: view.window)
     }
 
+    private func handleBiometricFailure(_ error: Error?) {
+        guard let laError = error as? LAError else {
+            showError("Biometric authentication failed")
+            return
+        }
+        switch laError.code {
+        case .userCancel, .userFallback, .systemCancel:
+            break // user-initiated cancellation, not a failure — no error shown
+        case .biometryNotEnrolled:
+            showError("No Face ID/Touch ID set up on this device")
+        case .biometryLockout:
+            showError("Biometric authentication is locked — enter your password")
+        case .passcodeNotSet:
+            showError("Set a device passcode to use biometric authentication")
+        default:
+            showError("Biometric authentication failed")
+        }
+    }
+    
     private func showError(_ message: String) {
         errorLabel.text = message
         errorLabel.isHidden = false

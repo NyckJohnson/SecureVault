@@ -20,20 +20,34 @@ final class ConflictResolutionTests: XCTestCase {
     }
 
     // MARK: - Basic Conflicts
-    func testImportSameFileTwiceCreatesConflict() throws {
+    func testImportSameFileTwiceDoesNotDuplicate() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
+        let contents = try FileSystem.shared.contents(of: testDirectory)
+        XCTAssertEqual(contents.count, 1)
+        XCTAssertTrue(contents.contains { $0.name == "test.txt" })
+    }
+
+    func testImportDifferentFileWithSameNameCreatesConflict() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
+        try "hello".write(to: url, atomically: true, encoding: .utf8)
+        try FileSystem.shared.importItems(from: [url], to: testDirectory)
+
+        try "goodbye".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileSystem.shared.importItems(from: [url], to: testDirectory)
+
         let contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.count, 2)
         XCTAssertTrue(contents.contains { $0.name == "test.txt" })
         XCTAssertTrue(contents.contains { $0.name == "test 1.txt" })
     }
 
-    func testImportSameFileThreeTimesCreatesSequentialConflicts() throws {
+    func testImportSameFileThreeTimesStillDoesNotDuplicate() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -42,20 +56,32 @@ final class ConflictResolutionTests: XCTestCase {
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         let contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.count, 3)
+        XCTAssertEqual(contents.count, 1)
         XCTAssertTrue(contents.contains { $0.name == "test.txt" })
-        XCTAssertTrue(contents.contains { $0.name == "test 1.txt" })
-        XCTAssertTrue(contents.contains { $0.name == "test 2.txt" })
     }
 
     // MARK: - No Extension
-    func testConflictWithNoExtension() throws {
+    func testSameFileNoExtensionDoesNotDuplicate() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("noextension")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
+        let contents = try FileSystem.shared.contents(of: testDirectory)
+        XCTAssertEqual(contents.count, 1)
+        XCTAssertTrue(contents.contains { $0.name == "noextension" })
+    }
+
+    func testDifferentFileNoExtensionCreatesConflict() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("noextension")
+        try "hello".write(to: url, atomically: true, encoding: .utf8)
+        try FileSystem.shared.importItems(from: [url], to: testDirectory)
+
+        try "goodbye".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileSystem.shared.importItems(from: [url], to: testDirectory)
+
         let contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.count, 2)
         XCTAssertTrue(contents.contains { $0.name == "noextension" })
@@ -77,7 +103,7 @@ final class ConflictResolutionTests: XCTestCase {
     }
 
     // MARK: - Encrypted Conflicts
-    func testEncryptedImportSameFileTwiceCreatesConflict() throws {
+    func testEncryptedImportSameFileTwiceDoesNotDuplicate() throws {
         try CryptoService.shared.loadKey(from: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
@@ -86,7 +112,21 @@ final class ConflictResolutionTests: XCTestCase {
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         let contents = try FileSystem.shared.contents(of: testDirectory)
-        print("Encrypted conflict names: \(contents.map { $0.name })")  // add this
+        XCTAssertEqual(contents.count, 1)
+        XCTAssertTrue(contents.contains { $0.name == "test.txt" })
+    }
+
+    func testEncryptedImportDifferentFileWithSameNameCreatesConflict() throws {
+        try CryptoService.shared.loadKey(from: "testpassword")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
+        try "hello".write(to: url, atomically: true, encoding: .utf8)
+        try FileSystem.shared.importItems(from: [url], to: testDirectory)
+
+        try "goodbye".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try FileSystem.shared.importItems(from: [url], to: testDirectory)
+
+        let contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.count, 2)
         XCTAssertTrue(contents.contains { $0.name == "test.txt" })
         XCTAssertTrue(contents.contains { $0.name == "test 1.txt" })

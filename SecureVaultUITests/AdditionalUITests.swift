@@ -46,8 +46,11 @@ final class AdditionalUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 3))
         let textField = alert.textFields.firstMatch
         textField.tap()
-        textField.tap()
-        textField.tap()
+        // select all and delete existing text reliably, instead of relying on triple-tap timing
+        if let currentValue = textField.value as? String {
+            let deleteString = String(repeating: XCUIKeyboardKey.delete.rawValue, count: currentValue.count)
+            textField.typeText(deleteString)
+        }
         textField.typeText("RenamedFolder")
         alert.buttons["Rename"].tap()
         XCTAssertTrue(app.staticTexts["RenamedFolder"].waitForExistence(timeout: 3))

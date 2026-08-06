@@ -18,7 +18,8 @@ final class ExportService {
 
     func exportMultiple(_ items: [VaultItem], from viewController: UIViewController, sourceView: UIView? = nil, barButtonItem: UIBarButtonItem? = nil) {
         let hasMedia = items.contains {
-            ["jpg","jpeg","png","heic","gif","webp","mp4","mov","m4v"].contains(($0.name as NSString).pathExtension.lowercased())
+            let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
+            return kind == .image || kind == .video
         }
 
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
@@ -33,17 +34,12 @@ final class ExportService {
                     DispatchQueue.main.async {
                         overlay.dismiss()
                         let picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
-                        if let barButtonItem {
-                            picker.popoverPresentationController?.barButtonItem = barButtonItem
-                        } else if let sourceView {
-                            picker.popoverPresentationController?.sourceView = sourceView
-                            picker.popoverPresentationController?.sourceRect = sourceView.bounds
-                        }
+                        Self.configurePopover(picker.popoverPresentationController, sourceView: sourceView, barButtonItem: barButtonItem)
                         viewController.present(picker, animated: true)
                     }
                 } catch {
-                    overlay.dismiss()
                     DispatchQueue.main.async {
+                        overlay.dismiss()
                         viewController.present(Self.errorAlert(error.localizedDescription), animated: true)
                     }
                 }
@@ -63,17 +59,19 @@ final class ExportService {
 
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
 
-        if let popover = sheet.popoverPresentationController {
-            if let barButtonItem {
-                popover.barButtonItem = barButtonItem
-            } else if let sourceView {
-                popover.sourceView = sourceView
-                popover.sourceRect = sourceView.bounds
-            }
-        }
+        Self.configurePopover(sheet.popoverPresentationController, sourceView: sourceView, barButtonItem: barButtonItem)
         viewController.present(sheet, animated: true)
     }
 
+    private static func configurePopover(_ popover: UIPopoverPresentationController?, sourceView: UIView?, barButtonItem: UIBarButtonItem?) {
+        if let barButtonItem {
+            popover?.barButtonItem = barButtonItem
+        } else if let sourceView {
+            popover?.sourceView = sourceView
+            popover?.sourceRect = sourceView.bounds
+        }
+    }
+    
     private static func errorAlert(_ message: String) -> UIAlertController {
         let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
