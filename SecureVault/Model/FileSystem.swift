@@ -42,7 +42,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Sendable {
 }
 
 // MARK: - VaultMapping
-private struct VaultMapping: Codable {
+struct VaultMapping: Codable {
     let originalName: String
 }
 
@@ -540,40 +540,54 @@ final class FileSystem {
     }
 
     // MARK: - Migration
-    func migrateToEncrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
+    func filesToMigrate(toEncrypted: Bool, in directory: VaultDirectory) throws -> [(item: VaultItem, directory: VaultDirectory)] {
+        let items = try contents(of: directory)
+        let files = items.filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
+        var result = files.map { (item: $0, directory: directory) }
+
+        let subdirs = items.filter { $0.isDirectory }
+        for subdir in subdirs {
+            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL)
+            result += try filesToMigrate(toEncrypted: toEncrypted, in: subVaultDir)
+        }
+        return result
+    }
+    
+    func migrateVaultToEncrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
         let items = try contents(of: directory)
         let files = items.filter { !$0.isDirectory && !$0.isEncrypted }
         let total = Double(files.count)
         guard total > 0 else { return }
 
         for (index, item) in files.enumerated() {
-            let uuid = UUID().uuidString
-            let destination = directory.diskURL.appendingPathComponent(uuid)
-            try CryptoService.shared.encryptFile(at: item.diskURL, to: destination)
-            var mapping = loadMapping(from: directory.diskURL)
-            mapping[uuid] = VaultMapping(originalName: item.name)
-            try saveMapping(mapping, to: directory.diskURL)
-            try FileManager.default.removeItem(at: item.diskURL)
+            try migrateFileToEncrypted(item, in: directory)
             progress(Double(index + 1) / total)
         }
 
         let subdirs = items.filter { $0.isDirectory }
         for subdir in subdirs {
             let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL)
-            try migrateToEncrypted(in: subVaultDir, progress: progress)
+            try migrateVaultToEncrypted(in: subVaultDir, progress: progress)
         }
     }
 
-    func migrateToDecrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
-        let mapping = loadMapping(from: directory.diskURL)
-        let total = Double(mapping.count)
+    func migrateFileToEncrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+        let uuid = UUID().uuidString
+        let destination = directory.diskURL.appendingPathComponent(uuid)
+        try CryptoService.shared.encryptFile(at: item.diskURL, to: destination)
+        var mapping = loadMapping(from: directory.diskURL)
+        mapping[uuid] = VaultMapping(originalName: item.name)
+        try saveMapping(mapping, to: directory.diskURL)
+        try FileManager.default.removeItem(at: item.diskURL)
+    }
 
-        for (index, (uuid, vaultMapping)) in mapping.enumerated() {
-            let encryptedURL = directory.diskURL.appendingPathComponent(uuid)
-            let name = resolvedName(for: vaultMapping.originalName, in: directory.diskURL)
-            let decryptedURL = directory.diskURL.appendingPathComponent(name)
-            try CryptoService.shared.decryptFile(at: encryptedURL, to: decryptedURL)
-            try FileManager.default.removeItem(at: encryptedURL)
+    func migrateVaultToDecrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
+        let mapping = loadMapping(from: directory.diskURL)
+        let total   = Double(mapping.count)
+        let items   = try contents(of: directory).filter { !$0.isDirectory && $0.isEncrypted }
+        
+        for (index, item) in items.enumerated() {
+            try migrateFileToDecrypted(item, in: directory)
             if total > 0 { progress(Double(index + 1) / total) }
         }
 
@@ -588,8 +602,16 @@ final class FileSystem {
 
         for subdir in subdirs {
             let subVaultDir = VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir)
-            try migrateToDecrypted(in: subVaultDir, progress: progress)
+            try migrateVaultToDecrypted(in: subVaultDir, progress: progress)
         }
+    }
+    
+    func migrateFileToDecrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+        let encryptedURL = item.diskURL
+        let name = resolvedName(for: item.name, in: directory.diskURL)
+        let decryptedURL = directory.diskURL.appendingPathComponent(name)
+        try CryptoService.shared.decryptFile(at: encryptedURL, to: decryptedURL)
+        try FileManager.default.removeItem(at: encryptedURL)
     }
 
     // MARK: - Cleanup

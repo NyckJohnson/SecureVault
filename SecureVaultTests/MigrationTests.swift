@@ -39,7 +39,7 @@ final class MigrationTests: XCTestCase {
 
         // now enable encryption and migrate
         try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateToEncrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
 
         contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.count, 2)
@@ -53,7 +53,7 @@ final class MigrationTests: XCTestCase {
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateToEncrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.first?.name, "important.txt")
@@ -67,7 +67,7 @@ final class MigrationTests: XCTestCase {
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
         try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateToEncrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
 
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         let openedURL = try FileSystem.shared.open(item)
@@ -89,12 +89,71 @@ final class MigrationTests: XCTestCase {
         try CryptoService.shared.loadKey(from: "testpassword")
 
         var progressValues: [Double] = []
-        try FileSystem.shared.migrateToEncrypted(in: testDirectory, progress: { progressValues.append($0) })
+        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { progressValues.append($0) })
 
         XCTAssertEqual(progressValues.count, 2)
         XCTAssertEqual(progressValues.last, 1.0)
     }
 
+    // MARK: - Single File Migration / Mixed State
+    func testMigrateSingleFileProducesCorrectMixedState() throws {
+        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("file1.txt")
+        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("file2.txt")
+        try "content1".write(to: url1, atomically: true, encoding: .utf8)
+        try "content2".write(to: url2, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: url1)
+            try? FileManager.default.removeItem(at: url2)
+        }
+
+        try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
+        try CryptoService.shared.loadKey(from: "testpassword")
+
+        let unmigrated = try FileSystem.shared.contents(of: testDirectory)
+        let fileToMigrate = unmigrated.first { $0.name == "file1.txt" }!
+        try FileSystem.shared.migrateFileToEncrypted(fileToMigrate, in: testDirectory)
+
+        let contents = try FileSystem.shared.contents(of: testDirectory)
+
+        // no duplicates / no orphaned ghost entries — exactly one item per original file
+        XCTAssertEqual(contents.count, 2)
+        XCTAssertEqual(Set(contents.map { $0.name }), ["file1.txt", "file2.txt"])
+
+        let migrated = contents.first { $0.name == "file1.txt" }!
+        let untouched = contents.first { $0.name == "file2.txt" }!
+        XCTAssertTrue(migrated.isEncrypted)
+        XCTAssertFalse(untouched.isEncrypted)
+    }
+
+    func testMigrateSingleFilePreservesContentForBothStates() throws {
+        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("file1.txt")
+        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("file2.txt")
+        try "content1".write(to: url1, atomically: true, encoding: .utf8)
+        try "content2".write(to: url2, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: url1)
+            try? FileManager.default.removeItem(at: url2)
+        }
+
+        try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
+        try CryptoService.shared.loadKey(from: "testpassword")
+
+        let unmigrated = try FileSystem.shared.contents(of: testDirectory)
+        let fileToMigrate = unmigrated.first { $0.name == "file1.txt" }!
+        try FileSystem.shared.migrateFileToEncrypted(fileToMigrate, in: testDirectory)
+
+        let contents = try FileSystem.shared.contents(of: testDirectory)
+        let migratedItem = contents.first { $0.name == "file1.txt" }!
+        let untouchedItem = contents.first { $0.name == "file2.txt" }!
+
+        let migratedURL = try FileSystem.shared.open(migratedItem)
+        let migratedContent = try String(contentsOf: migratedURL, encoding: .utf8)
+        XCTAssertEqual(migratedContent, "content1")
+
+        let untouchedContent = try String(contentsOf: untouchedItem.diskURL, encoding: .utf8)
+        XCTAssertEqual(untouchedContent, "content2")
+    }
+    
     // MARK: - Migrate To Decrypted
     func testMigrateToDecryptedDecryptsFiles() throws {
         try CryptoService.shared.loadKey(from: "testpassword")
@@ -106,7 +165,7 @@ final class MigrationTests: XCTestCase {
         var contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertTrue(contents.first?.isEncrypted == true)
 
-        try FileSystem.shared.migrateToDecrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
         CryptoService.shared.wipeKey()
 
         contents = try FileSystem.shared.contents(of: testDirectory)
@@ -121,7 +180,7 @@ final class MigrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try FileSystem.shared.migrateToDecrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(contents.first?.name, "myfile.txt")
@@ -135,7 +194,7 @@ final class MigrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try FileSystem.shared.migrateToDecrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
 
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         let readContent = try String(contentsOf: item.diskURL, encoding: .utf8)
@@ -149,7 +208,7 @@ final class MigrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try FileSystem.shared.migrateToDecrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
 
         let mapURL = testDirectory.diskURL.appendingPathComponent(".vault_map")
         XCTAssertFalse(FileManager.default.fileExists(atPath: mapURL.path))
@@ -167,10 +226,10 @@ final class MigrationTests: XCTestCase {
 
         // encrypt
         try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateToEncrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
 
         // decrypt
-        try FileSystem.shared.migrateToDecrypted(in: testDirectory, progress: { _ in })
+        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
         CryptoService.shared.wipeKey()
 
         // verify content

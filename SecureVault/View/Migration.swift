@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class MigrationViewController: UIViewController {
+final class MigrationViewController: UIViewController, ErrorPresenting {
 
     nonisolated enum MigrationType {
         case encrypt
@@ -17,6 +17,9 @@ final class MigrationViewController: UIViewController {
     private let type: MigrationType
     private let onComplete: () -> Void
 
+    private var filesToMigrate: [(item: VaultItem, directory: VaultDirectory)] = []
+    private var currentIndex  = 0
+    
     private let titleLabel    = UILabel()
     private let progressBar   = UIProgressView(progressViewStyle: .default)
     private let statusLabel   = UILabel()
@@ -77,31 +80,83 @@ final class MigrationViewController: UIViewController {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             do {
-                let progressHandler: (Double) -> Void = { progress in
-                    DispatchQueue.main.async {
-                        self.progressBar.setProgress(Float(progress), animated: true)
-                        self.statusLabel.text = "\(Int(progress * 100))% complete"
-                    }
-                }
-                if self.type == .encrypt {
-                    try FileSystem.shared.migrateToEncrypted(in: VaultDirectory.root, progress: progressHandler)
-                } else {
-                    try FileSystem.shared.migrateToDecrypted(in: VaultDirectory.root, progress: progressHandler)
-                }
-                DispatchQueue.main.async {
-                    self.progressBar.setProgress(1.0, animated: true)
-                    self.statusLabel.text = "Complete"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.dismiss(animated: true) {
-                            self.onComplete()
-                        }
-                    }
-                }
+                filesToMigrate = try FileSystem.shared.filesToMigrate(toEncrypted: type == .encrypt, in: VaultDirectory.root)
             } catch {
-                DispatchQueue.main.async {
-                    self.statusLabel.text = "Error: \(error.localizedDescription)"
-                }
+                DispatchQueue.main.async { self.showError(error) }
+                return
             }
+            currentIndex = 0
+            processNextFile()
+        }
+    }
+
+    /// Migrates filesToMigrate[currentIndex]. Must be called on a background queue.
+    private func processNextFile() {
+        guard currentIndex < filesToMigrate.count else {
+            DispatchQueue.main.async { [weak self] in
+                self?.finishMigration()
+            }
+            return
+        }
+
+        let (item, directory) = filesToMigrate[currentIndex]
+        do {
+            if type == .encrypt {
+                try FileSystem.shared.migrateFileToEncrypted(item, in: directory)
+            } else {
+                try FileSystem.shared.migrateFileToDecrypted(item, in: directory)
+            }
+            currentIndex += 1
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let progress = Double(self.currentIndex) / Double(self.filesToMigrate.count)
+                self.progressBar.setProgress(Float(progress), animated: true)
+                self.statusLabel.text = "\(Int(progress * 100))% complete"
+            }
+            processNextFile()
+        } catch {
+            DispatchQueue.main.async { [weak self] in
+                self?.presentFailureOptions(for: item, error: error)
+            }
+        }
+    }
+
+    private func finishMigration() {
+        progressBar.setProgress(1.0, animated: true)
+        statusLabel.text = "Complete"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            self.dismiss(animated: true) {
+                self.onComplete()
+            }
+        }
+    }
+
+    private func presentFailureOptions(for item: VaultItem, error: Error) {
+        let alert = UIAlertController(
+            title: "Migration Failed",
+            message: "Couldn't migrate \"\(item.name)\": \(error.localizedDescription)",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+            self?.resumeMigration()
+        })
+        alert.addAction(UIAlertAction(title: "Skip", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.currentIndex += 1
+            self.resumeMigration()
+        })
+        alert.addAction(UIAlertAction(title: "Stop", style: .destructive) { [weak self] _ in
+            self?.dismiss(animated: true) {
+                self?.onComplete()
+            }
+        })
+        present(alert, animated: true)
+    }
+
+    private func resumeMigration() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.processNextFile()
         }
     }
 }
