@@ -201,3 +201,13 @@ enum CryptoError: Error {
     case encryptionFailed
     case decryptionFailed
 }
+
+extension CryptoError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .noKeyLoaded:       return "No encryption key is loaded."
+        case .encryptionFailed:  return "Failed to encrypt the file."
+        case .decryptionFailed:  return "Failed to decrypt the file."
+        }
+    }
+}

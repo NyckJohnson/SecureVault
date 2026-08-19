@@ -76,6 +76,19 @@ final class AuthService {
         SecItemDelete(query as CFDictionary)
     }
 
+    // MARK: - Migration Completion
+    func finalizeMigration(type: MigrationViewController.MigrationType, targetLockMode: LockMode?, completedFully: Bool) {
+        guard completedFully else { return }
+        switch type {
+        case .encrypt:
+            if let targetLockMode { lockMode = targetLockMode }
+        case .decrypt:
+            lockMode = .none
+            removePassword()
+            CryptoService.shared.wipeKey()
+        }
+    }
+
     // MARK: - Biometrics
     var biometricsAvailable: Bool {
         let context = LAContext()
@@ -130,6 +143,8 @@ final class AuthService {
     // MARK: - Lock State
     var isLocked         = false
     var hasAuthenticated = false
+    
+    static let vaultUnlockedNotification = Notification.Name("SecureVault.vaultUnlocked")
 
     // MARK: - Scene Lifecycle
     func handleBackground(in window: UIWindow?) {
@@ -155,7 +170,10 @@ final class AuthService {
     }
 
     func handleInitialLaunch(in window: UIWindow?) {
-        guard lockMode != .none else { return }
+        guard lockMode != .none else {
+            NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
+            return
+        }
         isLocked = true
         showLockScreen(in: window)
     }
@@ -164,9 +182,18 @@ final class AuthService {
     func didAuthenticate(in window: UIWindow?) {
         isLocked = false
         hasAuthenticated = true
-        window?.rootViewController?.dismiss(animated: true) {
+        guard let root = window?.rootViewController else { return }
+        var topVC = root
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+        // topVC is the lock screen itself — dismiss it specifically, not its presenter's
+        // whole chain, so an in-progress MigrationViewController underneath survives.
+        let dismisser = topVC.presentingViewController ?? root
+        dismisser.dismiss(animated: true) {
             self.hidePrivacyScreen(in: window)
             self.reloadFileBrowser(in: window)
+            NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
         }
     }
 

@@ -9,23 +9,30 @@ import UIKit
 
 final class MigrationViewController: UIViewController, ErrorPresenting {
 
-    nonisolated enum MigrationType {
+    nonisolated enum MigrationType: String {
         case encrypt
         case decrypt
     }
 
     private let type: MigrationType
-    private let onComplete: () -> Void
+    private let onComplete: (_ completedFully: Bool) -> Void
 
-    private var filesToMigrate: [(item: VaultItem, directory: VaultDirectory)] = []
-    private var currentIndex  = 0
-    
     private let titleLabel    = UILabel()
     private let progressBar   = UIProgressView(progressViewStyle: .default)
     private let statusLabel   = UILabel()
 
-    init(type: MigrationType, onComplete: @escaping () -> Void) {
+    private var filesToMigrate:   [(item: VaultItem, directory: VaultDirectory)] = []
+    private var failedFiles:      [(item: VaultItem, directory: VaultDirectory, error: Error)] = []
+    private var currentIndex      = 0
+    private var isPaused          = false
+    private let targetLockMode:   LockMode?
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private let directory:        VaultDirectory
+
+    init(type: MigrationType, directory: VaultDirectory = .root, targetLockMode: LockMode? = nil, onComplete: @escaping (_ completedFully: Bool) -> Void) {
         self.type = type
+        self.directory = directory
+        self.targetLockMode = targetLockMode
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -37,6 +44,12 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupUI()
+        NotificationCenter.default.addObserver(self, selector: #selector(vaultUnlocked), name: AuthService.vaultUnlockedNotification, object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        endBackgroundTask()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -77,10 +90,16 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     }
 
     private func startMigration() {
+        PreferencesService.shared.pendingMigrationType = type
+        if let targetLockMode {
+            PreferencesService.shared.pendingMigrationTargetLockMode = targetLockMode
+        }
+        beginBackgroundTask()
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             do {
-                filesToMigrate = try FileSystem.shared.filesToMigrate(toEncrypted: type == .encrypt, in: VaultDirectory.root)
+                filesToMigrate = try FileSystem.shared.filesToMigrate(toEncrypted: type == .encrypt, in: directory)
             } catch {
                 DispatchQueue.main.async { self.showError(error) }
                 return
@@ -94,7 +113,14 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     private func processNextFile() {
         guard currentIndex < filesToMigrate.count else {
             DispatchQueue.main.async { [weak self] in
-                self?.finishMigration()
+                self?.finishOrShowFailures()
+            }
+            return
+        }
+
+        guard CryptoService.shared.isKeyLoaded else {
+            DispatchQueue.main.async { [weak self] in
+                self?.pauseMigration()
             }
             return
         }
@@ -106,57 +132,111 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
             } else {
                 try FileSystem.shared.migrateFileToDecrypted(item, in: directory)
             }
-            currentIndex += 1
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let progress = Double(self.currentIndex) / Double(self.filesToMigrate.count)
-                self.progressBar.setProgress(Float(progress), animated: true)
-                self.statusLabel.text = "\(Int(progress * 100))% complete"
-            }
-            processNextFile()
         } catch {
-            DispatchQueue.main.async { [weak self] in
-                self?.presentFailureOptions(for: item, error: error)
-            }
+            failedFiles.append((item: item, directory: directory, error: error))
+        }
+        currentIndex += 1
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let progress = Double(self.currentIndex) / Double(self.filesToMigrate.count)
+            self.progressBar.setProgress(Float(progress), animated: true)
+            self.statusLabel.text = "\(Int(progress * 100))% complete"
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.processNextFile()
         }
     }
 
     private func finishMigration() {
+        let completedFully = failedFiles.isEmpty
+        if completedFully {
+            PreferencesService.shared.pendingMigrationType = nil
+            PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        }
+        endBackgroundTask()
         progressBar.setProgress(1.0, animated: true)
         statusLabel.text = "Complete"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self else { return }
             self.dismiss(animated: true) {
-                self.onComplete()
+                self.onComplete(completedFully)
             }
         }
     }
 
-    private func presentFailureOptions(for item: VaultItem, error: Error) {
+    private func finishOrShowFailures() {
+        if failedFiles.isEmpty {
+            finishMigration()
+        } else {
+            presentFailureSummary()
+        }
+    }
+
+    private func presentFailureSummary() {
+        let names = failedFiles.map { $0.item.name }.joined(separator: ", ")
         let alert = UIAlertController(
-            title: "Migration Failed",
-            message: "Couldn't migrate \"\(item.name)\": \(error.localizedDescription)",
+            title: "Some Files Failed",
+            message: "These files couldn't be migrated: \(names)",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-            self?.resumeMigration()
+            self?.retryFailedFiles()
         })
         alert.addAction(UIAlertAction(title: "Skip", style: .default) { [weak self] _ in
-            guard let self else { return }
-            self.currentIndex += 1
-            self.resumeMigration()
-        })
-        alert.addAction(UIAlertAction(title: "Stop", style: .destructive) { [weak self] _ in
-            self?.dismiss(animated: true) {
-                self?.onComplete()
-            }
+            self?.finishMigration()
         })
         present(alert, animated: true)
     }
 
-    private func resumeMigration() {
+    private func retryFailedFiles() {
+        filesToMigrate = failedFiles.map { (item: $0.item, directory: $0.directory) }
+        failedFiles = []
+        currentIndex = 0
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.processNextFile()
         }
     }
+
+    private func pauseMigration() {
+        guard !isPaused else { return }
+        isPaused = true
+        endBackgroundTask()
+        statusLabel.text = "Paused — unlock to continue"
+    }
+
+    @objc private func vaultUnlocked() {
+        guard isPaused else { return }
+        isPaused = false
+        beginBackgroundTask()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.processNextFile()
+        }
+    }
+
+    private func beginBackgroundTask() {
+        guard backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "MigrationCompletion") { [weak self] in
+            // Expiration handler: time is nearly up. We can't finish the current file safely,
+            // but there's nothing unsafe to abort — processNextFile will simply get suspended
+            // by the OS, and pendingMigrationType (already persisted) drives resume on next launch.
+            self?.endBackgroundTask()
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+    }
+    
+#if DEBUG
+    var testFailedFileNames: [String] { failedFiles.map { $0.item.name } }
+    var testIsPaused: Bool { isPaused }
+    var testStatusText: String? { statusLabel.text }
+
+    /// Directly invokes what the "Retry"/"Skip" alert actions do, bypassing UIAlertController
+    /// entirely — avoids relying on undocumented private API to simulate a tap.
+    func testTapRetry() { retryFailedFiles() }
+    func testTapSkip() { finishMigration() }
+#endif
 }

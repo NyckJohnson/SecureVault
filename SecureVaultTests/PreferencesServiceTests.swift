@@ -64,4 +64,21 @@ final class PreferencesServiceTests: XCTestCase {
         PreferencesService.shared.lockMode = .password
         XCTAssertEqual(PreferencesService.shared.lockMode, .password)
     }
+
+    // MARK: - Pending Migration
+    func testPendingMigrationTypeRoundTrips() {
+        PreferencesService.shared.pendingMigrationType = nil
+        XCTAssertNil(PreferencesService.shared.pendingMigrationType)
+        PreferencesService.shared.pendingMigrationType = .encrypt
+        XCTAssertEqual(PreferencesService.shared.pendingMigrationType, .encrypt)
+        PreferencesService.shared.pendingMigrationType = nil
+        XCTAssertNil(PreferencesService.shared.pendingMigrationType)
+    }
+
+    func testPendingMigrationTargetLockModeRoundTrips() {
+        PreferencesService.shared.pendingMigrationTargetLockMode = .passwordAndBiometrics
+        XCTAssertEqual(PreferencesService.shared.pendingMigrationTargetLockMode, .passwordAndBiometrics)
+        PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        XCTAssertNil(PreferencesService.shared.pendingMigrationTargetLockMode)
+    }
 }

@@ -54,6 +54,10 @@ final class FileSystem {
     private let mappingFileName = ".vault_map"
     private let tempDir = FileManager.default.temporaryDirectory
 
+#if DEBUG
+    static var testForcedMigrationFailureFileName: String?
+#endif
+
     // MARK: - Encryption state
     private var isEncryptionEnabled: Bool {
         CryptoService.shared.isKeyLoaded
@@ -572,6 +576,12 @@ final class FileSystem {
     }
 
     func migrateFileToEncrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FAIL_MIGRATION_FILE"] == item.name
+            || FileSystem.testForcedMigrationFailureFileName == item.name {
+            throw CryptoError.encryptionFailed
+        }
+#endif
         let uuid = UUID().uuidString
         let destination = directory.diskURL.appendingPathComponent(uuid)
         try CryptoService.shared.encryptFile(at: item.diskURL, to: destination)
@@ -607,11 +617,20 @@ final class FileSystem {
     }
     
     func migrateFileToDecrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+#if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FAIL_MIGRATION_FILE"] == item.name
+            || FileSystem.testForcedMigrationFailureFileName == item.name {
+            throw CryptoError.encryptionFailed
+        }
+#endif
         let encryptedURL = item.diskURL
         let name = resolvedName(for: item.name, in: directory.diskURL)
         let decryptedURL = directory.diskURL.appendingPathComponent(name)
         try CryptoService.shared.decryptFile(at: encryptedURL, to: decryptedURL)
         try FileManager.default.removeItem(at: encryptedURL)
+        var mapping = loadMapping(from: directory.diskURL)
+        mapping.removeValue(forKey: encryptedURL.lastPathComponent)
+        try saveMapping(mapping, to: directory.diskURL)
     }
 
     // MARK: - Cleanup
@@ -738,6 +757,7 @@ final class FileSystem {
     func testTrashMap() -> [String: TrashEntry] { loadTrashMap() }
     func saveTestTrashMap(_ map: [String: TrashEntry]) throws { try saveTrashMap(map) }
     typealias TrashEntryForTesting = TrashEntry
+    func testMapping(in directory: VaultDirectory) -> [String: VaultMapping] { loadMapping(from: directory.diskURL) }
     #endif
 }
 

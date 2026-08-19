@@ -143,7 +143,7 @@ final class ThumbnailService {
             }
         }
     }
-    
+
     // MARK: - Folder Thumbnail
     private func folderThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
         thumbnailQueue.async { [weak self] in

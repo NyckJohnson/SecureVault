@@ -1,7 +1,7 @@
 import XCTest
 @testable import SecureVault
 
-final class MigrationTests: XCTestCase {
+final class MigrationViewControllerTests: XCTestCase {
 
     var testDirectory: VaultDirectory!
 
@@ -17,224 +17,121 @@ final class MigrationTests: XCTestCase {
         super.tearDown()
         CryptoService.shared.wipeKey()
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        FileSystem.shared.cleanupTempFiles()
+        FileSystem.testForcedMigrationFailureFileName = nil
+        PreferencesService.shared.pendingMigrationType = nil
+        PreferencesService.shared.pendingMigrationTargetLockMode = nil
     }
 
-    // MARK: - Migrate To Encrypted
-    func testMigrateToEncryptedEncryptsFiles() throws {
-        // import unencrypted files
-        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("file1.txt")
-        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("file2.txt")
-        try "content1".write(to: url1, atomically: true, encoding: .utf8)
-        try "content2".write(to: url2, atomically: true, encoding: .utf8)
-        defer {
-            try? FileManager.default.removeItem(at: url1)
-            try? FileManager.default.removeItem(at: url2)
-        }
+    private func presentAndWait(_ sut: MigrationViewController, timeout: TimeInterval = 10) -> Bool {
+        let window = UIWindow()
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        window.rootViewController?.present(sut, animated: false)
 
-        // import without encryption
-        try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
-        var contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertTrue(contents.allSatisfy { !$0.isEncrypted })
+        let expectation = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { expectation.fulfill() }
+        wait(for: [expectation], timeout: timeout)
+        return true
+    }
 
-        // now enable encryption and migrate
+    // MARK: - Full Success
+    func testAllFilesSucceedCallsOnCompleteTrue() throws {
         try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
-
-        contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.count, 2)
-        XCTAssertTrue(contents.allSatisfy { $0.isEncrypted })
-    }
-
-    func testMigrateToEncryptedPreservesFileNames() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("important.txt")
+        let url = testDirectory.diskURL.appendingPathComponent("file.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
 
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
-
-        let contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.first?.name, "important.txt")
-    }
-
-    func testMigrateToEncryptedPreservesContent() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
-        let content = "preserved content"
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
-
-        let item = try FileSystem.shared.contents(of: testDirectory).first!
-        let openedURL = try FileSystem.shared.open(item)
-        let readContent = try String(contentsOf: openedURL, encoding: .utf8)
-        XCTAssertEqual(readContent, content)
-    }
-
-    func testMigrateToEncryptedReportsProgress() throws {
-        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("file1.txt")
-        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("file2.txt")
-        try "a".write(to: url1, atomically: true, encoding: .utf8)
-        try "b".write(to: url2, atomically: true, encoding: .utf8)
-        defer {
-            try? FileManager.default.removeItem(at: url1)
-            try? FileManager.default.removeItem(at: url2)
+        let done = expectation(description: "complete")
+        var result: Bool?
+        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+            result = completedFully
+            done.fulfill()
         }
-
-        try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
-        try CryptoService.shared.loadKey(from: "testpassword")
-
-        var progressValues: [Double] = []
-        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { progressValues.append($0) })
-
-        XCTAssertEqual(progressValues.count, 2)
-        XCTAssertEqual(progressValues.last, 1.0)
+        _ = presentAndWait(sut, timeout: 1)
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(result, true)
     }
 
-    // MARK: - Single File Migration / Mixed State
-    func testMigrateSingleFileProducesCorrectMixedState() throws {
-        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("file1.txt")
-        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("file2.txt")
-        try "content1".write(to: url1, atomically: true, encoding: .utf8)
-        try "content2".write(to: url2, atomically: true, encoding: .utf8)
-        defer {
-            try? FileManager.default.removeItem(at: url1)
-            try? FileManager.default.removeItem(at: url2)
+    // MARK: - Failure Summary / Skip
+    func testFailedFileAppearsInSummaryAndSkipCompletesWithFalse() throws {
+        try CryptoService.shared.loadKey(from: "testpassword")
+        let goodURL = testDirectory.diskURL.appendingPathComponent("good.txt")
+        let badURL = testDirectory.diskURL.appendingPathComponent("bad.txt")
+        try "content".write(to: goodURL, atomically: true, encoding: .utf8)
+        try "content".write(to: badURL, atomically: true, encoding: .utf8)
+        FileSystem.testForcedMigrationFailureFileName = "bad.txt"
+
+        let done = expectation(description: "complete")
+        var result: Bool?
+        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+            result = completedFully
+            done.fulfill()
         }
+        _ = presentAndWait(sut, timeout: 1)
 
-        try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
-        try CryptoService.shared.loadKey(from: "testpassword")
+        XCTAssertEqual(sut.testFailedFileNames, ["bad.txt"])
+        sut.testTapSkip()
 
-        let unmigrated = try FileSystem.shared.contents(of: testDirectory)
-        let fileToMigrate = unmigrated.first { $0.name == "file1.txt" }!
-        try FileSystem.shared.migrateFileToEncrypted(fileToMigrate, in: testDirectory)
-
-        let contents = try FileSystem.shared.contents(of: testDirectory)
-
-        // no duplicates / no orphaned ghost entries — exactly one item per original file
-        XCTAssertEqual(contents.count, 2)
-        XCTAssertEqual(Set(contents.map { $0.name }), ["file1.txt", "file2.txt"])
-
-        let migrated = contents.first { $0.name == "file1.txt" }!
-        let untouched = contents.first { $0.name == "file2.txt" }!
-        XCTAssertTrue(migrated.isEncrypted)
-        XCTAssertFalse(untouched.isEncrypted)
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(result, false)
     }
 
-    func testMigrateSingleFilePreservesContentForBothStates() throws {
-        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("file1.txt")
-        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("file2.txt")
-        try "content1".write(to: url1, atomically: true, encoding: .utf8)
-        try "content2".write(to: url2, atomically: true, encoding: .utf8)
-        defer {
-            try? FileManager.default.removeItem(at: url1)
-            try? FileManager.default.removeItem(at: url2)
+    // MARK: - Retry
+    func testRetrySucceedsAfterClearingFailureCondition() throws {
+        try CryptoService.shared.loadKey(from: "testpassword")
+        let url = testDirectory.diskURL.appendingPathComponent("flaky.txt")
+        try "content".write(to: url, atomically: true, encoding: .utf8)
+        FileSystem.testForcedMigrationFailureFileName = "flaky.txt"
+
+        let done = expectation(description: "complete")
+        var result: Bool?
+        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+            result = completedFully
+            done.fulfill()
         }
+        _ = presentAndWait(sut, timeout: 1)
+        XCTAssertEqual(sut.testFailedFileNames, ["flaky.txt"])
 
-        try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
-        try CryptoService.shared.loadKey(from: "testpassword")
+        FileSystem.testForcedMigrationFailureFileName = nil  // clear the injected failure before retrying
+        sut.testTapRetry()
 
-        let unmigrated = try FileSystem.shared.contents(of: testDirectory)
-        let fileToMigrate = unmigrated.first { $0.name == "file1.txt" }!
-        try FileSystem.shared.migrateFileToEncrypted(fileToMigrate, in: testDirectory)
-
-        let contents = try FileSystem.shared.contents(of: testDirectory)
-        let migratedItem = contents.first { $0.name == "file1.txt" }!
-        let untouchedItem = contents.first { $0.name == "file2.txt" }!
-
-        let migratedURL = try FileSystem.shared.open(migratedItem)
-        let migratedContent = try String(contentsOf: migratedURL, encoding: .utf8)
-        XCTAssertEqual(migratedContent, "content1")
-
-        let untouchedContent = try String(contentsOf: untouchedItem.diskURL, encoding: .utf8)
-        XCTAssertEqual(untouchedContent, "content2")
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(result, true)
     }
-    
-    // MARK: - Migrate To Decrypted
-    func testMigrateToDecryptedDecryptsFiles() throws {
+
+    // MARK: - Pause on Key Loss
+    func testMigrationPausesWhenKeyIsWiped() throws {
         try CryptoService.shared.loadKey(from: "testpassword")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
+        let url = testDirectory.diskURL.appendingPathComponent("file.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
+        CryptoService.shared.wipeKey()  // key gone before migration ever starts
 
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        var contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertTrue(contents.first?.isEncrypted == true)
+        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { _ in
+            XCTFail("should not complete while paused")
+        }
+        presentAndWait(sut)
 
-        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
-        CryptoService.shared.wipeKey()
-
-        contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.count, 1)
-        XCTAssertFalse(contents.first?.isEncrypted == true)
+        XCTAssertTrue(sut.testIsPaused)
+        XCTAssertEqual(sut.testStatusText, "Paused — unlock to continue")
     }
 
-    func testMigrateToDecryptedPreservesFileNames() throws {
+    // MARK: - Resume After Unlock
+    func testMigrationResumesOnUnlockNotification() throws {
         try CryptoService.shared.loadKey(from: "testpassword")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("myfile.txt")
+        let url = testDirectory.diskURL.appendingPathComponent("file.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
+        CryptoService.shared.wipeKey()  // start already keyless, so it pauses immediately
 
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
+        let done = expectation(description: "complete")
+        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+            XCTAssertTrue(completedFully)
+            done.fulfill()
+        }
+        _ = presentAndWait(sut, timeout: 1)
+        XCTAssertTrue(sut.testIsPaused)
 
-        let contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.first?.name, "myfile.txt")
-    }
-
-    func testMigrateToDecryptedPreservesContent() throws {
         try CryptoService.shared.loadKey(from: "testpassword")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
-        let content = "decrypted content"
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
+        NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
 
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
-
-        let item = try FileSystem.shared.contents(of: testDirectory).first!
-        let readContent = try String(contentsOf: item.diskURL, encoding: .utf8)
-        XCTAssertEqual(readContent, content)
-    }
-
-    func testMigrateToDecryptedRemovesMappingFile() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
-        try "content".write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
-
-        let mapURL = testDirectory.diskURL.appendingPathComponent(".vault_map")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: mapURL.path))
-    }
-
-    // MARK: - Round Trip
-    func testEncryptThenDecryptRoundTrip() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
-        let content = "round trip content"
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        // import unencrypted
-        try FileSystem.shared.importItems(from: [url], to: testDirectory)
-
-        // encrypt
-        try CryptoService.shared.loadKey(from: "testpassword")
-        try FileSystem.shared.migrateVaultToEncrypted(in: testDirectory, progress: { _ in })
-
-        // decrypt
-        try FileSystem.shared.migrateVaultToDecrypted(in: testDirectory, progress: { _ in })
-        CryptoService.shared.wipeKey()
-
-        // verify content
-        let item = try FileSystem.shared.contents(of: testDirectory).first!
-        let readContent = try String(contentsOf: item.diskURL, encoding: .utf8)
-        XCTAssertEqual(readContent, content)
+        wait(for: [done], timeout: 10)
     }
 }

@@ -28,24 +28,6 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
-      <PostActions>
-         <ExecutionAction
-            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
-            <ActionContent
-               title = "Run Script"
-               scriptText = "# Type a script or drag a script file from your workspace to insert its path.&#10;osascript -e &apos;quit app &quot;Simulator&quot;&apos;&#10;find ~/Library/Developer/XCTestDevices -name &quot;*.xcappdata&quot; -mtime +1 -delete 2&gt;/dev/null || true&#10;">
-               <EnvironmentBuildable>
-                  <BuildableReference
-                     BuildableIdentifier = "primary"
-                     BlueprintIdentifier = "CDA9AA972FB144D300492A09"
-                     BuildableName = "SecureVault.app"
-                     BlueprintName = "SecureVault"
-                     ReferencedContainer = "container:SecureVault.xcodeproj">
-                  </BuildableReference>
-               </EnvironmentBuildable>
-            </ActionContent>
-         </ExecutionAction>
-      </PostActions>
       <TestPlans>
          <TestPlanReference
             reference = "container:SecureVaultUITests/SecureVault.xctestplan"
@@ -98,6 +80,13 @@
             ReferencedContainer = "container:SecureVault.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "UITEST_FAIL_MIGRATION_FILE"
+            value = "UITEST_FAIL_MIGRATION_FILE.rtf"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

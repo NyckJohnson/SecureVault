@@ -106,3 +106,47 @@ final class AuthServiceTests: XCTestCase {
         XCTAssertFalse(CryptoService.shared.isKeyLoaded)
     }
 }
+
+final class MigrationFinalizationTests: XCTestCase {
+    override func tearDown() {
+        super.tearDown()
+        AuthService.shared.lockMode = .none
+        AuthService.shared.removePassword()
+        CryptoService.shared.wipeKey()
+    }
+
+    func testFinalizeEncryptSetsTargetLockModeOnSuccess() {
+        AuthService.shared.finalizeMigration(type: .encrypt, targetLockMode: .password, completedFully: true)
+        XCTAssertEqual(AuthService.shared.lockMode, .password)
+    }
+
+    func testFinalizeEncryptDoesNotSetLockModeOnFailure() {
+        AuthService.shared.lockMode = .none
+        AuthService.shared.finalizeMigration(type: .encrypt, targetLockMode: .password, completedFully: false)
+        XCTAssertEqual(AuthService.shared.lockMode, .none)
+    }
+
+    func testFinalizeDecryptClearsStateOnSuccess() throws {
+        try CryptoService.shared.loadKey(from: "testpassword")
+        try AuthService.shared.setPassword("testpassword")
+        AuthService.shared.lockMode = .password
+
+        AuthService.shared.finalizeMigration(type: .decrypt, targetLockMode: nil, completedFully: true)
+
+        XCTAssertEqual(AuthService.shared.lockMode, .none)
+        XCTAssertFalse(AuthService.shared.hasPassword())
+        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+    }
+
+    func testFinalizeDecryptKeepsStateOnFailure() throws {
+        try CryptoService.shared.loadKey(from: "testpassword")
+        try AuthService.shared.setPassword("testpassword")
+        AuthService.shared.lockMode = .password
+
+        AuthService.shared.finalizeMigration(type: .decrypt, targetLockMode: nil, completedFully: false)
+
+        XCTAssertEqual(AuthService.shared.lockMode, .password)
+        XCTAssertTrue(AuthService.shared.hasPassword())
+        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+    }
+}

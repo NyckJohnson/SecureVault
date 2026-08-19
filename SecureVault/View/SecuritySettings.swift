@@ -9,8 +9,9 @@ import UIKit
 
 final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
 
-    private let authService = AuthService.shared
-    private var tableView: UITableView!
+    private let authService         = AuthService.shared
+    private var tableView:            UITableView!
+    private var hasUnencryptedFiles = false
 
     // MARK: - Sections
     private enum Section: Int, CaseIterable {
@@ -24,6 +25,19 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
         title = "Security"
         view.backgroundColor = .systemBackground
         setupTableView()
+        refreshUnencryptedFilesState { [weak self] in
+            self?.tableView.reloadData()
+        }
+    }
+
+    private func refreshUnencryptedFilesState(completion: @escaping () -> Void = {}) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let hasUnencrypted = (try? FileSystem.shared.filesToMigrate(toEncrypted: true, in: .root))?.isEmpty == false
+            DispatchQueue.main.async {
+                self?.hasUnencryptedFiles = hasUnencrypted
+                completion()
+            }
+        }
     }
 
     private func setupTableView() {
@@ -44,10 +58,14 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section)! {
-            case .lockMode: return 3
-            case .password: return authService.lockMode == .none ? 0 : 1
-            case .trash: return 1
+        case .lockMode: return showsReEncryptRow ? 4 : 3
+        case .password: return authService.lockMode == .none ? 0 : 1
+        case .trash: return 1
         }
+    }
+
+    private var showsReEncryptRow: Bool {
+        authService.lockMode != .none && hasUnencryptedFiles
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -75,9 +93,12 @@ extension SecuritySettingsViewController: UITableViewDataSource {
                 cell.textLabel?.text = "Password + \(authService.biometricType)"
                 cell.accessoryType = authService.lockMode == .passwordAndBiometrics ? .checkmark : .none
                 cell.textLabel?.textColor = authService.biometricsAvailable ? .label : .secondaryLabel
+            case 3:
+                cell.textLabel?.text = "Re-encrypt Everything"
+                cell.textLabel?.textColor = .systemBlue
             default: break
             }
-            
+
         case .password:
             cell.textLabel?.text = "Change Password"
             cell.textLabel?.textColor = .systemBlue
@@ -103,9 +124,10 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             case 2:
                 guard authService.biometricsAvailable else { return }
                 setLockMode(.passwordAndBiometrics)
+            case 3: reEncryptRemainingFiles()
             default: break
             }
-            
+
         case .password:
             promptChangePassword()
             
@@ -115,17 +137,31 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         }
     }
 
+#if DEBUG
+    func testSetHasUnencryptedFiles(_ value: Bool) {
+        hasUnencryptedFiles = value
+        tableView.reloadData()
+    }
+    var testTableView: UITableView { tableView }
+#endif
+
+    private func reEncryptRemainingFiles() {
+        let migration = MigrationViewController(type: .decrypt) { completedFully in
+            self.authService.finalizeMigration(type: .decrypt, targetLockMode: nil, completedFully: completedFully)
+            self.refreshUnencryptedFilesState { self.tableView.reloadData() }
+        }
+        present(migration, animated: true)
+    }
+
     private func setLockMode(_ mode: LockMode) {
         if mode == .none {
             let alert = UIAlertController(title: "Remove Lock?", message: "Your files will be decrypted and no longer protected.", preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                self.authService.lockMode = .none
-                self.authService.removePassword()
-                let migration = MigrationViewController(type: .decrypt) {
-                    CryptoService.shared.wipeKey()
-                    self.tableView.reloadData()
+                let migration = MigrationViewController(type: .encrypt, targetLockMode: mode) { completedFully in
+                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: mode, completedFully: completedFully)
+                    self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
                 self.present(migration, animated: true)
             })
@@ -133,8 +169,10 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         } else if !authService.hasPassword() {
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
-                let migration = MigrationViewController(type: .encrypt) {
-                    self.tableView.reloadData()
+                let migration = MigrationViewController(type: .encrypt, targetLockMode: authService.lockMode) { [weak self] completedFully in
+                    guard let self else { return }
+                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: self.authService.lockMode, completedFully: completedFully)
+                    self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
                 self.present(migration, animated: true)
             }
@@ -164,7 +202,6 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             do {
                 try self.authService.setPassword(password)
                 try CryptoService.shared.loadKey(from: password)
-                self.authService.lockMode = mode
                 completion()
             } catch {
                 self.showError("Failed to save password")

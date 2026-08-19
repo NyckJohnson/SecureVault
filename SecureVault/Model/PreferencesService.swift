@@ -35,6 +35,21 @@ final class PreferencesService {
     private let sortOptionKey    = "sortOption"
     private let sortDirectionKey = "sortDirection"
 
+    private let pendingMigrationTypeKey           = "pendingMigrationType"
+    private let pendingMigrationTargetLockModeKey = "pendingMigrationTargetLockMode"
+
+    var pendingMigrationType: MigrationViewController.MigrationType? {
+        get { MigrationViewController.MigrationType(rawValue: defaults.string(forKey: pendingMigrationTypeKey) ?? "") }
+        set { defaults.set(newValue?.rawValue, forKey: pendingMigrationTypeKey) }
+    }
+
+    /// Only meaningful when pendingMigrationType == .encrypt — the LockMode the user
+    /// originally selected, needed to finalize correctly if migration is resumed later.
+    var pendingMigrationTargetLockMode: LockMode? {
+        get { defaults.string(forKey: pendingMigrationTargetLockModeKey).flatMap(LockMode.init(rawValue:)) }
+        set { defaults.set(newValue?.rawValue, forKey: pendingMigrationTargetLockModeKey) }
+    }
+
     var sortOption: SortOption {
         get { SortOption(rawValue: defaults.string(forKey: sortOptionKey) ?? "name") ?? .name }
         set { defaults.set(newValue.rawValue, forKey: sortOptionKey) }

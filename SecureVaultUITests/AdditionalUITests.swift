@@ -203,6 +203,39 @@ final class AdditionalUITests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["SecureVault"].waitForExistence(timeout: 3))
     }
+    
+    // MARK: - Migration UI
+    func testMigrationFailureShowsRetrySkipOptions() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting"]
+        app.launchEnvironment = [
+            "UITEST_SEED_FILE_NAME": "failtest.txt",
+            "UITEST_FAIL_MIGRATION_FILE": "failtest.txt"
+        ]
+        app.launch()
+        skipSetupIfNeeded()
+
+        app.navigationBars.buttons["settingsButton"].tap()
+        app.tables.staticTexts["Password"].tap()
+
+        let alert = app.alerts["Set Password"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        let fields = alert.secureTextFields
+        fields.element(boundBy: 0).tap()
+        fields.element(boundBy: 0).typeText("testpassword")
+        fields.element(boundBy: 1).tap()
+        fields.element(boundBy: 1).typeText("testpassword")
+        alert.buttons["Set"].tap()
+
+        let failureAlert = app.alerts["Some Files Failed"]
+        XCTAssertTrue(failureAlert.waitForExistence(timeout: 10))
+        XCTAssertTrue(failureAlert.buttons["Retry"].exists)
+        XCTAssertTrue(failureAlert.buttons["Skip"].exists)
+        XCTAssertTrue(failureAlert.staticTexts["These files couldn't be migrated: failtest.txt"].exists)
+
+        failureAlert.buttons["Skip"].tap()
+        XCTAssertFalse(app.alerts["Some Files Failed"].waitForExistence(timeout: 3))
+    }
 
     // MARK: - Helpers
     private func skipSetupIfNeeded() {

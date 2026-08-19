@@ -18,7 +18,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             AuthService.shared.lockMode = .none
             AuthService.shared.removePassword()
             UIView.setAnimationsEnabled(false)
-            try? FileSystem.shared.emptyTrash()  // add this
+            try? FileSystem.shared.emptyTrash()
+            CryptoService.shared.wipeKey()
+            let rootContents = (try? FileManager.default.contentsOfDirectory(at: VaultDirectory.root.diskURL, includingPropertiesForKeys: nil)) ?? []
+            rootContents.forEach { try? FileManager.default.removeItem(at: $0) }
+
+            if let fileName = ProcessInfo.processInfo.environment["UITEST_SEED_FILE_NAME"] {
+                let url = VaultDirectory.root.diskURL.appendingPathComponent(fileName)
+                FileManager.default.createFile(atPath: url.path, contents: Data("uitest content".utf8))
+            }
         }
         return true
     }
