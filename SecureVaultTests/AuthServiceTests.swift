@@ -30,30 +30,59 @@ final class AuthServiceTests: XCTestCase {
 
     // MARK: - Password
     func testSetAndVerifyPassword() throws {
-        try AuthService.shared.setPassword("password123")
+        try AuthService.shared.createPassword("password123")
         XCTAssertNoThrow(try AuthService.shared.verifyPassword("password123"))
     }
 
     func testVerifyWrongPasswordThrows() throws {
-        try AuthService.shared.setPassword("password123")
+        try AuthService.shared.createPassword("password123")
         XCTAssertThrowsError(try AuthService.shared.verifyPassword("wrongpassword"))
     }
 
     func testHasPasswordReturnsTrueAfterSet() throws {
-        try AuthService.shared.setPassword("password123")
+        try AuthService.shared.createPassword("password123")
         XCTAssertTrue(AuthService.shared.hasPassword())
     }
 
     func testHasPasswordReturnsFalseAfterRemove() throws {
-        try AuthService.shared.setPassword("password123")
+        try AuthService.shared.createPassword("password123")
         AuthService.shared.removePassword()
         XCTAssertFalse(AuthService.shared.hasPassword())
     }
 
     func testVerifyPasswordLoadsEncryptionKey() throws {
-        try AuthService.shared.setPassword("password123")
+        try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
         XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+    }
+
+    // MARK: - Change Password
+    func testChangePasswordThenVerifyWithNewPassword() throws {
+        try AuthService.shared.createPassword("password123")
+        try AuthService.shared.verifyPassword("password123")
+        try AuthService.shared.changePassword(to: "newpassword456")
+        XCTAssertNoThrow(try AuthService.shared.verifyPassword("newpassword456"))
+    }
+
+    func testChangePasswordOldPasswordNoLongerVerifies() throws {
+        try AuthService.shared.createPassword("password123")
+        try AuthService.shared.verifyPassword("password123")
+        try AuthService.shared.changePassword(to: "newpassword456")
+        XCTAssertThrowsError(try AuthService.shared.verifyPassword("password123"))
+    }
+
+    /// Regression test: this is the scenario that used to corrupt vault access.
+    func testChangePasswordPreservesFileAccess() throws {
+        try AuthService.shared.createPassword("password123")
+        try AuthService.shared.verifyPassword("password123")
+        let secret = "vault contents".data(using: .utf8)!
+        let encrypted = try CryptoService.shared.encrypt(data: secret)
+
+        try AuthService.shared.changePassword(to: "newpassword456")
+        CryptoService.shared.wipeKey()
+        try AuthService.shared.verifyPassword("newpassword456")
+
+        XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted), secret)
     }
 
     // MARK: - Lock State
@@ -97,7 +126,7 @@ final class AuthServiceTests: XCTestCase {
 
     // MARK: - Background wipes key
     func testBackgroundWipesEncryptionKey() throws {
-        try AuthService.shared.setPassword("password123")
+        try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
         AuthService.shared.hasAuthenticated = true
         AuthService.shared.lockMode = .password
@@ -127,8 +156,7 @@ final class MigrationFinalizationTests: XCTestCase {
     }
 
     func testFinalizeDecryptClearsStateOnSuccess() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
-        try AuthService.shared.setPassword("testpassword")
+        try AuthService.shared.createPassword("testpassword")
         AuthService.shared.lockMode = .password
 
         AuthService.shared.finalizeMigration(type: .decrypt, targetLockMode: nil, completedFully: true)
@@ -139,8 +167,7 @@ final class MigrationFinalizationTests: XCTestCase {
     }
 
     func testFinalizeDecryptKeepsStateOnFailure() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
-        try AuthService.shared.setPassword("testpassword")
+        try AuthService.shared.createPassword("testpassword")
         AuthService.shared.lockMode = .password
 
         AuthService.shared.finalizeMigration(type: .decrypt, targetLockMode: nil, completedFully: false)

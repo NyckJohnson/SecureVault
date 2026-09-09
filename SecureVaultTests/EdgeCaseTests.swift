@@ -178,7 +178,7 @@ final class EdgeCaseTests: XCTestCase {
     }
 
     func testWriteEncryptedFile() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "original".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

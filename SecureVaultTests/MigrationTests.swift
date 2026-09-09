@@ -16,6 +16,7 @@ final class MigrationViewControllerTests: XCTestCase {
     override func tearDown() {
         super.tearDown()
         CryptoService.shared.wipeKey()
+        CryptoService.shared.wipeMasterKeyBlob()
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
         FileSystem.testForcedMigrationFailureFileName = nil
         PreferencesService.shared.pendingMigrationType = nil
@@ -36,7 +37,7 @@ final class MigrationViewControllerTests: XCTestCase {
 
     // MARK: - Full Success
     func testAllFilesSucceedCallsOnCompleteTrue() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = testDirectory.diskURL.appendingPathComponent("file.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
 
@@ -53,7 +54,7 @@ final class MigrationViewControllerTests: XCTestCase {
 
     // MARK: - Failure Summary / Skip
     func testFailedFileAppearsInSummaryAndSkipCompletesWithFalse() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let goodURL = testDirectory.diskURL.appendingPathComponent("good.txt")
         let badURL = testDirectory.diskURL.appendingPathComponent("bad.txt")
         try "content".write(to: goodURL, atomically: true, encoding: .utf8)
@@ -77,7 +78,7 @@ final class MigrationViewControllerTests: XCTestCase {
 
     // MARK: - Retry
     func testRetrySucceedsAfterClearingFailureCondition() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = testDirectory.diskURL.appendingPathComponent("flaky.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
         FileSystem.testForcedMigrationFailureFileName = "flaky.txt"
@@ -100,7 +101,7 @@ final class MigrationViewControllerTests: XCTestCase {
 
     // MARK: - Pause on Key Loss
     func testMigrationPausesWhenKeyIsWiped() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = testDirectory.diskURL.appendingPathComponent("file.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
         CryptoService.shared.wipeKey()  // key gone before migration ever starts
@@ -108,7 +109,7 @@ final class MigrationViewControllerTests: XCTestCase {
         let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { _ in
             XCTFail("should not complete while paused")
         }
-        presentAndWait(sut)
+        _ = presentAndWait(sut)
 
         XCTAssertTrue(sut.testIsPaused)
         XCTAssertEqual(sut.testStatusText, "Paused — unlock to continue")
@@ -116,7 +117,7 @@ final class MigrationViewControllerTests: XCTestCase {
 
     // MARK: - Resume After Unlock
     func testMigrationResumesOnUnlockNotification() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = testDirectory.diskURL.appendingPathComponent("file.txt")
         try "content".write(to: url, atomically: true, encoding: .utf8)
         CryptoService.shared.wipeKey()  // start already keyless, so it pauses immediately
@@ -129,7 +130,7 @@ final class MigrationViewControllerTests: XCTestCase {
         _ = presentAndWait(sut, timeout: 1)
         XCTAssertTrue(sut.testIsPaused)
 
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
 
         wait(for: [done], timeout: 10)

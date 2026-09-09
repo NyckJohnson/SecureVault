@@ -57,7 +57,7 @@ final class AdditionalEdgeCaseTests: XCTestCase {
 
     // MARK: - Copy Encrypted To Different Folder
     func testCopyEncryptedFileToSubfolder() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "encrypted copy to subfolder"
         try content.write(to: url, atomically: true, encoding: .utf8)
@@ -84,7 +84,7 @@ final class AdditionalEdgeCaseTests: XCTestCase {
 
     // MARK: - Move Encrypted Then Verify Content
     func testMoveEncryptedFileThenVerifyContent() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "content after move"
         try content.write(to: url, atomically: true, encoding: .utf8)
@@ -163,7 +163,7 @@ final class AdditionalEdgeCaseTests: XCTestCase {
     }
 
     func testEncryptedImportRenameMoveDelete() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "sequential ops content"
         try content.write(to: url, atomically: true, encoding: .utf8)
@@ -214,7 +214,7 @@ final class AdditionalEdgeCaseTests: XCTestCase {
     }
 
     func testEncryptedLargeFile() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("large.txt")
         let content = String(repeating: "x", count: 1024 * 1024) // 1MB
         try content.write(to: url, atomically: true, encoding: .utf8)

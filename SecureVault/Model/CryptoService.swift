@@ -18,15 +18,79 @@ nonisolated final class CryptoService: @unchecked Sendable {
 
     var isKeyLoaded: Bool { symmetricKey != nil }
 
-    func loadKey(from password: String) throws {
-        let salt = getOrCreateSalt()
-        let key = deriveKey(from: password, salt: salt)
-        symmetricKey = key
-    }
-
     func wipeKey() {
         print("wipeKey called")
         symmetricKey = nil
+    }
+
+    // MARK: - Master Key (random, wrapped at rest by a password-derived key)
+    private let masterKeyBlobKeychainKey = "com.securevault.masterKeyBlob"
+
+    /// Generates a new random master key, wraps it with a password-derived key, and stores the
+    /// wrapped blob in Keychain. Call once, when a password is first set. Loads the key into memory.
+    func createMasterKey(wrappedBy password: String) throws {
+        let masterKey = SymmetricKey(size: .bits256)
+        try storeWrappedMasterKey(masterKey, wrappedBy: password)
+        symmetricKey = masterKey
+    }
+
+    /// Derives a wrapping key from `password`, decrypts the stored master-key blob, and loads the
+    /// result into memory. Throws if the password is wrong or no blob exists yet.
+    func unwrapMasterKey(with password: String) throws {
+        guard let blob = readMasterKeyBlob() else { throw CryptoError.noKeyLoaded }
+        let wrappingKey = deriveKey(from: password, salt: getOrCreateSalt())
+        let sealedBox = try AES.GCM.SealedBox(combined: blob)
+        let masterKeyData = try AES.GCM.open(sealedBox, using: wrappingKey)
+        symmetricKey = SymmetricKey(data: masterKeyData)
+    }
+
+    /// Re-wraps the already-loaded master key under a new password. Call only after the old
+    /// password has been verified (i.e. the master key is already in memory).
+    func rewrapMasterKey(with newPassword: String) throws {
+        guard let masterKey = symmetricKey else { throw CryptoError.noKeyLoaded }
+        try storeWrappedMasterKey(masterKey, wrappedBy: newPassword)
+    }
+
+    func hasMasterKeyBlob() -> Bool {
+        readMasterKeyBlob() != nil
+    }
+
+    func wipeMasterKeyBlob() {
+        let query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrAccount as String: masterKeyBlobKeychainKey
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private func storeWrappedMasterKey(_ masterKey: SymmetricKey, wrappedBy password: String) throws {
+        let wrappingKey = deriveKey(from: password, salt: getOrCreateSalt())
+        let masterKeyData = masterKey.withUnsafeBytes { Data($0) }
+        guard let combined = try AES.GCM.seal(masterKeyData, using: wrappingKey).combined else {
+            throw CryptoError.encryptionFailed
+        }
+        let query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrAccount as String: masterKeyBlobKeychainKey,
+            kSecValueData as String:   combined
+        ]
+        SecItemDelete(query as CFDictionary)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        guard status == errSecSuccess else { throw CryptoError.encryptionFailed }
+    }
+
+    private func readMasterKeyBlob() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrAccount as String: masterKeyBlobKeychainKey,
+            kSecReturnData as String:  true,
+            kSecMatchLimit as String:  kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return data
     }
 
     // MARK: - Key Derivation

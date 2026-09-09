@@ -8,7 +8,7 @@ final class EncryptedFileSystemTests: XCTestCase {
     override func setUp() {
         super.setUp()
         // set up encryption
-        try? CryptoService.shared.loadKey(from: "testpassword123")
+        try? CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         // create temp directory
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

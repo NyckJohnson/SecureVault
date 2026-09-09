@@ -54,7 +54,7 @@ final class ExportServiceTests: XCTestCase {
 
     // MARK: - Prepare For Export (Encrypted)
     func testPrepareForExportDecryptsEncryptedFile() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "secret content"
         try content.write(to: sourceURL, atomically: true, encoding: .utf8)
@@ -72,7 +72,7 @@ final class ExportServiceTests: XCTestCase {
     }
 
     func testPrepareForExportEncryptedFileHasOriginalName() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("myfile.txt")
         try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }
@@ -85,7 +85,7 @@ final class ExportServiceTests: XCTestCase {
     }
 
     func testPrepareForExportEncryptedFileWithNoKeyThrows() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }
@@ -104,7 +104,7 @@ final class ExportServiceTests: XCTestCase {
 
     // MARK: - Cleanup
     func testCleanupTempFilesRemovesExportedFiles() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }

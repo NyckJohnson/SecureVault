@@ -30,7 +30,17 @@ final class AuthService {
     }
 
     // MARK: - Password
-    func setPassword(_ password: String) throws {
+    func createPassword(_ password: String) throws {
+        try storePlaintextPassword(password)
+        try CryptoService.shared.createMasterKey(wrappedBy: password)
+    }
+
+    func changePassword(to newPassword: String) throws {
+        try storePlaintextPassword(newPassword)
+        try CryptoService.shared.rewrapMasterKey(with: newPassword)
+    }
+
+    private func storePlaintextPassword(_ password: String) throws {
         let data = password.data(using: .utf8)!
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
@@ -43,29 +53,15 @@ final class AuthService {
     }
 
     func verifyPassword(_ password: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: passwordKeychainKey,
-            kSecReturnData as String:  true,
-            kSecMatchLimit as String:  kSecMatchLimitOne
-        ]
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let stored = String(data: data, encoding: .utf8) else {
-            throw AuthError.keychainError
+        do {
+            try CryptoService.shared.unwrapMasterKey(with: password)
+        } catch {
+            throw AuthError.wrongPassword
         }
-        guard stored == password else { throw AuthError.wrongPassword }
-        try CryptoService.shared.loadKey(from: password)
     }
 
     func hasPassword() -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: passwordKeychainKey
-        ]
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+        CryptoService.shared.hasMasterKeyBlob()
     }
 
     func removePassword() {
@@ -74,6 +70,7 @@ final class AuthService {
             kSecAttrAccount as String: passwordKeychainKey
         ]
         SecItemDelete(query as CFDictionary)
+        CryptoService.shared.wipeMasterKeyBlob()
     }
 
     // MARK: - Migration Completion
@@ -132,7 +129,7 @@ final class AuthService {
             }
 
             do {
-                try CryptoService.shared.loadKey(from: password)
+                try CryptoService.shared.unwrapMasterKey(with: password)
                 DispatchQueue.main.async { completion(true, nil) }
             } catch {
                 DispatchQueue.main.async { completion(false, AuthError.keychainError) }

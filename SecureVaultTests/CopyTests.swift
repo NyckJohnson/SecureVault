@@ -115,7 +115,7 @@ final class CopyTests: XCTestCase {
 
     // MARK: - Encrypted Copy
     func testCopyEncryptedFile() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "secret copy"
         try content.write(to: url, atomically: true, encoding: .utf8)
@@ -132,7 +132,7 @@ final class CopyTests: XCTestCase {
     }
 
     func testCopyEncryptedFilePreservesContent() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "secret content to copy"
         try content.write(to: url, atomically: true, encoding: .utf8)
@@ -152,7 +152,7 @@ final class CopyTests: XCTestCase {
     }
 
     func testCopyEncryptedFileResolvesNameConflict() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

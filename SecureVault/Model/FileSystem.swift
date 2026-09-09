@@ -205,9 +205,10 @@ final class FileSystem {
         }
     }
 
-    func importFromCameraRoll(results: [PHPickerResult], to directory: VaultDirectory, completion: @escaping (Int, Int) -> Void) {
+    func importFromCameraRoll(results: [PHPickerResult], to directory: VaultDirectory, completion: @escaping (_ succeededIdentifiers: [String], _ failed: Int) -> Void) {
         let group = DispatchGroup()
-        var succeeded = 0
+        let lock = NSLock()
+        var succeededIdentifiers: [String] = []
         var failed = 0
 
         for result in results {
@@ -216,20 +217,25 @@ final class FileSystem {
             group.enter()
             provider.loadFileRepresentation(forTypeIdentifier: typeID) { [weak self] url, error in
                 defer { group.leave() }
-                guard let self, let url else { failed += 1; return }
+                guard let self, let url else {
+                    lock.lock(); failed += 1; lock.unlock()
+                    return
+                }
                 do {
                     try self.importSingleFile(from: url, to: directory)
-                    succeeded += 1
+                    lock.lock()
+                    if let id = result.assetIdentifier { succeededIdentifiers.append(id) }
+                    lock.unlock()
                 } catch {
-                    failed += 1
+                    lock.lock(); failed += 1; lock.unlock()
                 }
             }
         }
         group.notify(queue: .main) {
-            completion(succeeded, failed)
+            completion(succeededIdentifiers, failed)
         }
     }
-    
+
     private func isDuplicate(sourceURL: URL, originalName: String, in directory: URL) -> Bool {
         guard let sourceHash = sha256Hex(ofFileAt: sourceURL) else { return false }
 

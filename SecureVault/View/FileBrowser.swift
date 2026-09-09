@@ -6,8 +6,6 @@
 //
 
 import UIKit
-import PhotosUI
-import UniformTypeIdentifiers
 
 final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
@@ -21,7 +19,6 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     private var isSelectMode = false
     private var selectedItems: Set<VaultItem> = []
     private var itemsPendingBulkAction: [VaultItem]?
-    private var documentPicker: UIDocumentPickerViewController?
 
     // MARK: - Init
     init(directory: VaultDirectory) {
@@ -50,13 +47,13 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             includingPropertiesForKeys: [.fileSizeKey]
         )) ?? []
         let totalSize = tempFiles.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0, +)
-        
-        #if DEBUG
+
+#if DEBUG
         print("Temp files: \(tempFiles.count), total size: \(totalSize / 1024 / 1024)MB")
         FileSystem.shared.diagnoseDiskState()
-        #endif
+#endif
     }
-    
+
     // MARK: - Navigation Bar
     private func setupNavigationBar() {
         if isSelectMode {
@@ -66,7 +63,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             let moveButton = UIBarButtonItem(image: UIImage(systemName: "arrow.right.circle"), style: .plain, target: self, action: #selector(bulkMove))
             let exportButton = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(bulkExport))
             let copyButton = UIBarButtonItem(image: UIImage(systemName: "doc.on.doc"), style: .plain, target: self, action: #selector(bulkCopy))
-            
+
             navigationItem.leftBarButtonItem = cancel
             navigationItem.title = selectedItems.isEmpty ? "Select Items" : "\(selectedItems.count) Selected"
             navigationItem.rightBarButtonItems = [deleteButton, moveButton, exportButton, copyButton]
@@ -78,17 +75,17 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             } else {
                 navigationItem.leftBarButtonItem = nil
             }
-            
+
             // Right side
             let selectButton    = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(enterSelectMode))
             let importButton    = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.down"), style: .plain, target: self, action: #selector(promptImport))
             let newDocButton    = UIBarButtonItem(image: UIImage(systemName: "doc.badge.plus"), style: .plain, target: self, action: #selector(promptNewDocument))
             let newFolderButton = UIBarButtonItem(image: UIImage(systemName: "folder.badge.plus"), style: .plain, target: self, action: #selector(promptNewFolder))
             let sortButton      = UIBarButtonItem(image: UIImage(systemName: "arrow.up.arrow.down"), style: .plain, target: self, action: #selector(promptSort))
-            
+
             navigationItem.title = directory.name
             navigationItem.rightBarButtonItems = [newFolderButton, newDocButton, importButton, sortButton, selectButton]
-            
+
             // for ui tests
             navigationItem.leftBarButtonItem?.accessibilityIdentifier = "settingsButton"
             sortButton.accessibilityIdentifier      = "sortButton"
@@ -109,7 +106,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         collectionView.dragInteractionEnabled = true
         collectionView.register(FileCell.self, forCellWithReuseIdentifier: FileCell.reuseID)
         view.addSubview(collectionView)
-        
+
         // for ui tests
         collectionView.accessibilityIdentifier = "fileGrid"
     }
@@ -269,7 +266,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         guard !selectedItems.isEmpty else { return }
         ExportService.shared.exportMultiple(Array(selectedItems), from: self, barButtonItem: navigationItem.rightBarButtonItems?.first)
     }
-    
+
     @objc private func bulkCopy() {
         guard !selectedItems.isEmpty else { return }
         for item in selectedItems {
@@ -282,6 +279,14 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     // MARK: - Helpers
     @objc private func reloadAfterRestore() {
         loadContents()
+    }
+
+    private func presentFolderPicker(for item: VaultItem) {
+        let picker = FolderPickerViewController(rootDirectory: VaultDirectory.root, currentDirectory: VaultDirectory.root)
+        picker.delegate = self
+        let nav = UINavigationController(rootViewController: picker)
+        nav.modalPresentationStyle = .formSheet
+        navigationController?.present(nav, animated: true)
     }
     
     @objc private func promptSort() {
@@ -311,7 +316,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         }
         present(sheet, animated: true)
     }
-    
+
     private func emptyStateLabel() -> UILabel {
         let label = UILabel()
         label.text = "No files yet"
@@ -358,53 +363,9 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Import
     @objc private func promptImport() {
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "Choose Files", style: .default) { [weak self] _ in
-            self?.presentFilePicker()
-        })
-        sheet.addAction(UIAlertAction(title: "Choose Folder", style: .default) { [weak self] _ in
-            self?.presentFolderPickerForImport()
-        })
-        sheet.addAction(UIAlertAction(title: "Choose Photos", style: .default) { [weak self] _ in
-            self?.presentPhotoPicker()
-        })
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        if let popover = sheet.popoverPresentationController {
-            popover.barButtonItem = navigationItem.rightBarButtonItems?.last
+        ImportService.shared.promptImport(into: directory, from: self, barButtonItem: navigationItem.rightBarButtonItems?.last) { [weak self] in
+            self?.loadContents()
         }
-        present(sheet, animated: true)
-    }
-
-    private func presentFilePicker() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
-        picker.delegate = self
-        picker.allowsMultipleSelection = true
-        documentPicker = picker
-        present(picker, animated: true)
-    }
-
-    private func presentFolderPickerForImport() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
-        picker.delegate = self
-        picker.allowsMultipleSelection = true
-        present(picker, animated: true)
-    }
-
-    private func presentFolderPicker(for item: VaultItem) {
-        let picker = FolderPickerViewController(rootDirectory: VaultDirectory.root, currentDirectory: VaultDirectory.root)
-        picker.delegate = self
-        let nav = UINavigationController(rootViewController: picker)
-        nav.modalPresentationStyle = .formSheet
-        navigationController?.present(nav, animated: true)
-    }
-
-    private func presentPhotoPicker() {
-        var config = PHPickerConfiguration()
-        config.selectionLimit = 0
-        config.filter = .any(of: [.images, .videos])
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = self
-        present(picker, animated: true)
     }
 }
 
@@ -483,49 +444,6 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         animator?.addCompletion {
             self.pendingAction?()
             self.pendingAction = nil
-        }
-    }
-}
-
-// MARK: - UIDocumentPickerDelegate
-extension FileBrowserViewController: UIDocumentPickerDelegate {
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        let overlay = ProgressOverlay.show(in: self, title: "Importing...")
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                var lastUpdate = Date()
-                try FileSystem.shared.importItems(from: urls, to: self.directory) { progress in
-                    let now = Date()
-                    if now.timeIntervalSince(lastUpdate) > 0.1 || progress == 1.0 {
-                        lastUpdate = now
-                        overlay.update(progress: Float(progress), status: "\(min(100, Int(progress * 100)))% complete")
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async { self.showError(error) }
-            }
-            DispatchQueue.main.async {
-                overlay.dismiss()
-                self.loadContents()
-            }
-        }
-    }
-}
-
-// MARK: - PHPickerViewControllerDelegate
-extension FileBrowserViewController: PHPickerViewControllerDelegate {
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        dismiss(animated: true)
-        guard !results.isEmpty else { return }
-        let overlay = ProgressOverlay.show(in: self, title: "Importing Photos...")
-        FileSystem.shared.importFromCameraRoll(results: results, to: directory) { [weak self] succeeded, failed in
-            overlay.dismiss()
-            self?.loadContents()
-            if failed > 0 {
-                let alert = UIAlertController(title: nil, message: "\(succeeded) imported, \(failed) failed", preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
-                self?.present(alert, animated: true)
-            }
         }
     }
 }

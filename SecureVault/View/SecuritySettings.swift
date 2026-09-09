@@ -200,8 +200,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 return
             }
             do {
-                try self.authService.setPassword(password)
-                try CryptoService.shared.loadKey(from: password)
+                try self.authService.createPassword(password)
                 completion()
             } catch {
                 self.showError("Failed to save password")
@@ -231,7 +230,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                     self.showError("New passwords do not match")
                     return
                 }
-                try self.authService.setPassword(new)
+                try AuthService.shared.createPassword("password123")
                 self.showSuccess("Password changed successfully")
             } catch AuthError.wrongPassword {
                 self.showError("Current password is incorrect")

@@ -12,12 +12,13 @@ final class CryptoServiceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        try? CryptoService.shared.loadKey(from: "testpassword123")
+        try? CryptoService.shared.createMasterKey(wrappedBy: "testpassword123")
     }
 
     override func tearDown() {
         super.tearDown()
         CryptoService.shared.wipeKey()
+        CryptoService.shared.wipeMasterKeyBlob()
     }
 
     // MARK: - Key Loading
@@ -30,13 +31,11 @@ final class CryptoServiceTests: XCTestCase {
         XCTAssertFalse(CryptoService.shared.isKeyLoaded)
     }
 
-    func testSamePasswordProducesSameKey() throws {
-        try CryptoService.shared.loadKey(from: "testpassword123")
+    func testSamePasswordUnwrapsSameMasterKey() throws {
         let data = "test".data(using: .utf8)!
         let encrypted1 = try CryptoService.shared.encrypt(data: data)
         CryptoService.shared.wipeKey()
-        try CryptoService.shared.loadKey(from: "testpassword123")
-        // should be able to decrypt with reloaded key
+        try CryptoService.shared.unwrapMasterKey(with: "testpassword123")
         XCTAssertNoThrow(try CryptoService.shared.decrypt(data: encrypted1))
     }
 
@@ -61,11 +60,11 @@ final class CryptoServiceTests: XCTestCase {
         XCTAssertNotEqual(encrypted1, encrypted2)
     }
 
-    func testDecryptWithWrongKeyFails() throws {
+    func testDecryptWithDifferentMasterKeyFails() throws {
         let original = "Hello".data(using: .utf8)!
         let encrypted = try CryptoService.shared.encrypt(data: original)
         CryptoService.shared.wipeKey()
-        try CryptoService.shared.loadKey(from: "wrongpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "differentpassword")
         XCTAssertThrowsError(try CryptoService.shared.decrypt(data: encrypted))
     }
 
@@ -90,6 +89,45 @@ final class CryptoServiceTests: XCTestCase {
         XCTAssertEqual(large, decrypted)
     }
 
+    // MARK: - Master Key
+    func testHasMasterKeyBlobFalseAfterWipe() {
+        CryptoService.shared.wipeMasterKeyBlob()
+        XCTAssertFalse(CryptoService.shared.hasMasterKeyBlob())
+    }
+
+    func testUnwrapMasterKeyWithWrongPasswordThrows() {
+        XCTAssertThrowsError(try CryptoService.shared.unwrapMasterKey(with: "wrongpassword"))
+    }
+
+    func testUnwrapMasterKeyWithNoBlobThrows() {
+        CryptoService.shared.wipeMasterKeyBlob()
+        XCTAssertThrowsError(try CryptoService.shared.unwrapMasterKey(with: "anything"))
+    }
+
+    func testRewrapAllowsUnwrapWithNewPassword() throws {
+        try CryptoService.shared.rewrapMasterKey(with: "newpassword456")
+        CryptoService.shared.wipeKey()
+        XCTAssertNoThrow(try CryptoService.shared.unwrapMasterKey(with: "newpassword456"))
+    }
+
+    func testRewrapWithoutLoadedKeyThrows() {
+        CryptoService.shared.wipeKey()
+        XCTAssertThrowsError(try CryptoService.shared.rewrapMasterKey(with: "x"))
+    }
+
+    /// Regression test for the bug this feature fixes: changing the password must not
+    /// change which key files are encrypted under.
+    func testRewrapPreservesEncryptionKey() throws {
+        let data = "preserve me".data(using: .utf8)!
+        let encrypted = try CryptoService.shared.encrypt(data: data)
+
+        try CryptoService.shared.rewrapMasterKey(with: "newpassword456")
+        CryptoService.shared.wipeKey()
+        try CryptoService.shared.unwrapMasterKey(with: "newpassword456")
+
+        XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted), data)
+    }
+    
     // MARK: - File Encryption
     func testEncryptFileThenDecryptReturnsOriginal() throws {
         let tempDir = FileManager.default.temporaryDirectory

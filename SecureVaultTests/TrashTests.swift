@@ -205,7 +205,7 @@ final class TrashTests: XCTestCase {
 
     // MARK: - Encrypted Trash
     func testEncryptedFileMoveToTrash() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "secret".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -221,7 +221,7 @@ final class TrashTests: XCTestCase {
     }
 
     func testEncryptedFileRestoreFromTrash() throws {
-        try CryptoService.shared.loadKey(from: "testpassword")
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "secret content".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
