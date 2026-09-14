@@ -15,12 +15,6 @@ final class CryptoServiceTests: XCTestCase {
         try? CryptoService.shared.createMasterKey(wrappedBy: "testpassword123")
     }
 
-    override func tearDown() {
-        super.tearDown()
-        CryptoService.shared.wipeKey()
-        CryptoService.shared.wipeMasterKeyBlob()
-    }
-
     // MARK: - Key Loading
     func testKeyLoadsSuccessfully() throws {
         XCTAssertTrue(CryptoService.shared.isKeyLoaded)

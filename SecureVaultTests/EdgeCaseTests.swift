@@ -1,26 +1,7 @@
 import XCTest
 @testable import SecureVault
 
-final class EdgeCaseTests: XCTestCase {
-
-    var testDirectory: VaultDirectory!
-
-    override func setUp() {
-        super.setUp()
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-        try? FileSystem.shared.emptyTrash()
-    }
-
-    override func tearDown() {
-        super.tearDown()
-        CryptoService.shared.wipeKey()
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        try? FileSystem.shared.emptyTrash()
-        FileSystem.shared.cleanupTempFiles()
-    }
+final class EdgeCaseTests: VaultTestCase {
 
     // MARK: - Empty Folder
     func testEmptyFolderContentsIsEmpty() throws {
@@ -102,7 +83,7 @@ final class EdgeCaseTests: XCTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trash = FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash()
         XCTAssertEqual(trash.first?.name, "noextension")
     }
 
@@ -204,7 +185,7 @@ final class EdgeCaseTests: XCTestCase {
         try FileSystem.shared.delete(item)
 
         // manually set deletion date to 31 days ago
-        var trashMap = FileSystem.shared.testTrashMap()
+        var trashMap = try FileSystem.shared.testTrashMap()
         if let key = trashMap.keys.first {
             let oldEntry = trashMap[key]!
             trashMap[key] = FileSystem.TrashEntryForTesting(
@@ -218,7 +199,7 @@ final class EdgeCaseTests: XCTestCase {
         }
 
         FileSystem.shared.cleanupExpiredTrashItems()
-        XCTAssertTrue(FileSystem.shared.contentsOfTrash().isEmpty)
+        XCTAssertTrue(try FileSystem.shared.contentsOfTrash().isEmpty)
     }
 
     func testRestoreWhenOriginalFolderDeleted() throws {
@@ -237,7 +218,7 @@ final class EdgeCaseTests: XCTestCase {
         try FileSystem.shared.delete(subFolderItem)
 
         // restore should recreate the folder
-        let trashItems = FileSystem.shared.contentsOfTrash()
+        let trashItems = try FileSystem.shared.contentsOfTrash()
         let fileItem = trashItems.first { !$0.isDirectory }
         guard let fileItem else { return }
 

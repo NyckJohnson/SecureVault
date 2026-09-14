@@ -117,11 +117,21 @@ final class LockScreenViewController: UIViewController {
     private func attemptUnlock(with password: String? = nil) {
         guard !isAuthenticating else { return }
         if let password {
-            do {
-                try authService.verifyPassword(password)
-                unlockSucceeded()
-            } catch {
-                showError("Incorrect password")
+            isAuthenticating = true
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                do {
+                    try self.authService.verifyPassword(password)
+                    DispatchQueue.main.async {
+                        self.isAuthenticating = false
+                        self.unlockSucceeded()
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.isAuthenticating = false
+                        self.showError("Incorrect password")
+                    }
+                }
             }
         } else {
             isAuthenticating = true

@@ -1,26 +1,13 @@
 import XCTest
 @testable import SecureVault
 
-final class MigrationViewControllerTests: XCTestCase {
-
-    var testDirectory: VaultDirectory!
-
-    override func setUp() {
-        super.setUp()
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-    }
+final class MigrationViewControllerTests: VaultTestCase {
 
     override func tearDown() {
-        super.tearDown()
-        CryptoService.shared.wipeKey()
-        CryptoService.shared.wipeMasterKeyBlob()
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
         FileSystem.testForcedMigrationFailureFileName = nil
         PreferencesService.shared.pendingMigrationType = nil
         PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        super.tearDown()
     }
 
     private func presentAndWait(_ sut: MigrationViewController, timeout: TimeInterval = 10) -> Bool {

@@ -40,7 +40,12 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
     }
 
     private func loadItems() {
-        items = FileSystem.shared.contentsOfTrash()
+        do {
+            items = try FileSystem.shared.contentsOfTrash()
+        } catch {
+            items = []
+            showError(error)
+        }
         tableView.reloadData()
         tableView.backgroundView = items.isEmpty ? emptyStateLabel() : nil
         navigationItem.rightBarButtonItem?.isEnabled = !items.isEmpty

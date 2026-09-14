@@ -100,6 +100,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
             guard let self else { return }
             do {
                 filesToMigrate = try FileSystem.shared.filesToMigrate(toEncrypted: type == .encrypt, in: directory)
+                print("Resuming migration — \(filesToMigrate.count) files still need to be en/de-crypted")
             } catch {
                 DispatchQueue.main.async { self.showError(error) }
                 return

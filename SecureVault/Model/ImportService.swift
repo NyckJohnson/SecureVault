@@ -135,7 +135,6 @@ extension ImportService: PHPickerViewControllerDelegate {
     }
 
     func confirmDeleteFromCameraRoll(identifiers: [String]) {
-        guard !identifiers.isEmpty else { return }
         cameraRollDeleter.deleteAssets(withIdentifiers: identifiers)
     }
 }

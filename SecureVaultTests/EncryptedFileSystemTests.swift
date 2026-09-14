@@ -1,26 +1,11 @@
 import XCTest
 @testable import SecureVault
 
-final class EncryptedFileSystemTests: XCTestCase {
-
-    var testDirectory: VaultDirectory!
+final class EncryptedFileSystemTests: VaultTestCase {
 
     override func setUp() {
-        super.setUp()
-        // set up encryption
         try? CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        // create temp directory
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-    }
-
-    override func tearDown() {
-        super.tearDown()
-        CryptoService.shared.wipeKey()
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        FileSystem.shared.cleanupTempFiles()
+        super.setUp()
     }
 
     // MARK: - Encrypted Import

@@ -112,10 +112,11 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        let screenWidth = view.bounds.width
+        let sectionInset: CGFloat = 8
+        let availableWidth = view.bounds.width - (sectionInset * 2)
         let minItemWidth: CGFloat = 100
-        let count = max(2, Int(screenWidth / minItemWidth))
-        let itemWidth = screenWidth / CGFloat(count)
+        let count = max(2, Int(availableWidth / minItemWidth))
+        let itemWidth = availableWidth / CGFloat(count)
         let itemSize = NSCollectionLayoutSize(widthDimension: .absolute(itemWidth), heightDimension: .absolute(itemWidth * 1.4))
         let item = NSCollectionLayoutItem(layoutSize: itemSize)
         item.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)

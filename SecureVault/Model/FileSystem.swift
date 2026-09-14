@@ -46,6 +46,18 @@ struct VaultMapping: Codable {
     let originalName: String
 }
 
+// MARK: - FileSystemError
+enum FileSystemError: Error, LocalizedError {
+    case mappingUnreadable
+
+    var errorDescription: String? {
+        switch self {
+        case .mappingUnreadable:
+            return "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."
+        }
+    }
+}
+
 // MARK: - FileSystemAPI
 final class FileSystem {
     static let shared = FileSystem()
@@ -70,7 +82,7 @@ final class FileSystem {
             includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey],
             options: .skipsHiddenFiles
         )
-        let mapping = loadMapping(from: directory.diskURL)
+        let mapping = try loadMapping(from: directory.diskURL)
         return urls.compactMap { url -> VaultItem? in
             let fileName = url.lastPathComponent
             guard fileName != mappingFileName else { return nil }
@@ -160,12 +172,12 @@ final class FileSystem {
         
         if isEncryptionEnabled {
             // resolve conflicts against existing mapped names
-            let existingNames = loadMapping(from: directory.diskURL).values.map { $0.originalName }
+            let existingNames = try loadMapping(from: directory.diskURL).values.map { $0.originalName }
             let name = resolvedNameInMapping(for: originalName, existingNames: existingNames)
             let uuid = UUID().uuidString
             let destination = directory.diskURL.appendingPathComponent(uuid)
             try CryptoService.shared.encryptFile(at: url, to: destination)
-            var mapping = loadMapping(from: directory.diskURL)
+            var mapping = try loadMapping(from: directory.diskURL)
             mapping[uuid] = VaultMapping(originalName: name)
             try saveMapping(mapping, to: directory.diskURL)
         } else {
@@ -240,7 +252,7 @@ final class FileSystem {
         guard let sourceHash = sha256Hex(ofFileAt: sourceURL) else { return false }
 
         if isEncryptionEnabled {
-            let mapping = loadMapping(from: directory)
+            let mapping = (try? loadMapping(from: directory)) ?? [:]
             guard let existingUUID = mapping.first(where: { $0.value.originalName == originalName })?.key else {
                 return false
             }
@@ -377,11 +389,13 @@ final class FileSystem {
         if item.isEncrypted {
             // move mapping entry
             let sourceDir = item.diskURL.deletingLastPathComponent()
-            var sourceMapping = loadMapping(from: sourceDir)
-            var destMapping = loadMapping(from: directory.diskURL)
+            var sourceMapping = try loadMapping(from: sourceDir)
+            var destMapping = try loadMapping(from: directory.diskURL)
             let uuid = item.diskURL.lastPathComponent
             if let entry = sourceMapping[uuid] {
-                destMapping[uuid] = entry
+                let existingNames = destMapping.values.map { $0.originalName }
+                let resolvedOriginalName = resolvedNameInMapping(for: entry.originalName, existingNames: existingNames)
+                destMapping[uuid] = VaultMapping(originalName: resolvedOriginalName)
                 sourceMapping.removeValue(forKey: uuid)
                 try saveMapping(sourceMapping, to: sourceDir)
                 try saveMapping(destMapping, to: directory.diskURL)
@@ -394,7 +408,7 @@ final class FileSystem {
             let newUUID = UUID().uuidString
             let destination = directory.diskURL.appendingPathComponent(newUUID)
             try FileManager.default.copyItem(at: item.diskURL, to: destination)
-            var mapping = loadMapping(from: directory.diskURL)
+            var mapping = try loadMapping(from: directory.diskURL)
             let existingNames = mapping.values.map { $0.originalName }
             let resolvedName = resolvedNameInMapping(for: item.name, existingNames: existingNames)
             mapping[newUUID] = VaultMapping(originalName: resolvedName)
@@ -410,8 +424,10 @@ final class FileSystem {
         if item.isEncrypted {
             let uuid = item.diskURL.lastPathComponent
             let dir = item.diskURL.deletingLastPathComponent()
-            var mapping = loadMapping(from: dir)
-            mapping[uuid] = VaultMapping(originalName: name)
+            var mapping = try loadMapping(from: dir)
+            let existingNames = mapping.filter { $0.key != uuid }.values.map { $0.originalName }
+            let resolvedName = resolvedNameInMapping(for: name, existingNames: existingNames)
+            mapping[uuid] = VaultMapping(originalName: resolvedName)
             try saveMapping(mapping, to: dir)
         } else {
             let destination = item.diskURL.deletingLastPathComponent().appendingPathComponent(name)
@@ -453,12 +469,12 @@ final class FileSystem {
 
         if item.isEncrypted {
             let sourceDir = item.diskURL.deletingLastPathComponent()
-            var sourceMapping = loadMapping(from: sourceDir)
+            var sourceMapping = try loadMapping(from: sourceDir)
             sourceMapping.removeValue(forKey: item.diskURL.lastPathComponent)
             try saveMapping(sourceMapping, to: sourceDir)
         }
 
-        var trashMap = loadTrashMap()
+        var trashMap = try loadTrashMap()
         trashMap[uuid] = TrashEntry(
             originalDiskName: item.diskURL.lastPathComponent,
             originalDirectoryURL: item.diskURL.deletingLastPathComponent().path,
@@ -470,7 +486,7 @@ final class FileSystem {
     }
     
     func restoreFromTrash(_ item: VaultItem) throws {
-        var trashMap = loadTrashMap()
+        var trashMap = try loadTrashMap()
         guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key,
               let entry = trashMap[uuid] else { return }
 
@@ -481,7 +497,7 @@ final class FileSystem {
         try FileManager.default.moveItem(at: item.diskURL, to: destination)
 
         if entry.isEncrypted {
-            var mapping = loadMapping(from: originalDir)
+            var mapping = try loadMapping(from: originalDir)
             mapping[entry.originalDiskName] = VaultMapping(originalName: entry.originalName)
             try saveMapping(mapping, to: originalDir)
         }
@@ -490,8 +506,8 @@ final class FileSystem {
         try saveTrashMap(trashMap)
     }
 
-    func contentsOfTrash() -> [VaultItem] {
-        let trashMap = loadTrashMap()
+    func contentsOfTrash() throws -> [VaultItem] {
+        let trashMap = try loadTrashMap()
         let trashURL = trashDirectory.diskURL
         return trashMap.compactMap { uuid, entry in
             let diskURL = trashURL.appendingPathComponent(uuid)
@@ -510,7 +526,7 @@ final class FileSystem {
     }
 
     func permanentlyDelete(_ item: VaultItem) throws {
-        var trashMap = loadTrashMap()
+        var trashMap = try loadTrashMap()
         guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key else { return }
         try FileManager.default.removeItem(at: item.diskURL)
         trashMap.removeValue(forKey: uuid)
@@ -518,16 +534,30 @@ final class FileSystem {
     }
 
     func emptyTrash() throws {
-        let items = contentsOfTrash()
+        // Deliberately best-effort: emptying the trash must always succeed at wiping
+        // everything, even if the existing map can't be decrypted (stale/mismatched key,
+        // corruption, etc.) — otherwise one unreadable map permanently wedges the trash
+        // folder, since nothing can ever successfully read-then-clear it again.
+        let items = (try? contentsOfTrash()) ?? []
         for item in items {
             try? FileManager.default.removeItem(at: item.diskURL)
+        }
+        // Also sweep any files a corrupted/unreadable map couldn't tell us about, so
+        // nothing is ever left permanently orphaned in the trash folder.
+        if let remaining = try? FileManager.default.contentsOfDirectory(at: trashDirectory.diskURL, includingPropertiesForKeys: nil) {
+            for url in remaining where url.lastPathComponent != trashMapName {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
         let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
         try? FileManager.default.removeItem(at: mapURL)
     }
 
     func cleanupExpiredTrashItems() {
-        var trashMap = loadTrashMap()
+        // Safe to swallow: an unreadable map yields an empty dict, the loop below finds
+        // nothing to remove, `changed` stays false, and we never reach saveTrashMap — so a
+        // failed read here can never overwrite good data with an empty one.
+        var trashMap = (try? loadTrashMap()) ?? [:]
         let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60) // 30 days
         var changed = false
         for (uuid, entry) in trashMap {
@@ -541,8 +571,8 @@ final class FileSystem {
         if changed { try? saveTrashMap(trashMap) }
     }
 
-    private func loadTrashMap() -> [String: TrashEntry] {
-        loadEncryptedJSON([String: TrashEntry].self, from: trashDirectory.diskURL.appendingPathComponent(trashMapName)) ?? [:]
+    private func loadTrashMap() throws -> [String: TrashEntry] {
+        try loadEncryptedJSON([String: TrashEntry].self, from: trashDirectory.diskURL.appendingPathComponent(trashMapName)) ?? [:]
     }
 
     private func saveTrashMap(_ map: [String: TrashEntry]) throws {
@@ -591,14 +621,14 @@ final class FileSystem {
         let uuid = UUID().uuidString
         let destination = directory.diskURL.appendingPathComponent(uuid)
         try CryptoService.shared.encryptFile(at: item.diskURL, to: destination)
-        var mapping = loadMapping(from: directory.diskURL)
+        var mapping = try loadMapping(from: directory.diskURL)
         mapping[uuid] = VaultMapping(originalName: item.name)
         try saveMapping(mapping, to: directory.diskURL)
         try FileManager.default.removeItem(at: item.diskURL)
     }
 
     func migrateVaultToDecrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
-        let mapping = loadMapping(from: directory.diskURL)
+        let mapping = try loadMapping(from: directory.diskURL)
         let total   = Double(mapping.count)
         let items   = try contents(of: directory).filter { !$0.isDirectory && $0.isEncrypted }
         
@@ -634,7 +664,7 @@ final class FileSystem {
         let decryptedURL = directory.diskURL.appendingPathComponent(name)
         try CryptoService.shared.decryptFile(at: encryptedURL, to: decryptedURL)
         try FileManager.default.removeItem(at: encryptedURL)
-        var mapping = loadMapping(from: directory.diskURL)
+        var mapping = try loadMapping(from: directory.diskURL)
         mapping.removeValue(forKey: encryptedURL.lastPathComponent)
         try saveMapping(mapping, to: directory.diskURL)
     }
@@ -648,7 +678,13 @@ final class FileSystem {
     #if DEBUG
     func diagnoseDiskState() {
         let root = VaultDirectory.root.diskURL
-        let mapping = loadMapping(from: root)
+        let mapping: [String: VaultMapping]
+        do {
+            mapping = try loadMapping(from: root)
+        } catch {
+            print("Mapping unreadable: \(error.localizedDescription)")
+            return
+        }
         let diskFiles = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? []
         
         print("Mapping entries: \(mapping.count)")
@@ -704,27 +740,41 @@ final class FileSystem {
         }
     }
     
-    private func loadEncryptedJSON<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        if CryptoService.shared.isKeyLoaded,
-           let decrypted = try? CryptoService.shared.decrypt(data: data) {
-            return try? JSONDecoder().decode(T.self, from: decrypted)
+    /// `nil` means "no mapping file exists yet" (a legitimately empty directory).
+    /// A thrown error means a mapping file exists but couldn't be read — e.g. corrupted by a
+    /// torn write, or genuinely encrypted ciphertext being read before the key is loaded.
+    /// Callers must NOT treat a thrown error as "empty" — doing so risks a subsequent save
+    /// overwriting real data with nothing. See FileSystemError.mappingUnreadable.
+    private func loadEncryptedJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let data = try? Data(contentsOf: url) else { throw FileSystemError.mappingUnreadable }
+
+        if CryptoService.shared.isKeyLoaded {
+            guard let decrypted = try? CryptoService.shared.decrypt(data: data),
+                  let decoded = try? JSONDecoder().decode(T.self, from: decrypted) else {
+                throw FileSystemError.mappingUnreadable
+            }
+            return decoded
         }
-        return try? JSONDecoder().decode(T.self, from: data)
+        // No key loaded — may still be a legacy plaintext mapping; try that before giving up.
+        guard let decoded = try? JSONDecoder().decode(T.self, from: data) else {
+            throw FileSystemError.mappingUnreadable
+        }
+        return decoded
     }
 
     private func saveEncryptedJSON<T: Encodable>(_ value: T, to url: URL) throws {
         let data = try JSONEncoder().encode(value)
         if CryptoService.shared.isKeyLoaded {
             let encrypted = try CryptoService.shared.encrypt(data: data)
-            try encrypted.write(to: url)
+            try encrypted.write(to: url, options: .atomic)
         } else {
-            try data.write(to: url)
+            try data.write(to: url, options: .atomic)
         }
     }
-    
-    private func loadMapping(from directory: URL) -> [String: VaultMapping] {
-        loadEncryptedJSON([String: VaultMapping].self, from: directory.appendingPathComponent(mappingFileName)) ?? [:]
+
+    private func loadMapping(from directory: URL) throws -> [String: VaultMapping] {
+        try loadEncryptedJSON([String: VaultMapping].self, from: directory.appendingPathComponent(mappingFileName)) ?? [:]
     }
 
     private func saveMapping(_ mapping: [String: VaultMapping], to directory: URL) throws {
@@ -760,10 +810,10 @@ final class FileSystem {
     
     // MARK: - Testing Only
     #if DEBUG
-    func testTrashMap() -> [String: TrashEntry] { loadTrashMap() }
+    func testTrashMap() throws -> [String: TrashEntry] { try loadTrashMap() }
     func saveTestTrashMap(_ map: [String: TrashEntry]) throws { try saveTrashMap(map) }
+    func testMapping(in directory: VaultDirectory) throws -> [String: VaultMapping] { try loadMapping(from: directory.diskURL) }
     typealias TrashEntryForTesting = TrashEntry
-    func testMapping(in directory: VaultDirectory) -> [String: VaultMapping] { loadMapping(from: directory.diskURL) }
     #endif
 }
 

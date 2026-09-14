@@ -1,23 +1,17 @@
 import XCTest
 
-final class AdditionalUITests: XCTestCase {
-
-    var app: XCUIApplication!
+final class AdditionalUITests: VaultUITestCase {
 
     override func setUp() {
         super.setUp()
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
-        app.launch()
         skipSetupIfNeeded()
     }
-
-    override func tearDown() {
-        super.tearDown()
-        app.terminate()
+    
+    override func skipSetupIfNeeded() {
+        super.skipSetupIfNeeded()
+        _ = app.navigationBars["SecureVault"].waitForExistence(timeout: 5)
     }
-
+    
     // MARK: - Context Menu
     func testLongPressShowsContextMenu() {
         // create a folder first
@@ -238,14 +232,6 @@ final class AdditionalUITests: XCTestCase {
     }
 
     // MARK: - Helpers
-    private func skipSetupIfNeeded() {
-        let continueButton = app.buttons["continueButton"]
-        if continueButton.waitForExistence(timeout: 2) {
-            continueButton.tap()
-        }
-        _ = app.navigationBars["SecureVault"].waitForExistence(timeout: 5)
-    }
-
     private func createFolder(named name: String) {
         app.navigationBars.buttons["newFolderButton"].tap()
         let alert = app.alerts.firstMatch

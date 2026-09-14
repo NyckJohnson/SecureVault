@@ -146,8 +146,8 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 #endif
 
     private func reEncryptRemainingFiles() {
-        let migration = MigrationViewController(type: .decrypt) { completedFully in
-            self.authService.finalizeMigration(type: .decrypt, targetLockMode: nil, completedFully: completedFully)
+        let migration = MigrationViewController(type: .encrypt) { completedFully in
+            self.authService.finalizeMigration(type: .encrypt, targetLockMode: self.authService.lockMode, completedFully: completedFully)
             self.refreshUnencryptedFilesState { self.tableView.reloadData() }
         }
         present(migration, animated: true)
@@ -159,8 +159,8 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                let migration = MigrationViewController(type: .encrypt, targetLockMode: mode) { completedFully in
-                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: mode, completedFully: completedFully)
+                let migration = MigrationViewController(type: .decrypt, targetLockMode: mode) { completedFully in
+                    self.authService.finalizeMigration(type: .decrypt, targetLockMode: mode, completedFully: completedFully)
                     self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
                 self.present(migration, animated: true)
@@ -169,9 +169,10 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         } else if !authService.hasPassword() {
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
-                let migration = MigrationViewController(type: .encrypt, targetLockMode: authService.lockMode) { [weak self] completedFully in
+                self.authService.lockMode = mode
+                let migration = MigrationViewController(type: .encrypt, targetLockMode: mode) { [weak self] completedFully in
                     guard let self else { return }
-                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: self.authService.lockMode, completedFully: completedFully)
+                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: mode, completedFully: completedFully)
                     self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
                 self.present(migration, animated: true)
@@ -230,7 +231,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                     self.showError("New passwords do not match")
                     return
                 }
-                try AuthService.shared.createPassword("password123")
+                try AuthService.shared.changePassword(to: new)
                 self.showSuccess("Password changed successfully")
             } catch AuthError.wrongPassword {
                 self.showError("Current password is incorrect")

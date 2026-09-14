@@ -1,24 +1,8 @@
 import XCTest
 @testable import SecureVault
 
-final class CopyTests: XCTestCase {
+final class CopyTests: VaultTestCase {
 
-    var testDirectory: VaultDirectory!
-
-    override func setUp() {
-        super.setUp()
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-    }
-
-    override func tearDown() {
-        super.tearDown()
-        CryptoService.shared.wipeKey()
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        FileSystem.shared.cleanupTempFiles()
-    }
 
     // MARK: - Basic Copy
     func testCopyFileCreatesDuplicate() throws {

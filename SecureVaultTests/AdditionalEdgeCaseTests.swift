@@ -1,26 +1,7 @@
 import XCTest
 @testable import SecureVault
 
-final class AdditionalEdgeCaseTests: XCTestCase {
-
-    var testDirectory: VaultDirectory!
-
-    override func setUp() {
-        super.setUp()
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-        try? FileSystem.shared.emptyTrash()
-    }
-
-    override func tearDown() {
-        super.tearDown()
-        CryptoService.shared.wipeKey()
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        try? FileSystem.shared.emptyTrash()
-        FileSystem.shared.cleanupTempFiles()
-    }
+final class AdditionalEdgeCaseTests: VaultTestCase {
 
     // MARK: - Folder Import Conflicts
     func testImportFolderWithConflictingName() throws {
@@ -158,7 +139,7 @@ final class AdditionalEdgeCaseTests: XCTestCase {
         XCTAssertTrue(subContents.isEmpty)
 
         // verify in trash
-        let trash = FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash()
         XCTAssertEqual(trash.first?.name, "renamed.txt")
     }
 
@@ -197,7 +178,7 @@ final class AdditionalEdgeCaseTests: XCTestCase {
 
         // delete
         try FileSystem.shared.delete(subContents.first!)
-        let trash = FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash()
         XCTAssertEqual(trash.first?.name, "renamed.txt")
     }
 

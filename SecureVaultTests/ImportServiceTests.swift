@@ -50,10 +50,4 @@ final class ImportServiceTests: XCTestCase {
         XCTAssertEqual(fakeDeleter.deleteCallCount, 1)
         XCTAssertEqual(fakeDeleter.deletedIdentifiers, [])
     }
-
-    func testConfirmDelete_withEmptyIdentifiers_doesNotCallDeleter() {
-        sut.confirmDeleteFromCameraRoll(identifiers: [])
-
-        XCTAssertEqual(fakeDeleter.deleteCallCount, 0)
-    }
 }

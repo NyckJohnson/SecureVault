@@ -8,24 +8,7 @@
 import XCTest
 @testable import SecureVault
 
-final class FileSystemTests: XCTestCase {
-
-    var testDirectory: VaultDirectory!
-
-    override func setUp() {
-        super.setUp()
-        // create a temp directory for each test
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-    }
-
-    override func tearDown() {
-        super.tearDown()
-        // clean up after each test
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
-    }
+final class FileSystemTests: VaultTestCase {
 
     // MARK: - Create Folder
     func testCreateFolder() throws {

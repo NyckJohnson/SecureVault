@@ -107,7 +107,7 @@ final class FileViewerViewController: UIViewController {
         navBar.addSubview(exportButton)
         
         NSLayoutConstraint.activate([
-            navBar.topAnchor.constraint(equalTo: view.topAnchor),
+            navBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             navBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navBar.heightAnchor.constraint(equalToConstant: 60),
@@ -194,7 +194,7 @@ final class FileViewerViewController: UIViewController {
         bufferWidthConstraint = bufferWidth
 
         NSLayoutConstraint.activate([
-            videoControls.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            videoControls.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             videoControls.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             videoControls.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             videoControls.heightAnchor.constraint(equalToConstant: 100),

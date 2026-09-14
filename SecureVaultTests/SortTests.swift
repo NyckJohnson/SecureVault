@@ -1,26 +1,18 @@
 import XCTest
 @testable import SecureVault
 
-final class SortTests: XCTestCase {
-
-    var testDirectory: VaultDirectory!
+final class SortTests: VaultTestCase {
 
     override func setUp() {
         super.setUp()
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-        // reset sort to defaults
         PreferencesService.shared.sortOption = .name
         PreferencesService.shared.sortDirection = .ascending
     }
 
     override func tearDown() {
-        super.tearDown()
         PreferencesService.shared.sortOption = .name
         PreferencesService.shared.sortDirection = .ascending
-        try? FileManager.default.removeItem(at: testDirectory.diskURL)
+        super.tearDown()
     }
 
     // MARK: - Helpers
