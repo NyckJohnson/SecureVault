@@ -212,6 +212,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
                 dateModified: Date(),
                 fileSize: 0,
                 diskURL: fileURL,
+                rootURL: self.directory.rootURL,
                 isEncrypted: false
             )
             let editor = TextEditorViewController(item: vaultItem)
@@ -390,7 +391,7 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         }
 
         if item.isDirectory {
-            let subDir = VaultDirectory(name: item.name, diskURL: item.diskURL)
+            let subDir = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
             let vc = FileBrowserViewController(directory: subDir)
             navigationController?.pushViewController(vc, animated: true)
         } else {
@@ -497,7 +498,7 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
             guard let draggedItem = item.dragItem.localObject as? VaultItem else { continue }
             let destinationItem = items[destinationIndexPath.item]
             if destinationItem.isDirectory {
-                let destDir = VaultDirectory(name: destinationItem.name, diskURL: destinationItem.diskURL)
+                let destDir = VaultDirectory(name: destinationItem.name, diskURL: destinationItem.diskURL, rootURL: destinationItem.rootURL)
                 do {
                     try FileSystem.shared.move(draggedItem, to: destDir)
                     loadContents()

@@ -11,6 +11,7 @@ final class VaultItemTests: XCTestCase {
             dateModified: Date(),
             fileSize: 100,
             diskURL: FileManager.default.temporaryDirectory.appendingPathComponent(name),
+            rootURL: FileManager.default.temporaryDirectory,
             isEncrypted: isEncrypted
         )
     }
@@ -18,8 +19,8 @@ final class VaultItemTests: XCTestCase {
     // MARK: - Equatable
     func testItemsWithSameIDAreEqual() {
         let id = UUID()
-        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(), fileSize: 1, diskURL: FileManager.default.temporaryDirectory, isEncrypted: false)
-        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(), fileSize: 2, diskURL: FileManager.default.temporaryDirectory, isEncrypted: false)
+        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(), fileSize: 1, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
+        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(), fileSize: 2, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
         XCTAssertEqual(item1, item2)
     }
 
@@ -32,8 +33,8 @@ final class VaultItemTests: XCTestCase {
     // MARK: - Hashable
     func testItemsWithSameIDHaveSameHash() {
         let id = UUID()
-        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(), fileSize: 1, diskURL: FileManager.default.temporaryDirectory, isEncrypted: false)
-        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(), fileSize: 2, diskURL: FileManager.default.temporaryDirectory, isEncrypted: false)
+        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(), fileSize: 1, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
+        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(), fileSize: 2, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
         XCTAssertEqual(item1.hashValue, item2.hashValue)
     }
 

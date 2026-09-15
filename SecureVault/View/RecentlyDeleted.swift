@@ -41,7 +41,7 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
 
     private func loadItems() {
         do {
-            items = try FileSystem.shared.contentsOfTrash()
+            items = try FileSystem.shared.contentsOfTrash(for: .root)
         } catch {
             items = []
             showError(error)
@@ -70,7 +70,7 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
         alert.addAction(UIAlertAction(title: "Empty Trash", style: .destructive) { [weak self] _ in
             guard let self else { return }
             do {
-                try FileSystem.shared.emptyTrash()
+                try FileSystem.shared.emptyTrash(for: .root)
                 self.loadItems()
             } catch {
                 self.showError(error)

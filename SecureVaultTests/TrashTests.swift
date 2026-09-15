@@ -26,7 +26,7 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.count, 1)
         XCTAssertEqual(trash.first?.name, "test.txt")
     }
@@ -45,7 +45,7 @@ final class TrashTests: VaultTestCase {
         let items = try FileSystem.shared.contents(of: testDirectory)
         for item in items { try FileSystem.shared.delete(item) }
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.count, 2)
     }
 
@@ -58,7 +58,7 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.first?.name, "myfile.txt")
     }
 
@@ -72,7 +72,7 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trashItem = try FileSystem.shared.contentsOfTrash().first!
+        let trashItem = try FileSystem.shared.contentsOfTrash(for: testDirectory).first!
         try FileSystem.shared.restoreFromTrash(trashItem)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -89,10 +89,10 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trashItem = try FileSystem.shared.contentsOfTrash().first!
+        let trashItem = try FileSystem.shared.contentsOfTrash(for: testDirectory).first!
         try FileSystem.shared.restoreFromTrash(trashItem)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertTrue(trash.isEmpty)
     }
 
@@ -106,7 +106,7 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trashItem = try FileSystem.shared.contentsOfTrash().first!
+        let trashItem = try FileSystem.shared.contentsOfTrash(for: testDirectory).first!
         try FileSystem.shared.restoreFromTrash(trashItem)
 
         let restored = try FileSystem.shared.contents(of: testDirectory).first!
@@ -124,10 +124,10 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trashItem = try FileSystem.shared.contentsOfTrash().first!
+        let trashItem = try FileSystem.shared.contentsOfTrash(for: testDirectory).first!
         try FileSystem.shared.permanentlyDelete(trashItem)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertTrue(trash.isEmpty)
     }
 
@@ -140,7 +140,7 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trashItem = try FileSystem.shared.contentsOfTrash().first!
+        let trashItem = try FileSystem.shared.contentsOfTrash(for: testDirectory).first!
         let diskURL = trashItem.diskURL
         try FileSystem.shared.permanentlyDelete(trashItem)
 
@@ -162,8 +162,8 @@ final class TrashTests: VaultTestCase {
         let items = try FileSystem.shared.contents(of: testDirectory)
         for item in items { try FileSystem.shared.delete(item) }
 
-        try FileSystem.shared.emptyTrash()
-        let trash = try FileSystem.shared.contentsOfTrash()
+        try FileSystem.shared.emptyTrash(for: testDirectory)
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertTrue(trash.isEmpty)
     }
 
@@ -177,9 +177,9 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        FileSystem.shared.cleanupExpiredTrashItems()
+        FileSystem.shared.cleanupExpiredTrashItems(for: testDirectory)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.count, 1)
     }
 
@@ -195,7 +195,7 @@ final class TrashTests: VaultTestCase {
         XCTAssertTrue(item.isEncrypted)
         try FileSystem.shared.delete(item)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.count, 1)
         XCTAssertEqual(trash.first?.name, "test.txt")
     }
@@ -210,14 +210,14 @@ final class TrashTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        XCTAssertEqual(try FileSystem.shared.contentsOfTrash().count, 1)
+        XCTAssertEqual(try FileSystem.shared.contentsOfTrash(for: testDirectory).count, 1)
 
-        let trashItem = try FileSystem.shared.contentsOfTrash().first!
+        let trashItem = try FileSystem.shared.contentsOfTrash(for: testDirectory).first!
         try FileSystem.shared.restoreFromTrash(trashItem)
 
         let restored = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertEqual(restored.count, 1)
         XCTAssertEqual(restored.first?.name, "test.txt")
-        XCTAssertTrue(try FileSystem.shared.contentsOfTrash().isEmpty)
+        XCTAssertTrue(try FileSystem.shared.contentsOfTrash(for: testDirectory).isEmpty)
     }
 }

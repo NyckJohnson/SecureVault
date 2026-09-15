@@ -27,29 +27,19 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     private let trashMapFileName = ".trash_map"
 
     private var testDirectory: VaultDirectory!
-    private var originalTrashMapBytes: Data?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        // Isolated scratch folder per test — never operate directly in vault root.
-        testDirectory = try FileSystem.shared.createFolder(named: "IntegrityTest-\(UUID().uuidString)", in: .root)
-
-        // The trash folder is global/shared, so back up its real mapping before any test
-        // that touches it, and restore it in tearDown rather than clobbering real trash data.
-        let trashMapURL = FileSystem.shared.trashDirectory.diskURL.appendingPathComponent(trashMapFileName)
-        originalTrashMapBytes = try? Data(contentsOf: trashMapURL)
+        // Isolated scratch folder per test, as its own vault root — trash for anything
+        // created here now lives under this temp root, never the real app vault's trash.
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("IntegrityTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+        testDirectory = VaultDirectory(name: "IntegrityTest", diskURL: tempURL, rootURL: tempURL)
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
-
-        let trashMapURL = FileSystem.shared.trashDirectory.diskURL.appendingPathComponent(trashMapFileName)
-        if let originalTrashMapBytes {
-            try? originalTrashMapBytes.write(to: trashMapURL, options: .atomic)
-        } else {
-            try? FileManager.default.removeItem(at: trashMapURL)
-        }
-
         CryptoService.shared.wipeKey()
         try super.tearDownWithError()
     }
@@ -122,7 +112,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         let itemToRename = VaultItem(
             id: UUID(), name: "Original.txt", isDirectory: false, dateModified: Date(), fileSize: nil,
-            diskURL: testDirectory.diskURL.appendingPathComponent(targetUUID), isEncrypted: true
+            diskURL: testDirectory.diskURL.appendingPathComponent(targetUUID), rootURL: testDirectory.rootURL, isEncrypted: true
         )
 
         XCTAssertThrowsError(try FileSystem.shared.rename(itemToRename, to: "Renamed.txt")) { error in
@@ -160,7 +150,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         let itemToMove = VaultItem(
             id: UUID(), name: "Moving.txt", isDirectory: false, dateModified: Date(), fileSize: nil,
-            diskURL: testDirectory.diskURL.appendingPathComponent(movingUUID), isEncrypted: true
+            diskURL: testDirectory.diskURL.appendingPathComponent(movingUUID), rootURL: testDirectory.rootURL, isEncrypted: true
         )
 
         XCTAssertThrowsError(try FileSystem.shared.move(itemToMove, to: destination)) { error in
@@ -178,12 +168,12 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     // MARK: - Trash map: verifying the deliberately-swallowed path stays safe
 
     func testCleanupExpiredTrashItems_DoesNotThrowOrWipe_WhenTrashMapIsCorrupted() throws {
-        let trashMapURL = FileSystem.shared.trashDirectory.diskURL.appendingPathComponent(trashMapFileName)
+        let trashMapURL = FileSystem.shared.trashDirectory(for: testDirectory.rootURL).diskURL.appendingPathComponent(trashMapFileName)
         try Data([0x01, 0x02, 0x03]).write(to: trashMapURL, options: .atomic)
         let corruptedBytes = try Data(contentsOf: trashMapURL)
 
         // Must not throw (it's non-throwing by design) and must not crash.
-        FileSystem.shared.cleanupExpiredTrashItems()
+        FileSystem.shared.cleanupExpiredTrashItems(for: testDirectory)
 
         // And critically, must not have overwritten the corrupted file with an empty one —
         // per the "safe to swallow" reasoning: a failed read means nothing to remove, so
@@ -194,10 +184,10 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testContentsOfTrash_ThrowsOnCorruptedMap_RatherThanReturningEmpty() throws {
-        let trashMapURL = FileSystem.shared.trashDirectory.diskURL.appendingPathComponent(trashMapFileName)
+        let trashMapURL = FileSystem.shared.trashDirectory(for: testDirectory.rootURL).diskURL.appendingPathComponent(trashMapFileName)
         try Data([0x01, 0x02, 0x03]).write(to: trashMapURL, options: .atomic)
 
-        XCTAssertThrowsError(try FileSystem.shared.contentsOfTrash()) { error in
+        XCTAssertThrowsError(try FileSystem.shared.contentsOfTrash(for: testDirectory)) { error in
             guard case FileSystemError.mappingUnreadable = error else {
                 XCTFail("Expected FileSystemError.mappingUnreadable, got \(error)")
                 return
@@ -246,7 +236,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         let item = VaultItem(
             id: UUID(), name: "roundtrip.txt", isDirectory: false, dateModified: Date(), fileSize: nil,
-            diskURL: testDirectory.diskURL.appendingPathComponent(uuid), isEncrypted: true
+            diskURL: testDirectory.diskURL.appendingPathComponent(uuid), rootURL: testDirectory.rootURL, isEncrypted: true
         )
         try FileSystem.shared.rename(item, to: "renamed-roundtrip.txt")
 

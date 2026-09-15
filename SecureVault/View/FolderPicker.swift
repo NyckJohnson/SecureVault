@@ -93,7 +93,7 @@ extension FolderPickerViewController: UITableViewDelegate {
         let folder = items[indexPath.row]
         let next = FolderPickerViewController(
             rootDirectory: rootDirectory,
-            currentDirectory: VaultDirectory(name: folder.name, diskURL: folder.diskURL)
+            currentDirectory: VaultDirectory(name: folder.name, diskURL: folder.diskURL, rootURL: currentDirectory.rootURL)
         )
         next.delegate = delegate
         navigationController?.pushViewController(next, animated: true)

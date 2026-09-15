@@ -29,13 +29,13 @@ final class VaultDirectoryTests: XCTestCase {
     // MARK: - Custom Directory
     func testCustomDirectoryStoresName() {
         let url = FileManager.default.temporaryDirectory
-        let dir = VaultDirectory(name: "MyFolder", diskURL: url)
+        let dir = VaultDirectory(name: "MyFolder", diskURL: url, rootURL: url)
         XCTAssertEqual(dir.name, "MyFolder")
     }
 
     func testCustomDirectoryStoresDiskURL() {
         let url = FileManager.default.temporaryDirectory
-        let dir = VaultDirectory(name: "MyFolder", diskURL: url)
+        let dir = VaultDirectory(name: "MyFolder", diskURL: url, rootURL: url)
         XCTAssertEqual(dir.diskURL, url)
     }
 }

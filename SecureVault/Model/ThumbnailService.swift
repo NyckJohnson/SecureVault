@@ -148,7 +148,7 @@ final class ThumbnailService {
     private func folderThumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {
         thumbnailQueue.async { [weak self] in
             guard let self else { return }
-            let dir = VaultDirectory(name: item.name, diskURL: item.diskURL)
+            let dir = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
             let contents = (try? FileSystem.shared.contents(of: dir)) ?? []
             guard let mediaItem = contents.first(where: {
                 guard !$0.isDirectory else { return false }

@@ -83,7 +83,7 @@ final class EdgeCaseTests: VaultTestCase {
         let item = try FileSystem.shared.contents(of: testDirectory).first!
         try FileSystem.shared.delete(item)
 
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.first?.name, "noextension")
     }
 
@@ -117,7 +117,7 @@ final class EdgeCaseTests: VaultTestCase {
         XCTAssertTrue(contents.first?.isDirectory == true)
         XCTAssertEqual(contents.first?.name, "TestImportFolder")
 
-        let importedFolder = VaultDirectory(name: "TestImportFolder", diskURL: contents.first!.diskURL)
+        let importedFolder = VaultDirectory(name: "TestImportFolder", diskURL: contents.first!.diskURL, rootURL: testDirectory.rootURL)
         let folderContents = try FileSystem.shared.contents(of: importedFolder)
         XCTAssertEqual(folderContents.count, 2)
     }
@@ -136,7 +136,7 @@ final class EdgeCaseTests: VaultTestCase {
         XCTAssertEqual(contents.count, 1)
         XCTAssertTrue(contents.first?.isDirectory == true)
 
-        let importedFolder = VaultDirectory(name: "ParentFolder", diskURL: contents.first!.diskURL)
+        let importedFolder = VaultDirectory(name: "ParentFolder", diskURL: contents.first!.diskURL, rootURL: testDirectory.rootURL)
         let folderContents = try FileSystem.shared.contents(of: importedFolder)
         XCTAssertEqual(folderContents.count, 1)
         XCTAssertTrue(folderContents.first?.isDirectory == true)
@@ -185,7 +185,7 @@ final class EdgeCaseTests: VaultTestCase {
         try FileSystem.shared.delete(item)
 
         // manually set deletion date to 31 days ago
-        var trashMap = try FileSystem.shared.testTrashMap()
+        var trashMap = try FileSystem.shared.testTrashMap(for: testDirectory)
         if let key = trashMap.keys.first {
             let oldEntry = trashMap[key]!
             trashMap[key] = FileSystem.TrashEntryForTesting(
@@ -193,13 +193,14 @@ final class EdgeCaseTests: VaultTestCase {
                 originalDirectoryURL: oldEntry.originalDirectoryURL,
                 deletedAt: Date().addingTimeInterval(-31 * 24 * 60 * 60),
                 isEncrypted: oldEntry.isEncrypted,
-                originalName: oldEntry.originalName
+                originalName: oldEntry.originalName,
+                rootURL: oldEntry.rootURL
             )
-            try FileSystem.shared.saveTestTrashMap(trashMap)
+            try FileSystem.shared.saveTestTrashMap(trashMap, for: testDirectory)
         }
 
-        FileSystem.shared.cleanupExpiredTrashItems()
-        XCTAssertTrue(try FileSystem.shared.contentsOfTrash().isEmpty)
+        FileSystem.shared.cleanupExpiredTrashItems(for: testDirectory)
+        XCTAssertTrue(try FileSystem.shared.contentsOfTrash(for: testDirectory).isEmpty)
     }
 
     func testRestoreWhenOriginalFolderDeleted() throws {
@@ -218,7 +219,7 @@ final class EdgeCaseTests: VaultTestCase {
         try FileSystem.shared.delete(subFolderItem)
 
         // restore should recreate the folder
-        let trashItems = try FileSystem.shared.contentsOfTrash()
+        let trashItems = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         let fileItem = trashItems.first { !$0.isDirectory }
         guard let fileItem else { return }
 

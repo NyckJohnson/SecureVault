@@ -139,7 +139,7 @@ final class AdditionalEdgeCaseTests: VaultTestCase {
         XCTAssertTrue(subContents.isEmpty)
 
         // verify in trash
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.first?.name, "renamed.txt")
     }
 
@@ -178,7 +178,7 @@ final class AdditionalEdgeCaseTests: VaultTestCase {
 
         // delete
         try FileSystem.shared.delete(subContents.first!)
-        let trash = try FileSystem.shared.contentsOfTrash()
+        let trash = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(trash.first?.name, "renamed.txt")
     }
 

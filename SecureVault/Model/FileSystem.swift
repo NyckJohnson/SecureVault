@@ -14,10 +14,11 @@ import CommonCrypto
 struct VaultDirectory {
     var name: String
     internal var diskURL: URL
+    internal var rootURL: URL
 
     static var root: VaultDirectory {
         let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return VaultDirectory(name: "SecureVault", diskURL: url)
+        return VaultDirectory(name: "SecureVault", diskURL: url, rootURL: url)
     }
 }
 
@@ -30,6 +31,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Sendable {
     var fileSize: Int?
     var deletedAt: Date? = nil
     internal var diskURL: URL
+    internal var rootURL: URL
     internal var isEncrypted: Bool
 
     nonisolated func hash(into hasher: inout Hasher) {
@@ -100,6 +102,7 @@ final class FileSystem {
                     dateModified: dateModified,
                     fileSize: fileSize,
                     diskURL: url,
+                    rootURL: directory.rootURL,
                     isEncrypted: true
                 )
             } else {
@@ -111,6 +114,7 @@ final class FileSystem {
                     dateModified: dateModified,
                     fileSize: fileSize,
                     diskURL: url,
+                    rootURL: directory.rootURL,
                     isEncrypted: false
                 )
             }
@@ -196,8 +200,8 @@ final class FileSystem {
         if !folderExists {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         }
-        let subDirectory = VaultDirectory(name: folderName, diskURL: destination)
-        
+        let subDirectory = VaultDirectory(name: folderName, diskURL: destination, rootURL: directory.rootURL)
+
         let contents = try FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -379,7 +383,7 @@ final class FileSystem {
         let folderName = resolvedName(for: name, in: directory.diskURL)
         let url = directory.diskURL.appendingPathComponent(folderName)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-        return VaultDirectory(name: folderName, diskURL: url)
+        return VaultDirectory(name: folderName, diskURL: url, rootURL: directory.rootURL)
     }
 
     func move(_ item: VaultItem, to directory: VaultDirectory) throws {
@@ -453,16 +457,17 @@ final class FileSystem {
         let deletedAt: Date
         let isEncrypted: Bool
         let originalName: String
+        let rootURL: String
     }
 
-    var trashDirectory: VaultDirectory {
-        let url = VaultDirectory.root.diskURL.appendingPathComponent(trashFolderName)
+    func trashDirectory(for rootURL: URL) -> VaultDirectory {
+        let url = rootURL.appendingPathComponent(trashFolderName)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return VaultDirectory(name: "Recently Deleted", diskURL: url)
+        return VaultDirectory(name: "Recently Deleted", diskURL: url, rootURL: rootURL)
     }
 
     func moveToTrash(_ item: VaultItem) throws {
-        let trashURL = trashDirectory.diskURL
+        let trashURL = trashDirectory(for: item.rootURL).diskURL
         let uuid = UUID().uuidString
         let destination = trashURL.appendingPathComponent(uuid)
         try FileManager.default.moveItem(at: item.diskURL, to: destination)
@@ -474,19 +479,20 @@ final class FileSystem {
             try saveMapping(sourceMapping, to: sourceDir)
         }
 
-        var trashMap = try loadTrashMap()
+        var trashMap = try loadTrashMap(for: item.rootURL)
         trashMap[uuid] = TrashEntry(
             originalDiskName: item.diskURL.lastPathComponent,
             originalDirectoryURL: item.diskURL.deletingLastPathComponent().path,
             deletedAt: Date(),
             isEncrypted: item.isEncrypted,
-            originalName: item.name
+            originalName: item.name,
+            rootURL: item.rootURL.path
         )
-        try saveTrashMap(trashMap)
+        try saveTrashMap(trashMap, for: item.rootURL)
     }
-    
+
     func restoreFromTrash(_ item: VaultItem) throws {
-        var trashMap = try loadTrashMap()
+        var trashMap = try loadTrashMap(for: item.rootURL)
         guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key,
               let entry = trashMap[uuid] else { return }
 
@@ -503,12 +509,12 @@ final class FileSystem {
         }
 
         trashMap.removeValue(forKey: uuid)
-        try saveTrashMap(trashMap)
+        try saveTrashMap(trashMap, for: item.rootURL)
     }
 
-    func contentsOfTrash() throws -> [VaultItem] {
-        let trashMap = try loadTrashMap()
-        let trashURL = trashDirectory.diskURL
+    func contentsOfTrash(for root: VaultDirectory) throws -> [VaultItem] {
+        let trashMap = try loadTrashMap(for: root.rootURL)
+        let trashURL = trashDirectory(for: root.rootURL).diskURL
         return trashMap.compactMap { uuid, entry in
             let diskURL = trashURL.appendingPathComponent(uuid)
             guard FileManager.default.fileExists(atPath: diskURL.path) else { return nil }
@@ -520,63 +526,66 @@ final class FileSystem {
                 fileSize: nil,
                 deletedAt: entry.deletedAt,
                 diskURL: diskURL,
+                rootURL: root.rootURL,
                 isEncrypted: entry.isEncrypted
             )
         }.sorted { $0.dateModified > $1.dateModified }
     }
 
     func permanentlyDelete(_ item: VaultItem) throws {
-        var trashMap = try loadTrashMap()
+        var trashMap = try loadTrashMap(for: item.rootURL)
         guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key else { return }
         try FileManager.default.removeItem(at: item.diskURL)
         trashMap.removeValue(forKey: uuid)
-        try saveTrashMap(trashMap)
+        try saveTrashMap(trashMap, for: item.rootURL)
     }
 
-    func emptyTrash() throws {
+    func emptyTrash(for root: VaultDirectory) throws {
         // Deliberately best-effort: emptying the trash must always succeed at wiping
         // everything, even if the existing map can't be decrypted (stale/mismatched key,
         // corruption, etc.) — otherwise one unreadable map permanently wedges the trash
         // folder, since nothing can ever successfully read-then-clear it again.
-        let items = (try? contentsOfTrash()) ?? []
+        let items = (try? contentsOfTrash(for: root)) ?? []
         for item in items {
             try? FileManager.default.removeItem(at: item.diskURL)
         }
+        let trashURL = trashDirectory(for: root.rootURL).diskURL
         // Also sweep any files a corrupted/unreadable map couldn't tell us about, so
         // nothing is ever left permanently orphaned in the trash folder.
-        if let remaining = try? FileManager.default.contentsOfDirectory(at: trashDirectory.diskURL, includingPropertiesForKeys: nil) {
+        if let remaining = try? FileManager.default.contentsOfDirectory(at: trashURL, includingPropertiesForKeys: nil) {
             for url in remaining where url.lastPathComponent != trashMapName {
                 try? FileManager.default.removeItem(at: url)
             }
         }
-        let mapURL = trashDirectory.diskURL.appendingPathComponent(trashMapName)
+        let mapURL = trashURL.appendingPathComponent(trashMapName)
         try? FileManager.default.removeItem(at: mapURL)
     }
 
-    func cleanupExpiredTrashItems() {
+    func cleanupExpiredTrashItems(for root: VaultDirectory) {
         // Safe to swallow: an unreadable map yields an empty dict, the loop below finds
         // nothing to remove, `changed` stays false, and we never reach saveTrashMap — so a
         // failed read here can never overwrite good data with an empty one.
-        var trashMap = (try? loadTrashMap()) ?? [:]
+        var trashMap = (try? loadTrashMap(for: root.rootURL)) ?? [:]
         let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60) // 30 days
         var changed = false
+        let trashURL = trashDirectory(for: root.rootURL).diskURL
         for (uuid, entry) in trashMap {
             if entry.deletedAt < cutoff {
-                let diskURL = trashDirectory.diskURL.appendingPathComponent(uuid)
+                let diskURL = trashURL.appendingPathComponent(uuid)
                 try? FileManager.default.removeItem(at: diskURL)
                 trashMap.removeValue(forKey: uuid)
                 changed = true
             }
         }
-        if changed { try? saveTrashMap(trashMap) }
+        if changed { try? saveTrashMap(trashMap, for: root.rootURL) }
     }
 
-    private func loadTrashMap() throws -> [String: TrashEntry] {
-        try loadEncryptedJSON([String: TrashEntry].self, from: trashDirectory.diskURL.appendingPathComponent(trashMapName)) ?? [:]
+    private func loadTrashMap(for rootURL: URL) throws -> [String: TrashEntry] {
+        try loadEncryptedJSON([String: TrashEntry].self, from: trashDirectory(for: rootURL).diskURL.appendingPathComponent(trashMapName)) ?? [:]
     }
 
-    private func saveTrashMap(_ map: [String: TrashEntry]) throws {
-        try saveEncryptedJSON(map, to: trashDirectory.diskURL.appendingPathComponent(trashMapName))
+    private func saveTrashMap(_ map: [String: TrashEntry], for rootURL: URL) throws {
+        try saveEncryptedJSON(map, to: trashDirectory(for: rootURL).diskURL.appendingPathComponent(trashMapName))
     }
 
     // MARK: - Migration
@@ -587,7 +596,7 @@ final class FileSystem {
 
         let subdirs = items.filter { $0.isDirectory }
         for subdir in subdirs {
-            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL)
+            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL, rootURL: directory.rootURL)
             result += try filesToMigrate(toEncrypted: toEncrypted, in: subVaultDir)
         }
         return result
@@ -606,7 +615,7 @@ final class FileSystem {
 
         let subdirs = items.filter { $0.isDirectory }
         for subdir in subdirs {
-            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL)
+            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL, rootURL: directory.rootURL)
             try migrateVaultToEncrypted(in: subVaultDir, progress: progress)
         }
     }
@@ -647,7 +656,7 @@ final class FileSystem {
         ))?.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true } ?? []
 
         for subdir in subdirs {
-            let subVaultDir = VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir)
+            let subVaultDir = VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir, rootURL: directory.rootURL)
             try migrateVaultToDecrypted(in: subVaultDir, progress: progress)
         }
     }
@@ -809,12 +818,12 @@ final class FileSystem {
     }
     
     // MARK: - Testing Only
-    #if DEBUG
-    func testTrashMap() throws -> [String: TrashEntry] { try loadTrashMap() }
-    func saveTestTrashMap(_ map: [String: TrashEntry]) throws { try saveTrashMap(map) }
+#if DEBUG
+    func testTrashMap(for root: VaultDirectory) throws -> [String: TrashEntry] { try loadTrashMap(for: root.rootURL) }
+    func saveTestTrashMap(_ map: [String: TrashEntry], for root: VaultDirectory) throws { try saveTrashMap(map, for: root.rootURL) }
     func testMapping(in directory: VaultDirectory) throws -> [String: VaultMapping] { try loadMapping(from: directory.diskURL) }
     typealias TrashEntryForTesting = TrashEntry
-    #endif
+#endif
 }
 
 extension Notification.Name {

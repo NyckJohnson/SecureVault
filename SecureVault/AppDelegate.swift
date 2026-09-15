@@ -18,7 +18,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             AuthService.shared.lockMode = .none
             AuthService.shared.removePassword()
             UIView.setAnimationsEnabled(false)
-            try? FileSystem.shared.emptyTrash()
+            try? FileSystem.shared.emptyTrash(for: .root)
             CryptoService.shared.wipeKey()
             let rootContents = (try? FileManager.default.contentsOfDirectory(at: VaultDirectory.root.diskURL, includingPropertiesForKeys: nil)) ?? []
             rootContents.forEach { try? FileManager.default.removeItem(at: $0) }

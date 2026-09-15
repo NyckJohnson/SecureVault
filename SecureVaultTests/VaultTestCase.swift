@@ -19,7 +19,6 @@ class VaultTestCase: XCTestCase {
         CryptoService.shared.wipeKey()
         CryptoService.shared.wipeMasterKeyBlob()
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        try? FileSystem.shared.emptyTrash()
         FileSystem.shared.cleanupTempFiles()
         super.tearDown()
     }
@@ -29,7 +28,6 @@ class VaultTestCase: XCTestCase {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "test", diskURL: tempURL)
-        try? FileSystem.shared.emptyTrash()
+        testDirectory = VaultDirectory(name: "test", diskURL: tempURL, rootURL: tempURL)
     }
 }

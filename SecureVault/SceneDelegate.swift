@@ -50,7 +50,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         
         // check trash folder for expired items
-        FileSystem.shared.cleanupExpiredTrashItems()
+        FileSystem.shared.cleanupExpiredTrashItems(for: .root)
         FileSystem.shared.cleanupTempFiles()
     }
 
