@@ -24,38 +24,38 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		CD34ACD1300EE9E60092DA80 /* SecureVaultTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SecureVaultTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		CD34AD9A301552490092DA80 /* SecureVaultUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SecureVaultUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		CDA9AA982FB144D300492A09 /* SecureVault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SecureVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CD34ACD1300EE9E60092DA80 /* KoalaTVaultTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KoalaTVaultTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CD34AD9A301552490092DA80 /* KoalaTVaultUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KoalaTVaultUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		CDA9AA982FB144D300492A09 /* KoalaTVault.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KoalaTVault.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		CDA9AAAA2FB144D400492A09 /* Exceptions for "SecureVault" folder in "SecureVault" target */ = {
+		CDA9AAAA2FB144D400492A09 /* Exceptions for "KoalaTVault" folder in "KoalaTVault" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = CDA9AA972FB144D300492A09 /* SecureVault */;
+			target = CDA9AA972FB144D300492A09 /* KoalaTVault */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		CD34ACD2300EE9E60092DA80 /* SecureVaultTests */ = {
+		CD34ACD2300EE9E60092DA80 /* KoalaTVaultTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SecureVaultTests;
+			path = KoalaTVaultTests;
 			sourceTree = "<group>";
 		};
-		CD34AD9B301552490092DA80 /* SecureVaultUITests */ = {
+		CD34AD9B301552490092DA80 /* KoalaTVaultUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = SecureVaultUITests;
+			path = KoalaTVaultUITests;
 			sourceTree = "<group>";
 		};
-		CDA9AA9A2FB144D300492A09 /* SecureVault */ = {
+		CDA9AA9A2FB144D300492A09 /* KoalaTVault */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				CDA9AAAA2FB144D400492A09 /* Exceptions for "SecureVault" folder in "SecureVault" target */,
+				CDA9AAAA2FB144D400492A09 /* Exceptions for "KoalaTVault" folder in "KoalaTVault" target */,
 			);
-			path = SecureVault;
+			path = KoalaTVault;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -88,9 +88,9 @@
 		CDA9AA8F2FB144D300492A09 = {
 			isa = PBXGroup;
 			children = (
-				CDA9AA9A2FB144D300492A09 /* SecureVault */,
-				CD34ACD2300EE9E60092DA80 /* SecureVaultTests */,
-				CD34AD9B301552490092DA80 /* SecureVaultUITests */,
+				CDA9AA9A2FB144D300492A09 /* KoalaTVault */,
+				CD34ACD2300EE9E60092DA80 /* KoalaTVaultTests */,
+				CD34AD9B301552490092DA80 /* KoalaTVaultUITests */,
 				CDA9AA992FB144D300492A09 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -98,9 +98,9 @@
 		CDA9AA992FB144D300492A09 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				CDA9AA982FB144D300492A09 /* SecureVault.app */,
-				CD34ACD1300EE9E60092DA80 /* SecureVaultTests.xctest */,
-				CD34AD9A301552490092DA80 /* SecureVaultUITests.xctest */,
+				CDA9AA982FB144D300492A09 /* KoalaTVault.app */,
+				CD34ACD1300EE9E60092DA80 /* KoalaTVaultTests.xctest */,
+				CD34AD9A301552490092DA80 /* KoalaTVaultUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,9 +108,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		CD34ACD0300EE9E60092DA80 /* SecureVaultTests */ = {
+		CD34ACD0300EE9E60092DA80 /* KoalaTVaultTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CD34ACD7300EE9E60092DA80 /* Build configuration list for PBXNativeTarget "SecureVaultTests" */;
+			buildConfigurationList = CD34ACD7300EE9E60092DA80 /* Build configuration list for PBXNativeTarget "KoalaTVaultTests" */;
 			buildPhases = (
 				CD34ACCD300EE9E60092DA80 /* Sources */,
 				CD34ACCE300EE9E60092DA80 /* Frameworks */,
@@ -122,18 +122,18 @@
 				CD34ACD6300EE9E60092DA80 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				CD34ACD2300EE9E60092DA80 /* SecureVaultTests */,
+				CD34ACD2300EE9E60092DA80 /* KoalaTVaultTests */,
 			);
-			name = SecureVaultTests;
+			name = KoalaTVaultTests;
 			packageProductDependencies = (
 			);
 			productName = SecureVaultTests;
-			productReference = CD34ACD1300EE9E60092DA80 /* SecureVaultTests.xctest */;
+			productReference = CD34ACD1300EE9E60092DA80 /* KoalaTVaultTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		CD34AD99301552490092DA80 /* SecureVaultUITests */ = {
+		CD34AD99301552490092DA80 /* KoalaTVaultUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CD34ADA2301552490092DA80 /* Build configuration list for PBXNativeTarget "SecureVaultUITests" */;
+			buildConfigurationList = CD34ADA2301552490092DA80 /* Build configuration list for PBXNativeTarget "KoalaTVaultUITests" */;
 			buildPhases = (
 				CD34AD96301552490092DA80 /* Sources */,
 				CD34AD97301552490092DA80 /* Frameworks */,
@@ -145,18 +145,18 @@
 				CD34ADA1301552490092DA80 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				CD34AD9B301552490092DA80 /* SecureVaultUITests */,
+				CD34AD9B301552490092DA80 /* KoalaTVaultUITests */,
 			);
-			name = SecureVaultUITests;
+			name = KoalaTVaultUITests;
 			packageProductDependencies = (
 			);
 			productName = SecureVaultUITests;
-			productReference = CD34AD9A301552490092DA80 /* SecureVaultUITests.xctest */;
+			productReference = CD34AD9A301552490092DA80 /* KoalaTVaultUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		CDA9AA972FB144D300492A09 /* SecureVault */ = {
+		CDA9AA972FB144D300492A09 /* KoalaTVault */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CDA9AAAB2FB144D400492A09 /* Build configuration list for PBXNativeTarget "SecureVault" */;
+			buildConfigurationList = CDA9AAAB2FB144D400492A09 /* Build configuration list for PBXNativeTarget "KoalaTVault" */;
 			buildPhases = (
 				CDA9AA942FB144D300492A09 /* Sources */,
 				CDA9AA952FB144D300492A09 /* Frameworks */,
@@ -167,13 +167,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				CDA9AA9A2FB144D300492A09 /* SecureVault */,
+				CDA9AA9A2FB144D300492A09 /* KoalaTVault */,
 			);
-			name = SecureVault;
+			name = KoalaTVault;
 			packageProductDependencies = (
 			);
 			productName = SecureVault;
-			productReference = CDA9AA982FB144D300492A09 /* SecureVault.app */;
+			productReference = CDA9AA982FB144D300492A09 /* KoalaTVault.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -213,9 +213,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				CDA9AA972FB144D300492A09 /* SecureVault */,
-				CD34ACD0300EE9E60092DA80 /* SecureVaultTests */,
-				CD34AD99301552490092DA80 /* SecureVaultUITests */,
+				CDA9AA972FB144D300492A09 /* KoalaTVault */,
+				CD34ACD0300EE9E60092DA80 /* KoalaTVaultTests */,
+				CD34AD99301552490092DA80 /* KoalaTVaultUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -271,12 +271,12 @@
 /* Begin PBXTargetDependency section */
 		CD34ACD6300EE9E60092DA80 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CDA9AA972FB144D300492A09 /* SecureVault */;
+			target = CDA9AA972FB144D300492A09 /* KoalaTVault */;
 			targetProxy = CD34ACD5300EE9E60092DA80 /* PBXContainerItemProxy */;
 		};
 		CD34ADA1301552490092DA80 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = CDA9AA972FB144D300492A09 /* SecureVault */;
+			target = CDA9AA972FB144D300492A09 /* KoalaTVault */;
 			targetProxy = CD34ADA0301552490092DA80 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -568,7 +568,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		CD34ACD7300EE9E60092DA80 /* Build configuration list for PBXNativeTarget "SecureVaultTests" */ = {
+		CD34ACD7300EE9E60092DA80 /* Build configuration list for PBXNativeTarget "KoalaTVaultTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CD34ACD8300EE9E60092DA80 /* Debug */,
@@ -577,7 +577,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CD34ADA2301552490092DA80 /* Build configuration list for PBXNativeTarget "SecureVaultUITests" */ = {
+		CD34ADA2301552490092DA80 /* Build configuration list for PBXNativeTarget "KoalaTVaultUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CD34ADA3301552490092DA80 /* Debug */,
@@ -595,7 +595,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		CDA9AAAB2FB144D400492A09 /* Build configuration list for PBXNativeTarget "SecureVault" */ = {
+		CDA9AAAB2FB144D400492A09 /* Build configuration list for PBXNativeTarget "KoalaTVault" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CDA9AAAC2FB144D400492A09 /* Debug */,
