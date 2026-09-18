@@ -3,11 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSPhotoLibraryDescription</key>
-	<string>&quot;Import photos and videos&quot;</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>SecureVault needs access to your photo library to let you delete photos after importing them.</string>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Unlocking with FaceID</string>
+	<string>"Import photos and videos"</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
