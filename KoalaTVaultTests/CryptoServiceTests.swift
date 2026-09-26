@@ -1,12 +1,12 @@
 //
 //  CryptoServiceTests.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/20/26.
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class CryptoServiceTests: XCTestCase {
 
@@ -35,14 +35,14 @@ final class CryptoServiceTests: XCTestCase {
 
     // MARK: - Encrypt/Decrypt
     func testEncryptThenDecryptReturnsOriginal() throws {
-        let original = "Hello, SecureVault!".data(using: .utf8)!
+        let original = "Hello, Koala T Vault!".data(using: .utf8)!
         let encrypted = try CryptoService.shared.encrypt(data: original)
         let decrypted = try CryptoService.shared.decrypt(data: encrypted)
         XCTAssertEqual(original, decrypted)
     }
 
     func testEncryptedDataDiffersFromOriginal() throws {
-        let original = "Hello, SecureVault!".data(using: .utf8)!
+        let original = "Hello, Koala T Vault!".data(using: .utf8)!
         let encrypted = try CryptoService.shared.encrypt(data: original)
         XCTAssertNotEqual(original, encrypted)
     }

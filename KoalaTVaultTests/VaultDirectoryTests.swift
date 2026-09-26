@@ -1,5 +1,5 @@
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class VaultDirectoryTests: XCTestCase {
 
@@ -16,8 +16,8 @@ final class VaultDirectoryTests: XCTestCase {
         XCTAssertTrue(isDir.boolValue)
     }
 
-    func testRootDirectoryNameIsSecureVault() {
-        XCTAssertEqual(VaultDirectory.root.name, "SecureVault")
+    func testRootDirectoryNameIsKoalaTVault() {
+        XCTAssertEqual(VaultDirectory.root.name, "KoalaTVault")
     }
 
     func testRootDirectoryIsConsistent() {

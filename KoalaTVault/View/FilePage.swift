@@ -1,6 +1,6 @@
 //
 //  FilePageViewController.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/12/26.
 //
@@ -114,7 +114,7 @@ final class FilePageViewController: UIViewController {
         var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false)!
         comps.scheme = "vault-stream"
         let asset = AVURLAsset(url: comps.url!)
-        asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue(label: "com.securevault.resourceloader"))
+        asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue(label: "com.KoalaTVault.resourceloader"))
         installVideoPlayer(url: nil, asset: asset)
     }
 

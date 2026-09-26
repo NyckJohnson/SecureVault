@@ -1,12 +1,12 @@
 //
 //  Untitled.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/20/26.
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class PreferencesServiceTests: XCTestCase {
 

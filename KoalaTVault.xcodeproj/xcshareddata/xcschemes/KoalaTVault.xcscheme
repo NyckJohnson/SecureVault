@@ -16,9 +16,37 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "CDA9AA972FB144D300492A09"
-               BuildableName = "SecureVault.app"
-               BlueprintName = "SecureVault"
-               ReferencedContainer = "container:SecureVault.xcodeproj">
+               BuildableName = "KoalaTVault.app"
+               BlueprintName = "KoalaTVault"
+               ReferencedContainer = "container:KoalaTVault.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "CD34ACD0300EE9E60092DA80"
+               BuildableName = "KoalaTVaultTests.xctest"
+               BlueprintName = "KoalaTVaultTests"
+               ReferencedContainer = "container:KoalaTVault.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "CD34AD99301552490092DA80"
+               BuildableName = "KoalaTVaultUITests.xctest"
+               BlueprintName = "KoalaTVaultUITests"
+               ReferencedContainer = "container:KoalaTVault.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -30,34 +58,10 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:SecureVaultUITests/SecureVault.xctestplan"
+            reference = "container:KoalaTVaultUITests/KoalaTVault.xctestplan"
             default = "YES">
          </TestPlanReference>
       </TestPlans>
-      <Testables>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CD34ACD0300EE9E60092DA80"
-               BuildableName = "SecureVaultTests.xctest"
-               BlueprintName = "SecureVaultTests"
-               ReferencedContainer = "container:SecureVault.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "CD34AD99301552490092DA80"
-               BuildableName = "SecureVaultUITests.xctest"
-               BlueprintName = "SecureVaultUITests"
-               ReferencedContainer = "container:SecureVault.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -75,9 +79,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CDA9AA972FB144D300492A09"
-            BuildableName = "SecureVault.app"
-            BlueprintName = "SecureVault"
-            ReferencedContainer = "container:SecureVault.xcodeproj">
+            BuildableName = "KoalaTVault.app"
+            BlueprintName = "KoalaTVault"
+            ReferencedContainer = "container:KoalaTVault.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <EnvironmentVariables>
@@ -87,6 +91,9 @@
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
+      <StoreKitConfigurationFileReference
+         identifier = "../../KoalaTVaultTests/premiumTesting.storekit">
+      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -94,16 +101,15 @@
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "CDA9AA972FB144D300492A09"
-            BuildableName = "SecureVault.app"
-            BlueprintName = "SecureVault"
-            ReferencedContainer = "container:SecureVault.xcodeproj">
+            BuildableName = "KoalaTVault.app"
+            BlueprintName = "KoalaTVault"
+            ReferencedContainer = "container:KoalaTVault.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

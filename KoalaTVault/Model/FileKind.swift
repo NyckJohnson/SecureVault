@@ -1,6 +1,6 @@
 //
 //  FileKind.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 8/4/26.
 //
@@ -20,7 +20,7 @@ nonisolated enum FileKind {
         case "xls", "xlsx": self = .spreadsheet
         case "ppt", "pptx": self = .presentation
         case "zip", "rar", "7z": self = .archive
-        case "txt", "md": self = .text
+        case "txt", "rtf", "md": self = .text
         default: self = .other
         }
     }

@@ -1,6 +1,6 @@
 //
 //  ProgressOverlay.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/27/26.
 //

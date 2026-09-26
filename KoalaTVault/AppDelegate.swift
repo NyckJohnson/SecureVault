@@ -1,6 +1,6 @@
 //
 //  AppDelegate.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/10/26.
 //
@@ -26,6 +26,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             if let fileName = ProcessInfo.processInfo.environment["UITEST_SEED_FILE_NAME"] {
                 let url = VaultDirectory.root.diskURL.appendingPathComponent(fileName)
                 FileManager.default.createFile(atPath: url.path, contents: Data("uitest content".utf8))
+            }
+
+            if let countString = ProcessInfo.processInfo.environment["UITEST_SEED_FILE_COUNT"],
+               let count = Int(countString) {
+                for i in 0..<count {
+                    let url = VaultDirectory.root.diskURL.appendingPathComponent("uitest-seed-\(i).txt")
+                    FileManager.default.createFile(atPath: url.path, contents: Data("uitest content".utf8))
+                }
+            }
+
+            if let password = ProcessInfo.processInfo.environment["UITEST_PASSWORD"] {
+                try? AuthService.shared.createPassword(password)
+                AuthService.shared.lockMode = .password
+                AuthService.shared.hasAuthenticated = true
+                PreferencesService.shared.hasCompletedSetup = true
             }
         }
         return true

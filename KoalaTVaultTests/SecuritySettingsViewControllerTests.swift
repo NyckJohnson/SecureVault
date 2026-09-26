@@ -1,18 +1,19 @@
 //
 //  SecuritySettingsViewControllerTests.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 8/18/26.
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class SecuritySettingsViewControllerTests: XCTestCase {
 
     override func tearDown() {
         super.tearDown()
         AuthService.shared.lockMode = .none
+        EntitlementService.testForcedUnlocked = nil
     }
 
     func testReEncryptRowHiddenWhenUnlocked() {
@@ -21,7 +22,7 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(true)
 
-        XCTAssertEqual(sut.tableView(sut.testTableView, numberOfRowsInSection: 0), 3)
+        XCTAssertEqual(sut.tableView(sut.testTableView, numberOfRowsInSection: 1), 3)
     }
 
     func testReEncryptRowHiddenWhenNoUnencryptedFiles() {
@@ -30,7 +31,7 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(false)
 
-        XCTAssertEqual(sut.tableView(sut.testTableView, numberOfRowsInSection: 0), 3)
+        XCTAssertEqual(sut.tableView(sut.testTableView, numberOfRowsInSection: 1), 3)
     }
 
     func testReEncryptRowShownWhenLockedWithUnencryptedFiles() {
@@ -39,6 +40,6 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(true)
 
-        XCTAssertEqual(sut.tableView(sut.testTableView, numberOfRowsInSection: 0), 4)
+        XCTAssertEqual(sut.tableView(sut.testTableView, numberOfRowsInSection: 1), 4)
     }
 }

@@ -1,12 +1,12 @@
 //
 //  VaultTestCase.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 9/14/26.
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 /// Base class for tests that need an isolated, disk-backed `VaultDirectory`.
 /// Subclasses should call `super.setUp()` first and `super.tearDown()` last,

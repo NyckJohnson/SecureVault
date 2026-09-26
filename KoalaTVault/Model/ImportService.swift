@@ -1,6 +1,6 @@
 //
 //  ImportService.swift
-//  SecureVault
+//  KoalaTVault
 //
 
 import UIKit
@@ -96,7 +96,15 @@ final class ImportService: NSObject {
                     }
                 }
             } catch {
-                DispatchQueue.main.async { (vc as? ErrorPresenting)?.showError(error) }
+                DispatchQueue.main.async {
+                    if case FileSystemError.fileLimitReached = error {
+                        let paywall = PaywallViewController()
+                        paywall.modalPresentationStyle = .formSheet
+                        vc.present(paywall, animated: true)
+                    } else {
+                        (vc as? ErrorPresenting)?.showError(error)
+                    }
+                }
             }
             DispatchQueue.main.async {
                 overlay.dismiss()
@@ -118,6 +126,16 @@ extension ImportService: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         presentingViewController?.dismiss(animated: true)
         guard !results.isEmpty, let vc = presentingViewController, let directory = targetDirectory else { return }
+
+        do {
+            try FileSystem.shared.checkImportAllowed(additionalCount: results.count, in: directory)
+        } catch {
+            let paywall = PaywallViewController()
+            paywall.modalPresentationStyle = .formSheet
+            vc.present(paywall, animated: true)
+            return
+        }
+
         let overlay = ProgressOverlay.show(in: vc, title: "Importing Photos...")
         FileSystem.shared.importFromCameraRoll(results: results, to: directory) { [weak self] succeededIdentifiers, failed in
             overlay.dismiss()

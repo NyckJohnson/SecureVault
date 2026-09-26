@@ -1,6 +1,6 @@
 //
 //  CryptoService.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
 //
@@ -24,7 +24,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
     }
 
     // MARK: - Master Key (random, wrapped at rest by a password-derived key)
-    private let masterKeyBlobKeychainKey = "com.securevault.masterKeyBlob"
+    private let masterKeyBlobKeychainKey = "com.KoalaTVault.masterKeyBlob"
 
     /// Generates a new random master key, wraps it with a password-derived key, and stores the
     /// wrapped blob in Keychain. Call once, when a password is first set. Loads the key into memory.
@@ -113,7 +113,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
     }
 
     // MARK: - Salt
-    private let saltKeychainKey = "com.securevault.salt"
+    private let saltKeychainKey = "com.KoalaTVault.salt"
 
     private func getOrCreateSalt() -> Data {
         let query: [String: Any] = [

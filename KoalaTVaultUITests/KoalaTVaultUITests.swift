@@ -1,13 +1,13 @@
 //
-//  SecureVaultUITests.swift
-//  SecureVaultUITests
+//  KoalaTVaultUITests.swift
+//  KoalaTVaultUITests
 //
 //  Created by Nicholas Johnson on 7/25/26.
 //
 
 import XCTest
 
-final class SecureVaultUITests: VaultUITestCase {
+final class KoalaTVaultUITests: VaultUITestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -42,7 +42,7 @@ final class SecureVaultUITests: VaultUITestCase {
         if continueButton.waitForExistence(timeout: 3) {
             continueButton.tap()
         }
-        XCTAssertTrue(app.navigationBars["SecureVault"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 10))
     }
 
     // MARK: - File Browser
@@ -126,7 +126,7 @@ final class SecureVaultUITests: VaultUITestCase {
         XCTAssertTrue(app.navigationBars["BackTestFolder"].waitForExistence(timeout: 3))
 
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["SecureVault"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 3))
     }
 
     // MARK: - Import Sheet

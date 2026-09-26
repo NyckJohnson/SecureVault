@@ -1,6 +1,6 @@
 //
 //  ThumbnailService.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/17/26.
 //
@@ -26,7 +26,7 @@ final class ThumbnailService {
     private var cache = NSCache<NSString, UIImage>()
     private var cancelledIDs = Set<UUID>()
     private let decryptionSemaphore = DispatchSemaphore(value: 2)
-    private let thumbnailQueue = DispatchQueue(label: "com.securevault.thumbnails", attributes: .concurrent)
+    private let thumbnailQueue = DispatchQueue(label: "com.KoalaTVault.thumbnails", attributes: .concurrent)
 
     // MARK: - Public
     func thumbnail(for item: VaultItem, size: CGSize, completion: @escaping (UIImage?) -> Void) -> QLThumbnailGenerator.Request? {

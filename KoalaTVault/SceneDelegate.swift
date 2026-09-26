@@ -1,6 +1,6 @@
 //
 //  SceneDelegate.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/10/26.
 //
@@ -59,6 +59,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
-        AuthService.shared.handleBackground(in: window)
+        AuthService.shared.handleWillResignActive(in: window)
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        AuthService.shared.handleDidEnterBackground(in: window)
     }
 }

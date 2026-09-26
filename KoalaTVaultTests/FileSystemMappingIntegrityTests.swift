@@ -1,6 +1,6 @@
 //
 //  FileSystemMappingIntegrityTests.swift
-//  SecureVaultTests
+//  KoalaTVaultTests
 //
 //  Regression coverage for the mapping-corruption / silent-data-loss bug:
 //  previously, a `.vault_map` (or `.trash_map`) file that failed to decrypt/decode
@@ -19,7 +19,7 @@
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class FileSystemMappingIntegrityTests: XCTestCase {
 

@@ -1,6 +1,6 @@
 //
 //  VaultUITestCase.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 9/14/26.
 //
@@ -14,11 +14,16 @@ class VaultUITestCase: XCTestCase {
 
     var app: XCUIApplication!
 
+    /// Override to add launch environment variables before the app launches.
+    /// Defaults to empty, so existing subclasses are unaffected.
+    var additionalLaunchEnvironment: [String: String] { [:] }
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["--uitesting"]
+        app.launchEnvironment = additionalLaunchEnvironment
         app.launch()
     }
 

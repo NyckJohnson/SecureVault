@@ -1,5 +1,5 @@
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class SortTests: VaultTestCase {
 

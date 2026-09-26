@@ -9,7 +9,7 @@ final class AdditionalUITests: VaultUITestCase {
     
     override func skipSetupIfNeeded() {
         super.skipSetupIfNeeded()
-        _ = app.navigationBars["SecureVault"].waitForExistence(timeout: 5)
+        _ = app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5)
     }
     
     // MARK: - Context Menu
@@ -195,7 +195,7 @@ final class AdditionalUITests: VaultUITestCase {
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["ParentFolder"].waitForExistence(timeout: 3))
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["SecureVault"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 3))
     }
     
     // MARK: - Migration UI

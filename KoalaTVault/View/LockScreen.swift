@@ -1,6 +1,6 @@
 //
 //  LockScreenViewController.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
 //
@@ -32,6 +32,8 @@ final class LockScreenViewController: UIViewController {
         super.viewDidAppear(animated)
         if authService.lockMode == .passwordAndBiometrics {
             attemptUnlock()
+        } else {
+            passwordField.becomeFirstResponder()
         }
     }
 
@@ -41,7 +43,7 @@ final class LockScreenViewController: UIViewController {
         logoImageView.contentMode = .scaleAspectFit
         logoImageView.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.text = "SecureVault Locked"
+        titleLabel.text = "KoalaTVault Locked"
         titleLabel.font = .preferredFont(forTextStyle: .title2)
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -80,9 +82,13 @@ final class LockScreenViewController: UIViewController {
         passwordField.accessibilityIdentifier = "passwordField"
         unlockButton.accessibilityIdentifier = "unlockButton"
 
+        // Preferred position; yields when the keyboard needs the space.
+        let preferredLogoPosition = logoImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -160)
+        preferredLogoPosition.priority = .defaultHigh - 1 // Must stay below compression resistance (750) so views move instead of collapsing
+
         NSLayoutConstraint.activate([
             logoImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            logoImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -160),
+            preferredLogoPosition,
             logoImageView.widthAnchor.constraint(equalToConstant: 60),
             logoImageView.heightAnchor.constraint(equalToConstant: 60),
 
@@ -101,6 +107,7 @@ final class LockScreenViewController: UIViewController {
 
             biometricButton.topAnchor.constraint(equalTo: unlockButton.bottomAnchor, constant: 16),
             biometricButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            biometricButton.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -16),
         ])
     }
 

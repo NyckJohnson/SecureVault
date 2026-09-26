@@ -14,16 +14,16 @@
   "testTargets" : [
     {
       "target" : {
-        "containerPath" : "container:SecureVault.xcodeproj",
+        "containerPath" : "container:KoalaTVault.xcodeproj",
         "identifier" : "CD34ACD0300EE9E60092DA80",
-        "name" : "SecureVaultTests"
+        "name" : "KoalaTVaultTests"
       }
     },
     {
       "target" : {
-        "containerPath" : "container:SecureVault.xcodeproj",
+        "containerPath" : "container:KoalaTVault.xcodeproj",
         "identifier" : "CD34AD99301552490092DA80",
-        "name" : "SecureVaultUITests"
+        "name" : "KoalaTVaultUITests"
       }
     }
   ],

@@ -1,10 +1,10 @@
 //
 //  ImportServiceTests.swift
-//  SecureVaultTests
+//  KoalaTVaultTests
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class FakeCameraRollDeleter: CameraRollDeleting {
     private(set) var deletedIdentifiers: [String]?

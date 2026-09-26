@@ -1,6 +1,6 @@
 //
 //  AuthService.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
 //
@@ -20,7 +20,7 @@ final class AuthService {
     private init() {}
 
     // MARK: - Keys
-    private let passwordKeychainKey = "com.securevault.password"
+    private let passwordKeychainKey = "com.KoalaTVault.password"
     private let privacyScreenTag    = 999
 
     // MARK: - Lock Mode
@@ -106,7 +106,7 @@ final class AuthService {
         let context = LAContext()
         context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,
-            localizedReason: "Unlock SecureVault"
+            localizedReason: "Unlock Koala T Vault"
         ) { [weak self] success, error in
             guard let self else { return }
             guard success else {
@@ -141,16 +141,27 @@ final class AuthService {
     var isLocked         = false
     var hasAuthenticated = false
     
-    static let vaultUnlockedNotification = Notification.Name("SecureVault.vaultUnlocked")
+    static let vaultUnlockedNotification = Notification.Name("KoalaTVault.vaultUnlocked")
 
     // MARK: - Scene Lifecycle
-    func handleBackground(in window: UIWindow?) {
+    /// Call from `sceneWillResignActive`. Any interruption — Control Center, an
+    /// alert, the StoreKit purchase sheet — triggers this, so it only covers the
+    /// screen; it must NOT wipe the key or present the lock screen, since most of
+    /// these interruptions aren't a real backgrounding.
+    func handleWillResignActive(in window: UIWindow?) {
+        guard hasAuthenticated, lockMode != .none else { return }
+        showPrivacyScreen(in: window)
+    }
+
+    /// Call from `sceneDidEnterBackground`. This only fires on a genuine
+    /// backgrounding (home button, app switch, screen lock), so this is where
+    /// the actual lock — wiping the key and requiring re-auth — belongs.
+    func handleDidEnterBackground(in window: UIWindow?) {
         guard hasAuthenticated, lockMode != .none else { return }
         isLocked = true
         CryptoService.shared.wipeKey()
         FileSystem.shared.cleanupTempFiles()
         ThumbnailService.shared.clearCache()
-        showPrivacyScreen(in: window)
     }
 
     func handleForeground(in window: UIWindow?) {

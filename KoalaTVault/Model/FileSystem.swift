@@ -1,6 +1,6 @@
 //
 //  FileSystem.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/17/26.
 //
@@ -18,7 +18,7 @@ struct VaultDirectory {
 
     static var root: VaultDirectory {
         let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return VaultDirectory(name: "SecureVault", diskURL: url, rootURL: url)
+        return VaultDirectory(name: "KoalaTVault", diskURL: url, rootURL: url)
     }
 }
 
@@ -51,11 +51,14 @@ struct VaultMapping: Codable {
 // MARK: - FileSystemError
 enum FileSystemError: Error, LocalizedError {
     case mappingUnreadable
+    case fileLimitReached
 
     var errorDescription: String? {
         switch self {
         case .mappingUnreadable:
             return "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."
+        case .fileLimitReached:
+            return "You've reached the 100-file limit. Unlock more storage to continue importing."
         }
     }
 }
@@ -128,6 +131,13 @@ final class FileSystem {
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
             return count + (url.hasDirectoryPath ? countFiles(in: url) : 1)
         })
+
+        if !EntitlementService.shared.isUnlockedSync {
+            let existingCount = countFiles(in: directory.rootURL)
+            guard existingCount + Int(total) <= EntitlementService.freeFileLimit else {
+                throw FileSystemError.fileLimitReached
+            }
+        }
 
         var completed = 0.0
         for url in urls {
@@ -218,6 +228,16 @@ final class FileSystem {
                     onFileImported?()
                 }
             }
+        }
+    }
+
+    /// Call before starting a camera-roll import; throws `.fileLimitReached` if the
+    /// import would exceed the free tier for this vault.
+    func checkImportAllowed(additionalCount: Int, in directory: VaultDirectory) throws {
+        guard !EntitlementService.shared.isUnlockedSync else { return }
+        let existingCount = countFiles(in: directory.rootURL)
+        guard existingCount + additionalCount <= EntitlementService.freeFileLimit else {
+            throw FileSystemError.fileLimitReached
         }
     }
 

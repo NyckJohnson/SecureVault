@@ -1,13 +1,13 @@
 //
-//  SecureVaultUITestsLaunchTests.swift
-//  SecureVaultUITests
+//  KoalaTVaultUITestsLaunchTests.swift
+//  KoalaTVaultUITests
 //
 //  Created by Nicholas Johnson on 7/25/26.
 //
 
 import XCTest
 
-final class SecureVaultUITestsLaunchTests: XCTestCase {
+final class KoalaTVaultUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

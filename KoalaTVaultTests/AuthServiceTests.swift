@@ -1,12 +1,12 @@
 //
 //  AuthServiceTests.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/20/26.
 //
 
 import XCTest
-@testable import SecureVault
+@testable import KoalaTVault
 
 final class AuthServiceTests: XCTestCase {
 
@@ -85,25 +85,38 @@ final class AuthServiceTests: XCTestCase {
         XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted), secret)
     }
 
-    // MARK: - Lock State
-    func testHandleBackgroundLocksWhenAuthenticated() {
+    // MARK: - Resign Active
+    func testWillResignActiveDoesNotLockOrWipeKey() throws {
+        try AuthService.shared.createPassword("password123")
+        try AuthService.shared.verifyPassword("password123")
         AuthService.shared.hasAuthenticated = true
         AuthService.shared.lockMode = .password
-        AuthService.shared.handleBackground(in: nil)
+
+        AuthService.shared.handleWillResignActive(in: nil)
+
+        XCTAssertFalse(AuthService.shared.isLocked)
+        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+    }
+
+    // MARK: - Lock State
+    func testHandleDidEnterBackgroundLocksWhenAuthenticated() {
+        AuthService.shared.hasAuthenticated = true
+        AuthService.shared.lockMode = .password
+        AuthService.shared.handleDidEnterBackground(in: nil)
         XCTAssertTrue(AuthService.shared.isLocked)
     }
 
-    func testHandleBackgroundDoesNotLockWhenNotAuthenticated() {
+    func testHandleDidEnterBackgroundDoesNotLockWhenNotAuthenticated() {
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .password
-        AuthService.shared.handleBackground(in: nil)
+        AuthService.shared.handleDidEnterBackground(in: nil)
         XCTAssertFalse(AuthService.shared.isLocked)
     }
 
-    func testHandleBackgroundDoesNotLockWhenNoLock() {
+    func testHandleDidEnterBackgroundDoesNotLockWhenNoLock() {
         AuthService.shared.hasAuthenticated = true
         AuthService.shared.lockMode = .none
-        AuthService.shared.handleBackground(in: nil)
+        AuthService.shared.handleDidEnterBackground(in: nil)
         XCTAssertFalse(AuthService.shared.isLocked)
     }
 
@@ -125,13 +138,13 @@ final class AuthServiceTests: XCTestCase {
     }
 
     // MARK: - Background wipes key
-    func testBackgroundWipesEncryptionKey() throws {
+    func testDidEnterBackgroundWipesEncryptionKey() throws {
         try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
         AuthService.shared.hasAuthenticated = true
         AuthService.shared.lockMode = .password
         XCTAssertTrue(CryptoService.shared.isKeyLoaded)
-        AuthService.shared.handleBackground(in: nil)
+        AuthService.shared.handleDidEnterBackground(in: nil)
         XCTAssertFalse(CryptoService.shared.isKeyLoaded)
     }
 }

@@ -1,6 +1,6 @@
 //
 //  SecuritySettingsViewController.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
 //
@@ -15,6 +15,7 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Sections
     private enum Section: Int, CaseIterable {
+        case pro
         case lockMode
         case password
         case trash
@@ -58,6 +59,7 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section)! {
+        case .pro: return 1
         case .lockMode: return showsReEncryptRow ? 4 : 3
         case .password: return authService.lockMode == .none ? 0 : 1
         case .trash: return 1
@@ -70,17 +72,33 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section)! {
-            case .lockMode: return "Lock Mode"
-            case .password: return authService.lockMode == .none ? nil : "Password"
-            case .trash: return "Storage"
+        case .pro: return nil
+        case .lockMode: return "Lock Mode"
+        case .password: return authService.lockMode == .none ? nil : "Password"
+        case .trash: return "Storage"
         }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
         cell.accessoryType = .none
+        cell.selectionStyle = .default
+        cell.accessibilityIdentifier = nil
 
         switch Section(rawValue: indexPath.section)! {
+        case .pro:
+            cell.accessibilityIdentifier = "upgradeToProCell"
+            if EntitlementService.shared.isUnlockedSync {
+                cell.textLabel?.text = "Pro Unlocked"
+                cell.textLabel?.textColor = .secondaryLabel
+                cell.accessoryType = .checkmark
+                cell.selectionStyle = .none
+            } else {
+                cell.textLabel?.text = "Upgrade to Pro"
+                cell.textLabel?.textColor = .systemBlue
+                cell.accessoryType = .disclosureIndicator
+            }
+
         case .lockMode:
             switch indexPath.row {
             case 0:
@@ -102,7 +120,7 @@ extension SecuritySettingsViewController: UITableViewDataSource {
         case .password:
             cell.textLabel?.text = "Change Password"
             cell.textLabel?.textColor = .systemBlue
-            
+
         case .trash:
             cell.textLabel?.text = "Recently Deleted"
             cell.accessoryType = .disclosureIndicator
@@ -115,8 +133,15 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 extension SecuritySettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        
+
         switch Section(rawValue: indexPath.section)! {
+        case .pro:
+            guard !EntitlementService.shared.isUnlockedSync else { return }
+            let paywall = PaywallViewController()
+            paywall.modalPresentationStyle = .formSheet
+            paywall.onUnlock = { [weak self] in self?.tableView.reloadData() }
+            present(paywall, animated: true)
+
         case .lockMode:
             switch indexPath.row {
             case 0: setLockMode(.none)
@@ -130,7 +155,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 
         case .password:
             promptChangePassword()
-            
+
         case .trash:
             let vc = RecentlyDeletedViewController()
             navigationController?.pushViewController(vc, animated: true)

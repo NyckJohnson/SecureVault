@@ -1,6 +1,6 @@
 //
 //  SetupWizardViewController.swift
-//  SecureVault
+//  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
 //
@@ -31,7 +31,7 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Setup
     private func setupUI() {
-        titleLabel.text = "Welcome to SecureVault"
+        titleLabel.text = "Welcome to Koala T Vault"
         titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0

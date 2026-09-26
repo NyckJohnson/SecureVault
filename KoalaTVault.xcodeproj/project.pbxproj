@@ -30,6 +30,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CD93D82230657E5700F7045E /* Exceptions for "KoalaTVaultTests" folder in "KoalaTVaultUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				premiumTesting.storekit,
+			);
+			target = CD34AD99301552490092DA80 /* KoalaTVaultUITests */;
+		};
+		CDA86AD2306483BE005F6DFD /* Exceptions for "KoalaTVaultTests" folder in "KoalaTVault" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				premiumTesting.storekit,
+			);
+			target = CDA9AA972FB144D300492A09 /* KoalaTVault */;
+		};
 		CDA9AAAA2FB144D400492A09 /* Exceptions for "KoalaTVault" folder in "KoalaTVault" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -42,6 +56,10 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CD34ACD2300EE9E60092DA80 /* KoalaTVaultTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CDA86AD2306483BE005F6DFD /* Exceptions for "KoalaTVaultTests" folder in "KoalaTVault" target */,
+				CD93D82230657E5700F7045E /* Exceptions for "KoalaTVaultTests" folder in "KoalaTVaultUITests" target */,
+			);
 			path = KoalaTVaultTests;
 			sourceTree = "<group>";
 		};
@@ -292,7 +310,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = nej.SecureVaultTests;
+				PRODUCT_BUNDLE_IDENTIFIER = nej.KoalaTVaultTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -300,7 +318,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SecureVault.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SecureVault";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KoalaTVault.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KoalaTVault";
 			};
 			name = Debug;
 		};
@@ -314,7 +332,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = nej.SecureVaultTests;
+				PRODUCT_BUNDLE_IDENTIFIER = nej.KoalaTVaultTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -322,7 +340,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SecureVault.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SecureVault";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KoalaTVault.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KoalaTVault";
 			};
 			name = Release;
 		};
@@ -335,7 +353,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = nej.SecureVaultUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = nej.KoalaTVaultUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -343,7 +361,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = SecureVault;
+				TEST_TARGET_NAME = KoalaTVault;
 			};
 			name = Debug;
 		};
@@ -356,7 +374,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = nej.SecureVaultUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = nej.KoalaTVaultUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -364,7 +382,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = SecureVault;
+				TEST_TARGET_NAME = KoalaTVault;
 			};
 			name = Release;
 		};
@@ -377,11 +395,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JGRLGUY77Q;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SecureVault/Info.plist;
+				INFOPLIST_FILE = KoalaTVault/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Koala T Vault";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlocking with FaceID";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"Save photos and videos to your camera roll\"";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SecureVault needs access to your photo library to let you delete photos after importing them.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Koala T Vault needs access to your photo library to let you delete photos after importing them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIRequiresFullScreen = NO;
@@ -414,11 +433,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JGRLGUY77Q;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = SecureVault/Info.plist;
+				INFOPLIST_FILE = KoalaTVault/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Koala T Vault";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlocking with FaceID";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"Save photos and videos to your camera roll\"";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "SecureVault needs access to your photo library to let you delete photos after importing them.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Koala T Vault needs access to your photo library to let you delete photos after importing them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIRequiresFullScreen = NO;
