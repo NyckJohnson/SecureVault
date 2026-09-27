@@ -124,18 +124,23 @@ extension ImportService: UIDocumentPickerDelegate {
 // MARK: - PHPickerViewControllerDelegate
 extension ImportService: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        presentingViewController?.dismiss(animated: true)
         guard !results.isEmpty, let vc = presentingViewController, let directory = targetDirectory else { return }
 
         do {
             try FileSystem.shared.checkImportAllowed(additionalCount: results.count, in: directory)
+        } catch FileSystemError.fileLimitReached {
+            picker.dismiss(animated: true) {
+                let paywall = PaywallViewController()
+                paywall.modalPresentationStyle = .formSheet
+                vc.present(paywall, animated: true)
+            }
+            return
         } catch {
-            let paywall = PaywallViewController()
-            paywall.modalPresentationStyle = .formSheet
-            vc.present(paywall, animated: true)
+            (vc as? ErrorPresenting)?.showError(error)
             return
         }
 
+        presentingViewController?.dismiss(animated: true)
         let overlay = ProgressOverlay.show(in: vc, title: "Importing Photos...")
         FileSystem.shared.importFromCameraRoll(results: results, to: directory) { [weak self] succeededIdentifiers, failed in
             overlay.dismiss()

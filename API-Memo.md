@@ -1,6 +1,6 @@
 # SecureVault — API Surface Memo
 
-Reference for public/internal-facing members across uploaded files. Private helpers omitted unless useful for context. Use this to scope future feature conversations without re-uploading everything.
+Reference for public/internal-facing members across uploaded files (last updated 2026-09-27: added EntitlementService, PaywallViewController; updated FileSystem, SecuritySettings, ImportService). Private helpers omitted unless useful for context. Use this to scope future feature conversations without re-uploading everything.
 
 ---
 
@@ -8,31 +8,37 @@ Reference for public/internal-facing members across uploaded files. Private help
 Core file storage layer. Handles the vault directory tree, encryption-transparent CRUD, trash, and migration between encrypted/plaintext.
 
 **Types**
-- `struct VaultDirectory { name: String, diskURL: URL }` — `.root` static var (Documents dir)
-- `struct VaultItem: Identifiable, Hashable, Sendable` — `id, name, isDirectory, dateModified, fileSize, deletedAt, diskURL (internal), isEncrypted (internal)`
+- `struct VaultDirectory { name: String, diskURL: URL (internal), rootURL: URL (internal) }` — `.root` static var (Documents dir, display name "KoalaTVault"). `rootURL` is carried down through every subdirectory so trash/limit logic knows which vault root an item belongs to.
+- `struct VaultItem: Identifiable, Hashable, Sendable` — `id, name, isDirectory, dateModified, fileSize, deletedAt, diskURL (internal), rootURL (internal), isEncrypted (internal)`. Hash/equality by `id` only.
 - `struct VaultMapping: Codable { originalName: String }`
-- `FileSystem.TrashEntry: Codable { originalDiskName, originalDirectoryURL, deletedAt, isEncrypted, originalName }`
+- `enum FileSystemError: LocalizedError { mappingUnreadable, fileLimitReached }`
+- `FileSystem.TrashEntry: Codable { originalDiskName, originalDirectoryURL, deletedAt, isEncrypted, originalName, rootURL }` (DEBUG alias `TrashEntryForTesting`)
 
 **FileSystem (singleton `.shared`)**
-- `contents(of:) throws -> [VaultItem]` — list directory, sorted per PreferencesService sort settings
-- `importItems(from:to:progress:) throws` — bulk import (files/folders), dedupes via hash
-- `importFromCameraRoll(results:to:completion:)` — import from PHPickerResult
+- `contents(of:) throws -> [VaultItem]` — list directory; folders always first, then PreferencesService sort settings. Throws `.mappingUnreadable` if the `.vault_map` exists but can't be read.
+- `importItems(from:to:progress:) throws` — bulk import (files/folders), dedupes via SHA-256. **Free tier:** if `!EntitlementService.shared.isUnlockedSync`, counts existing files under `rootURL` + incoming files and throws `.fileLimitReached` if the total would exceed `EntitlementService.freeFileLimit` (all-or-nothing, checked before any copy)
+- `checkImportAllowed(additionalCount:in:) throws` — same limit check; **caller must invoke before** `importFromCameraRoll`, which does not check itself
+- `importFromCameraRoll(results:to:completion: ([String] succeededIdentifiers, Int failed))` — import from PHPickerResult; completion on main
 - `open(_:) throws -> URL` — decrypts to temp file if needed, returns readable URL
 - `write(data:to:) throws` — overwrite item contents (re-encrypts if needed)
 - `prepareForExport(_:progress:) throws -> [URL]`
 - `exportToCameraRoll(_:completion:)`
 - `createFolder(named:in:) throws -> VaultDirectory`
-- `move(_:to:) throws`, `copy(_:to:) throws`, `rename(_:to:) throws`, `delete(_:) throws` (→ trash) — all three resolve name collisions against existing items in the target directory, including for encrypted items (compared by original display name via the mapping)
-- `trashDirectory: VaultDirectory` (computed)
-- `moveToTrash(_:) throws`, `restoreFromTrash(_:) throws`, `contentsOfTrash() -> [VaultItem]`, `permanentlyDelete(_:) throws`, `emptyTrash() throws`, `cleanupExpiredTrashItems()` (30-day cutoff)
+- `move(_:to:) throws`, `copy(_:to:) throws`, `rename(_:to:) throws`, `delete(_:) throws` (→ trash) — move/copy/rename resolve name collisions against existing items in the target directory, including for encrypted items (compared by original display name via the mapping)
+- **Trash is per vault root** (`.trash` folder + encrypted `.trash_map` under `rootURL`):
+  - `trashDirectory(for rootURL:) -> VaultDirectory` (creates if missing)
+  - `moveToTrash(_:) throws`, `restoreFromTrash(_:) throws`, `permanentlyDelete(_:) throws`
+  - `contentsOfTrash(for root:) throws -> [VaultItem]` — newest first
+  - `emptyTrash(for root:) throws` — deliberately best-effort; also sweeps files an unreadable map doesn't know about
+  - `cleanupExpiredTrashItems(for root:)` — 30-day cutoff; never overwrites the map if it couldn't be read
 - `filesToMigrate(toEncrypted:in:) throws -> [(item, directory)]`
 - `migrateVaultToEncrypted(in:progress:) throws`, `migrateFileToEncrypted(_:in:) throws`
 - `migrateVaultToDecrypted(in:progress:) throws`, `migrateFileToDecrypted(_:in:) throws`
 - `cleanupTempFiles()`
-- DEBUG-only: `testForcedMigrationFailureFileName`, `diagnoseDiskState()`, `testTrashMap()/saveTestTrashMap()`, `testMapping(in:)`
+- DEBUG-only: `testForcedMigrationFailureFileName` (also `UITEST_FAIL_MIGRATION_FILE` env var), `diagnoseDiskState()`, `testTrashMap(for:)`/`saveTestTrashMap(_:for:)`, `testMapping(in:)`
 - `Notification.Name.fileRestored`
 
-Uses `CryptoService`, `PreferencesService`. Encrypted files stored under random UUID names with a `.vault_map` JSON mapping UUID→original name (itself encrypted if a key is loaded).
+Uses `CryptoService`, `PreferencesService`, `EntitlementService`. Encrypted files stored under random UUID names with a `.vault_map` JSON mapping UUID→original name (itself encrypted if a key is loaded). Map loading: missing file = empty; unreadable file = throw `.mappingUnreadable` (never treated as empty, so a later save can't wipe real data). No key loaded → falls back to reading a legacy plaintext map.
 
 ---
 
@@ -110,7 +116,10 @@ UI flow for importing files into the vault (files, folders, photos).
 - `cameraRollDeleter: CameraRollDeleting` (injectable, default `PhotoLibraryCameraRollDeleter`)
 - `promptImport(into:from:barButtonItem:completion:)` — action sheet: Choose Files / Choose Folder / Choose Photos / Cancel
 - Conforms to `UIDocumentPickerDelegate`, `PHPickerViewControllerDelegate`
-- `confirmDeleteFromCameraRoll(identifiers:)` — offers to delete originals after successful photo import
+- Files/folders: `FileSystem.importItems` runs on a background queue with a `ProgressOverlay` (updates throttled to ~10/s). On `.fileLimitReached`, it presents `PaywallViewController` (`.formSheet`); other errors go to `showError` if the presenter conforms to `ErrorPresenting`
+- Photos: calls `FileSystem.checkImportAllowed(additionalCount:in:)` first and presents the paywall if that throws; otherwise runs `importFromCameraRoll` and shows an "N imported, M failed" alert when anything failed
+- The paywall is presented without `onUnlock`, so after purchasing the user has to start the import again
+- `confirmDeleteFromCameraRoll(identifiers:)` — deletes the imported originals through `cameraRollDeleter` right away (no in-app prompt; iOS shows its own delete confirmation)
 
 **Protocol:** `CameraRollDeleting { deleteAssets(withIdentifiers:) }`
 **Struct:** `PhotoLibraryCameraRollDeleter: CameraRollDeleting`
@@ -280,8 +289,9 @@ Used by `ExportService` and `ImportService` during long-running file operations.
 Trash UI.
 
 **RecentlyDeletedViewController: UIViewController, ErrorPresenting**
-- Lists `FileSystem.shared.contentsOfTrash()`; shows days-until-permanent-deletion (30-day window) per item
-- Nav bar "Empty Trash" (disabled when empty) → confirms → `FileSystem.shared.emptyTrash()`
+- Lists `FileSystem.shared.contentsOfTrash(for:)`; shows days-until-permanent-deletion (30-day window) per item
+- Nav bar "Empty Trash" (disabled when empty) → confirms → `FileSystem.shared.emptyTrash(for:)`
+- (Signatures updated to FileSystem's per-root trash API; this file hasn't been re-uploaded since, so details may be stale.)
 - Row tap → action sheet: Restore (`restoreFromTrash`, posts `.fileRestored`) or Delete Permanently (`permanentlyDelete`)
 
 ---
@@ -290,9 +300,13 @@ Trash UI.
 Security/lock settings screen — lock mode picker, password change, trash entry point.
 
 **SecuritySettingsViewController: UIViewController, ErrorPresenting**
-- Sections: Lock Mode (No Lock/Password/Password+Biometric/Re-encrypt Everything if unencrypted files exist elsewhere in an encrypted vault), Password (Change Password, hidden if lockMode == .none), Trash (Recently Deleted)
-- Changing to `.none` confirms then runs a `.decrypt` migration; changing to password modes prompts for a password (if none set) then runs an `.encrypt` migration
-- "Re-encrypt Everything" row appears when `hasUnencryptedFiles` is true (checked via `FileSystem.shared.filesToMigrate(toEncrypted:true,...)`) — runs an `.encrypt`-typed migration
+- Sections (in order): Pro, Lock Mode, Password, Storage
+  - **Pro** (no header): "Upgrade to Pro" (disclosure) → presents `PaywallViewController` as `.formSheet`, `onUnlock` reloads the table; shows "Pro Unlocked" + checkmark (non-selectable) once `EntitlementService.shared.isUnlockedSync`. Accessibility identifier: `upgradeToProCell`
+  - **Lock Mode**: No Lock / Password / Password+Biometric / Re-encrypt Everything (only when lockMode != .none and unencrypted files exist)
+  - **Password**: Change Password (hidden if lockMode == .none)
+  - **Storage** (was "Trash"): Recently Deleted
+- Changing to `.none` confirms then runs a `.decrypt` migration; changing to a password mode when no password exists prompts for one then runs an `.encrypt` migration; switching between the two password modes just sets `lockMode`
+- `hasUnencryptedFiles` is computed on a background queue (`FileSystem.shared.filesToMigrate(toEncrypted: true, in: .root)`) at load and after each migration; "Re-encrypt Everything" runs an `.encrypt` migration
 - `promptChangePassword`: verifies current password, then calls `AuthService.shared.changePassword(to: new)` — re-wraps the existing master key under the new password
 - DEBUG: `testSetHasUnencryptedFiles(_:)`, `testTableView`
 
@@ -329,7 +343,7 @@ App entry points and lifecycle wiring — thin, mostly delegates to the services
 
 **SceneDelegate**
 - `window: UIWindow?`
-- `scene(_:willConnectTo:options:)` — builds root nav (`FileBrowserViewController(directory: .root)` in a `UINavigationController`, large titles); presents `SetupWizardViewController` if `!hasCompletedSetup`, else calls `AuthService.shared.handleInitialLaunch(in:)`; also runs `FileSystem.shared.cleanupExpiredTrashItems()` and `.cleanupTempFiles()` on launch
+- `scene(_:willConnectTo:options:)` — builds root nav (`FileBrowserViewController(directory: .root)` in a `UINavigationController`, large titles); presents `SetupWizardViewController` if `!hasCompletedSetup`, else calls `AuthService.shared.handleInitialLaunch(in:)`; also runs `FileSystem.shared.cleanupExpiredTrashItems(for:)` (now takes a root) and `.cleanupTempFiles()` on launch
 - `sceneDidBecomeActive` → `AuthService.shared.handleForeground(in:)`
 - `sceneWillResignActive` → `AuthService.shared.handleBackground(in:)`
 - `setupMigrationResumeObserver()` (called at the start of `willConnectTo`) / `resumePendingMigrationIfNeeded()` — observes `AuthService.vaultUnlockedNotification` and, if `PreferencesService.pendingMigrationType` is set (an interrupted migration), re-presents `MigrationViewController` to resume it
@@ -340,11 +354,50 @@ App entry points and lifecycle wiring — thin, mostly delegates to the services
 
 ---
 
+## EntitlementService.swift
+StoreKit 2 one-time "Unlock Pro" purchase and entitlement state. Entitlement syncs across devices via Apple ID.
+
+**Types:** `enum EntitlementError: purchaseFailed, productUnavailable, purchasePending, verificationFailed` (LocalizedError)
+
+**EntitlementService (singleton `.shared`, `@MainActor`, `ObservableObject`)**
+- `static let unlockProductID = "nej.KoalaTVault.unlockpro"`
+- `static let freeFileLimit = 100` — file cap for free tier
+- `@Published private(set) isUnlocked: Bool` — main-actor source of truth
+- `nonisolated isUnlockedSync: Bool` — lock-protected snapshot of `isUnlocked` for off-main callers (e.g. FileSystem's background import queue)
+- `purchaseUnlock(confirmIn: UIScene? = nil) async throws` — uses `purchase(confirmIn:)` on iOS 17+ when a scene is given; `.userCancelled` returns silently, `.pending` throws `.purchasePending`
+- `restorePurchases() async throws` — `AppStore.sync()` then refresh
+- `refreshEntitlementStatus() async` — scans `Transaction.currentEntitlements` for the unlock product
+- Private: `listenForTransactionUpdates()` — detached task on `Transaction.updates` (other devices, Ask-to-Buy), started in `init`; `init` also kicks off an initial refresh
+- DEBUG: `static testForcedUnlocked: Bool?` — overrides `isUnlockedSync` only (not `isUnlocked`)
+
+---
+
+## PaywallViewController.swift
+Modal "Unlock Pro" upsell screen.
+
+**PaywallViewController: UIViewController, ErrorPresenting**
+- `onUnlock: (() -> Void)?` — called after successful purchase/restore, before dismissal
+- Layout: title, description ("Store more than \(freeFileLimit) files."), price (loaded via `Product.products` → `displayPrice`), Unlock button, Restore Purchases button, spinner, close (X) button top-right
+- Unlock → `EntitlementService.shared.purchaseUnlock(confirmIn: view.window?.windowScene)`; Restore → `restorePurchases()`, shows "No previous purchase found to restore." if still locked
+- Buttons disabled while a request is in flight
+- Accessibility identifiers: `paywallUnlockButton`, `restoreButton`
+
+---
+
 ## Cross-file dependency notes
 - **CryptoService** is the crypto root; **FileSystem** and **AuthService** both depend on it; nothing depends on FileSystem/AuthService for crypto.
 - **VaultItem/VaultDirectory** (defined in FileSystem.swift) are the shared currency passed through nearly every view controller.
 - View-controller layer now fully accounted for: `FileBrowserViewController` (grid/home) → `FileViewerViewController` (media paging) → `FilePageViewController` (single page) → `TextEditorViewController`/`QLPreviewController`. Settings: `SecuritySettingsViewController` → `MigrationViewController` / `RecentlyDeletedViewController`. Onboarding/lock: `SetupWizardViewController`, `LockScreenViewController`.
-- App entry points (AppDelegate/SceneDelegate/Info.plist) covered above — this appears to be the full codebase now.
+- App entry points (AppDelegate/SceneDelegate/Info.plist) covered above.
+- **Pro/monetization layer:** `EntitlementService` is standalone (StoreKit only, no app-service deps). `FileSystem` enforces the free-tier limit (`importItems`, `checkImportAllowed`) via `isUnlockedSync`. `PaywallViewController` is presented from `SecuritySettingsViewController` (Pro row) and from `ImportService` (when the file limit is hit, for both file and photo imports).
+
+**Open observations (not yet fixed):**
+1. FileSystem.swift — `restoreFromTrash` and `permanentlyDelete` look up the trash-map entry by `originalName`. If two trashed items share a name, the wrong entry can be used (restores to the wrong location/mapping, or leaves an orphaned map entry). Looking up by `item.diskURL.lastPathComponent` (the trash UUID key) would fix it.
+2. FileSystem.swift — the `.fileLimitReached` message hardcodes "100" instead of using `EntitlementService.freeFileLimit`.
+3. SecuritySettings.swift — the Pro row reads `isUnlockedSync` only at render time and doesn't observe `EntitlementService.$isUnlocked`, so a purchase synced from another device while the screen is open won't show until it reloads.
+4. ImportService.swift — in `picker(_:didFinishPicking:)`, the paywall is presented right after `dismiss(animated: true)` starts on the photo picker. UIKit usually rejects a presentation while a dismissal is animating, so the paywall may never appear when the limit is hit. Presenting it from the dismiss completion handler would fix this.
+5. ImportService.swift — the photo-import `checkImportAllowed` catch treats any error as the file limit; it could match `FileSystemError.fileLimitReached` specifically. (Harmless today, since that's the only error it throws.)
+6. ImportService.swift — both branches of the authorization `guard` in `presentPhotoPicker` do the same thing (dead code).
 
 **Issues found and fixed during initial review** (all resolved, listed for history — no outstanding action needed):
 1. SetupWizard.swift — `createMasterKey` used a hardcoded literal instead of the typed password

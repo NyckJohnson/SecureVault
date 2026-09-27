@@ -15,13 +15,13 @@
   ],
   "products" : [
     {
-      "displayPrice" : "20.00",
+      "displayPrice" : "19.99",
       "familyShareable" : false,
       "internalID" : "89A78368",
       "localizations" : [
         {
-          "description" : "",
-          "displayName" : "",
+          "description" : "Store unlimited files in your vault.",
+          "displayName" : "Unlock Pro",
           "locale" : "en_US"
         }
       ],

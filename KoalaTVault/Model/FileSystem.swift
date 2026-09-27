@@ -512,9 +512,9 @@ final class FileSystem {
     }
 
     func restoreFromTrash(_ item: VaultItem) throws {
-        var trashMap = try loadTrashMap(for: item.rootURL)
-        guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key,
-              let entry = trashMap[uuid] else { return }
+        var trashMap    = try loadTrashMap(for: item.rootURL)
+        let uuid        = item.diskURL.lastPathComponent
+        guard let entry = trashMap[uuid] else { return }
 
         let originalDir = URL(fileURLWithPath: entry.originalDirectoryURL)
         try FileManager.default.createDirectory(at: originalDir, withIntermediateDirectories: true)
@@ -553,10 +553,13 @@ final class FileSystem {
     }
 
     func permanentlyDelete(_ item: VaultItem) throws {
-        var trashMap = try loadTrashMap(for: item.rootURL)
-        guard let uuid = trashMap.first(where: { $0.value.originalName == item.name })?.key else { return }
+        var trashMap          = try loadTrashMap(for: item.rootURL)
+        let uuid              = item.diskURL.lastPathComponent
+        guard trashMap[uuid] != nil else { return }
+
         try FileManager.default.removeItem(at: item.diskURL)
         trashMap.removeValue(forKey: uuid)
+
         try saveTrashMap(trashMap, for: item.rootURL)
     }
 

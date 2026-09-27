@@ -32,7 +32,7 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
         titleLabel.font = .preferredFont(forTextStyle: .title1)
         titleLabel.textAlignment = .center
 
-        descriptionLabel.text = "Store more than \(EntitlementService.freeFileLimit) files, plus iCloud backup and multi-vault storage."
+        descriptionLabel.text = "Store more than \(EntitlementService.freeFileLimit) files."
         descriptionLabel.font = .preferredFont(forTextStyle: .body)
         descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.textAlignment = .center
@@ -115,6 +115,8 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
                 } else {
                     showError("No previous purchase found to restore.")
                 }
+            } catch StoreKitError.userCancelled {
+                setLoading(false)
             } catch {
                 setLoading(false)
                 showError(error)

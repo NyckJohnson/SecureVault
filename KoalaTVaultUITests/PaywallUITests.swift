@@ -10,6 +10,7 @@ final class PaywallUITests: VaultUITestCase {
 
     private var session: SKTestSession!
     private let testPassword = "uitestPassword123"
+    private let unlockProductID = "nej.KoalaTVault.unlockpro"
 
     override var additionalLaunchEnvironment: [String: String] {
         ["UITEST_PASSWORD": testPassword]
@@ -62,6 +63,46 @@ final class PaywallUITests: VaultUITestCase {
         XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 5))
     }
 
+    // MARK: - Restore
+
+    /// Restore with no prior transactions shows the "nothing to restore" alert
+    /// and leaves the paywall up.
+    func testRestoreWithNoPurchaseShowsNotFoundAlert() {
+        openPaywall()
+
+        app.buttons["restoreButton"].tap()
+
+        let alertMessage = app.alerts.staticTexts["No previous purchase found to restore."]
+        XCTAssertTrue(alertMessage.waitForExistence(timeout: 5), "Missing 'nothing to restore' alert")
+        XCTAssertTrue(app.buttons["paywallUnlockButton"].exists, "Paywall dismissed despite nothing restored")
+    }
+
+    /// Restore with an existing purchase dismisses the paywall and shows Pro as unlocked.
+    /// The purchase also arrives via Transaction.updates, so this verifies the restore
+    /// flow's outcome, not that restore alone performed the unlock.
+    func testRestoreWithExistingPurchaseUnlocksPro() throws {
+        openPaywall()
+        try session.buyProduct(productIdentifier: unlockProductID)
+
+        app.buttons["restoreButton"].tap()
+
+        XCTAssertTrue(app.buttons["restoreButton"].waitForNonExistence(timeout: 5), "Paywall did not dismiss after restore")
+        XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 5))
+    }
+
+    // MARK: - Entitlement observation
+
+    /// A purchase arriving while Settings is open (e.g. from another device)
+    /// flips the Pro row without leaving the screen.
+    func testProRowUpdatesWhenPurchaseArrivesExternally() throws {
+        openSettings()
+        XCTAssertTrue(app.staticTexts["Upgrade to Pro"].waitForExistence(timeout: 5))
+
+        try session.buyProduct(productIdentifier: unlockProductID)
+
+        XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 5), "Pro row did not update")
+    }
+
     // MARK: - Helpers
     /// The app always shows the lock screen on cold launch when a password is
     /// configured (handleInitialLaunch) — authenticate through it before continuing.
@@ -86,5 +127,26 @@ final class PaywallUITests: VaultUITestCase {
             passwordField.waitForNonExistence(timeout: 5),
             "Lock screen did not dismiss after entering the test password"
         )
+    }
+
+
+    private func openSettings() {
+        unlockVaultAtLaunch()
+
+        let settingsButton = app.buttons["settingsButton"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5), "Vault did not unlock at launch")
+        settingsButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 3))
+    }
+
+    private func openPaywall() {
+        openSettings()
+
+        let upgradeRow = app.cells["upgradeToProCell"]
+        XCTAssertTrue(upgradeRow.waitForExistence(timeout: 5))
+        upgradeRow.tap()
+
+        XCTAssertTrue(app.buttons["restoreButton"].waitForExistence(timeout: 5), "Paywall did not appear")
     }
 }

@@ -6,12 +6,14 @@
 //
 
 import UIKit
+import Combine
 
 final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
 
     private let authService         = AuthService.shared
     private var tableView:            UITableView!
     private var hasUnencryptedFiles = false
+    private var cancellables        = Set<AnyCancellable>()
 
     // MARK: - Sections
     private enum Section: Int, CaseIterable {
@@ -26,6 +28,7 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
         title = "Security"
         view.backgroundColor = .systemBackground
         setupTableView()
+        observeEntitlement()
         refreshUnencryptedFilesState { [weak self] in
             self?.tableView.reloadData()
         }
@@ -48,6 +51,17 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
         tableView.dataSource = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
         view.addSubview(tableView)
+    }
+
+    private func observeEntitlement() {
+        EntitlementService.shared.$isUnlocked
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.tableView.reloadSections(IndexSet(integer: Section.pro.rawValue), with: .none)
+            }
+            .store(in: &cancellables)
     }
 }
 
