@@ -30,11 +30,22 @@ final class LockScreenViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        if authService.lockMode == .passwordAndBiometrics {
+        guard authService.lockMode == .passwordAndBiometrics else {
+            passwordField.becomeFirstResponder()
+            return
+        }
+        if view.window?.windowScene?.activationState == .foregroundActive {
             attemptUnlock()
         } else {
-            passwordField.becomeFirstResponder()
+            NotificationCenter.default.addObserver(self, selector: #selector(sceneDidActivate),
+                                                   name: UIScene.didActivateNotification,
+                                                   object: view.window?.windowScene)
         }
+    }
+
+    @objc private func sceneDidActivate() {
+        NotificationCenter.default.removeObserver(self, name: UIScene.didActivateNotification, object: nil)
+        attemptUnlock()
     }
 
     // MARK: - Setup

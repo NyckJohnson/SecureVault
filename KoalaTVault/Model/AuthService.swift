@@ -55,6 +55,7 @@ final class AuthService {
     func verifyPassword(_ password: String) throws {
         do {
             try CryptoService.shared.unwrapMasterKey(with: password)
+            try? storePlaintextPassword(password)
         } catch {
             throw AuthError.wrongPassword
         }
@@ -238,10 +239,16 @@ final class AuthService {
         while let presented = topVC.presentedViewController {
             topVC = presented
         }
-        guard !(topVC is LockScreenViewController) else { return }
+
+        guard !(topVC is LockScreenViewController) else {
+            hidePrivacyScreen(in: window)
+            return
+        }
         let lock = LockScreenViewController()
         lock.modalPresentationStyle = .fullScreen
-        topVC.present(lock, animated: false)
+        topVC.present(lock, animated: false) { [weak self] in
+            self?.hidePrivacyScreen(in: window)
+        }
     }
 
     // MARK: - File Browser Reload

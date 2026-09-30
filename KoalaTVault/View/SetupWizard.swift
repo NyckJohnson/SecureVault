@@ -207,7 +207,7 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
                 return
             }
             do {
-                try CryptoService.shared.createMasterKey(wrappedBy: password)
+                try authService.createPassword(password)
                 self.authService.lockMode = self.selectedLockMode
                 self.completeSetup()
             } catch {
