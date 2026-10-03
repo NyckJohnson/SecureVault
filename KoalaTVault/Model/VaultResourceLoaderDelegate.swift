@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 
 /// Intercepts AVPlayer's byte-range requests and serves decrypted chunks on demand,
 /// so large encrypted videos can start playing without decrypting the whole file first.
-final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
+nonisolated final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, Sendable {
     private let encryptedURL: URL
     private let totalSize: Int
     private let chunkSize: Int

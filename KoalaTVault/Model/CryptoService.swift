@@ -5,6 +5,7 @@
 //  Created by Nicholas Johnson on 7/12/26.
 //
 
+import os
 import Foundation
 import CryptoKit
 import CommonCrypto
@@ -14,21 +15,39 @@ nonisolated final class CryptoService: @unchecked Sendable {
     private init() {}
 
     // MARK: - In-memory key (wiped on lock)
-    private var symmetricKey: SymmetricKey?
+    // Only mutable state in the class. The key lives inside the lock, so every access
+    // is synchronized and background queues can't race wipeKey().
+    private let keyState = OSAllocatedUnfairLock<SymmetricKey?>(initialState: nil)
+    private var symmetricKey: SymmetricKey? {
+        get { keyState.withLock { $0 } }
+        set { keyState.withLock { $0 = newValue } }
+    }
 
     var isKeyLoaded: Bool { symmetricKey != nil }
 
     func wipeKey() {
-        print("wipeKey called")
         symmetricKey = nil
     }
 
     // MARK: - Master Key (random, wrapped at rest by a password-derived key)
     private let masterKeyBlobKeychainKey = "com.KoalaTVault.masterKeyBlob"
+    private let keychainService = "com.KoalaTVault"
+    // Not ThisDeviceOnly: the blob is password-wrapped, and must survive backup/restore
+    // alongside the encrypted files or the vault becomes unrecoverable on a new device.
+    private let keychainAccessibility = kSecAttrAccessibleWhenUnlocked
+
+    private func blobQuery() -> [String: Any] {
+        [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: masterKeyBlobKeychainKey
+        ]
+    }
 
     /// Generates a new random master key, wraps it with a password-derived key, and stores the
     /// wrapped blob in Keychain. Call once, when a password is first set. Loads the key into memory.
     func createMasterKey(wrappedBy password: String) throws {
+        guard !(try hasMasterKeyBlob()) else { throw CryptoError.encryptionFailed }
         let masterKey = SymmetricKey(size: .bits256)
         try storeWrappedMasterKey(masterKey, wrappedBy: password)
         symmetricKey = masterKey
@@ -37,11 +56,32 @@ nonisolated final class CryptoService: @unchecked Sendable {
     /// Derives a wrapping key from `password`, decrypts the stored master-key blob, and loads the
     /// result into memory. Throws if the password is wrong or no blob exists yet.
     func unwrapMasterKey(with password: String) throws {
-        guard let blob = readMasterKeyBlob() else { throw CryptoError.noKeyLoaded }
-        let wrappingKey = deriveKey(from: password, salt: getOrCreateSalt())
-        let sealedBox = try AES.GCM.SealedBox(combined: blob)
-        let masterKeyData = try AES.GCM.open(sealedBox, using: wrappingKey)
+        guard let blob = try readMasterKeyBlob() else { throw CryptoError.noMasterKeyBlob }
+        guard blob.count > blobHeaderSize, blob[blob.startIndex] == blobVersion else {
+            throw CryptoError.decryptionFailed
+        }
+        let header = blob.subdata(in: 0..<blobHeaderSize)
+        let iterations = uint32Value(blob.subdata(in: 1..<5))
+        guard (minPbkdfIterations...maxPbkdfIterations).contains(iterations) else {
+            throw CryptoError.decryptionFailed
+        }
+        let salt = blob.subdata(in: 5..<blobHeaderSize)
+        guard let sealedBox = try? AES.GCM.SealedBox(combined: blob.subdata(in: blobHeaderSize..<blob.count)) else {
+            throw CryptoError.decryptionFailed
+        }
+
+        let wrappingKey = try deriveKey(from: password, salt: salt, iterations: iterations)
+        var masterKeyData: Data
+        do {
+            masterKeyData = try AES.GCM.open(sealedBox, using: wrappingKey, authenticating: header)
+        } catch CryptoKitError.authenticationFailure {
+            throw CryptoError.wrongPassword
+        } catch is CryptoKitError {
+            throw CryptoError.decryptionFailed
+        }
+
         symmetricKey = SymmetricKey(data: masterKeyData)
+        masterKeyData.withUnsafeMutableBytes { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) }
     }
 
     /// Re-wraps the already-loaded master key under a new password. Call only after the old
@@ -51,196 +91,339 @@ nonisolated final class CryptoService: @unchecked Sendable {
         try storeWrappedMasterKey(masterKey, wrappedBy: newPassword)
     }
 
-    func hasMasterKeyBlob() -> Bool {
-        readMasterKeyBlob() != nil
+    func hasMasterKeyBlob() throws -> Bool {
+        try readMasterKeyBlob() != nil
     }
 
-    func wipeMasterKeyBlob() {
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: masterKeyBlobKeychainKey
-        ]
-        SecItemDelete(query as CFDictionary)
+    func wipeMasterKeyBlob() throws {
+        let status = SecItemDelete(blobQuery() as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw CryptoError.keychain(status)
+        }
     }
 
     private func storeWrappedMasterKey(_ masterKey: SymmetricKey, wrappedBy password: String) throws {
-        let wrappingKey = deriveKey(from: password, salt: getOrCreateSalt())
-        let masterKeyData = masterKey.withUnsafeBytes { Data($0) }
-        guard let combined = try AES.GCM.seal(masterKeyData, using: wrappingKey).combined else {
+        let salt = try randomBytes(count: saltSize)
+        var header = Data([blobVersion])
+        header.append(uint32Data(pbkdfIterations))
+        header.append(salt)
+
+        let wrappingKey = try deriveKey(from: password, salt: salt, iterations: pbkdfIterations)
+        var masterKeyData = masterKey.withUnsafeBytes { Data($0) }
+        defer { masterKeyData.withUnsafeMutableBytes { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) } }
+        guard let sealed = try AES.GCM.seal(masterKeyData, using: wrappingKey, authenticating: header).combined else {
             throw CryptoError.encryptionFailed
         }
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: masterKeyBlobKeychainKey,
-            kSecValueData as String:   combined
+        let blob = header + sealed
+
+        let searchQuery = blobQuery()
+        let attributes: [String: Any] = [
+            kSecValueData as String:      blob,
+            kSecAttrAccessible as String: keychainAccessibility
         ]
-        SecItemDelete(query as CFDictionary)
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw CryptoError.encryptionFailed }
+
+        // Update in place so the old blob survives if the write fails
+        let updateStatus = SecItemUpdate(searchQuery as CFDictionary, attributes as CFDictionary)
+        switch updateStatus {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            var addQuery = searchQuery
+            addQuery[kSecValueData as String] = blob
+            addQuery[kSecAttrAccessible as String] = keychainAccessibility
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw CryptoError.keychain(addStatus) }
+        default:
+            throw CryptoError.keychain(updateStatus)
+        }
     }
 
-    private func readMasterKeyBlob() -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: masterKeyBlobKeychainKey,
-            kSecReturnData as String:  true,
-            kSecMatchLimit as String:  kSecMatchLimitOne
-        ]
+    /// Returns the stored blob, `nil` if none exists, or throws if the Keychain read fails.
+    private func readMasterKeyBlob() throws -> Data? {
+        var query = blobQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else {
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data else { throw CryptoError.keychain(errSecDecode) }
+            return data
+        case errSecItemNotFound:
             return nil
+        default:
+            throw CryptoError.keychain(status)
         }
-        return data
     }
 
     // MARK: - Key Derivation
-    private func deriveKey(from password: String, salt: Data) -> SymmetricKey {
-        let passwordData = Data(password.utf8)
+    private let pbkdfIterations: UInt32    = 600_000 // OWASP 2023 guidance for PBKDF2-HMAC-SHA256
+    private let minPbkdfIterations: UInt32 = 100_000
+    private let maxPbkdfIterations: UInt32 = 10_000_000 // sanity cap so a corrupt blob can't hang unlock
+
+    // Master-key blob: version(1) | iterations(4, LE) | salt(32) | AES-GCM combined
+    // The first `blobHeaderSize` bytes are authenticated as AAD.
+    private let blobVersion: UInt8 = 1
+    private let saltSize = 32
+    private let blobHeaderSize = 37 // 1 + 4 + 32
+
+    private func deriveKey(from password: String, salt: Data, iterations: UInt32) throws -> SymmetricKey {
+        guard !password.isEmpty else { throw CryptoError.encryptionFailed }
+
+        let passwordData = Data(password.precomposedStringWithCanonicalMapping.utf8)
         var derivedKey = [UInt8](repeating: 0, count: 32) // 256-bit key
-        _ = passwordData.withUnsafeBytes { passwordBytes in
+        let status = passwordData.withUnsafeBytes { passwordBytes in
             salt.withUnsafeBytes { saltBytes in
                 CCKeyDerivationPBKDF(
                     CCPBKDFAlgorithm(kCCPBKDF2),
                     passwordBytes.baseAddress, passwordData.count,
                     saltBytes.baseAddress, salt.count,
                     CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
-                    100_000, // iterations — slow by design
+                    iterations,
                     &derivedKey, derivedKey.count
                 )
             }
         }
-        return SymmetricKey(data: Data(derivedKey))
+        guard status == Int32(kCCSuccess) else { throw CryptoError.encryptionFailed }
+        var keyData = Data(derivedKey)
+        defer { keyData.withUnsafeMutableBytes { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) } }
+        let key = SymmetricKey(data: keyData)
+        derivedKey.withUnsafeMutableBufferPointer { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) }
+        return key
     }
 
-    // MARK: - Salt
-    private let saltKeychainKey = "com.KoalaTVault.salt"
-
-    private func getOrCreateSalt() -> Data {
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: saltKeychainKey,
-            kSecReturnData as String:  true,
-            kSecMatchLimit as String:  kSecMatchLimitOne
-        ]
-        var result: AnyObject?
-        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-           let data = result as? Data {
-            return data
+    private func randomBytes(count: Int) throws -> Data {
+        var data = Data(count: count)
+        let status = data.withUnsafeMutableBytes {
+            SecRandomCopyBytes(kSecRandomDefault, count, $0.baseAddress!)
         }
-        // create new salt
-        var salt = Data(count: 32)
-        _ = salt.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
-        let addQuery: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: saltKeychainKey,
-            kSecValueData as String:   salt
-        ]
-        SecItemAdd(addQuery as CFDictionary, nil)
-        return salt
+        guard status == errSecSuccess else { throw CryptoError.encryptionFailed }
+        return data
     }
 
     // MARK: - Encryption
-    func encrypt(data: Data) throws -> Data {
+    func encrypt(data: Data, authenticating domain: String) throws -> Data {
         guard let key = symmetricKey else { throw CryptoError.noKeyLoaded }
-        let sealedBox = try AES.GCM.seal(data, using: key)
+        let sealedBox = try AES.GCM.seal(data, using: key, authenticating: Data(domain.utf8))
         guard let combined = sealedBox.combined else { throw CryptoError.encryptionFailed }
         return combined
     }
 
-    func decrypt(data: Data) throws -> Data {
+    func decrypt(data: Data, authenticating domain: String) throws -> Data {
         guard let key = symmetricKey else { throw CryptoError.noKeyLoaded }
-        let sealedBox = try AES.GCM.SealedBox(combined: data)
-        return try AES.GCM.open(sealedBox, using: key)
+        return try openSealed(data, using: key, authenticating: Data(domain.utf8))
+    }
+
+    /// Opens an AES-GCM combined blob, mapping any CryptoKit failure to `CryptoError.decryptionFailed`.
+    private func openSealed(_ combined: Data, using key: SymmetricKey, authenticating aad: Data) throws -> Data {
+        do {
+            let box = try AES.GCM.SealedBox(combined: combined)
+            return try AES.GCM.open(box, using: key, authenticating: aad)
+        } catch is CryptoKitError {
+            throw CryptoError.decryptionFailed
+        }
+    }
+
+    /// Derives a per-file encryption key from the master key and the file's unique random ID.
+    private func fileKey(from masterKey: SymmetricKey, fileID: Data) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: masterKey, salt: fileID,
+                               info: Data("file-key".utf8), outputByteCount: 32)
+    }
+
+    /// Reads exactly `count` bytes, looping until full or EOF to handle short reads.
+    private func readFully(from handle: FileHandle, count: Int) throws -> Data? {
+        var accumulated = Data(capacity: count)
+        while accumulated.count < count {
+            guard let chunk = try handle.read(upToCount: count - accumulated.count), !chunk.isEmpty else { break }
+            accumulated.append(chunk)
+        }
+        return accumulated.isEmpty ? nil : accumulated
     }
 
     // MARK: - File Operations
-    private let streamChunkSize = 1 * 1024 * 1024 // 1MB
-    private let chunkedFormatMagic: [UInt8] = [0x53, 0x56, 0x43, 0x33] // "SVC3"
-    private let headerSize = 16 // magic(4) + chunkSize(4) + totalPlaintextSize(8)
-    private let gcmOverhead = 28 // 12-byte nonce + 16-byte tag
+    private let streamChunkSize             = 1 * 1024 * 1024          // 1MB
+    private let chunkedFormatMagic: [UInt8] = [0x53, 0x56, 0x43, 0x35] // "SVC5" — per-file HKDF keys
+    private let headerSize                  = 32 // magic(4) + chunkSize(4) + totalPlaintextSize(8) + fileID(16)
+    private let fileIDSize                  = 16
+    private let gcmOverhead                 = 28                       // 12-byte nonce + 16-byte tag
+    private let maxChunkSize                = 16 * 1024 * 1024         // sanity cap on header chunkSize
+    private let maxTotalSize                = 1 << 41                  // 2 TiB; keeps all offset math far below Int.max
+
+    /// Creates an empty file on the same volume as `destination` so the final move is an atomic rename.
+    /// Caller must remove `directory` when done.
+    private func makeStagingFile(for destination: URL) throws -> (directory: URL, file: URL) {
+        let fm = FileManager.default
+        let directory = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                   appropriateFor: destination.deletingLastPathComponent(), create: true)
+        let file = directory.appendingPathComponent(UUID().uuidString)
+        guard fm.createFile(atPath: file.path, contents: nil) else {
+            try? fm.removeItem(at: directory)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return (directory, file)
+    }
+
+    /// Atomically moves `staged` into place, replacing `destination` if it exists.
+    private func commitStagingFile(_ staged: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
+    }
 
     func encryptFile(at url: URL, to destination: URL) throws {
-        guard let key = symmetricKey else { throw CryptoError.noKeyLoaded }
-        let totalSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        guard let outputHandle = try? FileHandle(forWritingTo: destination),
-              let inputHandle = try? FileHandle(forReadingFrom: url) else {
+        guard let masterKey = symmetricKey else { throw CryptoError.noKeyLoaded }
+        guard let totalSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int,
+              totalSize <= maxTotalSize else {
             throw CryptoError.encryptionFailed
         }
-        defer { try? outputHandle.close(); try? inputHandle.close() }
 
-        outputHandle.write(Data(chunkedFormatMagic))
-        outputHandle.write(uint32Data(UInt32(streamChunkSize)))
-        outputHandle.write(uint64Data(UInt64(totalSize)))
+        let fileID = try randomBytes(count: fileIDSize)
+        var header = Data(chunkedFormatMagic)
+        header.append(uint32Data(UInt32(streamChunkSize)))
+        header.append(uint64Data(UInt64(totalSize)))
+        header.append(fileID)
 
+        let encKey = fileKey(from: masterKey, fileID: fileID)
+
+        let staging = try makeStagingFile(for: destination)
+        defer { try? FileManager.default.removeItem(at: staging.directory) }
+
+        let outputHandle = try FileHandle(forWritingTo: staging.file)
+        defer { try? outputHandle.close() }
+        let inputHandle = try FileHandle(forReadingFrom: url)
+        defer { try? inputHandle.close() }
+
+        try outputHandle.write(contentsOf: header)
+
+        var bytesRead = 0
+        var chunkIndex = 0
+        var sawPartialChunk = false
         while try autoreleasepool(invoking: { () -> Bool in
-            let chunk = inputHandle.readData(ofLength: streamChunkSize)
-            guard !chunk.isEmpty else { return false }
-            guard let combined = try AES.GCM.seal(chunk, using: key).combined else {
+            guard let chunk = try readFully(from: inputHandle, count: streamChunkSize), !chunk.isEmpty else { return false }
+            // decryptChunk's offset math requires every chunk except the last to be full-size
+            guard !sawPartialChunk else { throw CryptoError.encryptionFailed }
+            sawPartialChunk = chunk.count < streamChunkSize
+
+            let aad = chunkAAD(header: header, index: chunkIndex)
+            guard let combined = try AES.GCM.seal(chunk, using: encKey, authenticating: aad).combined else {
                 throw CryptoError.encryptionFailed
             }
-            outputHandle.write(uint32Data(UInt32(combined.count)))
-            outputHandle.write(combined)
+            try outputHandle.write(contentsOf: uint32Data(UInt32(combined.count)) + combined)
+            bytesRead += chunk.count
+            chunkIndex += 1
             return true
         }) {}
+
+        // totalSize is authenticated in every chunk, so it must match what was actually read
+        guard bytesRead == totalSize else { throw CryptoError.encryptionFailed }
+        try outputHandle.synchronize()
+        try commitStagingFile(staging.file, to: destination)
     }
 
     func decryptFile(at url: URL, to destination: URL) throws {
-        guard let inputHandle = try? FileHandle(forReadingFrom: url) else {
-            throw CryptoError.decryptionFailed
-        }
+        guard let masterKey = symmetricKey else { throw CryptoError.noKeyLoaded }
+        let inputHandle = try FileHandle(forReadingFrom: url)
         defer { try? inputHandle.close() }
-        let header = inputHandle.readData(ofLength: headerSize)
-        guard header.count == headerSize, Array(header.prefix(4)) == chunkedFormatMagic else {
-            throw CryptoError.decryptionFailed
-        }
+        let header = try readFully(from: inputHandle, count: headerSize) ?? Data()
+        let info = try parseHeader(header)
+        let encKey = fileKey(from: masterKey, fileID: info.fileID)
 
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        guard let outputHandle = try? FileHandle(forWritingTo: destination) else {
-            throw CryptoError.decryptionFailed
-        }
+        let staging = try makeStagingFile(for: destination)
+        defer { try? FileManager.default.removeItem(at: staging.directory) }
+
+        let outputHandle = try FileHandle(forWritingTo: staging.file)
         defer { try? outputHandle.close() }
 
+        var bytesWritten = 0
+        var chunkIndex = 0
         while try autoreleasepool(invoking: { () -> Bool in
-            let lengthData = inputHandle.readData(ofLength: 4)
-            guard lengthData.count == 4 else { return false }
+            let lengthData = try readFully(from: inputHandle, count: 4) ?? Data()
+            if lengthData.isEmpty { return false } // clean end of file
+            guard lengthData.count == 4 else { throw CryptoError.decryptionFailed }
+
             let length = Int(uint32Value(lengthData))
-            let combined = inputHandle.readData(ofLength: length)
-            guard combined.count == length else { return false }
-            outputHandle.write(try decrypt(data: combined))
+            guard (gcmOverhead + 1)...(info.chunkSize + gcmOverhead) ~= length else {
+                throw CryptoError.decryptionFailed
+            }
+
+            let combined = try readFully(from: inputHandle, count: length) ?? Data()
+            guard combined.count == length else { throw CryptoError.decryptionFailed }
+
+            let plaintext = try openSealed(combined, using: encKey, authenticating: chunkAAD(header: header, index: chunkIndex))
+            try outputHandle.write(contentsOf: plaintext)
+            bytesWritten += plaintext.count
+            chunkIndex += 1
             return true
         }) {}
+
+        guard bytesWritten == info.totalSize else { throw CryptoError.decryptionFailed }
+        try outputHandle.synchronize()
+        try commitStagingFile(staging.file, to: destination)
     }
 
     /// Reads only the header — no decryption — to learn plaintext size and chunk size.
     func streamInfo(for url: URL) throws -> (totalSize: Int, chunkSize: Int) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { throw CryptoError.decryptionFailed }
+        let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        let header = handle.readData(ofLength: headerSize)
-        guard header.count == headerSize, Array(header.prefix(4)) == chunkedFormatMagic else {
-            throw CryptoError.decryptionFailed
-        }
-        let chunkSize = Int(uint32Value(header.subdata(in: 4..<8)))
-        let totalSize = Int(uint64Value(header.subdata(in: 8..<16)))
-        return (totalSize, chunkSize)
+        let header = try readFully(from: handle, count: headerSize) ?? Data()
+        let info = try parseHeader(header)
+        return (info.totalSize, info.chunkSize)
     }
 
     /// Decrypts a single chunk by index without touching any other chunk.
     /// Relies on every chunk but the last being exactly `chunkSize` plaintext bytes,
     /// so its on-disk offset can be computed directly.
     func decryptChunk(at index: Int, from url: URL, chunkSize: Int, totalSize: Int) throws -> Data {
+        guard let masterKey = symmetricKey else { throw CryptoError.noKeyLoaded }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        // The header is part of every chunk's AAD; a caller passing stale sizes fails authentication
+        let header = try readFully(from: handle, count: headerSize) ?? Data()
+        guard header.count == headerSize else { throw CryptoError.decryptionFailed }
+
+        let info = try parseHeader(header)
+        guard info.chunkSize == chunkSize, info.totalSize == totalSize else {
+            throw CryptoError.decryptionFailed
+        }
+        guard chunkSize > 0, index >= 0, index < (totalSize + chunkSize - 1) / chunkSize else {
+            throw CryptoError.decryptionFailed
+        }
         let fullCombinedSize = chunkSize + gcmOverhead
         let offset = headerSize + index * (4 + fullCombinedSize)
+        let encKey = fileKey(from: masterKey, fileID: info.fileID)
 
-        guard let handle = try? FileHandle(forReadingFrom: url) else { throw CryptoError.decryptionFailed }
-        defer { try? handle.close() }
         try handle.seek(toOffset: UInt64(offset))
 
-        let lengthData = handle.readData(ofLength: 4)
+        let lengthData = try readFully(from: handle, count: 4) ?? Data()
         guard lengthData.count == 4 else { throw CryptoError.decryptionFailed }
-        let combined = handle.readData(ofLength: Int(uint32Value(lengthData)))
-        return try decrypt(data: combined)
+        let length = Int(uint32Value(lengthData))
+        guard (gcmOverhead + 1)...fullCombinedSize ~= length else { throw CryptoError.decryptionFailed }
+        let combined = try readFully(from: handle, count: length) ?? Data()
+        guard combined.count == length else { throw CryptoError.decryptionFailed }
+
+        return try openSealed(combined, using: encKey, authenticating: chunkAAD(header: header, index: index))
+    }
+
+    /// Validates a stream header and returns its fields. Throws on any out-of-range value.
+    private func parseHeader(_ header: Data) throws -> (chunkSize: Int, totalSize: Int, fileID: Data) {
+        guard header.count == headerSize, Array(header.prefix(4)) == chunkedFormatMagic else {
+            throw CryptoError.decryptionFailed
+        }
+        let chunkSize = Int(uint32Value(header.subdata(in: 4..<8)))
+        let totalSize = uint64Value(header.subdata(in: 8..<16))
+        guard (1...maxChunkSize).contains(chunkSize), totalSize <= UInt64(maxTotalSize) else {
+            throw CryptoError.decryptionFailed
+        }
+        return (chunkSize, Int(totalSize), header.subdata(in: 16..<32))
+    }
+
+    /// AAD for a chunk: the full header (binds chunkSize, totalSize, fileID) plus the chunk index.
+    private func chunkAAD(header: Data, index: Int) -> Data {
+        header + uint64Data(UInt64(index))
     }
 
     private func uint32Data(_ value: UInt32) -> Data {
@@ -248,30 +431,36 @@ nonisolated final class CryptoService: @unchecked Sendable {
         return withUnsafeBytes(of: &v) { Data($0) }
     }
     private func uint32Value(_ data: Data) -> UInt32 {
-        data.withUnsafeBytes { $0.load(as: UInt32.self) }.littleEndian
+        data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }.littleEndian
     }
     private func uint64Data(_ value: UInt64) -> Data {
         var v = value.littleEndian
         return withUnsafeBytes(of: &v) { Data($0) }
     }
     private func uint64Value(_ data: Data) -> UInt64 {
-        data.withUnsafeBytes { $0.load(as: UInt64.self) }.littleEndian
+        data.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
     }
 }
 
 // MARK: - Supporting Types
-enum CryptoError: Error {
+nonisolated enum CryptoError: Error, Equatable {
     case noKeyLoaded
+    case noMasterKeyBlob
+    case wrongPassword
     case encryptionFailed
     case decryptionFailed
+    case keychain(OSStatus)
 }
 
-extension CryptoError: LocalizedError {
+nonisolated extension CryptoError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .noKeyLoaded:       return "No encryption key is loaded."
-        case .encryptionFailed:  return "Failed to encrypt the file."
-        case .decryptionFailed:  return "Failed to decrypt the file."
+        case .noKeyLoaded:          return "No encryption key is loaded."
+        case .noMasterKeyBlob:      return "No password has been set up."
+        case .wrongPassword:        return "Incorrect password."
+        case .encryptionFailed:     return "Encryption failed."
+        case .decryptionFailed:     return "Decryption failed. The data may be damaged."
+        case .keychain(let status): return "Couldn't access secure storage (error \(status))."
         }
     }
 }

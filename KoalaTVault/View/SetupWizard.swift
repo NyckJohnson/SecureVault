@@ -206,12 +206,24 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
                 self.showError("Passwords do not match")
                 return
             }
-            do {
-                try authService.createPassword(password)
-                self.authService.lockMode = self.selectedLockMode
-                self.completeSetup()
-            } catch {
-                self.showError(error)
+            let overlay = ProgressOverlay.show(in: self, title: "Setting password…")
+
+            let authService = self.authService
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Result<Void, Error> {
+                    try authService.createPassword(password)
+                }
+                DispatchQueue.main.async {
+                    overlay.dismiss()
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.authService.lockMode = self.selectedLockMode
+                        self.completeSetup()
+                    case .failure(let error):
+                        self.showError(error)
+                    }
+                }
             }
         })
         present(alert, animated: true)

@@ -117,7 +117,7 @@ final class MigrationViewControllerTests: VaultTestCase {
         _ = presentAndWait(sut, timeout: 1)
         XCTAssertTrue(sut.testIsPaused)
 
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try CryptoService.shared.unwrapMasterKey(with: "testpassword")
         NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
 
         wait(for: [done], timeout: 10)

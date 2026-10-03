@@ -15,7 +15,7 @@ final class AuthServiceTests: XCTestCase {
         AuthService.shared.isLocked = false
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
-        AuthService.shared.removePassword()
+        try? AuthService.shared.removePassword()
         CryptoService.shared.wipeKey()
     }
 
@@ -24,7 +24,7 @@ final class AuthServiceTests: XCTestCase {
         AuthService.shared.isLocked = false
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
-        AuthService.shared.removePassword()
+        try? AuthService.shared.removePassword()
         CryptoService.shared.wipeKey()
     }
 
@@ -36,7 +36,9 @@ final class AuthServiceTests: XCTestCase {
 
     func testVerifyWrongPasswordThrows() throws {
         try AuthService.shared.createPassword("password123")
-        XCTAssertThrowsError(try AuthService.shared.verifyPassword("wrongpassword"))
+        XCTAssertThrowsError(try AuthService.shared.verifyPassword("wrongpassword")) { error in
+            XCTAssertEqual(error as? AuthError, .wrongPassword)
+        }
     }
 
     func testHasPasswordReturnsTrueAfterSet() throws {
@@ -46,7 +48,7 @@ final class AuthServiceTests: XCTestCase {
 
     func testHasPasswordReturnsFalseAfterRemove() throws {
         try AuthService.shared.createPassword("password123")
-        AuthService.shared.removePassword()
+        try? AuthService.shared.removePassword()
         XCTAssertFalse(AuthService.shared.hasPassword())
     }
 
@@ -68,7 +70,16 @@ final class AuthServiceTests: XCTestCase {
         try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
         try AuthService.shared.changePassword(to: "newpassword456")
-        XCTAssertThrowsError(try AuthService.shared.verifyPassword("password123"))
+        XCTAssertThrowsError(try AuthService.shared.verifyPassword("password123")) { error in
+            XCTAssertEqual(error as? AuthError, .wrongPassword)
+        }
+    }
+
+    func testVerifyWithNoPasswordSetThrowsNoMasterKeyBlob() throws {
+        try AuthService.shared.removePassword()
+        XCTAssertThrowsError(try AuthService.shared.verifyPassword("anything")) { error in
+            XCTAssertEqual(error as? CryptoError, .noMasterKeyBlob)
+        }
     }
 
     /// Regression test: this is the scenario that used to corrupt vault access.
@@ -76,13 +87,13 @@ final class AuthServiceTests: XCTestCase {
         try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
         let secret = "vault contents".data(using: .utf8)!
-        let encrypted = try CryptoService.shared.encrypt(data: secret)
+        let encrypted = try CryptoService.shared.encrypt(data: secret, authenticating: ".vault_map")
 
         try AuthService.shared.changePassword(to: "newpassword456")
         CryptoService.shared.wipeKey()
         try AuthService.shared.verifyPassword("newpassword456")
 
-        XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted), secret)
+        XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted, authenticating: ".vault_map"), secret)
     }
 
     // MARK: - Resign Active
@@ -153,7 +164,7 @@ final class MigrationFinalizationTests: XCTestCase {
     override func tearDown() {
         super.tearDown()
         AuthService.shared.lockMode = .none
-        AuthService.shared.removePassword()
+        try? AuthService.shared.removePassword()
         CryptoService.shared.wipeKey()
     }
 

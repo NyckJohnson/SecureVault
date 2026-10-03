@@ -34,7 +34,7 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
         }
     }
 
-    private func refreshUnencryptedFilesState(completion: @escaping () -> Void = {}) {
+    private func refreshUnencryptedFilesState(completion: @escaping @MainActor @Sendable () -> Void = {}) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let hasUnencrypted = (try? FileSystem.shared.filesToMigrate(toEncrypted: true, in: .root))?.isEmpty == false
             DispatchQueue.main.async {
@@ -102,7 +102,7 @@ extension SecuritySettingsViewController: UITableViewDataSource {
         switch Section(rawValue: indexPath.section)! {
         case .pro:
             cell.accessibilityIdentifier = "upgradeToProCell"
-            if EntitlementService.shared.isUnlockedSync {
+            if EntitlementService.isUnlockedSync {
                 cell.textLabel?.text = "Pro Unlocked"
                 cell.textLabel?.textColor = .secondaryLabel
                 cell.accessoryType = .checkmark
@@ -150,7 +150,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 
         switch Section(rawValue: indexPath.section)! {
         case .pro:
-            guard !EntitlementService.shared.isUnlockedSync else { return }
+            guard !EntitlementService.isUnlockedSync else { return }
             let paywall = PaywallViewController()
             paywall.modalPresentationStyle = .formSheet
             paywall.onUnlock = { [weak self] in self?.tableView.reloadData() }
@@ -222,7 +222,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         }
     }
 
-    private func promptSetPassword(for mode: LockMode, completion: @escaping () -> Void = {}) {
+    private func promptSetPassword(for mode: LockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
         let alert = UIAlertController(title: "Set Password", message: nil, preferredStyle: .alert)
         alert.addTextField { $0.placeholder = "Password"; $0.isSecureTextEntry = true }
         alert.addTextField { $0.placeholder = "Confirm password"; $0.isSecureTextEntry = true }
@@ -239,11 +239,23 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 self.showError("Passwords do not match")
                 return
             }
-            do {
-                try self.authService.createPassword(password)
-                completion()
-            } catch {
-                self.showError("Failed to save password")
+
+            let overlay = ProgressOverlay.show(in: self, title: "Setting password…")
+            let service = self.authService
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Result<Void, Error> {
+                    try service.createPassword(password)
+                }
+                DispatchQueue.main.async {
+                    overlay.dismiss()
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        completion()
+                    case .failure(let error):
+                        self.showError(error)
+                    }
+                }
             }
         })
         present(alert, animated: true)
@@ -260,22 +272,36 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             let current = alert.textFields?[0].text ?? ""
             let new     = alert.textFields?[1].text ?? ""
             let confirm = alert.textFields?[2].text ?? ""
-            do {
-                try self.authService.verifyPassword(current)
-                guard !new.isEmpty else {
-                    self.showError("New password cannot be empty")
-                    return
+            guard !new.isEmpty else {
+                self.showError("New password cannot be empty")
+                return
+            }
+            guard new == confirm else {
+                self.showError("New passwords do not match")
+                return
+            }
+
+            let service = self.authService
+            let overlay = ProgressOverlay.show(in: self, title: "Changing password…")
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let result = Result<Void, Error> {
+                    try service.verifyPassword(current)
+                    try service.changePassword(to: new)
                 }
-                guard new == confirm else {
-                    self.showError("New passwords do not match")
-                    return
+                DispatchQueue.main.async {
+                    overlay.dismiss()
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.showSuccess("Password changed successfully")
+                    case .failure(let error):
+                        if case AuthError.wrongPassword = error {
+                            self.showError("Current password is incorrect")
+                        } else {
+                            self.showError(error)
+                        }
+                    }
                 }
-                try AuthService.shared.changePassword(to: new)
-                self.showSuccess("Password changed successfully")
-            } catch AuthError.wrongPassword {
-                self.showError("Current password is incorrect")
-            } catch {
-                self.showError("Failed to change password")
             }
         })
         present(alert, animated: true)

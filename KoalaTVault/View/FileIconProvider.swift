@@ -7,7 +7,7 @@
 
 import UIKit
 
-enum FileIconProvider {
+nonisolated enum FileIconProvider {
     private static let customFolderIconName = "nej_FolderIconB"
     
     static let hasCustomFolderAsset = UIImage(named: customFolderIconName) != nil

@@ -28,6 +28,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     private let targetLockMode:   LockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private let directory:        VaultDirectory
+    private var migrationTask:    Task<Void, Never>?
 
     init(type: MigrationType, directory: VaultDirectory = .root, targetLockMode: LockMode? = nil, onComplete: @escaping (_ completedFully: Bool) -> Void) {
         self.type = type
@@ -49,7 +50,6 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        endBackgroundTask()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -96,55 +96,54 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
         }
         beginBackgroundTask()
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
+        migrationTask = Task {
             do {
-                filesToMigrate = try FileSystem.shared.filesToMigrate(toEncrypted: type == .encrypt, in: directory)
-                print("Resuming migration — \(filesToMigrate.count) files still need to be en/de-crypted")
+                filesToMigrate = try await Self.loadFiles(toEncrypted: type == .encrypt, in: directory)
             } catch {
-                DispatchQueue.main.async { self.showError(error) }
+                showError(error)
                 return
             }
             currentIndex = 0
-            processNextFile()
+            await runMigration()
         }
     }
 
-    /// Migrates filesToMigrate[currentIndex]. Must be called on a background queue.
-    private func processNextFile() {
-        guard currentIndex < filesToMigrate.count else {
-            DispatchQueue.main.async { [weak self] in
-                self?.finishOrShowFailures()
+    /// Migrates remaining files one at a time. State stays on the main actor;
+    /// only the file I/O runs in the background.
+    private func runMigration() async {
+        while currentIndex < filesToMigrate.count {
+            guard CryptoService.shared.isKeyLoaded else {
+                pauseMigration()
+                return
             }
-            return
+            let (item, itemDirectory) = filesToMigrate[currentIndex]
+            do {
+                try await Self.migrate(item, in: itemDirectory, encrypt: type == .encrypt)
+            } catch {
+                failedFiles.append((item: item, directory: itemDirectory, error: error))
+            }
+            currentIndex += 1
+            let progress = Double(currentIndex) / Double(filesToMigrate.count)
+            progressBar.setProgress(Float(progress), animated: true)
+            statusLabel.text = "\(Int(progress * 100))% complete"
         }
+        finishOrShowFailures()
+    }
 
-        guard CryptoService.shared.isKeyLoaded else {
-            DispatchQueue.main.async { [weak self] in
-                self?.pauseMigration()
-            }
-            return
-        }
+    @concurrent
+    private nonisolated static func loadFiles(
+        toEncrypted: Bool,
+        in directory: VaultDirectory
+    ) async throws -> [(item: VaultItem, directory: VaultDirectory)] {
+        try FileSystem.shared.filesToMigrate(toEncrypted: toEncrypted, in: directory)
+    }
 
-        let (item, directory) = filesToMigrate[currentIndex]
-        do {
-            if type == .encrypt {
-                try FileSystem.shared.migrateFileToEncrypted(item, in: directory)
-            } else {
-                try FileSystem.shared.migrateFileToDecrypted(item, in: directory)
-            }
-        } catch {
-            failedFiles.append((item: item, directory: directory, error: error))
-        }
-        currentIndex += 1
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let progress = Double(self.currentIndex) / Double(self.filesToMigrate.count)
-            self.progressBar.setProgress(Float(progress), animated: true)
-            self.statusLabel.text = "\(Int(progress * 100))% complete"
-        }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.processNextFile()
+    @concurrent
+    private nonisolated static func migrate(_ item: VaultItem, in directory: VaultDirectory, encrypt: Bool) async throws {
+        if encrypt {
+            try FileSystem.shared.migrateFileToEncrypted(item, in: directory)
+        } else {
+            try FileSystem.shared.migrateFileToDecrypted(item, in: directory)
         }
     }
 
@@ -193,9 +192,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
         filesToMigrate = failedFiles.map { (item: $0.item, directory: $0.directory) }
         failedFiles = []
         currentIndex = 0
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.processNextFile()
-        }
+        migrationTask = Task { await runMigration() }
     }
 
     private func pauseMigration() {
@@ -209,9 +206,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
         guard isPaused else { return }
         isPaused = false
         beginBackgroundTask()
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.processNextFile()
-        }
+        migrationTask = Task { await runMigration() }
     }
 
     private func beginBackgroundTask() {
@@ -234,6 +229,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     var testFailedFileNames: [String] { failedFiles.map { $0.item.name } }
     var testIsPaused: Bool { isPaused }
     var testStatusText: String? { statusLabel.text }
+    var testMigrationTask: Task<Void, Never>? { migrationTask }
 
     /// Directly invokes what the "Retry"/"Skip" alert actions do, bypassing UIAlertController
     /// entirely — avoids relying on undocumented private API to simulate a tap.

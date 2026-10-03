@@ -13,10 +13,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+#if DEBUG
         if CommandLine.arguments.contains("--uitesting") {
             PreferencesService.shared.hasCompletedSetup = false
             AuthService.shared.lockMode = .none
-            AuthService.shared.removePassword()
+            try? AuthService.shared.removePassword()
             UIView.setAnimationsEnabled(false)
             try? FileSystem.shared.emptyTrash(for: .root)
             CryptoService.shared.wipeKey()
@@ -43,6 +44,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 PreferencesService.shared.hasCompletedSetup = true
             }
         }
+#endif
         return true
     }
 

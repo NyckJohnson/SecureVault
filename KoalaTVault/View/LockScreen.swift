@@ -147,7 +147,11 @@ final class LockScreenViewController: UIViewController {
                 } catch {
                     DispatchQueue.main.async {
                         self.isAuthenticating = false
-                        self.showError("Incorrect password")
+                        if case AuthError.wrongPassword = error {
+                            self.showError("Incorrect password")
+                        } else {
+                            self.showError(error.localizedDescription)
+                        }
                     }
                 }
             }

@@ -17,7 +17,7 @@ class VaultTestCase: XCTestCase {
 
     override func tearDown() {
         CryptoService.shared.wipeKey()
-        CryptoService.shared.wipeMasterKeyBlob()
+        try? CryptoService.shared.wipeMasterKeyBlob()
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
         FileSystem.shared.cleanupTempFiles()
         super.tearDown()

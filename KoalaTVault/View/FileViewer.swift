@@ -33,6 +33,8 @@ final class FileViewerViewController: UIViewController {
     private var bufferWidthConstraint: NSLayoutConstraint?
     private var timeObserver: Any?
     private var hideControlsTimer: Timer?
+    private var statusObservation: NSKeyValueObservation?
+
     var player: AVPlayer? {
         didSet {
             oldValue.map { removeTimeObserver(from: $0) }
@@ -300,11 +302,13 @@ final class FileViewerViewController: UIViewController {
         cancelHideControlsTimer()
         guard !videoControls.isHidden else { return }
         hideControlsTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            guard let self, self.player?.timeControlStatus == .playing else { return }
-            UIView.animate(withDuration: 0.3) {
-                self.navBar.alpha = 0
-                self.videoControls.alpha = 0
-                self.isNavBarHidden = true
+            MainActor.assumeIsolated {
+                guard let self, self.player?.timeControlStatus == .playing else { return }
+                UIView.animate(withDuration: 0.3) {
+                    self.navBar.alpha = 0
+                    self.videoControls.alpha = 0
+                    self.isNavBarHidden = true
+                }
             }
         }
     }
@@ -318,15 +322,21 @@ final class FileViewerViewController: UIViewController {
         // observe playback time
         let interval = CMTimeMakeWithSeconds(0.5, preferredTimescale: 600)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            guard let self, !self.isScrubbing else { return }
-            self.updateScrubber(time: time, player: player)
-            self.updateBufferIndicator(player: player)
-            self.updateSpinner(player: player)
+            MainActor.assumeIsolated {
+                guard let self, !self.isScrubbing else { return }
+                self.updateScrubber(time: time, player: player)
+                self.updateBufferIndicator(player: player)
+                self.updateSpinner(player: player)
+            }
         }
 
         // observe buffering status
-        player.currentItem?.addObserver(self, forKeyPath: "playbackBufferEmpty", options: .new, context: nil)
-        player.currentItem?.addObserver(self, forKeyPath: "playbackLikelyToKeepUp", options: .new, context: nil)
+        statusObservation = player.observe(\.timeControlStatus) { @Sendable [weak self] _, _ in
+            Task { @MainActor in
+                guard let self, let player = self.player else { return }
+                self.updateSpinner(player: player)
+            }
+        }
     }
 
     private func removeTimeObserver(from player: AVPlayer) {
@@ -334,15 +344,8 @@ final class FileViewerViewController: UIViewController {
             player.removeTimeObserver(observer)
             timeObserver = nil
         }
-        player.currentItem?.removeObserver(self, forKeyPath: "playbackBufferEmpty")
-        player.currentItem?.removeObserver(self, forKeyPath: "playbackLikelyToKeepUp")
-    }
-
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let player = self.player else { return }
-            self.updateSpinner(player: player)
-        }
+        statusObservation?.invalidate()
+        statusObservation = nil
     }
 
     private func updateScrubber(time: CMTime, player: AVPlayer) {
@@ -418,8 +421,10 @@ final class FileViewerViewController: UIViewController {
         player.seek(to: CMTimeMakeWithSeconds(newTime, preferredTimescale: 600),
                     toleranceBefore: .zero,
                     toleranceAfter: .zero) { [weak self] _ in
-            self?.isScrubbing = false
-            self?.startHideControlsTimer()
+            Task { @MainActor in
+                self?.isScrubbing = false
+                self?.startHideControlsTimer()
+            }
         }
     }
 }

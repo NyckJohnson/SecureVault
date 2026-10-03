@@ -1,6 +1,7 @@
 import Combine
 import StoreKit
 import UIKit
+import os
 
 enum EntitlementError: LocalizedError {
     case purchaseFailed
@@ -24,25 +25,22 @@ enum EntitlementError: LocalizedError {
 final class EntitlementService: ObservableObject {
     static let shared = EntitlementService()
 
-    static let unlockProductID = "nej.KoalaTVault.unlockpro"
-    static let freeFileLimit = 100
+    nonisolated static let unlockProductID = "nej.KoalaTVault.unlockpro"
+    nonisolated static let freeFileLimit = 100
 
     @Published private(set) var isUnlocked: Bool = false {
         didSet { updateSyncCache() }
     }
 
-    nonisolated(unsafe) private let syncCacheLock = NSLock()
-    nonisolated(unsafe) private var isUnlockedSyncCache = false
+    nonisolated private static let syncCache = OSAllocatedUnfairLock(initialState: false)
 
     /// Thread-safe, synchronous snapshot of `isUnlocked` for callers off the main
     /// actor (e.g. FileSystem's background import queue) that can't await this property.
-    nonisolated var isUnlockedSync: Bool {
+    nonisolated static var isUnlockedSync: Bool {
 #if DEBUG
         if let forced = Self.testForcedUnlocked { return forced }
 #endif
-        syncCacheLock.lock()
-        defer { syncCacheLock.unlock() }
-        return isUnlockedSyncCache
+        return syncCache.withLock { $0 }
     }
 
 #if DEBUG
@@ -51,9 +49,8 @@ final class EntitlementService: ObservableObject {
 #endif
 
     private func updateSyncCache() {
-        syncCacheLock.lock()
-        isUnlockedSyncCache = isUnlocked
-        syncCacheLock.unlock()
+        let value = isUnlocked
+        Self.syncCache.withLock { $0 = value }
     }
 
     private var updateListenerTask: Task<Void, Never>?

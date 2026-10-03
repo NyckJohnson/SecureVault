@@ -202,7 +202,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         // be computed fresh from actual on-disk state each time, not from in-memory progress,
         // so a second call after partial migration only returns the genuine remainder.
         try CryptoService.shared.createMasterKey(wrappedBy: "test-password-\(UUID().uuidString)")
-        defer { CryptoService.shared.wipeMasterKeyBlob() }
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
 
         _ = try createDummyFile(named: "one.txt", in: testDirectory, content: "content one")
         _ = try createDummyFile(named: "two.txt", in: testDirectory, content: "content two")

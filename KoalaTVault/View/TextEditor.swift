@@ -227,7 +227,9 @@ extension TextEditorViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            self?.saveDocument()
+            MainActor.assumeIsolated {
+                self?.saveDocument()
+            }
         }
     }
 }

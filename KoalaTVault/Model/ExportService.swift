@@ -29,7 +29,9 @@ final class ExportService {
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let urls = try FileSystem.shared.prepareForExport(items) { progress in
-                        overlay.update(progress: Float(progress), status: "\(Int(progress * 100))% complete")
+                        DispatchQueue.main.async {
+                            overlay.update(progress: Float(progress), status: "\(Int(progress * 100))% complete")
+                        }
                     }
                     DispatchQueue.main.async {
                         overlay.dismiss()
@@ -48,10 +50,11 @@ final class ExportService {
 
         if hasMedia {
             sheet.addAction(UIAlertAction(title: "Save to Camera Roll", style: .default) { _ in
-                FileSystem.shared.exportToCameraRoll(items) { succeeded, failed in
+                Task {
+                    let (succeeded, failed) = await FileSystem.shared.exportToCameraRoll(items)
                     let message = failed == 0
-                        ? "\(succeeded) item\(succeeded == 1 ? "" : "s") saved to Camera Roll"
-                        : "\(succeeded) saved, \(failed) failed"
+                    ? "\(succeeded) item\(succeeded == 1 ? "" : "s") saved to Camera Roll"
+                    : "\(succeeded) saved, \(failed) failed"
                     viewController.present(Self.infoAlert(message), animated: true)
                 }
             })

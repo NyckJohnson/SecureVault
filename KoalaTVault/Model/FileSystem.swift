@@ -6,12 +6,13 @@
 //
 
 import Foundation
-import PhotosUI
 import CryptoKit
 import CommonCrypto
+import os
+@preconcurrency import PhotosUI
 
 // MARK: - VaultDirectory
-struct VaultDirectory {
+nonisolated struct VaultDirectory: Sendable {
     var name: String
     internal var diskURL: URL
     internal var rootURL: URL
@@ -64,7 +65,7 @@ enum FileSystemError: Error, LocalizedError {
 }
 
 // MARK: - FileSystemAPI
-final class FileSystem {
+nonisolated final class FileSystem: Sendable {
     static let shared = FileSystem()
     private init() {}
 
@@ -72,7 +73,7 @@ final class FileSystem {
     private let tempDir = FileManager.default.temporaryDirectory
 
 #if DEBUG
-    static var testForcedMigrationFailureFileName: String?
+    nonisolated(unsafe) static var testForcedMigrationFailureFileName: String?
 #endif
 
     // MARK: - Encryption state
@@ -132,7 +133,7 @@ final class FileSystem {
             return count + (url.hasDirectoryPath ? countFiles(in: url) : 1)
         })
 
-        if !EntitlementService.shared.isUnlockedSync {
+        if !EntitlementService.isUnlockedSync {
             let existingCount = countFiles(in: directory.rootURL)
             guard existingCount + Int(total) <= EntitlementService.freeFileLimit else {
                 throw FileSystemError.fileLimitReached
@@ -234,41 +235,48 @@ final class FileSystem {
     /// Call before starting a camera-roll import; throws `.fileLimitReached` if the
     /// import would exceed the free tier for this vault.
     func checkImportAllowed(additionalCount: Int, in directory: VaultDirectory) throws {
-        guard !EntitlementService.shared.isUnlockedSync else { return }
+        guard !EntitlementService.isUnlockedSync else { return }
         let existingCount = countFiles(in: directory.rootURL)
         guard existingCount + additionalCount <= EntitlementService.freeFileLimit else {
             throw FileSystemError.fileLimitReached
         }
     }
 
-    func importFromCameraRoll(results: [PHPickerResult], to directory: VaultDirectory, completion: @escaping (_ succeededIdentifiers: [String], _ failed: Int) -> Void) {
+    func importFromCameraRoll(
+        results: [PHPickerResult],
+        to directory: VaultDirectory,
+        completion: @escaping @MainActor @Sendable (_ succeededIdentifiers: [String], _ failed: Int) -> Void
+    ) {
         let group = DispatchGroup()
-        let lock = NSLock()
-        var succeededIdentifiers: [String] = []
-        var failed = 0
+        let state = OSAllocatedUnfairLock(initialState: (succeeded: [String](), failed: 0))
 
         for result in results {
             let provider = result.itemProvider
-            guard let typeID = provider.registeredTypeIdentifiers.first else { continue }
+            let assetID = result.assetIdentifier
+            guard let typeID = provider.registeredTypeIdentifiers.first else {
+                state.withLock { $0.failed += 1 }
+                continue
+            }
             group.enter()
-            provider.loadFileRepresentation(forTypeIdentifier: typeID) { [weak self] url, error in
+            provider.loadFileRepresentation(forTypeIdentifier: typeID) { [weak self] url, _ in
                 defer { group.leave() }
                 guard let self, let url else {
-                    lock.lock(); failed += 1; lock.unlock()
+                    state.withLock { $0.failed += 1 }
                     return
                 }
                 do {
                     try self.importSingleFile(from: url, to: directory)
-                    lock.lock()
-                    if let id = result.assetIdentifier { succeededIdentifiers.append(id) }
-                    lock.unlock()
+                    if let assetID { state.withLock { $0.succeeded.append(assetID) } }
                 } catch {
-                    lock.lock(); failed += 1; lock.unlock()
+                    state.withLock { $0.failed += 1 }
                 }
             }
         }
         group.notify(queue: .main) {
-            completion(succeededIdentifiers, failed)
+            let final = state.withLock { $0 }
+            MainActor.assumeIsolated {
+                completion(final.succeeded, final.failed)
+            }
         }
     }
 
@@ -351,51 +359,36 @@ final class FileSystem {
         }
     }
 
-    func exportToCameraRoll(_ items: [VaultItem], completion: @escaping (Int, Int) -> Void) {
+    @concurrent
+    func exportToCameraRoll(_ items: [VaultItem]) async -> (succeeded: Int, failed: Int) {
         let mediaItems = items.filter {
             let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
             return kind == .image || kind == .video
         }
-        let total = mediaItems.count
+        guard !mediaItems.isEmpty else { return (0, 0) }
+
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized else { return (0, mediaItems.count) }
+
         var succeeded = 0
-        var failed = 0
-
-        let checkCompletion = {
-            if succeeded + failed == total {
-                completion(succeeded, failed)
-            }
-        }
-
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized else {
-                completion(0, total)
-                return
-            }
-            for item in mediaItems {
-                let ext = (item.name as NSString).pathExtension.lowercased()
-                do {
-                    let url = try self.open(item)
-                    PHPhotoLibrary.shared().performChanges({
-                        if FileKind(extension: ext) == .video {
-                            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
-                        } else {
-                            guard let image = UIImage(contentsOfFile: url.path) else { return }
-                            PHAssetChangeRequest.creationRequestForAsset(from: image)
-                        }
-                    }) { success, _ in
-                        DispatchQueue.main.async {
-                            if success { succeeded += 1 } else { failed += 1 }
-                            checkCompletion()
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        failed += 1
-                        checkCompletion()
+        for item in mediaItems {
+            let isVideo = FileKind(extension: (item.name as NSString).pathExtension.lowercased()) == .video
+            do {
+                let url = try open(item)
+                defer { if item.isEncrypted { try? FileManager.default.removeItem(at: url) } }
+                try await PHPhotoLibrary.shared().performChanges {
+                    if isVideo {
+                        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                    } else {
+                        PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
                     }
                 }
+                succeeded += 1
+            } catch {
+                continue
             }
         }
+        return (succeeded, mediaItems.count - succeeded)
     }
 
     // MARK: - Manage
@@ -782,7 +775,7 @@ final class FileSystem {
         guard let data = try? Data(contentsOf: url) else { throw FileSystemError.mappingUnreadable }
 
         if CryptoService.shared.isKeyLoaded {
-            guard let decrypted = try? CryptoService.shared.decrypt(data: data),
+            guard let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: url.lastPathComponent),
                   let decoded = try? JSONDecoder().decode(T.self, from: decrypted) else {
                 throw FileSystemError.mappingUnreadable
             }
@@ -798,7 +791,7 @@ final class FileSystem {
     private func saveEncryptedJSON<T: Encodable>(_ value: T, to url: URL) throws {
         let data = try JSONEncoder().encode(value)
         if CryptoService.shared.isKeyLoaded {
-            let encrypted = try CryptoService.shared.encrypt(data: data)
+            let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: url.lastPathComponent)
             try encrypted.write(to: url, options: .atomic)
         } else {
             try data.write(to: url, options: .atomic)

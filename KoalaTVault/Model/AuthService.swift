@@ -20,7 +20,7 @@ final class AuthService {
     private init() {}
 
     // MARK: - Keys
-    private let passwordKeychainKey = "com.KoalaTVault.password"
+    nonisolated private let passwordKeychainKey = "com.KoalaTVault.password"
     private let privacyScreenTag    = 999
 
     // MARK: - Lock Mode
@@ -30,17 +30,17 @@ final class AuthService {
     }
 
     // MARK: - Password
-    func createPassword(_ password: String) throws {
+    nonisolated func createPassword(_ password: String) throws {
         try storePlaintextPassword(password)
         try CryptoService.shared.createMasterKey(wrappedBy: password)
     }
 
-    func changePassword(to newPassword: String) throws {
+    nonisolated func changePassword(to newPassword: String) throws {
         try storePlaintextPassword(newPassword)
         try CryptoService.shared.rewrapMasterKey(with: newPassword)
     }
 
-    private func storePlaintextPassword(_ password: String) throws {
+    nonisolated private func storePlaintextPassword(_ password: String) throws {
         let data = password.data(using: .utf8)!
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
@@ -52,26 +52,32 @@ final class AuthService {
         guard status == errSecSuccess else { throw AuthError.keychainError }
     }
 
-    func verifyPassword(_ password: String) throws {
+    nonisolated func verifyPassword(_ password: String) throws {
         do {
             try CryptoService.shared.unwrapMasterKey(with: password)
-            try? storePlaintextPassword(password)
-        } catch {
+        } catch CryptoError.wrongPassword {
             throw AuthError.wrongPassword
         }
+        try? storePlaintextPassword(password)
     }
 
     func hasPassword() -> Bool {
-        CryptoService.shared.hasMasterKeyBlob()
+        (try? CryptoService.shared.hasMasterKeyBlob()) ?? true
     }
 
-    func removePassword() {
+    func removePassword() throws {
+        // Wipe the blob first: if that fails, the plaintext password is still there,
+        // so the state stays consistent and biometric unlock keeps working.
+        try CryptoService.shared.wipeMasterKeyBlob()
+
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrAccount as String: passwordKeychainKey
         ]
-        SecItemDelete(query as CFDictionary)
-        CryptoService.shared.wipeMasterKeyBlob()
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw AuthError.keychainError
+        }
     }
 
     // MARK: - Migration Completion
@@ -82,7 +88,7 @@ final class AuthService {
             if let targetLockMode { lockMode = targetLockMode }
         case .decrypt:
             lockMode = .none
-            removePassword()
+            try? removePassword()
             CryptoService.shared.wipeKey()
         }
     }
@@ -103,7 +109,7 @@ final class AuthService {
         }
     }
 
-    func authenticateWithBiometrics(completion: @escaping (Bool, Error?) -> Void) {
+    func authenticateWithBiometrics(completion: @escaping @MainActor @Sendable (Bool, Error?) -> Void) {
         let context = LAContext()
         context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,

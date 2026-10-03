@@ -7,17 +7,17 @@
 
 import Foundation
 
-enum LockMode: String {
+nonisolated enum LockMode: String {
     case none
     case password
     case passwordAndBiometrics
 }
 
-final class PreferencesService {
+nonisolated final class PreferencesService: Sendable {
     static let shared = PreferencesService()
     private init() {}
 
-    private let defaults = UserDefaults.standard
+    private var defaults: UserDefaults { .standard }
 
     private let hasCompletedSetupKey = "hasCompletedSetup"
     private let lockModeKey          = "lockMode"
@@ -61,7 +61,7 @@ final class PreferencesService {
     }
 }
 
-enum SortOption: String, CaseIterable {
+nonisolated enum SortOption: String, CaseIterable {
     case name
     case type
     case dateModified
@@ -75,7 +75,7 @@ enum SortOption: String, CaseIterable {
     }
 }
 
-enum SortDirection: String {
+nonisolated enum SortDirection: String {
     case ascending
     case descending
 }

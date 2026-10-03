@@ -92,7 +92,9 @@ final class ImportService: NSObject {
                     let now = Date()
                     if now.timeIntervalSince(lastUpdate) > 0.1 || progress == 1.0 {
                         lastUpdate = now
-                        overlay.update(progress: Float(progress), status: "\(min(100, Int(progress * 100)))% complete")
+                        DispatchQueue.main.async {
+                            overlay.update(progress: Float(progress), status: "\(min(100, Int(progress * 100)))% complete")
+                        }
                     }
                 }
             } catch {
