@@ -14,8 +14,8 @@ final class FilePageViewController: UIViewController {
     private weak var viewer: FileViewerViewController?
     private var playerLayer: AVPlayerLayer?
     private var previewURL: URL?
-    private var imageView:   UIImageView?
-    private var scrollView:  UIScrollView?
+    private var imageView: UIImageView?
+    private var scrollView: UIScrollView?
     private var resourceLoaderDelegate: VaultResourceLoaderDelegate?
     
     init(item: VaultItem, viewer: FileViewerViewController) {
@@ -24,7 +24,7 @@ final class FilePageViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
     
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -69,7 +69,7 @@ final class FilePageViewController: UIViewController {
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
         
         let imageView = UIImageView()
@@ -111,9 +111,10 @@ final class FilePageViewController: UIViewController {
         }
 
         resourceLoaderDelegate = delegate
-        var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false)!
+        guard var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false) else { return }
         comps.scheme = "vault-stream"
-        let asset = AVURLAsset(url: comps.url!)
+        guard let streamURL = comps.url else { return }
+        let asset = AVURLAsset(url: streamURL)
         asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue(label: "com.KoalaTVault.resourceloader"))
         installVideoPlayer(url: nil, asset: asset)
     }

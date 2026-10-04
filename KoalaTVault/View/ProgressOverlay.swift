@@ -16,7 +16,12 @@ final class ProgressOverlay: UIView {
     private let cancelButton   = UIButton(type: .system)
     private var onCancel: (() -> Void)?
 
-    static func show(in viewController: UIViewController, title: String, cancellable: Bool = false, onCancel: (() -> Void)? = nil) -> ProgressOverlay {
+    static func show(
+        in viewController: UIViewController,
+        title: String,
+        cancellable: Bool = false,
+        onCancel: (() -> Void)? = nil
+    ) -> ProgressOverlay {
         let overlay = ProgressOverlay()
         overlay.titleLabel.text = title
         overlay.onCancel = onCancel
@@ -32,7 +37,7 @@ final class ProgressOverlay: UIView {
         setupUI()
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private func setupUI() {
         backgroundColor = UIColor.black.withAlphaComponent(0.5)
@@ -82,7 +87,7 @@ final class ProgressOverlay: UIView {
 
             cancelButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 16),
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16),
+            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16)
         ])
     }
 

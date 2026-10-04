@@ -29,6 +29,18 @@ nonisolated final class CryptoService: @unchecked Sendable {
         symmetricKey = nil
     }
 
+    /// Returns the raw bytes of the currently loaded master key. Caller must zero the returned Data when done.
+    func exportMasterKeyData() throws -> Data {
+        guard let key = symmetricKey else { throw CryptoError.noKeyLoaded }
+        return key.withUnsafeBytes { Data($0) }
+    }
+
+    /// Loads a master key directly from raw bytes. Used for biometric unlock.
+    func loadMasterKey(from data: Data) throws {
+        guard data.count == 32 else { throw CryptoError.decryptionFailed }
+        symmetricKey = SymmetricKey(data: data)
+    }
+
     // MARK: - Master Key (random, wrapped at rest by a password-derived key)
     private let masterKeyBlobKeychainKey = "com.KoalaTVault.masterKeyBlob"
     private let keychainService = "com.KoalaTVault"
@@ -38,7 +50,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
 
     private func blobQuery() -> [String: Any] {
         [
-            kSecClass as String:       kSecClassGenericPassword,
+            kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: masterKeyBlobKeychainKey
         ]
@@ -47,7 +59,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
     /// Generates a new random master key, wraps it with a password-derived key, and stores the
     /// wrapped blob in Keychain. Call once, when a password is first set. Loads the key into memory.
     func createMasterKey(wrappedBy password: String) throws {
-        guard !(try hasMasterKeyBlob()) else { throw CryptoError.encryptionFailed }
+        guard !(try hasMasterKeyBlob()) else { throw CryptoError.masterKeyAlreadyExists }
         let masterKey = SymmetricKey(size: .bits256)
         try storeWrappedMasterKey(masterKey, wrappedBy: password)
         symmetricKey = masterKey
@@ -118,7 +130,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
 
         let searchQuery = blobQuery()
         let attributes: [String: Any] = [
-            kSecValueData as String:      blob,
+            kSecValueData as String: blob,
             kSecAttrAccessible as String: keychainAccessibility
         ]
 
@@ -194,8 +206,9 @@ nonisolated final class CryptoService: @unchecked Sendable {
 
     private func randomBytes(count: Int) throws -> Data {
         var data = Data(count: count)
-        let status = data.withUnsafeMutableBytes {
-            SecRandomCopyBytes(kSecRandomDefault, count, $0.baseAddress!)
+        let status: OSStatus = data.withUnsafeMutableBytes { ptr in
+            guard let base = ptr.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, count, base)
         }
         guard status == errSecSuccess else { throw CryptoError.encryptionFailed }
         return data
@@ -252,12 +265,13 @@ nonisolated final class CryptoService: @unchecked Sendable {
     /// Creates an empty file on the same volume as `destination` so the final move is an atomic rename.
     /// Caller must remove `directory` when done.
     private func makeStagingFile(for destination: URL) throws -> (directory: URL, file: URL) {
-        let fm = FileManager.default
-        let directory = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
-                                   appropriateFor: destination.deletingLastPathComponent(), create: true)
+        let fileManager = FileManager.default
+        let directory = try fileManager.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                            appropriateFor: destination.deletingLastPathComponent(), create: true)
         let file = directory.appendingPathComponent(UUID().uuidString)
-        guard fm.createFile(atPath: file.path, contents: nil) else {
-            try? fm.removeItem(at: directory)
+        guard fileManager.createFile(atPath: file.path, contents: nil,
+                                     attributes: [.protectionKey: FileProtectionType.complete]) else {
+            try? fileManager.removeItem(at: directory)
             throw CocoaError(.fileWriteUnknown)
         }
         return (directory, file)
@@ -265,11 +279,11 @@ nonisolated final class CryptoService: @unchecked Sendable {
 
     /// Atomically moves `staged` into place, replacing `destination` if it exists.
     private func commitStagingFile(_ staged: URL, to destination: URL) throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: destination.path) {
-            _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: destination.path) {
+            _ = try fileManager.replaceItemAt(destination, withItemAt: staged)
         } else {
-            try fm.moveItem(at: staged, to: destination)
+            try fileManager.moveItem(at: staged, to: destination)
         }
     }
 
@@ -408,7 +422,10 @@ nonisolated final class CryptoService: @unchecked Sendable {
         return try openSealed(combined, using: encKey, authenticating: chunkAAD(header: header, index: index))
     }
 
-    /// Validates a stream header and returns its fields. Throws on any out-of-range value.
+    // Validates a stream header and returns its fields (chunkSize, totalSize, fileID).
+    // Three fields are inherent to the format; introducing a named struct here would add indirection
+    // for a private method used in a single place.
+    // swiftlint:disable:next large_tuple
     private func parseHeader(_ header: Data) throws -> (chunkSize: Int, totalSize: Int, fileID: Data) {
         guard header.count == headerSize, Array(header.prefix(4)) == chunkedFormatMagic else {
             throw CryptoError.decryptionFailed
@@ -427,15 +444,15 @@ nonisolated final class CryptoService: @unchecked Sendable {
     }
 
     private func uint32Data(_ value: UInt32) -> Data {
-        var v = value.littleEndian
-        return withUnsafeBytes(of: &v) { Data($0) }
+        var littleEndian = value.littleEndian
+        return withUnsafeBytes(of: &littleEndian) { Data($0) }
     }
     private func uint32Value(_ data: Data) -> UInt32 {
         data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }.littleEndian
     }
     private func uint64Data(_ value: UInt64) -> Data {
-        var v = value.littleEndian
-        return withUnsafeBytes(of: &v) { Data($0) }
+        var littleEndian = value.littleEndian
+        return withUnsafeBytes(of: &littleEndian) { Data($0) }
     }
     private func uint64Value(_ data: Data) -> UInt64 {
         data.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.littleEndian
@@ -446,6 +463,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
 nonisolated enum CryptoError: Error, Equatable {
     case noKeyLoaded
     case noMasterKeyBlob
+    case masterKeyAlreadyExists
     case wrongPassword
     case encryptionFailed
     case decryptionFailed
@@ -455,12 +473,13 @@ nonisolated enum CryptoError: Error, Equatable {
 nonisolated extension CryptoError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .noKeyLoaded:          return "No encryption key is loaded."
-        case .noMasterKeyBlob:      return "No password has been set up."
-        case .wrongPassword:        return "Incorrect password."
-        case .encryptionFailed:     return "Encryption failed."
-        case .decryptionFailed:     return "Decryption failed. The data may be damaged."
-        case .keychain(let status): return "Couldn't access secure storage (error \(status))."
+        case .noKeyLoaded:            return "No encryption key is loaded."
+        case .noMasterKeyBlob:        return "No password has been set up."
+        case .masterKeyAlreadyExists: return "A master key already exists."
+        case .wrongPassword:          return "Incorrect password."
+        case .encryptionFailed:       return "Encryption failed."
+        case .decryptionFailed:       return "Decryption failed. The data may be damaged."
+        case .keychain(let status):   return "Couldn't access secure storage (error \(status))."
         }
     }
 }

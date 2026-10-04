@@ -95,7 +95,8 @@ final class LockScreenViewController: UIViewController {
 
         // Preferred position; yields when the keyboard needs the space.
         let preferredLogoPosition = logoImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -160)
-        preferredLogoPosition.priority = .defaultHigh - 1 // Must stay below compression resistance (750) so views move instead of collapsing
+        // Must stay below compression resistance (750) so views move instead of collapsing
+        preferredLogoPosition.priority = .defaultHigh - 1
 
         NSLayoutConstraint.activate([
             logoImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -118,7 +119,7 @@ final class LockScreenViewController: UIViewController {
 
             biometricButton.topAnchor.constraint(equalTo: unlockButton.bottomAnchor, constant: 16),
             biometricButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            biometricButton.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -16),
+            biometricButton.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -16)
         ])
     }
 
@@ -174,6 +175,7 @@ final class LockScreenViewController: UIViewController {
     }
 
     private func handleBiometricFailure(_ error: Error?) {
+        guard let error else { return } // nil = user dismissed the prompt, show nothing
         guard let laError = error as? LAError else {
             showError("Biometric authentication failed")
             return

@@ -58,19 +58,24 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     private func setupNavigationBar() {
         if isSelectMode {
             let cancel = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(exitSelectMode))
-            let deleteButton = UIBarButtonItem(image: UIImage(systemName: "trash"), style: .plain, target: self, action: #selector(bulkDelete))
+            let deleteButton = UIBarButtonItem(
+                image: UIImage(systemName: "trash"), style: .plain, target: self, action: #selector(bulkDelete))
             deleteButton.tintColor = .systemRed
-            let moveButton = UIBarButtonItem(image: UIImage(systemName: "arrow.right.circle"), style: .plain, target: self, action: #selector(bulkMove))
-            let exportButton = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(bulkExport))
-            let copyButton = UIBarButtonItem(image: UIImage(systemName: "doc.on.doc"), style: .plain, target: self, action: #selector(bulkCopy))
+            let moveButton = UIBarButtonItem(
+                image: UIImage(systemName: "arrow.right.circle"), style: .plain, target: self, action: #selector(bulkMove))
+            let exportButton = UIBarButtonItem(
+                image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(bulkExport))
+            let copyButton = UIBarButtonItem(
+                image: UIImage(systemName: "doc.on.doc"), style: .plain, target: self, action: #selector(bulkCopy))
 
             navigationItem.leftBarButtonItem = cancel
             navigationItem.title = selectedItems.isEmpty ? "Select Items" : "\(selectedItems.count) Selected"
             navigationItem.rightBarButtonItems = [deleteButton, moveButton, exportButton, copyButton]
         } else {
-            //Left side
+            // Left side
             if directory.diskURL == VaultDirectory.root.diskURL {
-                let settingsButton = UIBarButtonItem(image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(openSettings))
+                let settingsButton = UIBarButtonItem(
+                    image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(openSettings))
                 navigationItem.leftBarButtonItem = settingsButton
             } else {
                 navigationItem.leftBarButtonItem = nil
@@ -78,10 +83,14 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
             // Right side
             let selectButton    = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(enterSelectMode))
-            let importButton    = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.down"), style: .plain, target: self, action: #selector(promptImport))
-            let newDocButton    = UIBarButtonItem(image: UIImage(systemName: "doc.badge.plus"), style: .plain, target: self, action: #selector(promptNewDocument))
-            let newFolderButton = UIBarButtonItem(image: UIImage(systemName: "folder.badge.plus"), style: .plain, target: self, action: #selector(promptNewFolder))
-            let sortButton      = UIBarButtonItem(image: UIImage(systemName: "arrow.up.arrow.down"), style: .plain, target: self, action: #selector(promptSort))
+            let importButton    = UIBarButtonItem(
+                image: UIImage(systemName: "square.and.arrow.down"), style: .plain, target: self, action: #selector(promptImport))
+            let newDocButton    = UIBarButtonItem(
+                image: UIImage(systemName: "doc.badge.plus"), style: .plain, target: self, action: #selector(promptNewDocument))
+            let newFolderButton = UIBarButtonItem(
+                image: UIImage(systemName: "folder.badge.plus"), style: .plain, target: self, action: #selector(promptNewFolder))
+            let sortButton      = UIBarButtonItem(
+                image: UIImage(systemName: "arrow.up.arrow.down"), style: .plain, target: self, action: #selector(promptSort))
 
             navigationItem.title = directory.name
             navigationItem.rightBarButtonItems = [newFolderButton, newDocButton, importButton, sortButton, selectButton]
@@ -136,10 +145,14 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Data Source
     private func configureDataSource() {
-        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { collectionView, indexPath, item in
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FileCell.reuseID, for: indexPath) as! FileCell
+        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] collectionView, indexPath, item in
+            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FileCell.reuseID, for: indexPath) as? FileCell else {
+                fatalError("FileCell not registered for reuse ID \(FileCell.reuseID)")
+            }
             cell.configure(with: item, gridMode: true)
-            cell.setSelected(self.selectedItems.contains(item), inSelectMode: self.isSelectMode)
+            if let self {
+                cell.setSelected(selectedItems.contains(item), inSelectMode: isSelectMode)
+            }
             return cell
         }
     }
@@ -365,7 +378,9 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Import
     @objc private func promptImport() {
-        ImportService.shared.promptImport(into: directory, from: self, barButtonItem: navigationItem.rightBarButtonItems?.last) { [weak self] in
+        ImportService.shared.promptImport(
+            into: directory, from: self, barButtonItem: navigationItem.rightBarButtonItems?.last
+        ) { [weak self] in
             self?.loadContents()
         }
     }
@@ -392,8 +407,8 @@ extension FileBrowserViewController: UICollectionViewDelegate {
 
         if item.isDirectory {
             let subDir = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
-            let vc = FileBrowserViewController(directory: subDir)
-            navigationController?.pushViewController(vc, animated: true)
+            let browser = FileBrowserViewController(directory: subDir)
+            navigationController?.pushViewController(browser, animated: true)
         } else {
             let ext = (item.name as NSString).pathExtension.lowercased()
             if ext == "rtf" {
@@ -410,7 +425,11 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         }
     }
 
-    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        contextMenuConfigurationForItemAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
         let item = items[indexPath.item]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             let rename = UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak self] _ in
@@ -442,7 +461,11 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         }
     }
 
-    func collectionView(_ collectionView: UICollectionView, willEndContextMenuInteraction configuration: UIContextMenuConfiguration, animator: (any UIContextMenuInteractionAnimating)?) {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        willEndContextMenuInteraction configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
         animator?.addCompletion {
             self.pendingAction?()
             self.pendingAction = nil
@@ -469,7 +492,11 @@ extension FileBrowserViewController: FolderPickerDelegate {
 
 // MARK: - UICollectionViewDragDelegate
 extension FileBrowserViewController: UICollectionViewDragDelegate {
-    func collectionView(_ collectionView: UICollectionView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        itemsForBeginning session: UIDragSession,
+        at indexPath: IndexPath
+    ) -> [UIDragItem] {
         let item = items[indexPath.item]
         let provider = NSItemProvider(object: item.diskURL as NSURL)
         let dragItem = UIDragItem(itemProvider: provider)
@@ -480,7 +507,11 @@ extension FileBrowserViewController: UICollectionViewDragDelegate {
 
 // MARK: - UICollectionViewDropDelegate
 extension FileBrowserViewController: UICollectionViewDropDelegate {
-    func collectionView(_ collectionView: UICollectionView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UICollectionViewDropProposal {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        dropSessionDidUpdate session: UIDropSession,
+        withDestinationIndexPath destinationIndexPath: IndexPath?
+    ) -> UICollectionViewDropProposal {
         guard let destinationIndexPath else {
             return UICollectionViewDropProposal(operation: .cancel)
         }

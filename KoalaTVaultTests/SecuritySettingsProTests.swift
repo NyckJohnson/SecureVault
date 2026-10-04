@@ -75,4 +75,3 @@ final class SecuritySettingsProTests: XCTestCase {
         XCTAssertNil(sut.presentedViewController)
     }
 }
-

@@ -21,7 +21,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
@@ -61,7 +61,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
             textView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
@@ -70,13 +70,20 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         toolbar.sizeToFit()
 
         let bold = UIBarButtonItem(image: UIImage(systemName: "bold"), style: .plain, target: self, action: #selector(toggleBold))
-        let italic = UIBarButtonItem(image: UIImage(systemName: "italic"), style: .plain, target: self, action: #selector(toggleItalic))
-        let underline = UIBarButtonItem(image: UIImage(systemName: "underline"), style: .plain, target: self, action: #selector(toggleUnderlineStyle))
-        let increaseFontSize = UIBarButtonItem(image: UIImage(systemName: "textformat.size.larger"), style: .plain, target: self, action: #selector(increaseFontSize))
-        let decreaseFontSize = UIBarButtonItem(image: UIImage(systemName: "textformat.size.smaller"), style: .plain, target: self, action: #selector(decreaseFontSize))
-        let alignLeft = UIBarButtonItem(image: UIImage(systemName: "text.alignleft"), style: .plain, target: self, action: #selector(alignLeft))
-        let alignCenter = UIBarButtonItem(image: UIImage(systemName: "text.aligncenter"), style: .plain, target: self, action: #selector(alignCenter))
-        let alignRight = UIBarButtonItem(image: UIImage(systemName: "text.alignright"), style: .plain, target: self, action: #selector(alignRight))
+        let italic = UIBarButtonItem(
+            image: UIImage(systemName: "italic"), style: .plain, target: self, action: #selector(toggleItalic))
+        let underline = UIBarButtonItem(
+            image: UIImage(systemName: "underline"), style: .plain, target: self, action: #selector(toggleUnderlineStyle))
+        let increaseFontSize = UIBarButtonItem(
+            image: UIImage(systemName: "textformat.size.larger"), style: .plain, target: self, action: #selector(increaseFontSize))
+        let decreaseFontSize = UIBarButtonItem(
+            image: UIImage(systemName: "textformat.size.smaller"), style: .plain, target: self, action: #selector(decreaseFontSize))
+        let alignLeft = UIBarButtonItem(
+            image: UIImage(systemName: "text.alignleft"), style: .plain, target: self, action: #selector(alignLeft))
+        let alignCenter = UIBarButtonItem(
+            image: UIImage(systemName: "text.aligncenter"), style: .plain, target: self, action: #selector(alignCenter))
+        let alignRight = UIBarButtonItem(
+            image: UIImage(systemName: "text.alignright"), style: .plain, target: self, action: #selector(alignRight))
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
 
         toolbar.items = [bold, italic, underline, flex, decreaseFontSize, increaseFontSize, flex, alignLeft, alignCenter, alignRight]
@@ -118,8 +125,10 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Keyboard
     private func registerForKeyboardNotifications() {
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
@@ -165,9 +174,9 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         let current = textView.typingAttributes[.underlineStyle] as? Int ?? 0
         textView.typingAttributes[.underlineStyle] = current == 0 ? NSUnderlineStyle.single.rawValue : 0
         applyToSelection { attrs in
-            var a = attrs
-            a[.underlineStyle] = current == 0 ? NSUnderlineStyle.single.rawValue : 0
-            return a
+            var updatedAttributes = attrs
+            updatedAttributes[.underlineStyle] = current == 0 ? NSUnderlineStyle.single.rawValue : 0
+            return updatedAttributes
         }
     }
 
@@ -192,10 +201,10 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         let font = textView.typingAttributes[key] as? UIFont ?? .preferredFont(forTextStyle: .body)
         textView.typingAttributes[key] = transform(font)
         applyToSelection { attrs in
-            var a = attrs
-            let f = a[key] as? UIFont ?? .preferredFont(forTextStyle: .body)
-            a[key] = transform(f)
-            return a
+            var updatedAttributes = attrs
+            let currentFont = updatedAttributes[key] as? UIFont ?? .preferredFont(forTextStyle: .body)
+            updatedAttributes[key] = transform(currentFont)
+            return updatedAttributes
         }
     }
 
@@ -215,9 +224,9 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         paragraph.alignment = alignment
         textView.typingAttributes[.paragraphStyle] = paragraph
         applyToSelection { attrs in
-            var a = attrs
-            a[.paragraphStyle] = paragraph
-            return a
+            var updatedAttributes = attrs
+            updatedAttributes[.paragraphStyle] = paragraph
+            return updatedAttributes
         }
     }
 }

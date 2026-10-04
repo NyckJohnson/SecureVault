@@ -44,7 +44,9 @@ final class EntitlementService: ObservableObject {
     }
 
 #if DEBUG
-    /// Test-only override for `isUnlockedSync`, bypassing StoreKit entirely.
+    // Test-only override for `isUnlockedSync`, bypassing StoreKit entirely.
+    // nil = no override (Bool? is intentional here: nil means "not set", not "false").
+    // swiftlint:disable:next discouraged_optional_boolean
     nonisolated(unsafe) static var testForcedUnlocked: Bool?
 #endif
 

@@ -105,7 +105,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         // A real mapping with two entries would have existed here before corruption.
         try writeRawMapping([
             keptUUID: VaultMapping(originalName: "DoNotLose.txt"),
-            targetUUID: VaultMapping(originalName: "Original.txt"),
+            targetUUID: VaultMapping(originalName: "Original.txt")
         ])
         try corruptMapping()
         let corruptedBytesBeforeAttempt = try Data(contentsOf: mappingURL)

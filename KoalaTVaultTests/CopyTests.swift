@@ -3,7 +3,6 @@ import XCTest
 
 final class CopyTests: VaultTestCase {
 
-
     // MARK: - Basic Copy
     func testCopyFileCreatesDuplicate() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")

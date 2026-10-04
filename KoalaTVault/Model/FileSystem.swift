@@ -30,7 +30,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Sendable {
     var isDirectory: Bool
     var dateModified: Date
     var fileSize: Int?
-    var deletedAt: Date? = nil
+    var deletedAt: Date?
     internal var diskURL: URL
     internal var rootURL: URL
     internal var isEncrypted: Bool
@@ -323,7 +323,9 @@ nonisolated final class FileSystem: Sendable {
     // MARK: - Open
     func open(_ item: VaultItem) throws -> URL {
         guard item.isEncrypted else { return item.diskURL }
-        let tempURL = tempDir.appendingPathComponent(item.name)
+        let tempSubDir = tempDir.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
+        let tempURL = tempSubDir.appendingPathComponent(item.name)
         try CryptoService.shared.decryptFile(at: item.diskURL, to: tempURL)
         return tempURL
     }
@@ -351,7 +353,9 @@ nonisolated final class FileSystem: Sendable {
         return try items.enumerated().map { index, item in
             defer { progress?(Double(index + 1) / total) }
             if item.isEncrypted {
-                let tempURL = tempDir.appendingPathComponent(item.name)
+                let tempSubDir = tempDir.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
+                let tempURL = tempSubDir.appendingPathComponent(item.name)
                 try CryptoService.shared.decryptFile(at: item.diskURL, to: tempURL)
                 return tempURL
             }
@@ -375,7 +379,7 @@ nonisolated final class FileSystem: Sendable {
             let isVideo = FileKind(extension: (item.name as NSString).pathExtension.lowercased()) == .video
             do {
                 let url = try open(item)
-                defer { if item.isEncrypted { try? FileManager.default.removeItem(at: url) } }
+                defer { if item.isEncrypted { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
                 try await PHPhotoLibrary.shared().performChanges {
                     if isVideo {
                         PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
@@ -585,19 +589,18 @@ nonisolated final class FileSystem: Sendable {
         let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60) // 30 days
         var changed = false
         let trashURL = trashDirectory(for: root.rootURL).diskURL
-        for (uuid, entry) in trashMap {
-            if entry.deletedAt < cutoff {
-                let diskURL = trashURL.appendingPathComponent(uuid)
-                try? FileManager.default.removeItem(at: diskURL)
-                trashMap.removeValue(forKey: uuid)
-                changed = true
-            }
+        for (uuid, entry) in trashMap where entry.deletedAt < cutoff {
+            let diskURL = trashURL.appendingPathComponent(uuid)
+            try? FileManager.default.removeItem(at: diskURL)
+            trashMap.removeValue(forKey: uuid)
+            changed = true
         }
         if changed { try? saveTrashMap(trashMap, for: root.rootURL) }
     }
 
     private func loadTrashMap(for rootURL: URL) throws -> [String: TrashEntry] {
-        try loadEncryptedJSON([String: TrashEntry].self, from: trashDirectory(for: rootURL).diskURL.appendingPathComponent(trashMapName)) ?? [:]
+        let trashMapURL = trashDirectory(for: rootURL).diskURL.appendingPathComponent(trashMapName)
+        return try loadEncryptedJSON([String: TrashEntry].self, from: trashMapURL) ?? [:]
     }
 
     private func saveTrashMap(_ map: [String: TrashEntry], for rootURL: URL) throws {
@@ -710,7 +713,8 @@ nonisolated final class FileSystem: Sendable {
             print("Mapping unreadable: \(error.localizedDescription)")
             return
         }
-        let diskFiles = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? []
+        let diskFiles = (try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? []
         
         print("Mapping entries: \(mapping.count)")
         print("Disk files: \(diskFiles.count)")
@@ -810,24 +814,24 @@ nonisolated final class FileSystem: Sendable {
         let option    = PreferencesService.shared.sortOption
         let ascending = PreferencesService.shared.sortDirection == .ascending
 
-        return { a, b in
+        return { lhs, rhs in
             // folders always first
-            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
 
             let result: Bool
             switch option {
             case .name:
-                result = a.name.localizedStandardCompare(b.name) == .orderedAscending
+                result = lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             case .type:
-                let extA = (a.name as NSString).pathExtension.lowercased()
-                let extB = (b.name as NSString).pathExtension.lowercased()
-                if extA != extB {
-                    result = extA.localizedStandardCompare(extB) == .orderedAscending
+                let extLhs = (lhs.name as NSString).pathExtension.lowercased()
+                let extRhs = (rhs.name as NSString).pathExtension.lowercased()
+                if extLhs != extRhs {
+                    result = extLhs.localizedStandardCompare(extRhs) == .orderedAscending
                 } else {
-                    result = a.name.localizedStandardCompare(b.name) == .orderedAscending
+                    result = lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
                 }
             case .dateModified:
-                result = a.dateModified < b.dateModified
+                result = lhs.dateModified < rhs.dateModified
             }
             return ascending ? result : !result
         }

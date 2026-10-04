@@ -129,7 +129,6 @@ final class PaywallUITests: VaultUITestCase {
         )
     }
 
-
     private func openSettings() {
         unlockVaultAtLaunch()
 

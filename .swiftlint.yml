@@ -1,0 +1,60 @@
+# SwiftLint configuration for KoalaTVault
+# Place this file in the project root (the folder containing KoalaTVault.xcodeproj).
+
+excluded:
+  - DerivedData
+  - .build
+
+# Formatting rules are left to the formatter; SwiftLint focuses on correctness and clarity.
+disabled_rules:
+  - trailing_whitespace
+  - todo
+  # "master" is standard cryptographic vocabulary (master key / key wrapping);
+  # it is not used in the master/slave hardware sense. SwiftLint 0.65.1 has no
+  # allowed_terms config option, so we disable the rule at the project level.
+  - inclusive_language
+
+opt_in_rules:
+  - force_unwrapping            # crashes in a vault app lose user trust; prefer guard/throw
+  - fatal_error_message         # every fatalError should say why
+  - unowned_variable_capture    # prefer [weak self]; unowned crashes if self is gone
+  - contains_over_first_not_nil
+  - first_where
+  - empty_count
+  - empty_string
+  - redundant_nil_coalescing
+  - discouraged_optional_boolean
+
+analyzer_rules:
+  - unused_declaration          # only runs with `swiftlint analyze`, not `swiftlint lint`
+
+line_length:
+  warning: 140
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+identifier_name:
+  excluded:
+    - id
+    - x
+    - y
+    - i
+
+type_body_length:
+  warning: 700
+  error: 900
+
+file_length:
+  warning: 900
+  error: 1200
+
+function_body_length:
+  warning: 80
+  error: 150
+
+cyclomatic_complexity:
+  warning: 12
+
+function_parameter_count:
+  warning: 6

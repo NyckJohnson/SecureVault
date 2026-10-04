@@ -24,7 +24,7 @@ nonisolated final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLo
     }
 
     nonisolated func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
-            shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+                                    shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.fulfill(loadingRequest)
         }
@@ -32,7 +32,7 @@ nonisolated final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLo
     }
 
     nonisolated func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
-                         didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+                                    didCancel loadingRequest: AVAssetResourceLoadingRequest) {
         // no-op: fulfill() checks loadingRequest.isCancelled itself each iteration
     }
 

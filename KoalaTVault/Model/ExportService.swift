@@ -8,15 +8,57 @@
 import UIKit
 import Photos
 
+// Deletes decrypted temp copies once the document picker finishes or is cancelled.
+// Retained on the picker itself via objc_setAssociatedObject because UIDocumentPickerDelegate is weak.
+private final class ExportCleanupDelegate: NSObject, UIDocumentPickerDelegate {
+    private let tempURLs: [URL]
+    private static var associationKey: UInt8 = 0
+
+    private init(tempURLs: [URL]) {
+        self.tempURLs = tempURLs
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        cleanup()
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        cleanup()
+    }
+
+    private func cleanup() {
+        for url in tempURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    static func attach(to picker: UIDocumentPickerViewController, tempURLs: [URL]) {
+        guard !tempURLs.isEmpty else { return }
+        let delegate = ExportCleanupDelegate(tempURLs: tempURLs)
+        picker.delegate = delegate
+        objc_setAssociatedObject(picker, &associationKey, delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+}
+
 final class ExportService {
     static let shared = ExportService()
     private init() {}
 
-    func export(_ item: VaultItem, from viewController: UIViewController, sourceView: UIView? = nil, barButtonItem: UIBarButtonItem? = nil) {
+    func export(
+        _ item: VaultItem,
+        from viewController: UIViewController,
+        sourceView: UIView? = nil,
+        barButtonItem: UIBarButtonItem? = nil
+    ) {
         exportMultiple([item], from: viewController, sourceView: sourceView, barButtonItem: barButtonItem)
     }
 
-    func exportMultiple(_ items: [VaultItem], from viewController: UIViewController, sourceView: UIView? = nil, barButtonItem: UIBarButtonItem? = nil) {
+    func exportMultiple(
+        _ items: [VaultItem],
+        from viewController: UIViewController,
+        sourceView: UIView? = nil,
+        barButtonItem: UIBarButtonItem? = nil
+    ) {
         let hasMedia = items.contains {
             let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
             return kind == .image || kind == .video
@@ -37,6 +79,9 @@ final class ExportService {
                         overlay.dismiss()
                         let picker = UIDocumentPickerViewController(forExporting: urls, asCopy: true)
                         Self.configurePopover(picker.popoverPresentationController, sourceView: sourceView, barButtonItem: barButtonItem)
+                        let tmpDir = FileManager.default.temporaryDirectory.standardizedFileURL
+                        let tempURLs = urls.filter { $0.standardizedFileURL.path.hasPrefix(tmpDir.path) }
+                        ExportCleanupDelegate.attach(to: picker, tempURLs: tempURLs)
                         viewController.present(picker, animated: true)
                     }
                 } catch {
@@ -66,7 +111,11 @@ final class ExportService {
         viewController.present(sheet, animated: true)
     }
 
-    private static func configurePopover(_ popover: UIPopoverPresentationController?, sourceView: UIView?, barButtonItem: UIBarButtonItem?) {
+    private static func configurePopover(
+        _ popover: UIPopoverPresentationController?,
+        sourceView: UIView?,
+        barButtonItem: UIBarButtonItem?
+    ) {
         if let barButtonItem {
             popover?.barButtonItem = barButtonItem
         } else if let sourceView {

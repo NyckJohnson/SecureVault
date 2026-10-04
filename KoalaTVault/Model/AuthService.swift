@@ -6,7 +6,8 @@
 //
 
 import Foundation
-import LocalAuthentication
+@preconcurrency import LocalAuthentication
+import os
 import Security
 import UIKit
 
@@ -20,8 +21,12 @@ final class AuthService {
     private init() {}
 
     // MARK: - Keys
-    nonisolated private let passwordKeychainKey = "com.KoalaTVault.password"
-    private let privacyScreenTag    = 999
+    // Legacy account key — kept only to clean up any plaintext password stored by older builds.
+    nonisolated private let legacyPasswordKeychainKey = "com.KoalaTVault.password"
+    nonisolated private let biometricMasterKeyAccount = "com.KoalaTVault.biometricMasterKey"
+    nonisolated private let biometricKeychainService  = "com.KoalaTVault"
+    private let privacyScreenTag = 999
+    private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
 
     // MARK: - Lock Mode
     var lockMode: LockMode {
@@ -31,25 +36,13 @@ final class AuthService {
 
     // MARK: - Password
     nonisolated func createPassword(_ password: String) throws {
-        try storePlaintextPassword(password)
         try CryptoService.shared.createMasterKey(wrappedBy: password)
+        // Caller is responsible for calling enableBiometrics() afterwards if lockMode is .passwordAndBiometrics.
     }
 
     nonisolated func changePassword(to newPassword: String) throws {
-        try storePlaintextPassword(newPassword)
+        // rewrapMasterKey keeps the same key in memory; the biometric item (raw key bytes) stays valid.
         try CryptoService.shared.rewrapMasterKey(with: newPassword)
-    }
-
-    nonisolated private func storePlaintextPassword(_ password: String) throws {
-        let data = password.data(using: .utf8)!
-        let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: passwordKeychainKey,
-            kSecValueData as String:   data
-        ]
-        SecItemDelete(query as CFDictionary)
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw AuthError.keychainError }
     }
 
     nonisolated func verifyPassword(_ password: String) throws {
@@ -58,7 +51,7 @@ final class AuthService {
         } catch CryptoError.wrongPassword {
             throw AuthError.wrongPassword
         }
-        try? storePlaintextPassword(password)
+        deleteLegacyPasswordItem()
     }
 
     func hasPassword() -> Bool {
@@ -66,29 +59,90 @@ final class AuthService {
     }
 
     func removePassword() throws {
-        // Wipe the blob first: if that fails, the plaintext password is still there,
-        // so the state stays consistent and biometric unlock keeps working.
         try CryptoService.shared.wipeMasterKeyBlob()
+        removeBiometricSecret()
+        deleteLegacyPasswordItem()
+    }
 
+    // MARK: - Biometric Secret Storage
+
+    /// Stores the currently loaded master key in the Keychain protected by biometrics.
+    /// Only call when lockMode is .passwordAndBiometrics and the master key is loaded.
+    nonisolated func enableBiometrics() throws {
+        var keyData = try CryptoService.shared.exportMasterKeyData()
+        defer { keyData.withUnsafeMutableBytes { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) } }
+        try storeBiometricMasterKey(keyData)
+    }
+
+    /// Removes the biometrically-protected master key from the Keychain.
+    nonisolated func removeBiometricSecret() {
         let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
-            kSecAttrAccount as String: passwordKeychainKey
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: biometricKeychainService,
+            kSecAttrAccount as String: biometricMasterKeyAccount
         ]
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
+        SecItemDelete(query as CFDictionary)
+    }
+
+    /// Stores raw master key bytes in the Keychain, accessible only after biometric auth on this device.
+    /// Access control prevents migration via backup and invalidates the item if biometrics change.
+    nonisolated private func storeBiometricMasterKey(_ keyData: Data) throws {
+        guard let access = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
+            .biometryCurrentSet,
+            nil
+        ) else {
             throw AuthError.keychainError
         }
+        // Access control attributes cannot be updated via SecItemUpdate, so delete-then-add.
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: biometricKeychainService,
+            kSecAttrAccount as String: biometricMasterKeyAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: biometricKeychainService,
+            kSecAttrAccount as String: biometricMasterKeyAccount,
+            kSecValueData as String: keyData,
+            kSecAttrAccessControl as String: access
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        guard status == errSecSuccess else { throw AuthError.keychainError }
+    }
+
+    /// Removes any plaintext password stored by older app versions.
+    nonisolated private func deleteLegacyPasswordItem() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: legacyPasswordKeychainKey
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 
     // MARK: - Migration Completion
-    func finalizeMigration(type: MigrationViewController.MigrationType, targetLockMode: LockMode?, completedFully: Bool) {
+    func finalizeMigration(
+        type: MigrationViewController.MigrationType,
+        targetLockMode: LockMode?,
+        completedFully: Bool
+    ) {
         guard completedFully else { return }
         switch type {
         case .encrypt:
             if let targetLockMode { lockMode = targetLockMode }
         case .decrypt:
             lockMode = .none
-            try? removePassword()
+            do {
+                try removePassword()
+            } catch {
+                // Removal failed: the keychain blob persists while lockMode is .none.
+                // The key is wiped below so the vault is still inaccessible, but the
+                // inconsistency should be investigated.
+                logger.error("removePassword failed during decrypt migration: \(error.localizedDescription, privacy: .public)")
+            }
             CryptoService.shared.wipeKey()
         }
     }
@@ -96,47 +150,55 @@ final class AuthService {
     // MARK: - Biometrics
     var biometricsAvailable: Bool {
         let context = LAContext()
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return context.canEvaluatePolicy(
+            .deviceOwnerAuthenticationWithBiometrics,
+            error: nil
+        )
     }
 
     var biometricType: String {
         let context = LAContext()
-        context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        context.canEvaluatePolicy(
+            .deviceOwnerAuthenticationWithBiometrics,
+            error: nil
+        )
         switch context.biometryType {
-        case .faceID:  return "Face ID"
+        case .faceID: return "Face ID"
         case .touchID: return "Touch ID"
-        default:       return "Biometrics"
+        default: return "Biometrics"
         }
     }
 
-    func authenticateWithBiometrics(completion: @escaping @MainActor @Sendable (Bool, Error?) -> Void) {
+    func authenticateWithBiometrics(
+        completion: @escaping @MainActor @Sendable (Bool, Error?) -> Void
+    ) {
+        // Use a fresh, non-pre-evaluated context. This makes SecItemCopyMatching the
+        // sole authentication gate — the Secure Enclave enforces it at hardware level,
+        // unlike evaluatePolicy whose result can be faked on a jailbroken device.
         let context = LAContext()
-        context.evaluatePolicy(
-            .deviceOwnerAuthenticationWithBiometrics,
-            localizedReason: "Unlock Koala T Vault"
-        ) { [weak self] success, error in
-            guard let self else { return }
-            guard success else {
-                DispatchQueue.main.async { completion(false, error) }
-                return
-            }
 
+        DispatchQueue.global(qos: .userInitiated).async { [biometricKeychainService, biometricMasterKeyAccount] in
             let query: [String: Any] = [
-                kSecClass as String:       kSecClassGenericPassword,
-                kSecAttrAccount as String: self.passwordKeychainKey,
-                kSecReturnData as String:  true,
-                kSecMatchLimit as String:  kSecMatchLimitOne
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: biometricKeychainService,
+                kSecAttrAccount as String: biometricMasterKeyAccount,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+                kSecUseAuthenticationContext as String: context
             ]
             var result: AnyObject?
-            guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-                  let data = result as? Data,
-                  let password = String(data: data, encoding: .utf8) else {
-                DispatchQueue.main.async { completion(false, AuthError.keychainError) }
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+            guard status == errSecSuccess, let keyData = result as? Data else {
+                DispatchQueue.main.async {
+                    // nil signals user-initiated dismissal so the lock screen shows no error.
+                    completion(false, status == errSecUserCanceled ? nil : AuthError.keychainError)
+                }
                 return
             }
 
             do {
-                try CryptoService.shared.unwrapMasterKey(with: password)
+                try CryptoService.shared.loadMasterKey(from: keyData)
                 DispatchQueue.main.async { completion(true, nil) }
             } catch {
                 DispatchQueue.main.async { completion(false, AuthError.keychainError) }
@@ -145,10 +207,12 @@ final class AuthService {
     }
 
     // MARK: - Lock State
-    var isLocked         = false
+    var isLocked = false
     var hasAuthenticated = false
-    
-    static let vaultUnlockedNotification = Notification.Name("KoalaTVault.vaultUnlocked")
+
+    static let vaultUnlockedNotification = Notification.Name(
+        "KoalaTVault.vaultUnlocked"
+    )
 
     // MARK: - Scene Lifecycle
     /// Call from `sceneWillResignActive`. Any interruption — Control Center, an
@@ -186,7 +250,10 @@ final class AuthService {
 
     func handleInitialLaunch(in window: UIWindow?) {
         guard lockMode != .none else {
-            NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
+            NotificationCenter.default.post(
+                name: AuthService.vaultUnlockedNotification,
+                object: nil
+            )
             return
         }
         isLocked = true
@@ -208,7 +275,10 @@ final class AuthService {
         dismisser.dismiss(animated: true) {
             self.hidePrivacyScreen(in: window)
             self.reloadFileBrowser(in: window)
-            NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
+            NotificationCenter.default.post(
+                name: AuthService.vaultUnlockedNotification,
+                object: nil
+            )
         }
     }
 
@@ -227,7 +297,7 @@ final class AuthService {
             logo.centerXAnchor.constraint(equalTo: privacy.centerXAnchor),
             logo.centerYAnchor.constraint(equalTo: privacy.centerYAnchor),
             logo.widthAnchor.constraint(equalToConstant: 60),
-            logo.heightAnchor.constraint(equalToConstant: 60),
+            logo.heightAnchor.constraint(equalToConstant: 60)
         ])
         privacy.frame = window?.bounds ?? .zero
         window?.addSubview(privacy)
@@ -262,7 +332,9 @@ final class AuthService {
         // Assumes root is always UINavigationController with FileBrowserViewController as the first VC.
         // Update this if the root view controller hierarchy ever changes (e.g. tab bar added).
         if let nav = window?.rootViewController as? UINavigationController,
-           let browser = nav.viewControllers.first as? FileBrowserViewController {
+            let browser = nav.viewControllers.first
+                as? FileBrowserViewController
+        {
             browser.reloadAfterAuth()
         }
     }

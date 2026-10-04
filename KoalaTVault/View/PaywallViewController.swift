@@ -137,6 +137,10 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
     private func setLoading(_ loading: Bool) {
         unlockButton.isEnabled = !loading
         restoreButton.isEnabled = !loading
-        loading ? activityIndicator.startAnimating() : activityIndicator.stopAnimating()
+        if loading {
+            activityIndicator.startAnimating()
+        } else {
+            activityIndicator.stopAnimating()
+        }
     }
 }

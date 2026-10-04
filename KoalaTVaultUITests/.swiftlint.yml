@@ -1,0 +1,7 @@
+# SwiftLint config for UI test target.
+# Force-unwrapping and short identifiers are normal UI-test idioms.
+disabled_rules:
+  - force_unwrapping
+  - force_cast
+  - identifier_name
+  - non_optional_string_data_conversion

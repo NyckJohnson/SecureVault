@@ -21,16 +21,22 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     private let progressBar   = UIProgressView(progressViewStyle: .default)
     private let statusLabel   = UILabel()
 
-    private var filesToMigrate:   [(item: VaultItem, directory: VaultDirectory)] = []
-    private var failedFiles:      [(item: VaultItem, directory: VaultDirectory, error: Error)] = []
+    private var filesToMigrate: [(item: VaultItem, directory: VaultDirectory)] = []
+    // swiftlint:disable:next large_tuple
+    private var failedFiles: [(item: VaultItem, directory: VaultDirectory, error: Error)] = []
     private var currentIndex      = 0
     private var isPaused          = false
-    private let targetLockMode:   LockMode?
+    private let targetLockMode: LockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    private let directory:        VaultDirectory
-    private var migrationTask:    Task<Void, Never>?
+    private let directory: VaultDirectory
+    private var migrationTask: Task<Void, Never>?
 
-    init(type: MigrationType, directory: VaultDirectory = .root, targetLockMode: LockMode? = nil, onComplete: @escaping (_ completedFully: Bool) -> Void) {
+    init(
+        type: MigrationType,
+        directory: VaultDirectory = .root,
+        targetLockMode: LockMode? = nil,
+        onComplete: @escaping (_ completedFully: Bool) -> Void
+    ) {
         self.type = type
         self.directory = directory
         self.targetLockMode = targetLockMode
@@ -39,13 +45,18 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
         modalPresentationStyle = .fullScreen
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupUI()
-        NotificationCenter.default.addObserver(self, selector: #selector(vaultUnlocked), name: AuthService.vaultUnlockedNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(vaultUnlocked),
+            name: AuthService.vaultUnlockedNotification,
+            object: nil
+        )
     }
 
     deinit {
@@ -85,7 +96,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
             progressBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
 
             statusLabel.topAnchor.constraint(equalTo: progressBar.bottomAnchor, constant: 12),
-            statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
         ])
     }
 

@@ -11,7 +11,7 @@ import Combine
 final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
 
     private let authService         = AuthService.shared
-    private var tableView:            UITableView!
+    private var tableView: UITableView!
     private var hasUnencryptedFiles = false
     private var cancellables        = Set<AnyCancellable>()
 
@@ -72,7 +72,8 @@ extension SecuritySettingsViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch Section(rawValue: section)! {
+        guard let sectionKind = Section(rawValue: section) else { return 0 }
+        switch sectionKind {
         case .pro: return 1
         case .lockMode: return showsReEncryptRow ? 4 : 3
         case .password: return authService.lockMode == .none ? 0 : 1
@@ -85,7 +86,8 @@ extension SecuritySettingsViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        switch Section(rawValue: section)! {
+        guard let sectionKind = Section(rawValue: section) else { return nil }
+        switch sectionKind {
         case .pro: return nil
         case .lockMode: return "Lock Mode"
         case .password: return authService.lockMode == .none ? nil : "Password"
@@ -99,7 +101,8 @@ extension SecuritySettingsViewController: UITableViewDataSource {
         cell.selectionStyle = .default
         cell.accessibilityIdentifier = nil
 
-        switch Section(rawValue: indexPath.section)! {
+        guard let sectionKind = Section(rawValue: indexPath.section) else { return cell }
+        switch sectionKind {
         case .pro:
             cell.accessibilityIdentifier = "upgradeToProCell"
             if EntitlementService.isUnlockedSync {
@@ -148,7 +151,8 @@ extension SecuritySettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        switch Section(rawValue: indexPath.section)! {
+        guard let sectionKind = Section(rawValue: indexPath.section) else { return }
+        switch sectionKind {
         case .pro:
             guard !EntitlementService.isUnlockedSync else { return }
             let paywall = PaywallViewController()
@@ -171,8 +175,8 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             promptChangePassword()
 
         case .trash:
-            let vc = RecentlyDeletedViewController()
-            navigationController?.pushViewController(vc, animated: true)
+            let viewController = RecentlyDeletedViewController()
+            navigationController?.pushViewController(viewController, animated: true)
         }
     }
 
@@ -194,7 +198,11 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 
     private func setLockMode(_ mode: LockMode) {
         if mode == .none {
-            let alert = UIAlertController(title: "Remove Lock?", message: "Your files will be decrypted and no longer protected.", preferredStyle: .alert)
+            let alert = UIAlertController(
+                title: "Remove Lock?",
+                message: "Your files will be decrypted and no longer protected.",
+                preferredStyle: .alert
+            )
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
@@ -208,6 +216,9 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         } else if !authService.hasPassword() {
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
+                if mode == .passwordAndBiometrics {
+                    try? self.authService.enableBiometrics()
+                }
                 self.authService.lockMode = mode
                 let migration = MigrationViewController(type: .encrypt, targetLockMode: mode) { [weak self] completedFully in
                     guard let self else { return }
@@ -217,6 +228,16 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 self.present(migration, animated: true)
             }
         } else {
+            if mode == .passwordAndBiometrics {
+                do {
+                    try authService.enableBiometrics()
+                } catch {
+                    showError(error)
+                    return
+                }
+            } else {
+                authService.removeBiometricSecret()
+            }
             authService.lockMode = mode
             tableView.reloadData()
         }

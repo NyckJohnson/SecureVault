@@ -25,16 +25,16 @@ nonisolated enum FileIconProvider {
 
         let ext = (item.name as NSString).pathExtension.lowercased()
         switch FileKind(extension: ext) {
-            case .image: return UIImage(systemName: "photo")
-            case .video: return UIImage(systemName: "video")
-            case .audio: return UIImage(systemName: "music.note")
-            case .pdf: return UIImage(systemName: "doc.richtext")
-            case .word: return UIImage(systemName: "doc.text")
-            case .spreadsheet: return UIImage(systemName: "tablecells")
-            case .presentation: return UIImage(systemName: "rectangle.stack")
-            case .archive: return UIImage(systemName: "archivebox")
-            case .text: return UIImage(systemName: "doc.plaintext")
-            case .other: return UIImage(systemName: "doc")
+        case .image: return UIImage(systemName: "photo")
+        case .video: return UIImage(systemName: "video")
+        case .audio: return UIImage(systemName: "music.note")
+        case .pdf: return UIImage(systemName: "doc.richtext")
+        case .word: return UIImage(systemName: "doc.text")
+        case .spreadsheet: return UIImage(systemName: "tablecells")
+        case .presentation: return UIImage(systemName: "rectangle.stack")
+        case .archive: return UIImage(systemName: "archivebox")
+        case .text: return UIImage(systemName: "doc.plaintext")
+        case .other: return UIImage(systemName: "doc")
         }
     }
         
@@ -45,15 +45,15 @@ nonisolated enum FileIconProvider {
 
         let ext = (item.name as NSString).pathExtension.lowercased()
         switch FileKind(extension: ext) {
-            case .image: return .systemGreen
-            case .video: return .systemPurple
-            case .audio: return .systemPink
-            case .pdf: return .systemRed
-            case .word: return .systemBlue
-            case .spreadsheet: return .systemGreen
-            case .presentation: return .systemOrange
-            case .archive: return .systemBrown
-            case .text, .other: return .systemGray
+        case .image: return .systemGreen
+        case .video: return .systemPurple
+        case .audio: return .systemPink
+        case .pdf: return .systemRed
+        case .word: return .systemBlue
+        case .spreadsheet: return .systemGreen
+        case .presentation: return .systemOrange
+        case .archive: return .systemBrown
+        case .text, .other: return .systemGray
         }
     }
 }

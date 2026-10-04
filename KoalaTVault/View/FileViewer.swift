@@ -9,8 +9,8 @@ import UIKit
 import AVKit
 
 final class FileViewerViewController: UIViewController {
-    private let items:              [VaultItem]
-    private var currentIndex:       Int
+    private let items: [VaultItem]
+    private var currentIndex: Int
     private var pageViewController: UIPageViewController!
     private var isNavBarHidden      = false
     
@@ -49,9 +49,9 @@ final class FileViewerViewController: UIViewController {
         modalPresentationStyle = .fullScreen
     }
     
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     
-    //MARK: - Lifecycle
+    // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
@@ -63,7 +63,7 @@ final class FileViewerViewController: UIViewController {
     
     override var prefersStatusBarHidden: Bool { true }
     
-    //MARK: - Page View Controller
+    // MARK: - Page View Controller
     private func setupPageViewController() {
         pageViewController            = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
         pageViewController.dataSource = self
@@ -82,7 +82,7 @@ final class FileViewerViewController: UIViewController {
         pageViewController.view.addGestureRecognizer(tap)
     }
     
-    //MARK: - Nav Bar
+    // MARK: - Nav Bar
     private func setupNavBar() {
         navBar.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         navBar.translatesAutoresizingMaskIntoConstraints = false
@@ -127,7 +127,7 @@ final class FileViewerViewController: UIViewController {
             exportButton.trailingAnchor.constraint(equalTo: navBar.trailingAnchor, constant: -16),
             exportButton.centerYAnchor.constraint(equalTo: navBar.centerYAnchor),
             exportButton.widthAnchor.constraint(equalToConstant: 44),
-            exportButton.heightAnchor.constraint(equalToConstant: 44),
+            exportButton.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
     
@@ -226,7 +226,7 @@ final class FileViewerViewController: UIViewController {
             skipForwardButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
 
             spinner.centerXAnchor.constraint(equalTo: videoControls.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
+            spinner.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor)
         ])
     }
 
@@ -259,7 +259,7 @@ final class FileViewerViewController: UIViewController {
         playPauseButton.setImage(UIImage(systemName: name, withConfiguration: config), for: .normal)
     }
     
-    // mark: - Actions
+    // MARK: - Actions
     @objc private func close() {
         if let player { removeTimeObserver(from: player) }
         player?.pause()
@@ -431,12 +431,18 @@ final class FileViewerViewController: UIViewController {
 
 // MARK: - UIPageViewControllerDataSource
 extension FileViewerViewController: UIPageViewControllerDataSource {
-    func pageViewController(_ pageViewController: UIPageViewController, viewControllerBefore viewController: UIViewController) -> UIViewController? {
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        viewControllerBefore viewController: UIViewController
+    ) -> UIViewController? {
         guard currentIndex > 0 else { return nil }
         return FilePageViewController(item: items[currentIndex - 1], viewer: self)
     }
 
-    func pageViewController(_ pageViewController: UIPageViewController, viewControllerAfter viewController: UIViewController) -> UIViewController? {
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        viewControllerAfter viewController: UIViewController
+    ) -> UIViewController? {
         guard currentIndex < items.count - 1 else { return nil }
         return FilePageViewController(item: items[currentIndex + 1], viewer: self)
     }
@@ -444,7 +450,12 @@ extension FileViewerViewController: UIPageViewControllerDataSource {
 
 // MARK: - UIViewControllerDelegate
 extension FileViewerViewController: UIPageViewControllerDelegate {
-    func pageViewController(_ pageViewController: UIPageViewController, didFinishAnimating finished: Bool, previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        didFinishAnimating finished: Bool,
+        previousViewControllers: [UIViewController],
+        transitionCompleted completed: Bool
+    ) {
         guard completed,
               let current = pageViewController.viewControllers?.first as? FilePageViewController else { return }
         currentIndex = items.firstIndex(where: { $0.id == current.item.id }) ?? currentIndex

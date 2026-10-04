@@ -1,0 +1,10 @@
+# SwiftLint config for test targets.
+# Force-unwrapping, force-cast, short identifiers, and non-optional string→Data conversions
+# are all normal test idioms; suppress them here rather than cluttering test code with inline disables.
+disabled_rules:
+  - force_unwrapping
+  - force_cast
+  - identifier_name
+  - non_optional_string_data_conversion
+  # Bool? is idiomatic in test code for "value not yet received" callbacks
+  - discouraged_optional_boolean

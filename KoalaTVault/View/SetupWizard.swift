@@ -46,7 +46,12 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
 
         setupOptionButton(noneButton, title: "No Lock", subtitle: "Files are not protected", systemImage: "lock.open")
         setupOptionButton(passwordButton, title: "Password", subtitle: "Protect with a password", systemImage: "lock")
-        setupOptionButton(biometricButton, title: "Password + \(authService.biometricType)", subtitle: "Password with biometric unlock", systemImage: "faceid")
+        setupOptionButton(
+            biometricButton,
+            title: "Password + \(authService.biometricType)",
+            subtitle: "Password with biometric unlock",
+            systemImage: "faceid"
+        )
         biometricButton.isEnabled = authService.biometricsAvailable
 
         noneButton.addTarget(self, action: #selector(selectNone), for: .touchUpInside)
@@ -92,7 +97,7 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
             continueButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -32),
             continueButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
             continueButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-            continueButton.heightAnchor.constraint(equalToConstant: 50),
+            continueButton.heightAnchor.constraint(equalToConstant: 50)
         ])
 
         selectNone() // default selection
@@ -138,7 +143,7 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
         NSLayoutConstraint.activate([
             hStack.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 16),
             hStack.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -16),
-            hStack.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            hStack.centerYAnchor.constraint(equalTo: button.centerYAnchor)
         ])
     }
 
@@ -209,16 +214,20 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
             let overlay = ProgressOverlay.show(in: self, title: "Setting password…")
 
             let authService = self.authService
+            let selectedMode = self.selectedLockMode
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let result = Result<Void, Error> {
                     try authService.createPassword(password)
+                    if selectedMode == .passwordAndBiometrics {
+                        try authService.enableBiometrics()
+                    }
                 }
                 DispatchQueue.main.async {
                     overlay.dismiss()
                     guard let self else { return }
                     switch result {
                     case .success:
-                        self.authService.lockMode = self.selectedLockMode
+                        self.authService.lockMode = selectedMode
                         self.completeSetup()
                     case .failure(let error):
                         self.showError(error)

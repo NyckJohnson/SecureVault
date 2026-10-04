@@ -19,8 +19,11 @@ final class VaultItemTests: XCTestCase {
     // MARK: - Equatable
     func testItemsWithSameIDAreEqual() {
         let id = UUID()
-        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(), fileSize: 1, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
-        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(), fileSize: 2, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
+        let tmpDir = FileManager.default.temporaryDirectory
+        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(),
+                              fileSize: 1, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
+        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(),
+                              fileSize: 2, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
         XCTAssertEqual(item1, item2)
     }
 
@@ -33,8 +36,11 @@ final class VaultItemTests: XCTestCase {
     // MARK: - Hashable
     func testItemsWithSameIDHaveSameHash() {
         let id = UUID()
-        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(), fileSize: 1, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
-        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(), fileSize: 2, diskURL: FileManager.default.temporaryDirectory, rootURL: FileManager.default.temporaryDirectory, isEncrypted: false)
+        let tmpDir = FileManager.default.temporaryDirectory
+        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(),
+                              fileSize: 1, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
+        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(),
+                              fileSize: 2, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
         XCTAssertEqual(item1.hashValue, item2.hashValue)
     }
 

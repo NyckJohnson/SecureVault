@@ -8,12 +8,13 @@
 import Foundation
 
 nonisolated enum FileKind {
-    case image, video, audio, pdf, word, spreadsheet, presentation, archive, text, other
+    case image, video, audio, pdf, word, spreadsheet, presentation, archive,
+        text, other
 
     init(extension ext: String) {
         switch ext.lowercased() {
         case "jpg", "jpeg", "png", "heic", "gif", "webp": self = .image
-        case "mp4", "mov", "m4v": self = .video // , "avi" not currently supported
+        case "mp4", "mov", "m4v": self = .video  // , "avi" not currently supported
         case "mp3", "m4a", "wav", "aac": self = .audio
         case "pdf": self = .pdf
         case "doc", "docx": self = .word

@@ -22,7 +22,7 @@ final class FileCell: UICollectionViewCell {
         setupViews()
     }
     
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     
     private func setupViews() {
         iconView.contentMode = .center
@@ -51,7 +51,7 @@ final class FileCell: UICollectionViewCell {
         contentView.addSubview(checkmark)
 
         NSLayoutConstraint.activate([
-            //iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3),
+            // iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3),
             iconView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             iconView.widthAnchor.constraint(equalTo: contentView.widthAnchor),
             iconView.heightAnchor.constraint(equalToConstant: 80),
@@ -67,7 +67,7 @@ final class FileCell: UICollectionViewCell {
             checkmark.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
             checkmark.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
             checkmark.widthAnchor.constraint(equalToConstant: 24),
-            checkmark.heightAnchor.constraint(equalToConstant: 24),
+            checkmark.heightAnchor.constraint(equalToConstant: 24)
         ])
         
         /* debug borders

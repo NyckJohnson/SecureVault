@@ -19,7 +19,12 @@ final class ImportService: NSObject {
 
     override init() {}
 
-    func promptImport(into directory: VaultDirectory, from viewController: UIViewController, barButtonItem: UIBarButtonItem? = nil, completion: (() -> Void)? = nil) {
+    func promptImport(
+        into directory: VaultDirectory,
+        from viewController: UIViewController,
+        barButtonItem: UIBarButtonItem? = nil,
+        completion: (() -> Void)? = nil
+    ) {
         presentingViewController = viewController
         targetDirectory = directory
         self.completion = completion
@@ -43,48 +48,48 @@ final class ImportService: NSObject {
 
     // MARK: - Pickers
     private func presentFilePicker() {
-        guard let vc = presentingViewController else { return }
+        guard let viewController = presentingViewController else { return }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
         picker.delegate = self
         picker.allowsMultipleSelection = true
-        vc.present(picker, animated: true)
+        viewController.present(picker, animated: true)
     }
 
     private func presentFolderPicker() {
-        guard let vc = presentingViewController else { return }
+        guard let viewController = presentingViewController else { return }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         picker.delegate = self
         picker.allowsMultipleSelection = true
-        vc.present(picker, animated: true)
+        viewController.present(picker, animated: true)
     }
 
     private func presentPhotoPicker() {
-        guard let vc = presentingViewController else { return }
+        guard let viewController = presentingViewController else { return }
         PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] status in
             DispatchQueue.main.async {
                 guard status == .authorized || status == .limited else {
                     // proceed with picker anyway, but deletion won't be offered later
-                    self?.presentPickerUI(from: vc)
+                    self?.presentPickerUI(from: viewController)
                     return
                 }
-                self?.presentPickerUI(from: vc)
+                self?.presentPickerUI(from: viewController)
             }
         }
     }
 
-    private func presentPickerUI(from vc: UIViewController) {
+    private func presentPickerUI(from viewController: UIViewController) {
         var config = PHPickerConfiguration(photoLibrary: .shared())
         config.selectionLimit = 0
         config.filter = .any(of: [.images, .videos])
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
-        vc.present(picker, animated: true)
+        viewController.present(picker, animated: true)
     }
 
     // MARK: - Import execution
     private func performImport(from urls: [URL]) {
-        guard let vc = presentingViewController, let directory = targetDirectory else { return }
-        let overlay = ProgressOverlay.show(in: vc, title: "Importing...")
+        guard let viewController = presentingViewController, let directory = targetDirectory else { return }
+        let overlay = ProgressOverlay.show(in: viewController, title: "Importing...")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 var lastUpdate = Date()
@@ -102,9 +107,9 @@ final class ImportService: NSObject {
                     if case FileSystemError.fileLimitReached = error {
                         let paywall = PaywallViewController()
                         paywall.modalPresentationStyle = .formSheet
-                        vc.present(paywall, animated: true)
+                        viewController.present(paywall, animated: true)
                     } else {
-                        (vc as? ErrorPresenting)?.showError(error)
+                        (viewController as? ErrorPresenting)?.showError(error)
                     }
                 }
             }
@@ -126,7 +131,9 @@ extension ImportService: UIDocumentPickerDelegate {
 // MARK: - PHPickerViewControllerDelegate
 extension ImportService: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        guard !results.isEmpty, let vc = presentingViewController, let directory = targetDirectory else { return }
+        guard !results.isEmpty,
+              let viewController = presentingViewController,
+              let directory = targetDirectory else { return }
 
         do {
             try FileSystem.shared.checkImportAllowed(additionalCount: results.count, in: directory)
@@ -134,25 +141,29 @@ extension ImportService: PHPickerViewControllerDelegate {
             picker.dismiss(animated: true) {
                 let paywall = PaywallViewController()
                 paywall.modalPresentationStyle = .formSheet
-                vc.present(paywall, animated: true)
+                viewController.present(paywall, animated: true)
             }
             return
         } catch {
-            (vc as? ErrorPresenting)?.showError(error)
+            (viewController as? ErrorPresenting)?.showError(error)
             return
         }
 
         presentingViewController?.dismiss(animated: true)
-        let overlay = ProgressOverlay.show(in: vc, title: "Importing Photos...")
+        let overlay = ProgressOverlay.show(in: viewController, title: "Importing Photos...")
         FileSystem.shared.importFromCameraRoll(results: results, to: directory) { [weak self] succeededIdentifiers, failed in
             overlay.dismiss()
             self?.completion?()
             if failed > 0 {
-                let alert = UIAlertController(title: nil, message: "\(succeededIdentifiers.count) imported, \(failed) failed", preferredStyle: .alert)
+                let alert = UIAlertController(
+                    title: nil,
+                    message: "\(succeededIdentifiers.count) imported, \(failed) failed",
+                    preferredStyle: .alert
+                )
                 alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
                     self?.confirmDeleteFromCameraRoll(identifiers: succeededIdentifiers)
                 })
-                vc.present(alert, animated: true)
+                viewController.present(alert, animated: true)
             } else {
                 self?.confirmDeleteFromCameraRoll(identifiers: succeededIdentifiers)
             }
@@ -171,7 +182,7 @@ protocol CameraRollDeleting {
 struct PhotoLibraryCameraRollDeleter: CameraRollDeleting {
     func deleteAssets(withIdentifiers identifiers: [String]) {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
-        guard assets.count > 0 else { return }
+        guard assets.firstObject != nil else { return }
         PHPhotoLibrary.shared().performChanges({
             PHAssetChangeRequest.deleteAssets(assets)
         })
