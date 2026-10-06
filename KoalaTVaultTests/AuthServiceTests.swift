@@ -160,7 +160,122 @@ final class AuthServiceTests: XCTestCase {
     }
 }
 
+// MARK: - AuthServiceForegroundTests
+
+final class AuthServiceForegroundTests: XCTestCase {
+
+    override func setUp() {
+        super.setUp()
+        AuthService.shared.isLocked = false
+        AuthService.shared.hasAuthenticated = false
+        AuthService.shared.lockMode = .none
+    }
+
+    override func tearDown() {
+        AuthService.shared.isLocked = false
+        AuthService.shared.hasAuthenticated = false
+        AuthService.shared.lockMode = .none
+        super.tearDown()
+    }
+
+    // MARK: - handleForeground
+
+    func testHandleForegroundWithNoLockSetsHasAuthenticated() {
+        AuthService.shared.lockMode = .none
+        AuthService.shared.hasAuthenticated = false
+        AuthService.shared.handleForeground(in: nil)
+        XCTAssertTrue(AuthService.shared.hasAuthenticated)
+    }
+
+    func testHandleForegroundWithNoLockDoesNotSetIsLocked() {
+        AuthService.shared.lockMode = .none
+        AuthService.shared.isLocked = false
+        AuthService.shared.handleForeground(in: nil)
+        XCTAssertFalse(AuthService.shared.isLocked)
+    }
+
+    func testHandleForegroundWhenLockedKeepsIsLockedTrue() {
+        AuthService.shared.lockMode = .password
+        AuthService.shared.isLocked = true
+        AuthService.shared.handleForeground(in: nil)
+        XCTAssertTrue(AuthService.shared.isLocked)
+    }
+
+    func testHandleForegroundWhenNotLockedKeepsIsLockedFalse() {
+        AuthService.shared.lockMode = .password
+        AuthService.shared.isLocked = false
+        AuthService.shared.handleForeground(in: nil)
+        XCTAssertFalse(AuthService.shared.isLocked)
+    }
+
+    // MARK: - handleInitialLaunch
+
+    func testHandleInitialLaunchWithNoLockPostsUnlockNotification() {
+        AuthService.shared.lockMode = .none
+        var received = false
+        let token = NotificationCenter.default.addObserver(
+            forName: AuthService.vaultUnlockedNotification, object: nil, queue: .main
+        ) { _ in received = true }
+        defer { NotificationCenter.default.removeObserver(token) }
+        AuthService.shared.handleInitialLaunch(in: nil)
+        XCTAssertTrue(received)
+    }
+
+    func testHandleInitialLaunchWithPasswordSetsIsLocked() {
+        AuthService.shared.lockMode = .password
+        AuthService.shared.isLocked = false
+        AuthService.shared.handleInitialLaunch(in: nil)
+        XCTAssertTrue(AuthService.shared.isLocked)
+    }
+
+    func testHandleInitialLaunchWithNoLockDoesNotSetIsLocked() {
+        AuthService.shared.lockMode = .none
+        AuthService.shared.handleInitialLaunch(in: nil)
+        XCTAssertFalse(AuthService.shared.isLocked)
+    }
+
+    // MARK: - biometricType
+
+    func testBiometricTypeReturnsNonEmptyString() {
+        XCTAssertFalse(AuthService.shared.biometricType.isEmpty)
+    }
+
+    // MARK: - removeBiometricSecret
+
+    func testRemoveBiometricSecretDoesNotCrashWhenNoItemExists() {
+        XCTAssertNoThrow(AuthService.shared.removeBiometricSecret())
+    }
+
+    func testRemoveBiometricSecretIsIdempotent() {
+        AuthService.shared.removeBiometricSecret()
+        XCTAssertNoThrow(AuthService.shared.removeBiometricSecret())
+    }
+
+    // MARK: - lockMode delegation
+
+    func testLockModeGetterReflectsPreferencesService() {
+        PreferencesService.shared.lockMode = .passwordAndBiometrics
+        XCTAssertEqual(AuthService.shared.lockMode, .passwordAndBiometrics)
+        PreferencesService.shared.lockMode = .none
+    }
+
+    func testLockModeSetterUpdatesPreferencesService() {
+        AuthService.shared.lockMode = .password
+        XCTAssertEqual(PreferencesService.shared.lockMode, .password)
+        AuthService.shared.lockMode = .none
+    }
+}
+
+// MARK: - MigrationFinalizationTests
+
 final class MigrationFinalizationTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        AuthService.shared.lockMode = .none
+        try? AuthService.shared.removePassword()
+        CryptoService.shared.wipeKey()
+    }
+
     override func tearDown() {
         super.tearDown()
         AuthService.shared.lockMode = .none

@@ -220,6 +220,67 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         XCTAssertEqual(secondPass.first?.item.name, "two.txt")
     }
 
+    // MARK: - sweepOrphanedEncryptedFiles
+
+    func testSweepDeletesUUIDNamedFileWithNoMappingEntry() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let orphanUUID = UUID().uuidString
+        let orphanURL = testDirectory.diskURL.appendingPathComponent(orphanUUID)
+        try "orphan data".write(to: orphanURL, atomically: true, encoding: .utf8)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: orphanURL.path))
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path),
+                       "Orphaned UUID-named file must be removed by the sweep")
+    }
+
+    func testSweepKeepsMappedEncryptedFiles() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("sweep-keep-\(UUID()).txt")
+        try "hello".write(to: sourceURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
+        let item = try FileSystem.shared.contents(of: testDirectory).first!
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: item.diskURL.path),
+                      "Mapped encrypted file must not be removed by the sweep")
+    }
+
+    func testSweepDoesNotDeleteNonUUIDNamedFiles() throws {
+        let plainURL = testDirectory.diskURL.appendingPathComponent("plainfile.txt")
+        try "data".write(to: plainURL, atomically: true, encoding: .utf8)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plainURL.path),
+                      "Non-UUID filename must not be touched by the sweep")
+    }
+
+    func testSweepRecursesIntoSubdirectories() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let subDir = testDirectory.diskURL.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+
+        let orphanUUID = UUID().uuidString
+        let orphanURL = subDir.appendingPathComponent(orphanUUID)
+        try "orphan".write(to: orphanURL, atomically: true, encoding: .utf8)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path),
+                       "Orphaned UUID file inside a subdirectory must be removed")
+    }
+
     // MARK: - Save/load round trip smoke test
     //
     // True atomicity (surviving a kill mid-write) isn't practically unit-testable in-process.

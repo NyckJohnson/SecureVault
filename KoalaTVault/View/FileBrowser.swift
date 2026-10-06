@@ -162,6 +162,8 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             items = try FileSystem.shared.contents(of: directory)
             applySnapshot()
         } catch {
+            // Suppress errors before auth — the lock screen handles the locked state.
+            guard AuthService.shared.hasAuthenticated else { return }
             showError(error)
         }
     }
@@ -176,10 +178,11 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     func reloadAfterAuth() {
         loadContents()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            var snapshot = self.dataSource.snapshot()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+            var snapshot = dataSource.snapshot()
             snapshot.reloadSections([0])
-            self.dataSource.apply(snapshot, animatingDifferences: false)
+            dataSource.apply(snapshot, animatingDifferences: false)
         }
     }
 

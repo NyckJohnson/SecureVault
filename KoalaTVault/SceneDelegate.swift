@@ -35,6 +35,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
 
         FileSystem.shared.cleanupTempFiles()
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: .root)
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {

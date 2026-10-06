@@ -149,7 +149,7 @@ nonisolated final class ThumbnailService: Sendable {
             representationTypes: .thumbnail
         )
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [self] thumbnail, _ in
-            if deleteWhenDone { try? FileManager.default.removeItem(at: url) }
+            if deleteWhenDone { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
             let image = thumbnail?.uiImage
             if let image { store(image, for: item.id) }
             DispatchQueue.main.async { completion(image) }
@@ -186,17 +186,26 @@ nonisolated final class ThumbnailService: Sendable {
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: size.width * scale, height: size.height * scale)
 
-            let time = NSValue(time: CMTime(seconds: 5, preferredTimescale: 600))
-            generator.generateCGImagesAsynchronously(forTimes: [time]) { [self] _, cgImage, _, _, _ in
-                // AVAssetResourceLoader holds its delegate weakly; keep it alive until done.
-                withExtendedLifetime(delegate) {
-                    guard let cgImage else {
-                        DispatchQueue.main.async { completion(nil) }
-                        return
+            Task { [self] in
+                let frameSeconds: Double
+                if let dur = try? await asset.load(.duration) {
+                    let secs = CMTimeGetSeconds(dur)
+                    frameSeconds = (secs.isFinite && secs > 0) ? min(5.0, secs / 2.0) : 0.0
+                } else {
+                    frameSeconds = 0.0
+                }
+                let time = NSValue(time: CMTime(seconds: frameSeconds, preferredTimescale: 600))
+                generator.generateCGImagesAsynchronously(forTimes: [time]) { [self] _, cgImage, _, _, _ in
+                    // AVAssetResourceLoader holds its delegate weakly; keep it alive until done.
+                    withExtendedLifetime(delegate) {
+                        guard let cgImage else {
+                            DispatchQueue.main.async { completion(nil) }
+                            return
+                        }
+                        let image = UIImage(cgImage: cgImage)
+                        store(image, for: item.id)
+                        DispatchQueue.main.async { completion(image) }
                     }
-                    let image = UIImage(cgImage: cgImage)
-                    store(image, for: item.id)
-                    DispatchQueue.main.async { completion(image) }
                 }
             }
         }

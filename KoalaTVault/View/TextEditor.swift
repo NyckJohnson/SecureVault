@@ -14,6 +14,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
     private var textView: UITextView!
     private var toolbar: UIToolbar!
     private var saveTimer: Timer?
+    private var tempDecryptedDir: URL?
 
     // MARK: - Init
     init(item: VaultItem) {
@@ -37,7 +38,13 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        saveTimer?.invalidate()
+        saveTimer = nil
         saveDocument()
+        if let dir = tempDecryptedDir {
+            try? FileManager.default.removeItem(at: dir)
+            tempDecryptedDir = nil
+        }
     }
 
     // MARK: - Setup
@@ -94,6 +101,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
     private func loadDocument() {
         do {
             let url = try FileSystem.shared.open(item)
+            if item.isEncrypted { tempDecryptedDir = url.deletingLastPathComponent() }
             let data = try Data(contentsOf: url)
             guard !data.isEmpty else {
                 textView.text = ""

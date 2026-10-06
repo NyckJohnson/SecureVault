@@ -20,38 +20,33 @@ final class FolderPickerViewController: UIViewController {
     private var tableView: UITableView!
     
     init(rootDirectory: VaultDirectory, currentDirectory: VaultDirectory) {
-        print("FolderPickerViewController init called")
         self.rootDirectory = rootDirectory
         self.currentDirectory = currentDirectory
         super.init(nibName: nil, bundle: nil)
     }
-    
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    
+
     override func viewDidLoad() {
-        print("FolderPickerViewController viewDidLoad called")
         super.viewDidLoad()
-        print("superDidLoad passed")
-        
+
         view.backgroundColor = .systemBackground
-        
+
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: "Cancel", style: .plain, target: self, action: #selector(cancel)
         )
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: "Move Here", style: .done, target: self, action: #selector(moveHere)
         )
-        
+
         tableView = UITableView(frame: view.bounds, style: .plain)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderCell")
         view.addSubview(tableView)
-        print("Table views passed")
-        
+
         loadContents()
-        print("Contents loaded")
     }
     
     private func loadContents() {

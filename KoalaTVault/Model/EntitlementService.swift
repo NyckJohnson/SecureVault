@@ -33,6 +33,7 @@ final class EntitlementService: ObservableObject {
     }
 
     nonisolated private static let syncCache = OSAllocatedUnfairLock(initialState: false)
+    nonisolated private static let isUnlockedCacheKey = "entitlement.isUnlocked"
 
     /// Thread-safe, synchronous snapshot of `isUnlocked` for callers off the main
     /// actor (e.g. FileSystem's background import queue) that can't await this property.
@@ -53,11 +54,17 @@ final class EntitlementService: ObservableObject {
     private func updateSyncCache() {
         let value = isUnlocked
         Self.syncCache.withLock { $0 = value }
+        UserDefaults.standard.set(value, forKey: Self.isUnlockedCacheKey)
     }
 
     private var updateListenerTask: Task<Void, Never>?
 
     private init() {
+        // Pre-seed the sync cache from the last persisted value so isUnlockedSync is
+        // correct immediately, before the async StoreKit refresh completes.
+        let persisted = UserDefaults.standard.bool(forKey: Self.isUnlockedCacheKey)
+        Self.syncCache.withLock { $0 = persisted }
+
         updateListenerTask = listenForTransactionUpdates()
         Task { await refreshEntitlementStatus() }
     }

@@ -47,6 +47,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             }
         }
 #endif
+        // Warm up EntitlementService early so the async StoreKit refresh starts before
+        // the user can trigger an import. The persisted cache covers the window before
+        // refresh completes (see EntitlementService.init).
+        Task { @MainActor in _ = EntitlementService.shared }
         return true
     }
 

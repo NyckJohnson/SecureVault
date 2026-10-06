@@ -91,6 +91,7 @@ final class ImportService: NSObject {
         guard let viewController = presentingViewController, let directory = targetDirectory else { return }
         let overlay = ProgressOverlay.show(in: viewController, title: "Importing...")
         DispatchQueue.global(qos: .userInitiated).async {
+            var importError: Error?
             do {
                 var lastUpdate = Date()
                 try FileSystem.shared.importItems(from: urls, to: directory) { progress in
@@ -103,7 +104,12 @@ final class ImportService: NSObject {
                     }
                 }
             } catch {
-                DispatchQueue.main.async {
+                importError = error
+            }
+            DispatchQueue.main.async {
+                overlay.dismiss()
+                self.completion?()
+                if let error = importError {
                     if case FileSystemError.fileLimitReached = error {
                         let paywall = PaywallViewController()
                         paywall.modalPresentationStyle = .formSheet
@@ -112,10 +118,6 @@ final class ImportService: NSObject {
                         (viewController as? ErrorPresenting)?.showError(error)
                     }
                 }
-            }
-            DispatchQueue.main.async {
-                overlay.dismiss()
-                self.completion?()
             }
         }
     }

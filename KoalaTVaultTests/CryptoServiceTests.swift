@@ -378,4 +378,81 @@ final class CryptoServiceTests: XCTestCase {
         try CryptoService.shared.decryptFile(at: encrypted, to: out)
         XCTAssertEqual(try Data(contentsOf: out), original)
     }
+
+    // MARK: - exportMasterKeyData / loadMasterKey
+
+    func testExportMasterKeyDataReturns32Bytes() throws {
+        let data = try CryptoService.shared.exportMasterKeyData()
+        XCTAssertEqual(data.count, 32)
+    }
+
+    func testExportMasterKeyDataThrowsWhenNoKeyLoaded() {
+        CryptoService.shared.wipeKey()
+        XCTAssertThrowsError(try CryptoService.shared.exportMasterKeyData()) {
+            XCTAssertEqual($0 as? CryptoError, .noKeyLoaded)
+        }
+    }
+
+    func testLoadMasterKeyFromExportedDataRestoresKey() throws {
+        let keyData = try CryptoService.shared.exportMasterKeyData()
+        CryptoService.shared.wipeKey()
+        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        try CryptoService.shared.loadMasterKey(from: keyData)
+        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+    }
+
+    func testLoadMasterKeyPreservesEncryptionAbility() throws {
+        let original = "preserved".data(using: .utf8)!
+        let encrypted = try CryptoService.shared.encrypt(data: original, authenticating: "domain")
+        let keyData = try CryptoService.shared.exportMasterKeyData()
+        CryptoService.shared.wipeKey()
+        try CryptoService.shared.loadMasterKey(from: keyData)
+        XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted, authenticating: "domain"), original)
+    }
+
+    func testLoadMasterKeyWithTooFewBytesThrows() {
+        XCTAssertThrowsError(try CryptoService.shared.loadMasterKey(from: Data(count: 16))) {
+            XCTAssertEqual($0 as? CryptoError, .decryptionFailed)
+        }
+    }
+
+    func testLoadMasterKeyWithEmptyDataThrows() {
+        XCTAssertThrowsError(try CryptoService.shared.loadMasterKey(from: Data())) {
+            XCTAssertEqual($0 as? CryptoError, .decryptionFailed)
+        }
+    }
+
+    func testLoadMasterKeyWith33BytesThrows() {
+        XCTAssertThrowsError(try CryptoService.shared.loadMasterKey(from: Data(count: 33))) {
+            XCTAssertEqual($0 as? CryptoError, .decryptionFailed)
+        }
+    }
+
+    // MARK: - createMasterKey guard
+
+    func testCreateMasterKeyWhenBlobAlreadyExistsThrows() {
+        XCTAssertThrowsError(try CryptoService.shared.createMasterKey(wrappedBy: "another")) {
+            XCTAssertEqual($0 as? CryptoError, .masterKeyAlreadyExists)
+        }
+    }
+
+    // MARK: - CryptoError LocalizedError
+
+    func testAllCryptoErrorDescriptionsAreNonNilAndNonEmpty() {
+        let errors: [CryptoError] = [
+            .noKeyLoaded, .noMasterKeyBlob, .masterKeyAlreadyExists,
+            .wrongPassword, .encryptionFailed, .decryptionFailed,
+            .keychain(errSecItemNotFound)
+        ]
+        for error in errors {
+            XCTAssertNotNil(error.errorDescription, "errorDescription nil for \(error)")
+            XCTAssertFalse(error.errorDescription!.isEmpty, "errorDescription empty for \(error)")
+        }
+    }
+
+    func testKeychainErrorDescriptionIncludesStatusCode() {
+        let status = OSStatus(-25300)
+        let error = CryptoError.keychain(status)
+        XCTAssertTrue(error.errorDescription?.contains("\(status)") == true)
+    }
 }
