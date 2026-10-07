@@ -34,10 +34,12 @@ final class FileViewerViewController: UIViewController {
     private var timeObserver: Any?
     private var hideControlsTimer: Timer?
     private var statusObservation: NSKeyValueObservation?
+    private var durationObservation: NSKeyValueObservation?
 
     var player: AVPlayer? {
         didSet {
             oldValue.map { removeTimeObserver(from: $0) }
+            resetVideoControls()
             if let player { addTimeObserver(to: player) }
         }
     }
@@ -247,6 +249,13 @@ final class FileViewerViewController: UIViewController {
     }
     
     // MARK: - UI Updates
+    private func resetVideoControls() {
+        scrubber.value = 0
+        currentTimeLabel.text = "0:00"
+        totalTimeLabel.text = "0:00"
+        bufferWidthConstraint?.constant = 0
+    }
+
     func updateUI(for item: VaultItem) {
         titleLabel.text = item.name
         let ext = (item.name as NSString).pathExtension.lowercased()
@@ -337,6 +346,17 @@ final class FileViewerViewController: UIViewController {
                 self.updateSpinner(player: player)
             }
         }
+
+        // update total time label as soon as the item's duration becomes known
+        durationObservation = player.currentItem?.observe(\.duration) { @Sendable [weak self] item, _ in
+            Task { @MainActor in
+                guard let self, let player = self.player else { return }
+                let duration = item.duration
+                guard duration.isValid, !duration.isIndefinite else { return }
+                self.totalTimeLabel.text = self.formatTime(CMTimeGetSeconds(duration))
+                self.updateScrubber(time: player.currentTime(), player: player)
+            }
+        }
     }
 
     private func removeTimeObserver(from player: AVPlayer) {
@@ -346,6 +366,8 @@ final class FileViewerViewController: UIViewController {
         }
         statusObservation?.invalidate()
         statusObservation = nil
+        durationObservation?.invalidate()
+        durationObservation = nil
     }
 
     private func updateScrubber(time: CMTime, player: AVPlayer) {

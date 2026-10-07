@@ -469,9 +469,13 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         willEndContextMenuInteraction configuration: UIContextMenuConfiguration,
         animator: (any UIContextMenuInteractionAnimating)?
     ) {
-        animator?.addCompletion {
-            self.pendingAction?()
-            self.pendingAction = nil
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        if let animator {
+            animator.addCompletion { action() }
+        } else {
+            // animator is nil when UIKit skips the dismissal animation; present immediately.
+            DispatchQueue.main.async { action() }
         }
     }
 }

@@ -41,6 +41,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
         CryptoService.shared.wipeKey()
+        try? CryptoService.shared.wipeMasterKeyBlob()
         try super.tearDownWithError()
     }
 
@@ -61,6 +62,14 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     /// simulating a torn write or reading real ciphertext without the key loaded.
     private func corruptMapping() throws {
         try Data([0x00, 0xFF, 0x13, 0x37, 0xDE, 0xAD]).write(to: mappingURL, options: .atomic)
+    }
+
+    /// Writes an *encrypted* mapping using the given AES-GCM AAD domain, bypassing FileSystem.
+    /// Used to simulate maps written by different code eras (empty-AAD, relative-path, etc.).
+    private func writeEncryptedMapping(_ mapping: [String: VaultMapping], authenticating domain: String, in directory: VaultDirectory) throws {
+        let data = try JSONEncoder().encode(mapping)
+        let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: domain)
+        try encrypted.write(to: directory.diskURL.appendingPathComponent(mappingFileName), options: .atomic)
     }
 
     private func createDummyFile(named name: String, in directory: VaultDirectory, content: String = "dummy") throws -> URL {
@@ -220,6 +229,90 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         XCTAssertEqual(secondPass.first?.item.name, "two.txt")
     }
 
+    // MARK: - sweepOrphanedEncryptedFiles: pre-auth safety
+    //
+    // The critical invariant: the sweep must never delete files when it cannot read
+    // the mapping. On an encrypted vault the mapping is ciphertext that can only be
+    // decoded after the user authenticates. If the sweep runs at launch — before auth
+    // — loadMapping throws, and the guard-let must bail rather than falling back to
+    // an empty dict (which would make every encrypted file look like an orphan).
+
+    func testSweepPreservesEncryptedFilesWhenKeyIsNotLoaded() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sweep-preauth-\(UUID()).txt")
+        try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
+        let item = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first(where: { !$0.isDirectory }))
+        XCTAssertTrue(item.isEncrypted)
+
+        // Wipe the key — this is the state the sweep runs in at app launch, before the
+        // user has authenticated. Without the key, loadMapping cannot decrypt the map.
+        CryptoService.shared.wipeKey()
+        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: item.diskURL.path),
+                      "Sweep must not delete mapped encrypted files when the key is not loaded")
+    }
+
+    func testSweepPreservesEncryptedFilesInSubdirectoryWhenKeyIsNotLoaded() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let subFolder = try FileSystem.shared.createFolder(named: "SubFolder", in: testDirectory)
+
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sweep-subdir-preauth-\(UUID()).txt")
+        try "data".write(to: sourceURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        try FileSystem.shared.importItems(from: [sourceURL], to: subFolder)
+        let item = try XCTUnwrap(try FileSystem.shared.contents(of: subFolder).first(where: { !$0.isDirectory }))
+        XCTAssertTrue(item.isEncrypted)
+
+        CryptoService.shared.wipeKey()
+        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+
+        // Sweep from the root — it recurses into SubFolder. Without the key, the
+        // subfolder's mapping is also unreadable; sweep must bail for that directory too.
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: item.diskURL.path),
+                      "Sweep must not delete encrypted files in subdirectories when the key is not loaded")
+    }
+
+    func testSweepStillDeletesOrphansAfterKeyIsReloaded() throws {
+        // Verify the fix doesn't break normal orphan cleanup: once the key IS loaded,
+        // a UUID file with no mapping entry must still be removed.
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        // Plant a genuine orphan (UUID-named, no mapping entry) alongside a real encrypted file.
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("real-file-\(UUID()).txt")
+        try "data".write(to: sourceURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
+        let realItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first(where: { !$0.isDirectory }))
+
+        let orphanURL = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
+        try "orphan".write(to: orphanURL, atomically: true, encoding: .utf8)
+
+        // Key is loaded — sweep must delete the orphan and leave the real file alone.
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path),
+                       "Genuine orphan must still be deleted when the key is loaded")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: realItem.diskURL.path),
+                      "Mapped encrypted file must survive when the key is loaded")
+    }
+
     // MARK: - sweepOrphanedEncryptedFiles
 
     func testSweepDeletesUUIDNamedFileWithNoMappingEntry() throws {
@@ -279,6 +372,93 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path),
                        "Orphaned UUID file inside a subdirectory must be removed")
+    }
+
+    // MARK: - AAD fallback chain: backward-compatibility for maps from different code eras
+    //
+    // loadEncryptedJSON tries three AES-GCM authenticating domains in order:
+    //   1. url.lastPathComponent (".vault_map")         — current saveEncryptedJSON output
+    //   2. authDomain(for: url) (relative path)         — maps from a brief debug-session window
+    //   3. "" (empty AAD)                               — maps written before the authenticating:
+    //                                                     parameter existed on CryptoService.encrypt
+    //
+    // These tests lock in that fallback chain so a future change can't silently break
+    // backward-compatibility and leave users staring at empty folders.
+
+    func testContents_ReadsMap_EncryptedWithLastPathComponentDomain() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let uuid = UUID().uuidString
+        _ = try createDummyFile(named: uuid, in: testDirectory)
+        try writeEncryptedMapping([uuid: VaultMapping(originalName: "photo.jpg")],
+                                  authenticating: ".vault_map", in: testDirectory)
+
+        let items = try FileSystem.shared.contents(of: testDirectory)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.name, "photo.jpg")
+    }
+
+    func testContents_ReadsLegacyMap_EncryptedWithEmptyAAD() throws {
+        // Maps written by the original encrypt(data:) API — before authenticating: existed —
+        // used empty AAD. This is fallback 2 in loadEncryptedJSON.
+        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let uuid = UUID().uuidString
+        _ = try createDummyFile(named: uuid, in: testDirectory)
+        try writeEncryptedMapping([uuid: VaultMapping(originalName: "video.mp4")],
+                                  authenticating: "", in: testDirectory)
+
+        let items = try FileSystem.shared.contents(of: testDirectory)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.name, "video.mp4")
+    }
+
+    func testImport_IntoFolderWithLegacyEmptyAADMap_PreservesExistingEntries() throws {
+        // Regression: importing a new file into a folder whose .vault_map was encrypted with
+        // empty AAD must not throw mappingUnreadable. importSingleFile reads the existing map
+        // first; if that read fails with the wrong domain, the whole import aborts and the
+        // caller sees "vault index unreadable" even though the files are perfectly fine.
+        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let existingUUID = UUID().uuidString
+        _ = try createDummyFile(named: existingUUID, in: testDirectory)
+        try writeEncryptedMapping([existingUUID: VaultMapping(originalName: "existing.jpg")],
+                                  authenticating: "", in: testDirectory)
+
+        let srcURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("new-\(UUID().uuidString).txt")
+        try "hello".write(to: srcURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: srcURL) }
+
+        XCTAssertNoThrow(try FileSystem.shared.importItems(from: [srcURL], to: testDirectory),
+                         "import must not throw for a folder with a legacy empty-AAD map")
+
+        let items = try FileSystem.shared.contents(of: testDirectory)
+        XCTAssertEqual(items.count, 2, "both the legacy file and the new import must be visible")
+        XCTAssertTrue(items.contains { $0.name == "existing.jpg" }, "legacy entry must be preserved")
+        XCTAssertTrue(items.contains { $0.name.hasSuffix(".txt") }, "new file must be present")
+    }
+
+    func testContents_ThrowsMappingUnreadable_ForCompletelyUnrecognizedAADDomain() throws {
+        // Safety net: the fallback chain must not become a free-for-all. A map encrypted with
+        // a domain that matches none of the known fallbacks must still throw mappingUnreadable.
+        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let uuid = UUID().uuidString
+        _ = try createDummyFile(named: uuid, in: testDirectory)
+        try writeEncryptedMapping([uuid: VaultMapping(originalName: "file.txt")],
+                                  authenticating: "not-a-recognized-domain", in: testDirectory)
+
+        XCTAssertThrowsError(try FileSystem.shared.contents(of: testDirectory)) { error in
+            guard case FileSystemError.mappingUnreadable = error else {
+                XCTFail("Expected FileSystemError.mappingUnreadable for unrecognized AAD, got \(error)")
+                return
+            }
+        }
     }
 
     // MARK: - Save/load round trip smoke test

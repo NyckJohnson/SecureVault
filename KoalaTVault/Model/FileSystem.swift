@@ -249,6 +249,8 @@ nonisolated final class FileSystem: Sendable {
     ) {
         let group = DispatchGroup()
         let state = OSAllocatedUnfairLock(initialState: (succeeded: [String](), failed: 0))
+        // Serial queue so concurrent loadFileRepresentation callbacks don't race on the mapping file.
+        let importQueue = DispatchQueue(label: "com.KoalaTVault.cameraRollImport", qos: .userInitiated)
 
         for result in results {
             let provider = result.itemProvider
@@ -259,16 +261,33 @@ nonisolated final class FileSystem: Sendable {
             }
             group.enter()
             provider.loadFileRepresentation(forTypeIdentifier: typeID) { [weak self] url, _ in
-                defer { group.leave() }
                 guard let self, let url else {
                     state.withLock { $0.failed += 1 }
+                    group.leave()
                     return
                 }
-                do {
-                    try self.importSingleFile(from: url, to: directory)
-                    if let assetID { state.withLock { $0.succeeded.append(assetID) } }
-                } catch {
+                // The url provided by loadFileRepresentation is only valid for the duration of
+                // this callback. Copy it to a stable temp location before dispatching.
+                let ext = url.pathExtension
+                let stableURL = self.tempDir.appendingPathComponent(
+                    UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)")
+                )
+                guard (try? FileManager.default.copyItem(at: url, to: stableURL)) != nil else {
                     state.withLock { $0.failed += 1 }
+                    group.leave()
+                    return
+                }
+                importQueue.async {
+                    defer {
+                        try? FileManager.default.removeItem(at: stableURL)
+                        group.leave()
+                    }
+                    do {
+                        try self.importSingleFile(from: stableURL, to: directory)
+                        if let assetID { state.withLock { $0.succeeded.append(assetID) } }
+                    } catch {
+                        state.withLock { $0.failed += 1 }
+                    }
                 }
             }
         }
@@ -821,15 +840,23 @@ nonisolated final class FileSystem: Sendable {
         guard let data = try? Data(contentsOf: url) else { throw FileSystemError.mappingUnreadable }
 
         if CryptoService.shared.isKeyLoaded {
-            let domain = authDomain(for: url)
-            // Try the current relative-path domain first.
-            if let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: domain),
+            // Primary: filename-only domain (.vault_map) — what saveEncryptedJSON always writes.
+            let lastName = url.lastPathComponent
+            if let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: lastName),
                let decoded = try? JSONDecoder().decode(T.self, from: decrypted) {
                 return decoded
             }
-            // Fall back to the legacy filename-only domain for maps written before this fix.
-            if domain != url.lastPathComponent,
-               let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: url.lastPathComponent),
+            // Fallback 1: relative-path domain — for maps written during the brief period when
+            // saveEncryptedJSON used authDomain(for:) instead of lastPathComponent.
+            let relDomain = authDomain(for: url)
+            if relDomain != lastName,
+               let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: relDomain),
+               let decoded = try? JSONDecoder().decode(T.self, from: decrypted) {
+                return decoded
+            }
+            // Fallback 2: empty AAD — for maps written by the original encrypt(data:) API before
+            // the authenticating: parameter existed.
+            if let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: ""),
                let decoded = try? JSONDecoder().decode(T.self, from: decrypted) {
                 return decoded
             }
@@ -845,7 +872,7 @@ nonisolated final class FileSystem: Sendable {
     private func saveEncryptedJSON<T: Encodable>(_ value: T, to url: URL) throws {
         let data = try JSONEncoder().encode(value)
         if CryptoService.shared.isKeyLoaded {
-            let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: authDomain(for: url))
+            let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: url.lastPathComponent)
             try encrypted.write(to: url, options: .atomic)
         } else {
             try data.write(to: url, options: .atomic)

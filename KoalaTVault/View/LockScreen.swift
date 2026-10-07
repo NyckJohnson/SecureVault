@@ -137,10 +137,18 @@ final class LockScreenViewController: UIViewController {
         guard !isAuthenticating else { return }
         if let password {
             isAuthenticating = true
+            let lockMode = authService.lockMode
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self else { return }
                 do {
                     try self.authService.verifyPassword(password)
+                    // Refresh the biometric keychain item after a password login.
+                    // The item uses .biometryCurrentSet, so adding/removing a fingerprint
+                    // invalidates it and causes Touch ID to fail silently on subsequent
+                    // launches. Re-saving here restores biometrics automatically.
+                    if lockMode == .passwordAndBiometrics {
+                        try? self.authService.enableBiometrics()
+                    }
                     DispatchQueue.main.async {
                         self.isAuthenticating = false
                         self.unlockSucceeded()
