@@ -22,7 +22,7 @@ class VaultUITestCase: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
+        app.launchArguments = ["-uiTesting"]
         app.launchEnvironment = additionalLaunchEnvironment
         app.launch()
     }

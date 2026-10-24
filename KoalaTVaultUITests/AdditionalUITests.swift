@@ -201,7 +201,7 @@ final class AdditionalUITests: VaultUITestCase {
     // MARK: - Migration UI
     func testMigrationFailureShowsRetrySkipOptions() {
         let app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
+        app.launchArguments = ["-uiTesting"]
         app.launchEnvironment = [
             "UITEST_SEED_FILE_NAME": "failtest.txt",
             "UITEST_FAIL_MIGRATION_FILE": "failtest.txt"
