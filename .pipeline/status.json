@@ -559,7 +559,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-24T13:06:36-07:00",
+  "updatedAt": "2026-10-24T13:09:44-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -628,6 +628,18 @@
       "stage": null,
       "brief": "docs/features/encrypt-folder-names.md",
       "addedAt": "2026-10-24T12:52:41-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "vault-size-in-settings",
+      "title": "Vault size in Settings",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/vault-size-in-settings.md",
+      "addedAt": "2026-10-24T13:09:44-07:00",
       "startedAt": null,
       "finishedAt": null,
       "checkpoints": {},

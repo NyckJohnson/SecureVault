@@ -143,6 +143,7 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
 - Multiple vaults / duress password.
 - Timed lockout for failed passwords.
 - Encrypt folder names: folder names, sizes and structure are plaintext on disk today.
+- Vault size in Settings: show the current total size of the vault (and file count) in the Storage section.
 
 ## Data models
 ### VaultDirectory
