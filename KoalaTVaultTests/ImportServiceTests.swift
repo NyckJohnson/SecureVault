@@ -16,21 +16,22 @@ final class FakeCameraRollDeleter: CameraRollDeleting {
     }
 }
 
+@MainActor
 final class ImportServiceTests: XCTestCase {
     var sut: ImportService!
     var fakeDeleter: FakeCameraRollDeleter!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         sut = ImportService()
         fakeDeleter = FakeCameraRollDeleter()
         sut.cameraRollDeleter = fakeDeleter
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         sut = nil
         fakeDeleter = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - confirmDeleteFromCameraRoll

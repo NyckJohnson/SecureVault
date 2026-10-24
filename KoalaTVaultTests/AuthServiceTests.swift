@@ -8,10 +8,11 @@
 import XCTest
 @testable import KoalaTVault
 
+@MainActor
 final class AuthServiceTests: XCTestCase {
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         AuthService.shared.isLocked = false
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
@@ -19,8 +20,8 @@ final class AuthServiceTests: XCTestCase {
         CryptoService.shared.wipeKey()
     }
 
-    override func tearDown() {
-        super.tearDown()
+    override func tearDown() async throws {
+        try await super.tearDown()
         AuthService.shared.isLocked = false
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
@@ -162,20 +163,21 @@ final class AuthServiceTests: XCTestCase {
 
 // MARK: - AuthServiceForegroundTests
 
+@MainActor
 final class AuthServiceForegroundTests: XCTestCase {
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         AuthService.shared.isLocked = false
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         AuthService.shared.isLocked = false
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - handleForeground
@@ -268,16 +270,17 @@ final class AuthServiceForegroundTests: XCTestCase {
 
 // MARK: - MigrationFinalizationTests
 
+@MainActor
 final class MigrationFinalizationTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
         CryptoService.shared.wipeKey()
     }
 
-    override func tearDown() {
-        super.tearDown()
+    override func tearDown() async throws {
+        try await super.tearDown()
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
         CryptoService.shared.wipeKey()

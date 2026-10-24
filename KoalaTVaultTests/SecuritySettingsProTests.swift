@@ -6,6 +6,7 @@
 import XCTest
 @testable import KoalaTVault
 
+@MainActor
 final class SecuritySettingsProTests: XCTestCase {
 
     private var window: UIWindow?
@@ -24,13 +25,13 @@ final class SecuritySettingsProTests: XCTestCase {
         return sut
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         window?.rootViewController?.dismiss(animated: false)
         window?.isHidden = true
         window = nil
         AuthService.shared.lockMode = .none
         EntitlementService.testForcedUnlocked = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Cell content

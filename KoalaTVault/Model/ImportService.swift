@@ -8,6 +8,7 @@ import PhotosUI
 import Photos
 import UniformTypeIdentifiers
 
+@MainActor
 final class ImportService: NSObject {
     static let shared = ImportService()
 

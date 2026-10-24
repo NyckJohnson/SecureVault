@@ -40,6 +40,7 @@ private final class ExportCleanupDelegate: NSObject, UIDocumentPickerDelegate {
     }
 }
 
+@MainActor
 final class ExportService {
     static let shared = ExportService()
     private init() {}

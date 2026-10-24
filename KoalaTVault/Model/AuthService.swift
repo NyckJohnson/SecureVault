@@ -16,6 +16,7 @@ enum AuthError: Error {
     case keychainError
 }
 
+@MainActor
 final class AuthService {
     static let shared = AuthService()
     private init() {}

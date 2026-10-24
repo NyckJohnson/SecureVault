@@ -8,10 +8,11 @@
 import XCTest
 @testable import KoalaTVault
 
+@MainActor
 final class SecuritySettingsViewControllerTests: XCTestCase {
 
-    override func tearDown() {
-        super.tearDown()
+    override func tearDown() async throws {
+        try await super.tearDown()
         AuthService.shared.lockMode = .none
         EntitlementService.testForcedUnlocked = nil
     }
