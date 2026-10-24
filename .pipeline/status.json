@@ -4,7 +4,7 @@
   "pauseReason": null,
   "checkpoints": {},
   "modules": [],
-  "updatedAt": "2026-10-24T12:14:33-07:00",
+  "updatedAt": "2026-10-24T12:52:41-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -65,6 +65,18 @@
       "finishedAt": null,
       "checkpoints": {},
       "plan": null
+    },
+    {
+      "slug": "encrypt-folder-names",
+      "title": "Encrypt folder names",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/encrypt-folder-names.md",
+      "addedAt": "2026-10-24T12:52:41-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
     }
   ],
   "activeFeature": null,
@@ -72,5 +84,46 @@
     "state": "active",
     "startedAt": "2026-10-24T11:49:56-07:00",
     "finishedAt": null
+  },
+  "plan": {
+    "label": "survey",
+    "items": [
+      {
+        "name": "screens-browse",
+        "done": true
+      },
+      {
+        "name": "screens-viewer",
+        "done": true
+      },
+      {
+        "name": "screens-auth",
+        "done": true
+      },
+      {
+        "name": "data",
+        "done": true
+      },
+      {
+        "name": "services",
+        "done": true
+      },
+      {
+        "name": "tests-storage",
+        "done": true
+      },
+      {
+        "name": "tests-other",
+        "done": true
+      },
+      {
+        "name": "module-Keys",
+        "done": true
+      },
+      {
+        "name": "module-VaultStore",
+        "done": true
+      }
+    ]
   }
 }

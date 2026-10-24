@@ -7,7 +7,7 @@ The project is `KoalaTVault.xcodeproj`; "SecureVault" (the folder name) is an ol
 
 An encrypted file store: the user keeps files in a private vault, with built-in image and video
 viewing and a basic text editor. Accepted by App Store Connect (version 1.2, build 4) but **not yet
-released**: there are no real users' vaults to protect yet, but the on-disk vault format (SVC4) and
+released**: there are no real users' vaults to protect yet, but the on-disk vault format (SVC5; the notes first said SVC4, the survey found the code only uses SVC5) and
 Keychain layout should still be kept as they are.
 
 ## Core journeys as they work today
@@ -75,7 +75,7 @@ Confirmed by the human (details and failure paths are checked against the code b
 
 - New features (the four above come after it, through `/feature`).
 - Moving screens to SwiftUI.
-- Changing the on-disk vault format (SVC4) or the Keychain layout, except where a bug fix needs it
+- Changing the on-disk vault format (SVC5; the notes first said SVC4, the survey found the code only uses SVC5) or the Keychain layout, except where a bug fix needs it
   (agreed by the human).
 - Repo-root folders `art samples/`, `previews/`, `vault_test_files/`: not app code and not used by
   tests (`vault_test_files/` was for manual testing). They stay where they are; no module owns them.

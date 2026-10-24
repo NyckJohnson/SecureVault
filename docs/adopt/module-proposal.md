@@ -46,3 +46,16 @@ storage instead of wiping the real Documents vault and Keychain).
 3. The vault format in code is **SVC5**, not SVC4 as the notes say.
 4. Folder names, sizes and folder structure are plaintext on disk even in an encrypted vault (today's behavior; keep as
    a stated decision?).
+
+## Agreed with the human (2026-10-24)
+
+1. Modules: agreed as proposed (14 modules, build order as listed).
+2. Bugs: split by risk. Data-loss bugs are fixed in the baseline, each on its own commit with a journey test: Remove Lock
+   leaving encrypted maps, plaintext trash map after a lock is enabled, encrypted move with no source entry and move into
+   its own folder, New Document plaintext/overwrite, 30-day purge never running, migration double-run. The correct
+   key-lifecycle failure behavior (plaintext map on mid-operation wipe, trash not migrated, setup partial failure,
+   removePassword ordering, biometric key check, LAError mapping, hasPassword on Keychain error, pending-record
+   clearing) is written into the VaultLock / LockMigration / VaultStore specs and fixed as those modules are rebuilt.
+   Cosmetic issues are queued.
+3. Folder names, sizes and structure stay plaintext on disk for now; "encrypt folder names" is queued as a feature.
+4. Vault format to preserve is SVC5 (discussion notes corrected).
