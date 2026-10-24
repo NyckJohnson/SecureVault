@@ -22,3 +22,7 @@ xcuserdata/
 .pipeline/gates/
 .pipeline/usage.json
 .claude/settings.local.json
+
+# ios stack
+.build/
+.swiftpm/
