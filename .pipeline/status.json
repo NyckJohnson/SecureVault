@@ -4,7 +4,7 @@
   "pauseReason": null,
   "checkpoints": {},
   "modules": [],
-  "updatedAt": "2026-10-24T12:11:48-07:00",
+  "updatedAt": "2026-10-24T12:14:28-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -49,6 +49,18 @@
       "stage": null,
       "brief": "docs/features/multiple-vaults-duress-password.md",
       "addedAt": "2026-10-24T12:11:48-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "timed-lockout-for-failed-passwords",
+      "title": "Timed lockout for failed passwords",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/timed-lockout-for-failed-passwords.md",
+      "addedAt": "2026-10-24T12:14:28-07:00",
       "startedAt": null,
       "finishedAt": null,
       "checkpoints": {},

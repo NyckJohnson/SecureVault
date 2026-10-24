@@ -69,13 +69,15 @@ Confirmed by the human (details and failure paths are checked against the code b
 - iCloud backup. Queued.
 - Password recovery. Queued.
 - Multiple vaults / duress password. Queued.
+- Timed lockout for failed passwords. Queued.
 
 ## Out of scope (for the adoption)
 
 - New features (the four above come after it, through `/feature`).
 - Moving screens to SwiftUI.
-- Changing the on-disk vault format (SVC4) or the Keychain layout, except where a bug fix needs it.
+- Changing the on-disk vault format (SVC4) or the Keychain layout, except where a bug fix needs it
+  (agreed by the human).
 - Repo-root folders `art samples/`, `previews/`, `vault_test_files/`: not app code and not used by
   tests (`vault_test_files/` was for manual testing). They stay where they are; no module owns them.
-- `API-Memo.md` and `REVIEW.md` stay as references; the pipeline memo (`docs/outline.md`) and
+- `API-Memo.md` and `REVIEW.md` stay as references (agreed); the pipeline memo (`docs/outline.md`) and
   `docs/api/` replace them for new work.
