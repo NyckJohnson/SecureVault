@@ -1,0 +1,884 @@
+# KoalaTVault outline
+
+<!-- Adoption memo. The behavior spec describes what the app does today (from docs/adopt/survey-*.md), except where
+`## Known issues` says a bug is fixed in the baseline or in a module: there the spec states the corrected behavior.
+Contracts are redesigned to the pipeline's standards. -->
+
+## Purpose
+KoalaTVault is an offline, encrypted file store for iPhone and iPad. The user keeps files (photos, videos, documents) in
+a private vault on the device, browses them in folders, views images and videos, edits rich-text notes, and moves files in
+and out. The vault can be left open (no lock), locked with a password, or locked with a password plus Face ID / Touch ID;
+with a lock, file names and contents are encrypted on disk (SVC5 format). A one-time "Unlock Pro" purchase lifts the free
+limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but not yet released.
+
+## User journeys
+1. **First launch / setup** — a new user wants to protect the vault. The setup wizard appears full-screen over the browser
+   with three cards: No Lock (default), Password, "Password + <Face ID|Touch ID>" (disabled without biometrics). Continue
+   with No Lock → wizard closes, browser shows the empty vault. Continue with a password mode → "Set Password" alert with
+   password and confirm → progress "Setting password…" → wizard closes. Ends when the browser shows and the lock mode is set.
+   - Failure path: empty password → "Password cannot be empty"; mismatch → "Passwords do not match"; the alert closes and
+     the user retries. A Keychain or biometric failure shows the error, the wizard stays, and nothing is left half set up
+     (a created key is rolled back).
+   - Failure path: a vault password already exists on the device (e.g. after a reinstall) → the typed password must
+     unlock it; a wrong one shows "A vault password already exists on this device. Enter that password." The existing key
+     is never replaced.
+2. **Unlock** — a returning user with a lock wants in. Cold launch or return from background shows the lock screen
+   ("KoalaTVault Locked", password field, Unlock, and "Use Face ID/Touch ID" in biometric mode). In biometric mode the
+   prompt starts automatically once the app is active. A correct password or biometric match dismisses the lock screen and
+   the browser reloads. Ends when the browser shows.
+   - Failure path: wrong password → "Incorrect password", field cleared; no lockout, no delay, no wipe.
+   - Failure path: biometric cancel → nothing shown; biometric lockout / not enrolled / no passcode → their own message;
+     enrolment changed or item missing → "Face ID changed. Use your password." and the next password unlock re-creates the
+     biometric item; other failures → "Biometric authentication failed". The password field always stays usable.
+   - Failure path: no password blob in the Keychain → "Your vault password is missing from this device." (no way forward
+     yet; feature `password-recovery`).
+   - Backgrounding with a lock shows a privacy cover at once; entering the background wipes the key and plaintext temp
+     files; returning shows the lock screen.
+3. **Browse** — the user wants to find and organise files. The browser shows a grid of folders and files (thumbnails,
+   name, size), folders first, sorted by the global sort option. Tap a folder → push its browser; back returns. Bar
+   buttons: New Folder, New Document, Import, Sort, Select; the settings gear only on the root. Sort sheet: Name, Type,
+   Date Modified; tapping the current option flips ↑/↓. Long press: Export, Move, Copy, Rename, Delete. Select mode: tap
+   to toggle, "N Selected", bulk Delete, Move, Export, Copy, Cancel. Move opens the folder picker at the root ("Move
+   Here", "Cancel"); Copy always copies into the current folder with " 1", " 2" names; drag a cell onto a folder cell to
+   move it. Ends when the files are where the user wants them.
+   - Failure path: empty folder shows "No files yet"; empty names are ignored; a name with "/" → "Names can't contain /";
+     a move into the item's own folder does nothing; a folder moved into itself or a subfolder → "A folder can't be moved
+     into itself"; any failed operation shows its error (bulk operations report how many failed).
+4. **Import** — the user wants to add files. Import → sheet "Choose Files", "Choose Folder", "Choose Photos", "Cancel".
+   Files/Folder: document picker, multi-select → progress "Importing..." → grid reloads. Photos: photo picker (images and
+   videos, unlimited) → "Importing Photos..." → if any failed, "N imported, M failed" → then iOS asks to delete the
+   imported originals from the photo library. Same name and same content is skipped; same name, different content gets
+   " 1". Ends when the grid shows the new files.
+   - Failure path: free tier and the import would pass 100 files (all non-hidden files in the vault, subfolders included,
+     trash excluded) → nothing is imported and the paywall opens after the picker closes.
+   - Failure path: photo picker Cancel closes the picker and imports nothing.
+   - Failure path: a file that fails mid-import → earlier files stay imported, the error is shown.
+5. **View / edit** — the user wants to look at or edit a file. Tap a non-`.rtf` file → full-screen viewer paging through
+   the folder's files: images zoom 1x-5x (pinch, double-tap); videos stream with play/pause, ±10 s, scrubber, buffering
+   spinner, bars fade after 3 s while playing; other kinds show in QuickLook. Tap toggles the bars; X closes; Share
+   exports the current file. Tap an `.rtf` file (or New Document) → full-screen rich-text editor with a toolbar (bold,
+   italic, underline, size ±2 pt (min 8), align left/centre/right), autosave 1 s after typing and on Done. Ends when the
+   user closes the viewer or editor.
+   - Failure path: a file that can't be decrypted shows "This file can't be opened." on its page.
+   - Failure path: an editor load failure shows the error and the editor is read-only, so the original is never
+     overwritten; a save failure shows the error.
+6. **Delete / restore** — the user wants to remove a file and maybe get it back. Delete (context menu or bulk, with a
+   confirm) moves items to Recently Deleted (Settings → Storage → Recently Deleted): each row shows "Deletes in N days";
+   tap → Restore / Delete Permanently / Cancel; "Empty Trash" with a confirm. Items older than 30 days are purged
+   automatically when the vault is opened. Ends when the item is restored or gone.
+   - Failure path: restoring into a folder that has the same name gives " 1"; restoring when the original folder is gone
+     recreates it; a failure shows its error.
+7. **Export / share** — the user wants a file outside the vault. Export (context menu, bulk, viewer share) → sheet "Save
+   to Files", "Save to Camera Roll" (only when the selection has images or videos), "Cancel". Save to Files → "Exporting..."
+   → document picker (copies); decrypted copies are removed when the picker closes. Save to Camera Roll → "N saved, M
+   failed". Ends when the copy is saved.
+   - Failure path: a failure part-way removes every decrypted copy made so far and shows the error; photo access denied →
+     "Allow KoalaTVault to add photos in Settings."; folders in a selection are skipped.
+8. **Change lock mode** — the user wants more or less protection. Settings ("Security") → Lock Mode: No Lock, Password,
+   Password + Face ID, and "Re-encrypt Everything" when a lock is on and some files are still plaintext; Password section:
+   Change Password. No Lock → "Remove Lock?" → decrypt migration → lock removed. Password/biometric from No Lock → set a
+   password (or enter the existing one) → encrypt migration. Password ↔ Password + Face ID → immediate switch. Change
+   Password → current, new, confirm → "Password changed successfully". The migration screen shows "Encrypting Files" /
+   "Decrypting Files", a progress bar and "N% complete". Ends when the new mode is in force and every file (trash
+   included) matches it.
+   - Failure path: some files fail → "Some Files Failed" listing them, Retry (failed files only) or Skip (the lock mode
+     stays as it was for a removal; for an addition the remaining plaintext files show "Re-encrypt Everything").
+   - Failure path: backgrounding pauses the migration ("Paused — unlock to continue"); after unlock it resumes. A kill
+     resumes it after the next unlock (or launch, without a lock).
+   - Failure path: wrong current password → "Current password is incorrect".
+9. **Paywall** — a free user wants more than 100 files. Settings "Upgrade to Pro" or the import limit opens the paywall
+   ("Unlock Pro", "Store more than 100 files.", price, Unlock, Restore Purchases, X). Unlock → App Store purchase → paywall
+   closes, Settings shows "Pro Unlocked". Ends when Pro is unlocked.
+   - Failure path: cancel → paywall stays; pending → "Purchase pending approval."; restore with nothing → "No previous
+     purchase found to restore."; price unavailable → "Price unavailable" and Unlock still works.
+
+## Screens and navigation
+- **Setup wizard**: choose the lock mode on first launch. UI: UIKit. Presented full-screen over the browser at launch when
+  setup is not done. Serves journey 1.
+- **Lock screen**: unlock by password or biometrics. UI: UIKit. Presented full-screen, unanimated, over the topmost screen
+  at launch and on foreground when locked; a privacy cover hides content while inactive. Serves journey 2.
+- **File browser**: the vault grid; root of the navigation stack, one instance per folder. UI: UIKit. Serves 3, 4, 6, 7.
+- **Folder picker**: choose a move target. UI: UIKit. Form sheet from the browser. Serves 3.
+- **File viewer** (with file pages): view images, video, QuickLook kinds. UI: UIKit. Full-screen from the browser. Serves 5, 7.
+- **Text editor**: edit `.rtf`. UI: UIKit. Full-screen nav from the browser (or a viewer page). Serves 5.
+- **Security settings**: lock mode, password, Pro, storage. UI: UIKit. Form-sheet nav from the browser's gear. Serves 6, 8, 9.
+- **Migration**: encrypt/decrypt progress. UI: UIKit. Full-screen from Settings, or from the app shell to resume. Serves 8.
+- **Recently Deleted**: the trash. UI: UIKit. Pushed from Settings. Serves 6.
+- **Paywall**: Unlock Pro. UI: UIKit. Form sheet from Settings or from an import. Serves 9.
+- Import and export sheets, pickers and share sheets are presented by the Import and Export modules' presenters over the
+  calling screen.
+
+## Constraints
+- Stack: ios
+- Minimum platform version: iOS 16.6; iPhone and iPad, all orientations. No `@Observable` (iOS 17); UIKit view models
+  publish with Combine (`@Published`) or closures.
+- UI technology: every adopted screen stays `UI: UIKit` (decision 2026-10-24 in the discussion notes).
+- Offline: fully offline; the only network use is StoreKit.
+- Accounts: none.
+- Sync: none (iCloud backup is a queued feature). Documents (the vault) and the blob Keychain item are included in device
+  backups today; that stays as is.
+- Third-party: none. Apple frameworks only: CryptoKit, CommonCrypto, Security, LocalAuthentication, StoreKit 2,
+  PhotosUI/Photos, QuickLook, AVFoundation.
+- Compatibility: the SVC5 file format, the master-key blob v1 format, the Keychain items (service "com.KoalaTVault",
+  accounts "com.KoalaTVault.masterKeyBlob" and "com.KoalaTVault.biometricMasterKey"), the `.vault_map` / `.trash_map` JSON
+  shapes and the UserDefaults keys stay readable as they are.
+- Tests never touch the real Keychain, UserDefaults.standard or the real Documents vault: every module takes its
+  storage (Keychain access, UserDefaults suite, vault root URL) by injection; the composition root wires the real ones.
+- The `-uiTesting` launch argument (replacing today's DEBUG `--uitesting`) starts the app with an empty vault in a
+  temporary directory, an in-memory Keychain and a throwaway UserDefaults suite; `UITEST_SEED_FILE_NAME`,
+  `UITEST_SEED_FILE_COUNT`, `UITEST_PASSWORD` and `UITEST_FAIL_MIGRATION_FILE` keep their meaning in that mode only.
+
+## Out of scope
+- New features: the queued backlog (below) is built after the adoption through `/feature`.
+- Moving screens to SwiftUI: later `/feature` work.
+- Changing the SVC5 format, the blob format or the Keychain layout.
+- Repo-root `art samples/`, `previews/`, `vault_test_files/`: not app code; no module owns them.
+- `API-Memo.md` and `REVIEW.md` stay as references; this memo and `docs/api/` replace them for new work.
+
+## Later features
+<!-- Already queued in the backlog (ios-pipeline status feature list). -->
+- Minimum password strength: REVIEW.md S2.
+- iCloud backup: back up the vault to iCloud.
+- Password recovery: a way back in when the password (or its Keychain blob) is lost.
+- Multiple vaults / duress password.
+- Timed lockout for failed passwords.
+- Encrypt folder names: folder names, sizes and structure are plaintext on disk today.
+
+## Data models
+### VaultDirectory
+| Field | Type | Notes |
+| --- | --- | --- |
+| name | String | display name; the root is "KoalaTVault" |
+| diskURL | URL | the folder on disk |
+| rootURL | URL | the vault root this folder belongs to |
+
+### VaultItem
+| Field | Type | Notes |
+| --- | --- | --- |
+| id | String | disk path relative to the vault root (trash items: `.trash/<uuid>`); stable across listings |
+| name | String | display name (original name for encrypted files) |
+| isDirectory | Bool | also true for folders in the trash |
+| dateModified | Date | from the disk file |
+| fileSize | Int? | nil for folders |
+| deletedAt | Date? | trash items only |
+| diskURL | URL | |
+| rootURL | URL | |
+| isEncrypted | Bool | the disk name is listed in the folder's index |
+| kind | FileKind | computed from the name's extension |
+
+### FileKind
+`image` (jpg, jpeg, png, heic, gif, webp), `video` (mp4, mov, m4v), `audio` (mp3, m4a, wav, aac), `pdf`, `word` (doc,
+docx), `spreadsheet` (xls, xlsx), `presentation` (ppt, pptx), `archive` (zip, rar, 7z), `text` (txt, rtf, md), `other`;
+extension matching ignores case.
+
+### TrashEntry (in `.trash_map`, keyed by the trash UUID)
+| Field | Type | Notes |
+| --- | --- | --- |
+| originalDiskName | String | |
+| originalDirectoryURL | String | written relative to the vault root; older absolute paths are re-based onto the current root by the part after the vault root's folder |
+| deletedAt | Date | |
+| isEncrypted | Bool | |
+| originalName | String | |
+| rootURL | String | kept for compatibility, not read |
+
+### PendingMigration (UserDefaults `pendingMigrationType` = "encrypt"/"decrypt", `pendingMigrationTargetLockMode`)
+| Field | Type | Notes |
+| --- | --- | --- |
+| kind | MigrationKind | encrypt / decrypt |
+| targetLockMode | LockMode? | encrypt only |
+
+### On-disk and Keychain formats (kept as they are)
+- **Vault root**: the app's Documents folder; real subfolders with plaintext names. Hidden entries (`.vault_map`, `.trash`,
+  `.trash_map`) are never listed.
+- **Plaintext mode** (lock mode none): files keep their names; conflicts get " 1", " 2" before the extension.
+- **Encrypted mode** (lock mode password or password + biometrics): each file is `<UUID>` with no extension; each folder's
+  `.vault_map` is JSON `{ "<UUID>": { "originalName": "…" } }`, AES-256-GCM (nonce 12 | ciphertext | tag 16) with the
+  master key and AAD ".vault_map" (reads also accept the folder-relative path and "" as AAD). `.trash_map` likewise with AAD
+  ".trash_map" and `{ "<trashUUID>": TrashEntry }`.
+- **SVC5 file**: header 32 bytes = "SVC5" | chunkSize UInt32 LE (1 MiB on write) | plaintext size UInt64 LE | fileID 16
+  random bytes; body = per chunk [length UInt32 LE | AES-GCM combined]; per-file key HKDF-SHA256(master key, salt fileID,
+  info "file-key", 32 bytes); chunk AAD = header + chunk index UInt64 LE; random nonce per chunk; chunkSize 1…16 MiB,
+  total ≤ 2 TiB.
+- **Master-key blob v1** (Keychain generic password, service "com.KoalaTVault", account "com.KoalaTVault.masterKeyBlob",
+  accessible when unlocked): version 0x01 | iterations UInt32 LE (600,000 written; 100,000…10,000,000 accepted) | salt 32 |
+  AES-GCM combined of the 32-byte master key with the 37-byte header as AAD; the wrapping key is PBKDF2-HMAC-SHA256 of the
+  NFC-normalised UTF-8 password.
+- **Biometric item** (account "com.KoalaTVault.biometricMasterKey", `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` +
+  `.biometryCurrentSet`): the raw 32-byte master key. Legacy item account "com.KoalaTVault.password" is deleted on unlock.
+- **UserDefaults**: `hasCompletedSetup` (false), `lockMode` ("none"; unknown → none), `sortOption` ("name"),
+  `sortDirection` ("ascending"), `pendingMigrationType`, `pendingMigrationTargetLockMode`, `entitlement.isUnlocked`.
+
+## Build order
+1. VaultCrypto (depends on: none)
+2. Preferences (depends on: none)
+3. Entitlements (depends on: none)
+4. VaultStore (depends on: VaultCrypto, Preferences)
+5. SharedUI (depends on: VaultStore)
+6. VaultLock (depends on: VaultCrypto, Preferences, VaultStore)
+7. LockMigration (depends on: VaultStore, VaultLock, Preferences)
+8. Media (depends on: VaultStore, VaultCrypto)
+9. Import (depends on: VaultStore, Entitlements, SharedUI)
+10. Export (depends on: VaultStore, SharedUI)
+11. LockScreens (depends on: VaultLock, SharedUI)
+12. Viewer (depends on: VaultStore, Media, Export, SharedUI)
+13. Settings (depends on: VaultLock, LockMigration, VaultStore, Entitlements, SharedUI)
+14. Browser (depends on: VaultStore, Preferences, Media, Import, Export, SharedUI, Viewer, Settings)
+
+## Modules
+
+### VaultCrypto
+- Purpose: the master key and everything cryptographic: the in-memory key, the password-wrapped blob, the biometric key
+  item, the SVC5 file format and small-data encryption for the indexes.
+- Depends on: none
+- Files: KeychainStore.swift, MasterKeyBlob.swift, LiveMasterKeyStore.swift | SVC5Format.swift, LiveFileCipher.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import CryptoKit
+  import Foundation
+
+  enum VaultCryptoError: Error, Equatable, Sendable {
+      case noKeyLoaded, noMasterKeyBlob, masterKeyAlreadyExists, wrongPassword, emptyPassword
+      case corruptBlob, invalidKeyData, encryptionFailed, decryptionFailed
+      case biometricItemMissing, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet
+      case keychain(OSStatus)
+  }
+
+  enum KeychainAccessibility: Sendable { case whenUnlocked, biometryCurrentSetThisDeviceOnly }
+
+  /// Seam over the Keychain (generic password items in one service); tests use an in-memory fake.
+  protocol KeychainAccessing: Sendable {
+      func read(account: String, prompt: String?) throws -> Data?
+      func write(_ data: Data, account: String, accessibility: KeychainAccessibility) throws
+      func delete(account: String) throws
+  }
+
+  protocol MasterKeyStoring: Sendable {
+      var isKeyLoaded: Bool { get }
+      func hasMasterKeyBlob() throws -> Bool
+      func createMasterKey(password: String) throws
+      func unlock(password: String) throws
+      func rewrap(newPassword: String) throws
+      func deleteMasterKeyBlob() throws
+      func storeBiometricKey() throws
+      func unlockWithBiometricKey(prompt: String) throws
+      func deleteBiometricKey() throws
+      func wipeKey()
+      /// Runs `body` with the key captured once; a later wipe doesn't affect the running body.
+      func withKey<T>(_ body: (SymmetricKey) throws -> T) throws -> T
+  }
+
+  struct StreamInfo: Sendable, Equatable { let totalSize: Int; let chunkSize: Int }
+
+  protocol FileCipher: Sendable {
+      func encrypt(_ data: Data, context: String) throws -> Data
+      func decrypt(_ data: Data, contexts: [String]) throws -> Data
+      func encryptFile(at source: URL, to destination: URL) throws
+      func decryptFile(at source: URL, to destination: URL) throws
+      func streamInfo(of url: URL) throws -> StreamInfo
+      func decryptChunk(_ index: Int, of url: URL, info: StreamInfo) throws -> Data
+  }
+  ```
+- Behavior spec:
+  - createMasterKey: no blob → random 256-bit key stored as a v1 blob (600,000 iterations, 32-byte random salt) and loaded; blob exists → throws `.masterKeyAlreadyExists` and writes nothing; empty password → `.emptyPassword`; Keychain write fails → `.keychain(status)`, no key loaded.
+  - unlock: right password → key loaded (replacing any loaded key); wrong → `.wrongPassword`, loaded key unchanged; no blob → `.noMasterKeyBlob`; wrong version, iterations outside 100,000…10,000,000 or unwrapped length ≠ 32 → `.corruptBlob`.
+  - Passwords are NFC-normalised before derivation: "é" composed and decomposed unlock the same blob.
+  - rewrap: key loaded → blob replaced in place with a new salt, same key (files still decrypt; old password now `.wrongPassword`); no key → `.noKeyLoaded`; write failure → old blob intact.
+  - hasMasterKeyBlob: true / false; Keychain error → `.keychain(status)`.
+  - deleteMasterKeyBlob: removes it; already absent → succeeds; other failure → `.keychain(status)`.
+  - storeBiometricKey: key loaded → item written with `.biometryCurrentSetThisDeviceOnly`, replacing any old item; the new item is written before the old one is removed, so a failure leaves the old item; no key → `.noKeyLoaded`.
+  - unlockWithBiometricKey: item present and approved → key loaded (32 bytes required, else `.invalidKeyData`); user cancel → `.biometricCancelled`; missing or invalidated → `.biometricItemMissing`; lockout → `.biometryLockedOut`; not enrolled → `.biometryNotEnrolled`; no passcode → `.passcodeNotSet`; other → `.keychain(status)`.
+  - deleteBiometricKey: removes it; absent → succeeds; other failure → `.keychain(status)`.
+  - wipeKey: key unloaded; `isKeyLoaded` false; a `withKey` body already running finishes with its captured key.
+  - withKey: no key → `.noKeyLoaded` without running the body.
+  - Unlock deletes the legacy "com.KoalaTVault.password" item (errors ignored).
+  - encrypt/decrypt(data): round trip with the same context; any listed context that matches decrypts (tried in order); other key or context → `.decryptionFailed`; no key → `.noKeyLoaded`; nonce differs per call.
+  - encryptFile: writes SVC5 (layout in Data models) via a staging file with `.complete` protection, then atomically moves/replaces; source == destination works; no key → `.noKeyLoaded` and no output; empty file → header only; exactly 1 MiB → one chunk; over 2 TiB or short read → `.encryptionFailed`.
+  - decryptFile: round trip; wrong magic, flipped header byte, swapped or foreign chunk, dropped last chunk, truncation, trailing bytes, or size mismatch → `.decryptionFailed`, an existing destination left untouched; success replaces the destination.
+  - streamInfo: reads the header only; bad magic or truncated header → `.decryptionFailed`; chunkSize outside 1…16 MiB or total over 2 TiB → `.decryptionFailed`.
+  - decryptChunk: index in range → that chunk's plaintext; out of range → `.decryptionFailed`.
+- Contract: see `docs/api/VaultCrypto.md` (generated; do not edit by hand)
+- Legacy files: Model/CryptoService.swift; Model/AuthService.swift (part: biometric Keychain item store/read/delete, legacy password item delete)
+- Legacy tests: KoalaTVaultTests/CryptoServiceTests.swift
+- Callers to repoint: AppDelegate.swift, Model/AuthService.swift, Model/FileSystem.swift, Model/VaultResourceLoaderDelegate.swift, View/Migration.swift
+
+### Preferences
+- Purpose: typed app settings in UserDefaults, and the lock-mode and sort types.
+- Depends on: none
+- Files: UserDefaultsPreferences.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  enum LockMode: String, Sendable, Codable, CaseIterable { case none, password, passwordAndBiometrics }
+  enum SortOption: String, Sendable, Codable, CaseIterable {
+      case name, type, dateModified
+      var displayName: String { get }
+  }
+  enum SortDirection: String, Sendable, Codable, CaseIterable { case ascending, descending }
+  enum MigrationKind: String, Sendable, Codable { case encrypt, decrypt }
+  struct PendingMigration: Sendable, Codable, Equatable, Hashable {
+      var kind: MigrationKind
+      var targetLockMode: LockMode?
+  }
+
+  protocol PreferencesStoring: AnyObject, Sendable {
+      var hasCompletedSetup: Bool { get set }
+      var lockMode: LockMode { get set }
+      var sortOption: SortOption { get set }
+      var sortDirection: SortDirection { get set }
+      var pendingMigration: PendingMigration? { get set }
+  }
+  ```
+- Behavior spec:
+  - Defaults on an empty store: `hasCompletedSetup` false, `lockMode` .none, `sortOption` .name, `sortDirection` .ascending, `pendingMigration` nil.
+  - Each property round-trips through the injected UserDefaults under the keys in Data models, with raw values "none"/"password"/"passwordAndBiometrics", "name"/"type"/"dateModified", "ascending"/"descending", "encrypt"/"decrypt".
+  - Values written by a store are read by a new store on the same suite (persistence).
+  - Unknown raw values read as the defaults.
+  - pendingMigration nil removes both keys; a target is stored only for `.encrypt` and ignored for `.decrypt`.
+  - displayName: "Name", "Type", "Date Modified".
+  - Thread-safe: reads and writes from several threads don't crash or tear.
+- Contract: see `docs/api/Preferences.md` (generated; do not edit by hand)
+- Legacy files: Model/PreferencesService.swift
+- Legacy tests: KoalaTVaultTests/PreferencesServiceTests.swift
+- Callers to repoint: AppDelegate.swift, SceneDelegate.swift, Model/AuthService.swift, Model/FileSystem.swift, View/SetupWizard.swift, View/Migration.swift, View/FileBrowser.swift, View/SecuritySettings.swift
+
+### Entitlements
+- Purpose: the "Unlock Pro" non-consumable through StoreKit 2.
+- Depends on: none
+- Files: StoreKitProUnlock.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import UIKit
+
+  enum ProUnlock {
+      static let productID = "nej.KoalaTVault.unlockpro"
+      static let freeFileLimit = 100
+  }
+  enum PurchaseOutcome: Sendable, Equatable { case unlocked, cancelled, pending }
+  enum ProUnlockError: Error, Equatable, Sendable { case productUnavailable, verificationFailed, purchaseFailed }
+
+  @MainActor
+  protocol ProUnlocking: AnyObject, Sendable {
+      var isUnlocked: Bool { get }
+      /// Thread-safe cached value for non-main callers (the import limit).
+      nonisolated var isUnlockedNow: Bool { get }
+      func displayPrice() async -> String?
+      func purchase(confirmIn scene: UIScene?) async throws -> PurchaseOutcome
+      func restore() async throws -> Bool
+      func refresh() async
+      func unlockedUpdates() -> AsyncStream<Bool>
+  }
+  ```
+- Behavior spec:
+  - Start: `isUnlocked` and `isUnlockedNow` both start from the cached `entitlement.isUnlocked` value, then a refresh sets both from StoreKit.
+  - refresh: a verified current entitlement for the product → unlocked; none → locked (revocation); the cache follows; observers of `unlockedUpdates` get each change once.
+  - displayPrice: the product's display price; no product or a load error → nil.
+  - purchase: verified success → transaction finished, unlocked, `.unlocked`; user cancel → `.cancelled`, unchanged; pending → `.pending`; unverified → `.verificationFailed` and the transaction is not finished; no product → `.productUnavailable`; other → `.purchaseFailed`. iOS 17+ with a scene confirms in that scene.
+  - restore: syncs with the App Store, refreshes, returns whether unlocked; user cancel rethrows the StoreKit cancel error.
+  - Transaction updates: a verified update is finished and triggers a refresh (a purchase made elsewhere unlocks live); unverified updates are ignored.
+  - Tests use `SKTestSession` with `premiumTesting.storekit` and an injected UserDefaults suite.
+- Contract: see `docs/api/Entitlements.md` (generated; do not edit by hand)
+- Legacy files: Model/EntitlementService.swift
+- Legacy tests: KoalaTVaultTests/StoreKitConfigurationTests.swift
+- Callers to repoint: AppDelegate.swift, Model/FileSystem.swift, View/SecuritySettings.swift, View/PaywallViewController.swift
+
+### VaultStore
+- Purpose: the vault on disk: folder indexes, browse and sort, open and write, folder and file operations, trash, the
+  per-file migration steps, the orphan sweep and temp files. One module because all of these share the index
+  read-modify-write and the rule for whether the vault is encrypted.
+- Depends on: VaultCrypto, Preferences
+- Files: VaultIndex.swift, VaultNaming.swift, LiveVaultStore.swift, VaultFileOperations.swift | VaultTrash.swift, VaultMigrationSteps.swift, OrphanSweep.swift, VaultTempFiles.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import Foundation
+
+  struct VaultDirectory: Sendable, Codable, Equatable, Hashable { let name: String; let diskURL: URL; let rootURL: URL }
+
+  enum FileKind: String, Sendable, Codable, CaseIterable {
+      case image, video, audio, pdf, word, spreadsheet, presentation, archive, text, other
+      init(extension: String)
+  }
+
+  struct VaultItem: Identifiable, Sendable, Codable, Equatable, Hashable {
+      let id: String
+      var name: String
+      let isDirectory: Bool
+      let dateModified: Date
+      let fileSize: Int?
+      let deletedAt: Date?
+      let diskURL: URL
+      let rootURL: URL
+      let isEncrypted: Bool
+      var kind: FileKind { get }
+      var asDirectory: VaultDirectory? { get }
+  }
+
+  enum VaultStoreError: Error, Equatable, Sendable {
+      case indexUnreadable(folder: String)
+      case locked
+      case invalidName
+      case notFound
+      case moveIntoItself
+      case stillEncrypted(count: Int)
+      case io(String)
+  }
+
+  protocol VaultStoring: Sendable {
+      var root: VaultDirectory { get }
+      func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem]
+      func open(_ item: VaultItem) async throws -> URL
+      func write(_ data: Data, to item: VaultItem) async throws
+      func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem
+      func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem
+      func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem
+      func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem?
+      func move(_ item: VaultItem, to directory: VaultDirectory) async throws
+      func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem
+      func rename(_ item: VaultItem, to name: String) async throws -> VaultItem
+      func moveToTrash(_ item: VaultItem) async throws
+      func trashContents() async throws -> [VaultItem]
+      func restore(_ trashed: VaultItem) async throws -> VaultItem
+      func deletePermanently(_ trashed: VaultItem) async throws
+      func emptyTrash() async
+      func purgeExpiredTrash(now: Date) async throws -> Int
+      func countFiles() async throws -> Int
+      func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]
+      func migrateToEncrypted(_ item: VaultItem) async throws
+      func migrateToDecrypted(_ item: VaultItem) async throws
+      func finishDecryption() async throws
+      func hasUnencryptedFiles() async throws -> Bool
+      func keyMatchesVault() async -> Bool
+      func sweepOrphans() async
+      func makeTempDirectory() throws -> URL
+      func removeTemporary(_ url: URL)
+      func removeAllTemporaryFiles()
+  }
+  ```
+- Behavior spec:
+  - Encrypted mode is `lockMode != .none` (read from Preferences at the start of each operation). Each operation captures the key once at its start; in encrypted mode with no key, every operation that reads or writes an index or file content throws `.locked` before changing anything.
+  - Index writes are serialized (the live store is an actor): concurrent imports, moves and migration steps never lose an index entry.
+  - Index read: absent → empty; encrypted with the key → decoded (AAD ".vault_map", then folder-relative path, then ""); plaintext JSON → decoded in either mode and rewritten encrypted on the next write in encrypted mode; unreadable → `.indexUnreadable(folder:)` and the index is never overwritten.
+  - Index write: encrypted in encrypted mode, plaintext JSON in plaintext mode; never plaintext in encrypted mode.
+  - contents: non-hidden entries; mapped files show their original name with `isEncrypted` true; unmapped files and folders show the disk name; folders first, then by option and direction (name: case-insensitive; type: by extension then name; dateModified); ids are root-relative paths and equal across listings.
+  - open: plaintext item → its disk URL; encrypted → decrypted into a new temp folder as `<temp>/<name>`; failure → `.io` / `.locked` and no temp file left.
+  - write: encrypted item → plaintext staged in temp, encrypted, atomically replaces the file, plaintext removed; plaintext item → atomic write; key missing → `.locked`, file unchanged.
+  - createFolder: plaintext name on disk in both modes, conflict → " 1"; empty or "/" → `.invalidName`.
+  - createDocument: empty `.rtf` (".rtf" added if missing) through the same path as addFile, so it is encrypted and indexed in encrypted mode; conflict → " 1" (an existing document is never truncated); empty or "/" → `.invalidName`.
+  - addFile: encrypted mode → encrypted as a new `<UUID>` and indexed in one serialized step; plaintext mode → copied with its name; name conflict → " 1"; key missing → `.locked`, nothing written; source unreadable → `.io`.
+  - findItem: the item with that display name (encrypted or plaintext), or nil.
+  - move: encrypted file → index entry moved and file moved, conflicts on the display name resolved with " 1"; plaintext → moved with " 1" on conflict; into its own folder → no change; a folder into itself or a descendant → `.moveIntoItself`; a failure part-way leaves the item findable in exactly one place.
+  - copy: new item in the target with " 1", " 2" names; encrypted copies stay encrypted and decrypt to the same content.
+  - rename: encrypted → index only; plaintext → disk rename; conflict → " 1"; empty or "/" → `.invalidName`.
+  - moveToTrash: moves into `.trash/<newUUID>` and records a TrashEntry (relative original folder, deletedAt now, encryption state, original names) in one serialized step; a failure leaves the item where it was; folders keep `isDirectory` true.
+  - trashContents: one flat list of trash items with `deletedAt`; unreadable trash index → `.indexUnreadable`.
+  - restore: back to the original folder (recreated if missing; older absolute paths re-based onto the current root); name conflict → " 1"; encrypted items re-indexed; unknown trash item → `.notFound`.
+  - deletePermanently: removes the file and its entry; unknown → `.notFound`.
+  - emptyTrash: removes everything in `.trash` and its index, best-effort.
+  - purgeExpiredTrash: removes entries with `deletedAt` more than 30 days before `now` and returns how many; unreadable index → throws without writing.
+  - countFiles: non-hidden files under the root, subfolders included, trash and indexes excluded.
+  - itemsToMigrate(toEncrypted: true): every plaintext file under the root and in the trash; (false): every encrypted file under the root and in the trash.
+  - migrateToEncrypted: plaintext file → encrypted `<UUID>`, indexed, plaintext removed (in that order); if an encrypted entry with the same original name already holds identical content, only the plaintext is removed; different content → kept as a new " 1" item. Trash items are re-encrypted in place and their entry updated.
+  - migrateToDecrypted: encrypted file → plaintext with its original name (" 1" on conflict), entry removed, encrypted file removed (in that order); decrypt failure leaves the encrypted file and its entry.
+  - finishDecryption: any encrypted file left → `.stillEncrypted(count:)`; otherwise every `.vault_map` is deleted and `.trash_map` is rewritten as plaintext, so the vault lists with no key afterwards.
+  - hasUnencryptedFiles: true if any plaintext file is under the root or in the trash.
+  - keyMatchesVault: true when the loaded key decrypts the root index, or when there is no encrypted index to check; false otherwise.
+  - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list; folders with no index, an unreadable index, and the trash are never swept.
+  - Temp files: `makeTempDirectory` creates a unique folder under the app temp folder; `removeTemporary` removes one; `removeAllTemporaryFiles` removes everything the store created.
+- Contract: see `docs/api/VaultStore.md` (generated; do not edit by hand)
+- Legacy files: Model/FileSystem.swift (part: vault types, index, browse/sort, open/write, create/move/copy/rename/delete, trash, migration steps, orphan sweep, temp files); Model/FileKind.swift
+- Legacy tests: KoalaTVaultTests/VaultTestCase.swift, KoalaTVaultTests/FileSystemTests.swift, KoalaTVaultTests/EncryptedFileSystemTests.swift, KoalaTVaultTests/FileSystemMappingIntegrityTests.swift, KoalaTVaultTests/TrashTests.swift, KoalaTVaultTests/SortTests.swift, KoalaTVaultTests/CopyTests.swift, KoalaTVaultTests/ConflictResolutionTests.swift, KoalaTVaultTests/VaultDirectoryTests.swift, KoalaTVaultTests/VaultItemTests.swift, KoalaTVaultTests/FileKindTests.swift, KoalaTVaultTests/EdgeCaseTests.swift, KoalaTVaultTests/AdditionalEdgeCaseTests.swift
+- Callers to repoint: AppDelegate.swift, SceneDelegate.swift, Model/AuthService.swift, Model/ExportService.swift, Model/ImportService.swift, Model/ThumbnailService.swift, View/FileBrowser.swift, View/FileCell.swift, View/FileIconProvider.swift, View/FilePage.swift, View/FileViewer.swift, View/FolderPicker.swift, View/Migration.swift, View/RecentlyDeleted.swift, View/SecuritySettings.swift, View/TextEditor.swift
+
+### SharedUI
+- Purpose: UIKit pieces several screens use: progress overlay, alerts, presentation helpers, file icons.
+- Depends on: VaultStore
+- Files: FileIconMapping.swift, Views/ProgressOverlayView.swift, Views/AlertPresenting.swift, Views/UIViewController+Topmost.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import UIKit
+
+  struct FileIcon: Sendable, Equatable { let symbolName: String; let tintName: String; let usesFolderAsset: Bool }
+  enum FileIconMapping {
+      static func icon(for kind: FileKind, isDirectory: Bool, folderAssetAvailable: Bool) -> FileIcon
+  }
+  @MainActor protocol AlertPresenting: AnyObject {
+      func showError(_ error: Error)
+      func showError(_ message: String)
+      func showSuccess(_ message: String)
+  }
+  ```
+- Behavior spec:
+  - FileIconMapping: folders → asset "nej_FolderIconB" with clear tint when available, else "folder.fill" yellow; each FileKind → its SF Symbol and tint as today (the legacy table, one test per kind).
+  - AlertPresenting (default implementation for view controllers): error alert titled "Error" with OK and the message (or `localizedDescription`); success alert with no title; presented from the topmost presented controller so it never fails silently.
+  - ProgressOverlayView: title, progress bar, status "Preparing...", optional Cancel; `update(progress:status:)` and `dismiss()` are main-actor and safe to call repeatedly. (View; covered by journey tests.)
+  - UIViewController+Topmost: `topmostPresentedController` follows `presentedViewController` to the end. (View.)
+- Contract: see `docs/api/SharedUI.md` (generated; do not edit by hand)
+- Legacy files: View/ProgressOverlay.swift, Model/ErrorPresenting.swift, View/UIViewController+Presentation.swift, View/FileIconProvider.swift
+- Legacy tests: none
+- Callers to repoint: SceneDelegate.swift, Model/AuthService.swift, Model/ExportService.swift, Model/ImportService.swift, Model/ThumbnailService.swift, View/FileBrowser.swift, View/FileCell.swift, View/Migration.swift, View/PaywallViewController.swift, View/RecentlyDeleted.swift, View/SecuritySettings.swift, View/SetupWizard.swift, View/TextEditor.swift
+
+### VaultLock
+- Purpose: the key lifecycle and lock state: set up a lock, unlock, lock on background, change password, switch between
+  password and biometric modes, add a lock (before an encrypt migration), and remove the keys after a decrypt migration.
+- Depends on: VaultCrypto, Preferences, VaultStore
+- Files: LockState.swift, BiometricInfo.swift, LiveVaultLock.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import Foundation
+
+  enum LockState: Sendable, Equatable { case open, locked, unlocked }
+  enum BiometricKind: Sendable, Equatable { case none, faceID, touchID }
+
+  enum VaultLockError: Error, Equatable, Sendable {
+      case wrongPassword, existingPasswordRequired, emptyPassword, passwordMissing, notUnlocked
+      case biometricsUnavailable, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet
+      case biometricChanged, keychain(Int32)
+  }
+
+  @MainActor
+  protocol VaultLocking: AnyObject, Sendable {
+      var state: LockState { get }
+      var lockMode: LockMode { get }
+      var biometricKind: BiometricKind { get }
+      var biometricsAvailable: Bool { get }
+      func stateUpdates() -> AsyncStream<LockState>
+      func setUp(mode: LockMode, password: String?) async throws
+      func unlock(password: String) async throws
+      func unlockWithBiometrics() async throws
+      func appWillResignActive() -> Bool
+      func appDidEnterBackground()
+      func appWillEnterForeground()
+      func changePassword(current: String, new: String) async throws
+      func switchMode(to mode: LockMode) async throws
+      func prepareToAddLock(mode: LockMode, password: String) async throws
+      func removeKeysAfterDecryption() async throws
+  }
+  ```
+- Behavior spec:
+  - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`.
+  - Launch: with a lock, starts `.locked`; with none, `.open`.
+  - setUp(.none): lockMode .none; nothing in the Keychain changes.
+  - setUp(password modes): no blob → key created; blob exists → the password must unlock it (`.existingPasswordRequired` on a wrong one; the blob is never replaced); then (biometric mode) the biometric item is stored; then lockMode is written; any failure after a key was created deletes that blob and biometric item, wipes the key, leaves lockMode unchanged and rethrows; empty password → `.emptyPassword`; biometric mode without biometrics → `.biometricsUnavailable`. Ends `.unlocked`.
+  - unlock(password): right → key loaded, `.unlocked`; in biometric mode the biometric item is then refreshed and a failure there is reported in the log only; wrong → `.wrongPassword`, stays `.locked`; no blob → `.passwordMissing`; empty → `.emptyPassword`.
+  - unlockWithBiometrics: item read → key loaded; key not matching the vault (`VaultStoring.keyMatchesVault` false) → key wiped, item deleted, `.biometricChanged`; cancel → `.biometricCancelled`; missing/invalidated → `.biometricChanged`; lockout → `.biometryLockedOut`; not enrolled → `.biometryNotEnrolled`; no passcode → `.passcodeNotSet`; lockMode not biometric → `.biometricsUnavailable`.
+  - appWillResignActive: returns true (show the privacy cover) when a lock is set and the state is `.unlocked`; nothing is wiped.
+  - appDidEnterBackground: with a lock → key wiped, all store temp files removed, `.locked`; with none → nothing.
+  - appWillEnterForeground: with none → `.open`; otherwise the state is unchanged (the lock screen shows if `.locked`).
+  - changePassword: current verified then blob rewrapped; afterwards the new password unlocks and the old one gives `.wrongPassword`; wrong current → `.wrongPassword`, blob unchanged; empty new → `.emptyPassword`; files stay readable (same key).
+  - switchMode(.passwordAndBiometrics) from .password: key required (`.notUnlocked`); biometric item stored, then lockMode; failure → lockMode unchanged and error thrown.
+  - switchMode(.password) from .passwordAndBiometrics: lockMode written, then the biometric item deleted (a delete failure is thrown after lockMode is set; the item is harmless).
+  - switchMode to or from .none is not allowed here (those go through LockMigration) → `.notUnlocked`.
+  - prepareToAddLock(mode, password) from .none: no blob → key created; blob exists → the password must unlock it (`.existingPasswordRequired`); biometric item stored for biometric mode (failure → rollback as in setUp); then lockMode = mode. Ends `.unlocked`.
+  - removeKeysAfterDecryption: in order: biometric item deleted, lockMode .none, blob deleted, key wiped; each step is safe to repeat; a failure throws and leaves the later steps for the next call. Ends `.open`.
+- Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
+- Legacy files: Model/AuthService.swift (part: lock mode, password create/verify/change/remove, biometric enable/remove/authenticate, isLocked/hasAuthenticated, scene lifecycle wipe and temp clean-up)
+- Legacy tests: KoalaTVaultTests/AuthServiceTests.swift (part: AuthServiceTests, AuthServiceForegroundTests)
+- Callers to repoint: AppDelegate.swift, SceneDelegate.swift, View/FileBrowser.swift, View/LockScreen.swift, View/Migration.swift, View/SecuritySettings.swift, View/SetupWizard.swift
+
+### LockMigration
+- Purpose: encrypt or decrypt the whole vault when a lock is added or removed, with pause, resume, retry, skip and a
+  persisted pending record so a kill never leaves the lock and the files disagreeing.
+- Depends on: VaultStore, VaultLock, Preferences
+- Files: MigrationProgress.swift, LiveLockMigrator.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  enum MigrationPhase: Sendable, Equatable {
+      case idle
+      case running(done: Int, total: Int)
+      case paused(done: Int, total: Int)
+      case failed(names: [String])
+      case completed(fully: Bool)
+  }
+
+  @MainActor
+  protocol LockMigrating: AnyObject, Sendable {
+      var phase: MigrationPhase { get }
+      var pending: PendingMigration? { get }
+      func phaseUpdates() -> AsyncStream<MigrationPhase>
+      func start(_ kind: MigrationKind, target: LockMode?) async
+      func resumeIfPending() async
+      func retryFailed() async
+      func skipFailed() async
+  }
+  ```
+- Behavior spec:
+  - start: writes the pending record before the first file, lists `itemsToMigrate`, then migrates one file at a time; phase goes `.running(0, n)` … `.completed`; a second `start` or `resumeIfPending` while running does nothing (one runner).
+  - Encrypt: the caller has already added the lock (VaultLock.prepareToAddLock); every plaintext file, trash included, is encrypted; on completion the pending record is cleared and (with a target) lockMode equals the target.
+  - Decrypt: lockMode stays as it was while running; every encrypted file, trash included, is decrypted; then the list is re-scanned and any new encrypted file migrated; then `finishDecryption`, then `removeKeysAfterDecryption`, then the pending record is cleared (last). A kill at any point leaves a state that `resumeIfPending` completes.
+  - Key wiped (app backgrounded) → the file in progress either finishes or fails without being counted as failed; phase `.paused`; the next unlock's `resumeIfPending` continues from the remaining files.
+  - A file that fails → collected; at the end `.failed(names)` with the files' display names.
+  - retryFailed: migrates only the failed files again.
+  - skipFailed: `.completed(fully: false)`; the pending record is cleared; decrypt → the lock and keys are kept; encrypt → lockMode stays at the target (the remaining plaintext files show "Re-encrypt Everything").
+  - resumeIfPending: with a pending record and (for a lock) the key loaded → continues; nothing pending → no change; locked → `.paused`.
+  - `UITEST_FAIL_MIGRATION_FILE` (UI-test mode only) makes that file fail.
+- Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
+- Legacy files: View/Migration.swift (part: migration state machine); Model/AuthService.swift (part: finalizeMigration)
+- Legacy tests: KoalaTVaultTests/MigrationTests.swift; KoalaTVaultTests/AuthServiceTests.swift (part: MigrationFinalizationTests)
+- Callers to repoint: SceneDelegate.swift, View/SecuritySettings.swift
+
+### Media
+- Purpose: thumbnails for the grid and streaming encrypted video to AVPlayer without writing plaintext to disk.
+- Depends on: VaultStore, VaultCrypto
+- Files: ThumbnailCache.swift, LiveThumbnailProvider.swift, EncryptedVideoLoader.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import AVFoundation
+  import UIKit
+
+  protocol ThumbnailProviding: Sendable {
+      func thumbnail(for item: VaultItem, size: CGSize, scale: CGFloat) async -> UIImage?
+      func cancel(_ item: VaultItem)
+      func clearCache()
+      func clearCache(for item: VaultItem)
+  }
+  protocol VideoAssetProviding: Sendable {
+      /// An asset that plays the item: streamed through a resource loader when encrypted, the file URL otherwise.
+      func asset(for item: VaultItem) throws -> AVURLAsset
+  }
+  ```
+- Behavior spec:
+  - Cache: in memory only, keyed by item id; a second request for the same item returns the cached image without generating; `clearCache` empties it and a generation finishing after the clear doesn't refill it.
+  - Plaintext file → QuickLook thumbnail; encrypted video → a frame at min(5 s, duration / 2) through the streaming loader, nothing written to disk; other encrypted files → decrypted into a store temp folder, thumbnailed, temp removed; at most 2 decrypts at once.
+  - Folder → the first image or video inside composed onto the folder icon; no media → the folder icon; cancelling a folder cancels its media request.
+  - cancel before work starts → returns nil and no work is done; corrupt, truncated or locked files → nil.
+  - asset(for:) encrypted: `vault-stream://` URL with a loader that answers content info (type from the extension, default mpeg-4; length = plaintext size; byte ranges) and data requests by decrypting only the needed chunks; empty range finishes at once; a decrypt error fails the request; invalid header → throws.
+  - asset(for:) plaintext → the disk URL.
+- Contract: see `docs/api/Media.md` (generated; do not edit by hand)
+- Legacy files: Model/ThumbnailService.swift, Model/VaultResourceLoaderDelegate.swift
+- Legacy tests: KoalaTVaultTests/MediaPipelineTests.swift (part: VaultResourceLoaderDelegateTests, ThumbnailServiceTests)
+- Callers to repoint: SceneDelegate.swift, Model/AuthService.swift, View/FileCell.swift, View/FilePage.swift
+
+### Import
+- Purpose: bring files, folders and photos into the vault with the free-tier limit and duplicate detection, and present
+  the import sheet and pickers.
+- Depends on: VaultStore, Entitlements, SharedUI
+- Files: ImportLimit.swift, DuplicateCheck.swift, LiveVaultImporter.swift, PhotoLibraryAccess.swift | Views/ImportPresenter.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import Foundation
+
+  struct ImportResult: Sendable, Equatable { var imported: Int; var skippedDuplicates: Int; var failed: Int }
+  struct PhotoImportResult: Sendable, Equatable { var importedAssetIDs: [String]; var failed: Int }
+  enum ImportError: Error, Equatable, Sendable { case fileLimitReached(limit: Int), unreadableSource(String) }
+
+  protocol VaultImporting: Sendable {
+      func checkAllowed(adding count: Int) async throws
+      func importItems(_ urls: [URL], into directory: VaultDirectory, progress: @Sendable (Double) -> Void) async throws -> ImportResult
+      func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult
+  }
+  /// One picked photo or video: its asset identifier (nil without library access) and a loader for its file.
+  struct PhotoImportSource: Sendable {
+      let assetID: String?
+      let suggestedName: String
+      let loadFile: @Sendable () async throws -> URL
+  }
+  protocol CameraRollDeleting: Sendable { func deleteAssets(withIdentifiers ids: [String]) async }
+  ```
+- Behavior spec:
+  - checkAllowed: Pro → always passes; free → `countFiles() + count > 100` throws `.fileLimitReached(limit: 100)`; exactly 100 passes.
+  - importItems: counts every file in the selection (folders recursively) and checks the limit before importing anything (all or nothing); folders are recreated with their structure; each file goes through `VaultStoring.addFile`; same name and same SHA-256 as an existing item → skipped and counted in `skippedDuplicates`; same name, different content → " 1"; progress reported from 0 to 1; a failure part-way keeps the earlier files and rethrows; security-scoped URLs are opened and closed.
+  - importPhotos: checks the limit for the count first; imports one at a time; returns the asset IDs that were imported or were already in the vault, and the failure count; temp copies are removed.
+  - Duplicate check in an encrypted vault decrypts the existing same-name file to a temp folder to hash it and removes it afterwards.
+  - ImportPresenter (view): sheet "Choose Files", "Choose Folder", "Choose Photos", "Cancel" anchored to the Import button on iPad; document pickers (multi-select); photo picker (images and videos, no limit, requests read-write access first); Cancel in any picker closes it; limit → picker closes then the caller's `onLimitReached` runs (the paywall); "Importing..." / "Importing Photos..." overlays with progress; "N imported, M failed" when any failed; then the camera-roll delete for the imported asset IDs (iOS shows its own confirmation); other errors shown after the picker closes.
+- Contract: see `docs/api/Import.md` (generated; do not edit by hand)
+- Legacy files: Model/ImportService.swift; Model/FileSystem.swift (part: importItems, importSingleFile, importFolder, importFromCameraRoll, checkImportAllowed, countFiles, isDuplicate, sha256Hex)
+- Legacy tests: KoalaTVaultTests/ImportServiceTests.swift, KoalaTVaultTests/FileImportLimitTests.swift
+- Callers to repoint: View/FileBrowser.swift
+
+### Export
+- Purpose: decrypted copies for sharing, saved to Files or the photo library, with guaranteed clean-up.
+- Depends on: VaultStore, SharedUI
+- Files: LiveVaultExporter.swift, PhotoLibrarySaver.swift | Views/ExportPresenter.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import Foundation
+
+  struct ExportBundle: Sendable { let urls: [URL]; let cleanUp: @Sendable () -> Void }
+  struct PhotoSaveResult: Sendable, Equatable { var saved: Int; var failed: Int; var skipped: Int }
+  enum ExportError: Error, Equatable, Sendable { case photoAccessDenied, nothingToExport }
+
+  protocol VaultExporting: Sendable {
+      func prepareForSharing(_ items: [VaultItem]) async throws -> ExportBundle
+      func saveToPhotos(_ items: [VaultItem]) async throws -> PhotoSaveResult
+      func canSaveToPhotos(_ items: [VaultItem]) -> Bool
+  }
+  ```
+- Behavior spec:
+  - prepareForSharing: plaintext items → their disk URLs; encrypted → decrypted copies with their original names in one store temp folder; folders skipped; only folders → `.nothingToExport`; a failure part-way removes every copy made and rethrows; `cleanUp` removes the temp folder (safe to call twice).
+  - saveToPhotos: add-only access required (`.photoAccessDenied` otherwise); images and videos only (others counted in `skipped`); each decrypted to temp, saved, temp removed; per-item failures counted.
+  - canSaveToPhotos: true when any item is an image or video.
+  - ExportPresenter (view): sheet "Save to Files", "Save to Camera Roll" (when allowed), "Cancel"; "Exporting..." overlay; document picker for export as copies, `cleanUp` on pick or cancel; "N saved, M failed"; access denied → "Allow KoalaTVault to add photos in Settings."; errors shown.
+- Contract: see `docs/api/Export.md` (generated; do not edit by hand)
+- Legacy files: Model/ExportService.swift; Model/FileSystem.swift (part: prepareForExport, exportToCameraRoll)
+- Legacy tests: KoalaTVaultTests/ExportServiceTests.swift
+- Callers to repoint: View/FileBrowser.swift, View/FileViewer.swift
+
+### LockScreens
+- Purpose: the setup wizard, the lock screen, the privacy cover, and presenting the lock over whatever is on screen.
+- Depends on: VaultLock, SharedUI
+- Files: SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift | Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import UIKit
+
+  @MainActor
+  protocol AppLockCoordinating: AnyObject {
+      func sceneDidConnect(window: UIWindow, needsSetup: Bool)
+      func sceneWillResignActive()
+      func sceneDidEnterBackground()
+      func sceneDidBecomeActive()
+      var onUnlocked: (() -> Void)? { get set }
+  }
+  ```
+- Behavior spec:
+  - SetupWizardViewModel: three options (none, password, password + `biometricKind` name), none selected by default, the biometric one disabled without biometrics; continue with none → `setUp(.none)` and done; password modes → asks for password + confirm; empty → "Password cannot be empty"; mismatch → "Passwords do not match"; `.existingPasswordRequired` → "A vault password already exists on this device. Enter that password."; other errors → their message; busy while setting up; done marks `hasCompletedSetup`.
+  - LockScreenViewModel: biometric button shown for biometric mode with biometrics available; auto biometric attempt once the scene is active (biometric mode only); otherwise focus the password field; empty password ignored; busy while unlocking (button disabled); wrong → "Incorrect password" and clear the field; `.passwordMissing` → "Your vault password is missing from this device."; biometric errors mapped: cancel → nothing, lockout → "Too many attempts. Use your password.", not enrolled → "Face ID is not set up.", passcode → "Set a device passcode to use Face ID.", changed → "Face ID changed. Use your password.", other → "Biometric authentication failed"; the error clears when typing starts.
+  - AppLockCoordinator: at connect, needs setup → wizard full-screen unanimated; with a lock → lock screen; resign active with an unlocked lock → privacy cover over the window; background → `appDidEnterBackground`; active → `appWillEnterForeground`, then lock screen if locked (presented on the topmost controller, once), else hide the cover; after unlock → dismiss only the lock screen, hide the cover, call `onUnlocked`.
+  - Views: identifiers `continueButton`, `passwordField`, `unlockButton`, `biometricButton`, `lockErrorLabel`, `setupOptionNone`, `setupOptionPassword`, `setupOptionBiometric`. (Views; covered by journey tests.)
+- Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
+- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch, didAuthenticate, reloadFileBrowser)
+- Legacy tests: none
+- Callers to repoint: SceneDelegate.swift
+
+### Viewer
+- Purpose: the full-screen file viewer and the rich-text editor.
+- Depends on: VaultStore, Media, Export, SharedUI
+- Files: FileViewerViewModel.swift, FilePageViewModel.swift, TextEditorViewModel.swift | Views/FileViewerViewController.swift, Views/FilePageViewController.swift, Views/TextEditorViewController.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import UIKit
+
+  @MainActor
+  protocol ViewerFactory: AnyObject {
+      func makeViewer(items: [VaultItem], startingAt index: Int) -> UIViewController
+      func makeEditor(for item: VaultItem) -> UIViewController
+  }
+  ```
+- Behavior spec:
+  - FileViewerViewModel: items exclude folders; current index and title follow paging (neighbours computed from the page asked about, no wrap); video controls only for `.video`; `formatTime` "m:ss" (0 for invalid or NaN); progress fraction is 0 when the duration is 0; skip ±10 s clamped to 0…duration; bars auto-hide 3 s after play starts, not while scrubbing or paused; close removes this viewer's temp files only.
+  - FilePageViewModel: routing by kind: image → zoomable image, video → player from `VideoAssetProviding` (only the visible page drives the shared player), `.rtf` → opens the editor, others → QuickLook of the opened file; decrypt work off the main thread; failure → "This file can't be opened."
+  - TextEditorViewModel: load RTF (empty data → empty text); load failure → error shown and the editor read-only (no save ever runs); autosave 1 s after the last change, on disappear, on Done (one save, not two); save failure → error; bold/italic toggle traits, underline toggles, size ±2 pt (min 8), alignment on the selection and typing attributes.
+  - Views: identifiers `viewerCloseButton`, `viewerShareButton`, `viewerPlayPauseButton`, `editorDoneButton`, `editorTextView`. (Views.)
+- Contract: see `docs/api/Viewer.md` (generated; do not edit by hand)
+- Legacy files: View/FileViewer.swift, View/FilePage.swift, View/TextEditor.swift
+- Legacy tests: KoalaTVaultTests/MediaPipelineTests.swift (part: FileViewerViewControllerTests)
+- Callers to repoint: View/FileBrowser.swift
+
+### Settings
+- Purpose: security settings, the migration screen, the paywall and Recently Deleted.
+- Depends on: VaultLock, LockMigration, VaultStore, Entitlements, SharedUI
+- Files: SecuritySettingsViewModel.swift, MigrationViewModel.swift, PaywallViewModel.swift, RecentlyDeletedViewModel.swift | Views/SecuritySettingsViewController.swift, Views/MigrationViewController.swift, Views/PaywallViewController.swift, Views/RecentlyDeletedViewController.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import UIKit
+
+  @MainActor
+  protocol SettingsFactory: AnyObject {
+      func makeSettings() -> UIViewController
+      func makePaywall(onUnlock: @escaping () -> Void) -> UIViewController
+      func makeMigration(onFinish: @escaping (Bool) -> Void) -> UIViewController
+  }
+  ```
+- Behavior spec:
+  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" / "Pro Unlocked", live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
+  - Choosing the current mode does nothing.
+  - No Lock from a lock → confirm "Remove Lock?" → decrypt migration.
+  - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock` → encrypt migration with the target.
+  - Password ↔ Password + biometric → `switchMode`; errors shown; the row reflects the real mode afterwards.
+  - Re-encrypt Everything → encrypt migration with no target.
+  - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; success → "Password changed successfully"; busy while working.
+  - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully.
+  - PaywallViewModel: "Store more than 100 files."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
+  - RecentlyDeletedViewModel: rows with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
+  - Views: identifiers `upgradeToProCell`, `lockModeNoneCell`, `lockModePasswordCell`, `lockModeBiometricCell`, `reencryptCell`, `changePasswordCell`, `recentlyDeletedCell`, `paywallUnlockButton`, `restoreButton`, `paywallCloseButton`, `migrationStatusLabel`, `emptyTrashButton`. (Views.)
+- Contract: see `docs/api/Settings.md` (generated; do not edit by hand)
+- Legacy files: View/SecuritySettings.swift, View/PaywallViewController.swift, View/RecentlyDeleted.swift, View/Migration.swift (part: the view)
+- Legacy tests: KoalaTVaultTests/SecuritySettingsProTests.swift, KoalaTVaultTests/SecuritySettingsViewControllerTests.swift
+- Callers to repoint: SceneDelegate.swift, View/FileBrowser.swift
+
+### Browser
+- Purpose: the file browser grid and the folder picker: browsing, sorting, selection, folder and file operations, drag and
+  drop, and starting import, export, viewing and settings.
+- Depends on: VaultStore, Preferences, Media, Import, Export, SharedUI, Viewer, Settings
+- Files: FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift | Views/FileBrowserViewController.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import UIKit
+
+  @MainActor
+  protocol BrowserFactory: AnyObject {
+      func makeRootBrowser() -> UINavigationController
+      func reloadAll()
+  }
+  ```
+- Behavior spec:
+  - FileBrowserViewModel load: items from `contents` with the global sort; a load error is shown once the vault is unlocked or open (never silently kept stale); empty → "No files yet"; the settings button only at the root.
+  - Sort: current option flips direction; another option → ascending; saved in Preferences; reload.
+  - Open: folder → push a browser; `.rtf` → editor; other files → viewer with the folder's non-folder items starting at the tapped one.
+  - New Folder / New Document: names trimmed; empty ignored; through the store (New Document opens the editor on the created item).
+  - Select mode: toggle, "Select Items" / "N Selected", Cancel clears; bulk Delete (confirm "Delete N items?"), Move (picker), Copy (into the current folder), Export; bulk results report "N of M failed" when any fail.
+  - Move: one pending move at a time; cancelling the picker clears it; the picker's choice moves exactly the pending items.
+  - Context menu: Export, Move, Copy, Rename (prefilled), Delete (confirm; message mentions Recently Deleted).
+  - Drag a cell onto a folder cell → move; onto a file cell → not a drop target; drops from other apps ignored.
+  - Refresh after restore, import, editor close and unlock.
+  - FolderPickerViewModel: lists subfolders of the current folder, starting at the root; excludes the items being moved (and so their subfolders); "Move Here" returns the current folder; load error shown.
+  - FileCellModel: name, size text (`ByteCountFormatter` file style; empty for folders), icon from `FileIconMapping`, thumbnail requested and cancelled on reuse, and ignored if the cell now shows another item.
+  - Views: identifiers `fileGrid`, `settingsButton`, `sortButton`, `newFolderButton`, `newDocumentButton`, `importButton`, `selectButton`, `bulkDeleteButton`, `bulkMoveButton`, `bulkExportButton`, `bulkCopyButton`, `fileCell_<name>`, `emptyStateLabel`, `folderPickerMoveHere`, `folderPickerCancel`. (Views.)
+- Contract: see `docs/api/Browser.md` (generated; do not edit by hand)
+- Legacy files: View/FileBrowser.swift, View/FileCell.swift, View/FolderPicker.swift
+- Legacy tests: none
+- Callers to repoint: SceneDelegate.swift
+
+## Legacy code
+- App shell: AppDelegate.swift, SceneDelegate.swift, AppDependencies.swift, Info.plist, Assets.xcassets, Base.lproj/LaunchScreen.storyboard
+- Legacy folders: Model/, View/, Base.lproj/Main.storyboard (empty; deleted in the baseline if nothing references it)
+- Renames: VaultItem → LegacyVaultItem, VaultDirectory → LegacyVaultDirectory, FileKind → LegacyFileKind, LockMode → LegacyLockMode, SortOption → LegacySortOption, SortDirection → LegacySortDirection, CameraRollDeleting → LegacyCameraRollDeleting, FileCell → LegacyFileCell, FileBrowserViewController → LegacyFileBrowserViewController, FolderPickerViewController → LegacyFolderPickerViewController, FileViewerViewController → LegacyFileViewerViewController, FilePageViewController → LegacyFilePageViewController, TextEditorViewController → LegacyTextEditorViewController, SecuritySettingsViewController → LegacySecuritySettingsViewController, MigrationViewController → LegacyMigrationViewController, PaywallViewController → LegacyPaywallViewController, RecentlyDeletedViewController → LegacyRecentlyDeletedViewController, LockScreenViewController → LegacyLockScreenViewController, SetupWizardViewController → LegacySetupWizardViewController
+- Obsolete tests: KoalaTVaultTests/KoalaTVaultTests.swift (empty template); KoalaTVaultUITests/KoalaTVaultUITests.swift, KoalaTVaultUITests/AdditionalUITests.swift, KoalaTVaultUITests/PaywallUITests.swift, KoalaTVaultUITests/KoalaTVaultUITestsLaunchTests.swift, KoalaTVaultUITests/VaultUITestCase.swift (superseded by the baseline journey tests, which carry over their useful cases: browse flows, migration failure Retry/Skip, paywall purchase and restore)
+- Shell responsibilities after adoption: `AppDependencies` builds every live service once (real Keychain, UserDefaults.standard, Documents root; in `-uiTesting` mode the in-memory and temporary ones and the seeds); SceneDelegate wires `AppLockCoordinator`, the root browser, purges expired trash and sweeps orphans after unlock, clears thumbnails and resumes a pending migration after unlock (presenting the Migration screen).
+
+## Known issues
+- "Remove Lock" leaves an encrypted `.vault_map` in every folder and then deletes the key, so every listing fails afterwards — FileSystem.swift:720-722, :693 (`migrateVaultToDecrypted` has no caller) — fixed in baseline
+- A plaintext `.trash_map` (written with no lock) can't be read once a lock is on: delete moves the file into `.trash` then fails, Recently Deleted errors — FileSystem.swift:510-512, :842-863, :874-879 — fixed in baseline
+- Moving an encrypted item into its own folder renames it `<UUID> 1` unmapped (ciphertext shown as a plain file); moving with no source index entry leaves an unmapped file the sweep deletes — FileSystem.swift:425-445, FolderPicker.swift:68-71 — fixed in baseline
+- New Document writes an unencrypted, unindexed file in an encrypted vault and truncates an existing same-name document — FileBrowser.swift:213-242 — fixed in baseline
+- The 30-day trash purge never runs (`cleanupExpiredTrashItems` has no caller) — FileSystem.swift:604 — fixed in baseline
+- The migration screen starts a second migration loop when the lock screen is dismissed over it (spurious "Some Files Failed") — Migration.swift:66-69, :216-221 — fixed in baseline
+- Cancelling the folder picker keeps the pending bulk move, so a later single move moves the old selection — FileBrowser.swift:17-21, :485-497 — fixed in baseline
+- The text editor saves an empty document over the original after a failed load — TextEditor.swift:116-132 — fixed in baseline
+- Photo picker Cancel doesn't close the picker; a non-limit error alerts under the open picker — ImportService.swift:135-151 — fixed in baseline
+- The orphan sweep deletes extensionless UUID-named plaintext files in folders with no index — FileSystem.swift:733-752 — fixed in baseline
+- A key wipe (backgrounding) between an index load and save writes the index in plaintext, exposing names and making the folder unreadable after unlock — FileSystem.swift:669-680, :716-722, :874-879 — fixed in module VaultStore
+- Encryption is decided per call by "key loaded", so a background wipe mid-import stores the rest of the import as plaintext — FileSystem.swift:80, :188-201 — fixed in module VaultStore
+- Index read-modify-write has no serialization; concurrent imports, moves and migration can lose entries — FileSystem.swift:190-197, :430-441, :512-521 — fixed in module VaultStore
+- The trash is never migrated: after "Remove Lock" trashed files stay under a deleted key — FileSystem.swift:88, :631-642 — fixed in module VaultStore and LockMigration
+- Migration resume deletes a plaintext file whenever an indexed file has the same name, without comparing content — FileSystem.swift:670-674 — fixed in module VaultStore
+- Trash entries store absolute paths; restore after a container move targets a stale path — FileSystem.swift:494-497, :536 — fixed in module VaultStore
+- Restore and permanent delete of an unknown trash item succeed silently; encrypted restore doesn't resolve name conflicts; trashed folders show as files — FileSystem.swift:531-581, :545, :559-561 — fixed in module VaultStore
+- `VaultItem.id` is a new UUID on every listing (thumbnail cache misses) — FileSystem.swift:27-45 — fixed in module VaultStore
+- Setup or adding a lock that fails after creating the key leaves a blob with lock mode none; retrying fails forever with "master key already exists" (also after a reinstall) — SetupWizard.swift:218-232, SecuritySettings.swift:216-229, CryptoService.swift:62 — fixed in module VaultLock
+- `hasPassword()` is true on a Keychain error, so adding a lock can skip the password and the migration — AuthService.swift:57-59, SecuritySettings.swift:230-243 — fixed in module VaultLock
+- `removePassword` stops at a blob-delete error and leaves the raw-key biometric item; finalize clears the pending record before it runs, so a kill leaves plaintext files under a password lock — AuthService.swift:61-65, :127-148, Migration.swift:161-176 — fixed in module VaultLock and LockMigration
+- Biometric unlock loads any 32 bytes without checking them against the vault; enabling biometrics deletes the old item before adding the new one and callers swallow the failure — AuthService.swift:71-115, :172-207 — fixed in module VaultLock
+- The lock screen's lockout / not-enrolled / passcode messages can never show (the service only passes nil or `keychainError`) — LockScreen.swift:185-203, AuthService.swift:195-204 — fixed in module LockScreens
+- Skip with failures keeps the pending record, so the migration screen reappears after every unlock; a load failure on the migration screen has no way out — Migration.swift:112-116, :192-198 — fixed in module LockMigration
+- Plaintext temp files: viewer close deletes every temp file (including exports in progress); a failed export leaves earlier decrypted copies; decrypts run on the main thread — FileViewer.swift:272-277, ExportService.swift:73-90, FilePage.swift:57-58 — fixed in module VaultStore, Export and Viewer
+- `cleanupTempFiles` and `wipeKey` are called from view code and services directly — AuthService.swift:230-236, FileViewer.swift:275 — fixed in module VaultLock
+- No accessibility identifiers on most screens; existing UI tests find elements by text — View/*.swift — fixed in baseline (identifiers step)
+- `--uitesting` wipes the real Documents vault and Keychain blob; tests share the real Keychain and UserDefaults — AppDelegate.swift:18-48, KoalaTVaultTests/VaultTestCase.swift — fixed in baseline (clean-launch step) and by injection in every module
+- API-Memo observations #1, #4, #8, #9, #10, #13 are stale (already fixed or no longer apply); #6/#7 are covered by build settings (the Info.plist typo `NSFaceIDUsageDscription` is a harmless leftover) — fixed in baseline (Info.plist tidy)
+- iPad popover anchors for bulk Export and Import point at the wrong bar buttons; "Delete Permanently" has no confirmation; the editor saves twice on Done — FileBrowser.swift:285, :385, RecentlyDeleted.swift:119-127, TextEditor.swift:39-48 — fixed in module Browser, Settings and Viewer
+- Minor UX: no progress during PBKDF2 on the lock screen; the paywall shows a blank price on a load failure; camera-roll export has no progress and an unhelpful denial message; the photo import overlay never updates; keyboard inset ignores the safe area — LockScreen.swift:136-166, PaywallViewController.swift:83-90, ExportService.swift:97-104, ImportService.swift:155-172, TextEditor.swift:136-140 — fixed in modules LockScreens, Settings, Export, Import, Viewer (as specced)
+- Folder names, sizes and structure are plaintext on disk in an encrypted vault — FileSystem.swift:418-422 — feature encrypt-folder-names
+- No way back in when the password blob is missing — AuthService.swift:48, LockScreen.swift:~158 — feature password-recovery
+- No lockout after failed passwords — LockScreen.swift:136-166 — feature timed-lockout-for-failed-passwords
+- No minimum password strength — SetupWizard.swift:206-213, SecuritySettings.swift:255-262 — feature minimum-password-strength
+
+## Features
+<!-- Accepted features, oldest first. -->
+
+## Decisions log
+- 2026-10-24: Every adopted screen stays `UI: UIKit`, logic in tested view models — adoption keeps behavior; changing UI technology at the same time doubles the risk — approved by the human (discussion)
+- 2026-10-24: 14 modules as in `docs/adopt/module-proposal.md`; VaultStore stays one module because the index read-modify-write and the encrypted-or-not rule are shared invariants — approved by the human
+- 2026-10-24: Bugs split by risk: data-loss bugs fixed in the baseline; key-lifecycle failure paths corrected in the VaultStore / VaultLock / LockMigration specs; cosmetic issues fixed where a module's spec covers them or queued — approved by the human
+- 2026-10-24: The vault format to preserve is SVC5 (the discussion notes said SVC4; the code only has SVC5) — approved by the human
+- 2026-10-24: Folder names, sizes and structure stay plaintext on disk for now; "encrypt folder names" queued as a feature — approved by the human
+- 2026-10-24: Encrypted mode is `lockMode != .none`, not "a key is loaded"; with a lock and no key, store operations throw `.locked` instead of writing plaintext — key-handling robustness (the human's goal for the adoption)
+- 2026-10-24: Tests never use the real Keychain, UserDefaults.standard or Documents; every module takes them by injection; `-uiTesting` replaces `--uitesting` — the old tests and UI-test reset could delete a real vault
