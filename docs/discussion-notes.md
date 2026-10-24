@@ -32,7 +32,11 @@ Confirmed by the human (details and failure paths are checked against the code b
 ## Constraints
 
 - Minimum iOS 16.6.
-- UI technology: UIKit (23 files import UIKit, 2 storyboards/xibs). _(decision on adopted screens: to discuss)_
+- UI technology: UIKit (23 files import UIKit, 2 storyboards/xibs). **Decision: every adopted screen
+  stays `UI: UIKit`**, its logic in a tested view model and its view controller a thin view. Moving a
+  screen to SwiftUI (fine on iOS 16, with `ObservableObject` rather than `@Observable`) is later
+  `/feature` work. Why: the adoption keeps behavior; changing UI technology at the same time doubles
+  the risk.
 
 ## Existing documentation
 
@@ -44,7 +48,13 @@ Confirmed by the human (details and failure paths are checked against the code b
 
 ## Fragile areas and known bugs
 
-- **Decryption has always had problems** (the human). _(symptoms: to discuss)_
+- **Key handling around encryption/decryption is the most fragile area** (the human): a history of
+  the master key being lost, replaced, or not used correctly. The human's goal for the adoption is
+  that the pipeline's checks make this robust. So the memo must spec the key lifecycle precisely
+  (create, unlock, wrap/rewrap on password change, biometric copy, wipe, migration encrypt/decrypt,
+  lock on background) and the contract, unit and journey tests must cover each transition and its
+  failure paths, including: a failure part-way never loses the key or leaves files under a key that
+  is no longer stored.
 - Recent commit fixed `wipeOrphanedEntries` wiping all entries: the orphan clean-up is fragile.
 - See `API-Memo.md` open observations (trash lookup by name, paywall after picker dismissal,
   privacy screen stuck over lock screen, cold-launch biometric attempt, `changePassword` ordering,
