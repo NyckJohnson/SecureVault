@@ -31,7 +31,10 @@ Confirmed by the human (details and failure paths are checked against the code b
 
 ## Constraints
 
-- Minimum iOS 16.6.
+- Minimum iOS 16.6. iPhone and iPad, all orientations.
+- **Fully offline**: no accounts, no server, no sync. The only network use is StoreKit. iCloud backup
+  is a planned feature. (Device backups may already include the vault files and the wrapped key blob,
+  per `API-Memo.md` observation #16; the survey checks this.)
 - UI technology: UIKit (23 files import UIKit, 2 storyboards/xibs). **Decision: every adopted screen
   stays `UI: UIKit`**, its logic in a tested view model and its view controller a thin view. Moving a
   screen to SwiftUI (fine on iOS 16, with `ObservableObject` rather than `@Observable`) is later
@@ -63,7 +66,16 @@ Confirmed by the human (details and failure paths are checked against the code b
 ## Planned features (queued for after the adoption)
 
 - Minimum password strength (REVIEW.md S2). Queued.
+- iCloud backup. Queued.
+- Password recovery. Queued.
+- Multiple vaults / duress password. Queued.
 
-## Out of scope
+## Out of scope (for the adoption)
 
-_(to discuss)_
+- New features (the four above come after it, through `/feature`).
+- Moving screens to SwiftUI.
+- Changing the on-disk vault format (SVC4) or the Keychain layout, except where a bug fix needs it.
+- Repo-root folders `art samples/`, `previews/`, `vault_test_files/`: not app code and not used by
+  tests (`vault_test_files/` was for manual testing). They stay where they are; no module owns them.
+- `API-Memo.md` and `REVIEW.md` stay as references; the pipeline memo (`docs/outline.md`) and
+  `docs/api/` replace them for new work.

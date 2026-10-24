@@ -4,7 +4,7 @@
   "pauseReason": null,
   "checkpoints": {},
   "modules": [],
-  "updatedAt": "2026-10-24T11:59:10-07:00",
+  "updatedAt": "2026-10-24T12:11:48-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -13,6 +13,42 @@
       "stage": null,
       "brief": "docs/features/minimum-password-strength.md",
       "addedAt": "2026-10-24T11:59:10-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "icloud-backup",
+      "title": "iCloud backup",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/icloud-backup.md",
+      "addedAt": "2026-10-24T12:11:48-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "password-recovery",
+      "title": "Password recovery",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/password-recovery.md",
+      "addedAt": "2026-10-24T12:11:48-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "multiple-vaults-duress-password",
+      "title": "Multiple vaults / duress password",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/multiple-vaults-duress-password.md",
+      "addedAt": "2026-10-24T12:11:48-07:00",
       "startedAt": null,
       "finishedAt": null,
       "checkpoints": {},
