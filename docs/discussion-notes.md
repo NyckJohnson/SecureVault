@@ -17,13 +17,24 @@ _(to discuss)_
 - Minimum iOS 16.6.
 - UI technology: UIKit (23 files import UIKit, 2 storyboards/xibs). _(decision on adopted screens: to discuss)_
 
+## Existing documentation
+
+- `API-Memo.md` (repo root): the public-facing members of each file, a cross-file dependency
+  section, and a list of **open observations** (#1-#20, last updated 2026-10-03; some marked
+  resolved). The survey checks each open observation against today's code; confirmed ones go to the
+  memo's `## Known issues`.
+- `REVIEW.md` (repo root): one open item, S2 (no minimum password strength); queued as a feature.
+
 ## Fragile areas and known bugs
 
-_(to discuss)_
+- Recent commit fixed `wipeOrphanedEntries` wiping all entries: the orphan clean-up is fragile.
+- See `API-Memo.md` open observations (trash lookup by name, paywall after picker dismissal,
+  privacy screen stuck over lock screen, cold-launch biometric attempt, `changePassword` ordering,
+  `.noMasterKeyBlob` dead end, and others). _(more from the human: to discuss)_
 
 ## Planned features (queued for after the adoption)
 
-_(to discuss)_
+- Minimum password strength (REVIEW.md S2). Queued.
 
 ## Out of scope
 

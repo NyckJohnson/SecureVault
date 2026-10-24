@@ -4,8 +4,21 @@
   "pauseReason": null,
   "checkpoints": {},
   "modules": [],
-  "updatedAt": "2026-10-24T11:49:56-07:00",
-  "features": [],
+  "updatedAt": "2026-10-24T11:59:10-07:00",
+  "features": [
+    {
+      "slug": "minimum-password-strength",
+      "title": "Minimum password strength",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/minimum-password-strength.md",
+      "addedAt": "2026-10-24T11:59:10-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    }
+  ],
   "activeFeature": null,
   "adopt": {
     "state": "active",
