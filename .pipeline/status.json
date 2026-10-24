@@ -560,7 +560,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-24T16:05:02-07:00",
+  "updatedAt": "2026-10-24T16:25:57-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -658,7 +658,7 @@
     "items": [
       {
         "name": "clean-launch",
-        "done": false
+        "done": true
       },
       {
         "name": "identifiers",

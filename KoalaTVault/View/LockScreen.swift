@@ -92,6 +92,9 @@ final class LockScreenViewController: UIViewController {
         // for ui tests
         passwordField.accessibilityIdentifier = "passwordField"
         unlockButton.accessibilityIdentifier = "unlockButton"
+        titleLabel.accessibilityIdentifier = "lockScreen.titleLabel"
+        biometricButton.accessibilityIdentifier = "lockScreen.biometricButton"
+        errorLabel.accessibilityIdentifier = "lockScreen.errorLabel"
 
         // Preferred position; yields when the keyboard needs the space.
         let preferredLogoPosition = logoImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -160)

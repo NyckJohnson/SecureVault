@@ -87,6 +87,11 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
         view.addSubview(progressBar)
         view.addSubview(statusLabel)
 
+        // for ui tests
+        titleLabel.accessibilityIdentifier = "migration.titleLabel"
+        progressBar.accessibilityIdentifier = "migration.progressBar"
+        statusLabel.accessibilityIdentifier = "migration.statusLabel"
+
         NSLayoutConstraint.activate([
             titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40),

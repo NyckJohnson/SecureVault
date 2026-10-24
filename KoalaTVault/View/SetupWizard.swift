@@ -75,6 +75,10 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
 
         // for ui tests
         continueButton.accessibilityIdentifier = "continueButton"
+        titleLabel.accessibilityIdentifier = "setupWizard.titleLabel"
+        noneButton.accessibilityIdentifier = "setupWizard.noLockCard"
+        passwordButton.accessibilityIdentifier = "setupWizard.passwordCard"
+        biometricButton.accessibilityIdentifier = "setupWizard.biometricCard"
         
         view.addSubview(titleLabel)
         view.addSubview(subtitleLabel)
@@ -193,10 +197,12 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
         alert.addTextField {
             $0.placeholder = "Password"
             $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "setupWizard.passwordField"
         }
         alert.addTextField {
             $0.placeholder = "Confirm password"
             $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "setupWizard.confirmPasswordField"
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Set", style: .default) { [weak self] _ in
