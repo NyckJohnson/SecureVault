@@ -2,7 +2,9 @@
   "stage": 2,
   "paused": false,
   "pauseReason": null,
-  "checkpoints": {},
+  "checkpoints": {
+    "outline-approved": "2026-10-24T13:06:36-07:00"
+  },
   "modules": [
     {
       "name": "VaultCrypto",
