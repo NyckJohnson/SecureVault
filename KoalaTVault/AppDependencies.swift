@@ -268,14 +268,20 @@ final class AppDependencies {
                 AuthService.shared.hasAuthenticated = true
                 PreferencesService.shared.hasCompletedSetup = true
             } catch {
-                logger.error("-uiTesting: creating the seeded password failed: \(error.localizedDescription, privacy: .public)")
+                // Test-only path: a half-seeded launch would make UI tests fail later for an unclear reason.
+                let message = "-uiTesting: creating the seeded password failed: \(error.localizedDescription)"
+                logger.error("\(message, privacy: .public)")
+                fatalError(message)
             }
         }
     }
 
     private func seedFile(at url: URL, content: Data) {
         if !FileManager.default.createFile(atPath: url.path, contents: content) {
-            logger.error("-uiTesting: could not seed \(url.lastPathComponent, privacy: .public)")
+            // Test-only path (only called from `-uiTesting` seeding): fail hard rather than start half-seeded.
+            let message = "-uiTesting: could not seed \(url.lastPathComponent)"
+            logger.error("\(message, privacy: .public)")
+            fatalError(message)
         }
     }
 }
