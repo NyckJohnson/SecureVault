@@ -1,8 +1,15 @@
 {
-    "stage": 0,
-    "paused": false,
-    "pauseReason": null,
-    "checkpoints": {},
-    "modules": [],
-    "updatedAt": null
+  "stage": 1,
+  "paused": false,
+  "pauseReason": null,
+  "checkpoints": {},
+  "modules": [],
+  "updatedAt": "2026-10-24T11:49:56-07:00",
+  "features": [],
+  "activeFeature": null,
+  "adopt": {
+    "state": "active",
+    "startedAt": "2026-10-24T11:49:56-07:00",
+    "finishedAt": null
+  }
 }
