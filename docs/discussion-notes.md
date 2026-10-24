@@ -5,7 +5,8 @@ The project is `KoalaTVault.xcodeproj`; "SecureVault" (the folder name) is an ol
 
 ## Purpose and users
 
-_(to discuss)_
+An encrypted file store: the user keeps files in a private vault, with built-in image and video
+viewing and a basic text editor. _(users / App Store status: to confirm)_
 
 ## Core journeys as they work today
 
