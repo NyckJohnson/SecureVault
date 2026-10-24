@@ -18,7 +18,7 @@ nonisolated struct VaultDirectory: Sendable {
     internal var rootURL: URL
 
     static var root: VaultDirectory {
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let url = LegacyStorage.current.vaultRootURL
         return VaultDirectory(name: "KoalaTVault", diskURL: url, rootURL: url)
     }
 }
@@ -660,9 +660,11 @@ nonisolated final class FileSystem: Sendable {
     }
 
     func migrateFileToEncrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+        if let failName = LegacyStorage.current.uiTestSettings?.failMigrationFileName, failName == item.name {
+            throw CryptoError.encryptionFailed
+        }
 #if DEBUG
-        if ProcessInfo.processInfo.environment["UITEST_FAIL_MIGRATION_FILE"] == item.name
-            || FileSystem.testForcedMigrationFailureFileName == item.name {
+        if FileSystem.testForcedMigrationFailureFileName == item.name {
             throw CryptoError.encryptionFailed
         }
 #endif
@@ -706,9 +708,11 @@ nonisolated final class FileSystem: Sendable {
     }
     
     func migrateFileToDecrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+        if let failName = LegacyStorage.current.uiTestSettings?.failMigrationFileName, failName == item.name {
+            throw CryptoError.encryptionFailed
+        }
 #if DEBUG
-        if ProcessInfo.processInfo.environment["UITEST_FAIL_MIGRATION_FILE"] == item.name
-            || FileSystem.testForcedMigrationFailureFileName == item.name {
+        if FileSystem.testForcedMigrationFailureFileName == item.name {
             throw CryptoError.encryptionFailed
         }
 #endif
@@ -821,7 +825,7 @@ nonisolated final class FileSystem: Sendable {
     /// Using the relative path as the AES-GCM AAD means a map copied from one folder to
     /// another will fail authentication — each folder's map is bound to its own location.
     private func authDomain(for url: URL) -> String {
-        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let root = LegacyStorage.current.vaultRootURL
         let rootPath = root.standardized.path
         let urlPath = url.standardized.path
         guard urlPath.hasPrefix(rootPath) else { return url.lastPathComponent }

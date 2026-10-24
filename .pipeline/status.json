@@ -1,5 +1,5 @@
 {
-  "stage": 2,
+  "stage": 3,
   "paused": false,
   "pauseReason": null,
   "checkpoints": {
@@ -560,7 +560,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-24T13:39:18-07:00",
+  "updatedAt": "2026-10-24T13:42:30-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -652,5 +652,34 @@
     "state": "active",
     "startedAt": "2026-10-24T11:49:56-07:00",
     "finishedAt": null
+  },
+  "plan": {
+    "label": "baseline",
+    "items": [
+      {
+        "name": "clean-launch",
+        "done": false
+      },
+      {
+        "name": "identifiers",
+        "done": false
+      },
+      {
+        "name": "journeys",
+        "done": false
+      },
+      {
+        "name": "fixes",
+        "done": false
+      },
+      {
+        "name": "old-tests",
+        "done": false
+      },
+      {
+        "name": "device-check",
+        "done": false
+      }
+    ]
   }
 }

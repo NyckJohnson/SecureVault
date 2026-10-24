@@ -47,6 +47,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
     // Not ThisDeviceOnly: the blob is password-wrapped, and must survive backup/restore
     // alongside the encrypted files or the vault becomes unrecoverable on a new device.
     private let keychainAccessibility = kSecAttrAccessibleWhenUnlocked
+    private var keychain: any KeychainAccess { LegacyStorage.current.keychain }
 
     private func blobQuery() -> [String: Any] {
         [
@@ -108,7 +109,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
     }
 
     func wipeMasterKeyBlob() throws {
-        let status = SecItemDelete(blobQuery() as CFDictionary)
+        let status = keychain.delete(matching: blobQuery())
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw CryptoError.keychain(status)
         }
@@ -135,7 +136,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
         ]
 
         // Update in place so the old blob survives if the write fails
-        let updateStatus = SecItemUpdate(searchQuery as CFDictionary, attributes as CFDictionary)
+        let updateStatus = keychain.update(matching: searchQuery, with: attributes)
         switch updateStatus {
         case errSecSuccess:
             return
@@ -143,7 +144,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
             var addQuery = searchQuery
             addQuery[kSecValueData as String] = blob
             addQuery[kSecAttrAccessible as String] = keychainAccessibility
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            let addStatus = keychain.add(addQuery)
             guard addStatus == errSecSuccess else { throw CryptoError.keychain(addStatus) }
         default:
             throw CryptoError.keychain(updateStatus)
@@ -155,8 +156,7 @@ nonisolated final class CryptoService: @unchecked Sendable {
         var query = blobQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = keychain.copyMatching(query)
         switch status {
         case errSecSuccess:
             guard let data = result as? Data else { throw CryptoError.keychain(errSecDecode) }

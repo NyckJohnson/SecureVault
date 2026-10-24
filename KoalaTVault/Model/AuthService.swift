@@ -28,6 +28,7 @@ final class AuthService {
     nonisolated private let biometricKeychainService  = "com.KoalaTVault"
     private let privacyScreenTag = 999
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
+    nonisolated private var keychain: any KeychainAccess { LegacyStorage.current.keychain }
 
     // MARK: - Lock Mode
     var lockMode: LockMode {
@@ -82,7 +83,7 @@ final class AuthService {
             kSecAttrService as String: biometricKeychainService,
             kSecAttrAccount as String: biometricMasterKeyAccount
         ]
-        SecItemDelete(query as CFDictionary)
+        keychain.delete(matching: query)
     }
 
     /// Stores raw master key bytes in the Keychain, accessible only after biometric auth on this device.
@@ -102,7 +103,7 @@ final class AuthService {
             kSecAttrService as String: biometricKeychainService,
             kSecAttrAccount as String: biometricMasterKeyAccount
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        keychain.delete(matching: deleteQuery)
 
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -111,7 +112,7 @@ final class AuthService {
             kSecValueData as String: keyData,
             kSecAttrAccessControl as String: access
         ]
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        let status = keychain.add(addQuery)
         guard status == errSecSuccess else { throw AuthError.keychainError }
     }
 
@@ -121,7 +122,7 @@ final class AuthService {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: legacyPasswordKeychainKey
         ]
-        SecItemDelete(query as CFDictionary)
+        keychain.delete(matching: query)
     }
 
     // MARK: - Migration Completion
@@ -178,7 +179,7 @@ final class AuthService {
         // unlike evaluatePolicy whose result can be faked on a jailbroken device.
         let context = LAContext()
 
-        DispatchQueue.global(qos: .userInitiated).async { [biometricKeychainService, biometricMasterKeyAccount] in
+        DispatchQueue.global(qos: .userInitiated).async { [biometricKeychainService, biometricMasterKeyAccount, keychain] in
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: biometricKeychainService,
@@ -187,8 +188,7 @@ final class AuthService {
                 kSecMatchLimit as String: kSecMatchLimitOne,
                 kSecUseAuthenticationContext as String: context
             ]
-            var result: AnyObject?
-            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            let (status, result) = keychain.copyMatching(query)
 
             guard status == errSecSuccess, let keyData = result as? Data else {
                 DispatchQueue.main.async {

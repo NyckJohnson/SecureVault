@@ -10,43 +10,14 @@ import UIKit
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
+    /// The composition root; built once per launch.
+    let dependencies = AppDependencies()
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-#if DEBUG
-        if CommandLine.arguments.contains("--uitesting") {
-            PreferencesService.shared.hasCompletedSetup = false
-            AuthService.shared.lockMode = .none
-            try? AuthService.shared.removePassword()
-            UIView.setAnimationsEnabled(false)
-            try? FileSystem.shared.emptyTrash(for: .root)
-            CryptoService.shared.wipeKey()
-            let rootContents = (try? FileManager.default.contentsOfDirectory(
-                at: VaultDirectory.root.diskURL, includingPropertiesForKeys: nil)) ?? []
-            rootContents.forEach { try? FileManager.default.removeItem(at: $0) }
-
-            if let fileName = ProcessInfo.processInfo.environment["UITEST_SEED_FILE_NAME"] {
-                let url = VaultDirectory.root.diskURL.appendingPathComponent(fileName)
-                FileManager.default.createFile(atPath: url.path, contents: Data("uitest content".utf8))
-            }
-
-            if let countString = ProcessInfo.processInfo.environment["UITEST_SEED_FILE_COUNT"],
-               let count = Int(countString) {
-                for i in 0..<count {
-                    let url = VaultDirectory.root.diskURL.appendingPathComponent("uitest-seed-\(i).txt")
-                    FileManager.default.createFile(atPath: url.path, contents: Data("uitest content".utf8))
-                }
-            }
-
-            if let password = ProcessInfo.processInfo.environment["UITEST_PASSWORD"] {
-                try? AuthService.shared.createPassword(password)
-                AuthService.shared.lockMode = .password
-                AuthService.shared.hasAuthenticated = true
-                PreferencesService.shared.hasCompletedSetup = true
-            }
-        }
-#endif
+        dependencies.prepareForLaunch()
         // Warm up EntitlementService early so the async StoreKit refresh starts before
         // the user can trigger an import. The persisted cache covers the window before
         // refresh completes (see EntitlementService.init).

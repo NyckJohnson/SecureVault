@@ -17,7 +17,7 @@ nonisolated final class PreferencesService: Sendable {
     static let shared = PreferencesService()
     private init() {}
 
-    private var defaults: UserDefaults { .standard }
+    private var defaults: UserDefaults { LegacyStorage.current.defaults }
 
     private let hasCompletedSetupKey = "hasCompletedSetup"
     private let lockModeKey          = "lockMode"

@@ -54,7 +54,7 @@ final class EntitlementService: ObservableObject {
     private func updateSyncCache() {
         let value = isUnlocked
         Self.syncCache.withLock { $0 = value }
-        UserDefaults.standard.set(value, forKey: Self.isUnlockedCacheKey)
+        LegacyStorage.current.defaults.set(value, forKey: Self.isUnlockedCacheKey)
     }
 
     private var updateListenerTask: Task<Void, Never>?
@@ -62,7 +62,7 @@ final class EntitlementService: ObservableObject {
     private init() {
         // Pre-seed the sync cache from the last persisted value so isUnlockedSync is
         // correct immediately, before the async StoreKit refresh completes.
-        let persisted = UserDefaults.standard.bool(forKey: Self.isUnlockedCacheKey)
+        let persisted = LegacyStorage.current.defaults.bool(forKey: Self.isUnlockedCacheKey)
         Self.syncCache.withLock { $0 = persisted }
 
         updateListenerTask = listenForTransactionUpdates()
