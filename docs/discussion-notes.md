@@ -61,7 +61,7 @@ Confirmed by the human (details and failure paths are checked against the code b
 - Recent commit fixed `wipeOrphanedEntries` wiping all entries: the orphan clean-up is fragile.
 - See `API-Memo.md` open observations (trash lookup by name, paywall after picker dismissal,
   privacy screen stuck over lock screen, cold-launch biometric attempt, `changePassword` ordering,
-  `.noMasterKeyBlob` dead end, and others). _(more from the human: to discuss)_
+  `.noMasterKeyBlob` dead end, and others).
 
 ## Planned features (queued for after the adoption)
 
