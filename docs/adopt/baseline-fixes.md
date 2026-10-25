@@ -14,7 +14,9 @@ Decisions by the human, 2026-10-24.
 | 5 | J5 testJourney5_UndecryptableFileShowsCantBeOpenedLabel | blank black page | "This file can't be opened." | open |
 | 6 | J5 testJourney5_EditorLoadFailureShowsErrorAndIsReadOnly | editable after a failed load | read-only | open |
 | 7 | J6 testJourney6_RestoreWithSameNameInFolderGetsNumberSuffix | error alert, item stays in trash (no lock) | restored as "alpha 1.rtf" | open |
-| 8 | J9 testJourney9_PriceUnavailableShowsMessageAndUnlockStillPresent | empty price label | "Price unavailable" | open (verify after StoreKit) |
+| 8 | J9 testJourney9_PriceUnavailableShowsMessageAndUnlockStillPresent | empty price label | "Price unavailable" | open (confirmed on iOS 18.6) |
+| 9 | J9 testJourney9_PendingPurchaseShowsApprovalAlertAndKeepsPaywall | alert "Purchase is pending approval." (EntitlementService.swift:16) | "Purchase pending approval." (the app changes to match the memo) | open |
+| 10 | J4 testJourney4_ChooseFolderOpensDocumentPickerAndCancelImportsNothing | iOS 18 only: SIGABRT after Cancel in the folder picker (`DOCWeakProxy`; picker delegate released early, ImportService.swift:62) | Cancel imports nothing | open |
 
 ## Environment
 
@@ -22,4 +24,6 @@ Decisions by the human, 2026-10-24.
   test skips itself (XCTSkip with the reason) when biometrics are unavailable; the device check covers Face ID.
 - J9 purchase / pending / restore tests, legacy PaywallUITests, StoreKitConfigurationTests: every `SKTestSession`
   call fails with `SKInternalErrorDomain Code=3` under xcodebuild. Decision: investigate and fix the StoreKit test
-  setup so they run under the gates.
+  setup so they run under the gates. Cause: Apple bug on the iOS 26.x simulators (FB22237318; SKTestSession writes fail under
+  xcodebuild). Fix: the gates run on iOS 18.6 (`SIMULATOR_NAME` in .pipeline/config.sh, 2026-10-25); all StoreKit tests
+  pass there. iOS 26 is covered by the device check.

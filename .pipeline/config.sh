@@ -21,3 +21,6 @@ APP_TEST_DIR="KoalaTVaultTests"
 UNIT_TEST_TARGET="KoalaTVaultTests"
 UI_TEST_TARGET="KoalaTVaultUITests"
 BASE_BRANCH="main"
+
+# Gates run on iOS 18.6: on the iOS 26.x simulators SKTestSession writes fail under xcodebuild (Apple FB22237318).
+SIMULATOR_NAME="iPhone 16 Pro iOS 18.6,OS=18.6"

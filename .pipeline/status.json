@@ -560,7 +560,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-24T18:16:28-07:00",
+  "updatedAt": "2026-10-24T20:01:26-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -666,7 +666,7 @@
       },
       {
         "name": "journeys",
-        "done": false
+        "done": true
       },
       {
         "name": "fixes",
