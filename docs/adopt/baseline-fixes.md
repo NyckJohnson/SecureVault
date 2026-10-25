@@ -12,7 +12,7 @@ Decisions by the human, 2026-10-24.
 | 3 | J3 testJourney3_FolderCannotBeMovedIntoItself | silent failure (`try?`), picker offers the folder itself | alert "A folder can't be moved into itself" | fixed |
 | 4 | J4 testJourney4_PhotoPickerCancelClosesPickerAndImportsNothing | Cancel leaves the picker open | closes, imports nothing | fixed |
 | 5 | J5 testJourney5_UndecryptableFileShowsCantBeOpenedLabel | blank black page | "This file can't be opened." | fixed |
-| 6 | J5 testJourney5_EditorLoadFailureShowsErrorAndIsReadOnly | editable after a failed load | read-only | open |
+| 6 | J5 testJourney5_EditorLoadFailureShowsErrorAndIsReadOnly | editable after a failed load | read-only | fixed |
 | 7 | J6 testJourney6_RestoreWithSameNameInFolderGetsNumberSuffix | error alert, item stays in trash (no lock) | restored as "alpha 1.rtf" | open |
 | 8 | J9 testJourney9_PriceUnavailableShowsMessageAndUnlockStillPresent | empty price label | "Price unavailable" | open (confirmed on iOS 18.6) |
 | 9 | J9 testJourney9_PendingPurchaseShowsApprovalAlertAndKeepsPaywall | alert "Purchase is pending approval." (EntitlementService.swift:16) | "Purchase pending approval." (the app changes to match the memo) | open |

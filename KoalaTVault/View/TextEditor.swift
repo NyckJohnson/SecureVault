@@ -15,6 +15,8 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
     private var toolbar: UIToolbar!
     private var saveTimer: Timer?
     private var tempDecryptedDir: URL?
+    /// Set when the document failed to load; the editor is then read-only and never saves.
+    private var didFailToLoad = false
 
     // MARK: - Init
     init(item: VaultItem) {
@@ -127,12 +129,17 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
             )
             textView.attributedText = attributed
         } catch {
-            showError(error)
+            didFailToLoad = true
             textView.text = ""
+            textView.isEditable = false
+            toolbar.items?.forEach { $0.isEnabled = false }
+            showError(error)
         }
     }
 
     private func saveDocument() {
+        // Never write over the original with a document that failed to load.
+        guard !didFailToLoad else { return }
         do {
             let data = try textView.attributedText.data(
                 from: NSRange(location: 0, length: textView.attributedText.length),
