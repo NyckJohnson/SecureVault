@@ -693,10 +693,15 @@ nonisolated final class FileSystem: Sendable {
     }
 
     func cleanupExpiredTrashItems(for root: VaultDirectory) {
-        // Safe to swallow: an unreadable map yields an empty dict, the loop below finds
-        // nothing to remove, `changed` stays false, and we never reach saveTrashMap — so a
-        // failed read here can never overwrite good data with an empty one.
-        var trashMap = (try? loadTrashMap(for: root.rootURL)) ?? [:]
+        // An unreadable map is logged and we return before saveTrashMap — so a failed
+        // read here can never overwrite good data with an empty one.
+        var trashMap: [String: TrashEntry]
+        do {
+            trashMap = try loadTrashMap(for: root.rootURL)
+        } catch {
+            print("Trash purge skipped: trash map unreadable (\(error))")
+            return
+        }
         let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60) // 30 days
         var changed = false
         let trashURL = trashDirectory(for: root.rootURL).diskURL
@@ -706,7 +711,12 @@ nonisolated final class FileSystem: Sendable {
             trashMap.removeValue(forKey: uuid)
             changed = true
         }
-        if changed { try? saveTrashMap(trashMap, for: root.rootURL) }
+        guard changed else { return }
+        do {
+            try saveTrashMap(trashMap, for: root.rootURL)
+        } catch {
+            print("Trash purge: saving the trash map failed (\(error))")
+        }
     }
 
     private func loadTrashMap(for rootURL: URL) throws -> [String: TrashEntry] {

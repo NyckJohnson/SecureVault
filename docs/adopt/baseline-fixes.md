@@ -20,7 +20,7 @@ Decisions by the human, 2026-10-24.
 | 11 | (planned in memo Known issues) | "Remove Lock" leaves encrypted `.vault_map`s, then deletes the key | listings work after Remove Lock | fixed |
 | 12 | (planned) | plaintext `.trash_map` unreadable once a lock is on | delete / Recently Deleted work after adding a lock | fixed |
 | 13 | (planned) | New Document writes an unencrypted, unindexed file in an encrypted vault; truncates a same-name document | encrypted + indexed, name conflict resolved (move the "/" check into FileSystem too) | fixed |
-| 14 | (planned) | 30-day trash purge never runs | purged after unlock (shell responsibility) | open |
+| 14 | (planned) | 30-day trash purge never runs | purged after unlock (shell responsibility) | fixed |
 | 15 | (planned) | migration screen starts a second loop when the lock screen is dismissed over it | one loop | fixed |
 | 16 | (planned) | folder picker Cancel keeps the pending (bulk) move; Move Here double-tap calls the delegate twice | Cancel clears it; one call | open |
 | 17 | (planned) | orphan sweep deletes extensionless UUID-named plaintext files in folders with no index | only sweeps encrypted, indexed folders | open |
