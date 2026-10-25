@@ -66,8 +66,12 @@ final class FolderPickerViewController: UIViewController {
     }
     
     @objc private func moveHere() {
-        delegate?.folderPicker(self, didSelectFolder: currentDirectory)
-        dismiss(animated: true)
+        // Tell the delegate after the sheet is gone, so it can present an error alert.
+        let delegate = delegate
+        let directory = currentDirectory
+        dismiss(animated: true) {
+            delegate?.folderPicker(self, didSelectFolder: directory)
+        }
     }
 }
 

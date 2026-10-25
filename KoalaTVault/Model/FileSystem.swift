@@ -54,6 +54,7 @@ enum FileSystemError: Error, LocalizedError {
     case mappingUnreadable
     case fileLimitReached
     case invalidName
+    case moveIntoItself
 
     var errorDescription: String? {
         switch self {
@@ -63,6 +64,8 @@ enum FileSystemError: Error, LocalizedError {
             return "You've reached the 100-file limit. Unlock more storage to continue importing."
         case .invalidName:
             return "Names can't contain /"
+        case .moveIntoItself:
+            return "A folder can't be moved into itself"
         }
     }
 }
@@ -432,6 +435,14 @@ nonisolated final class FileSystem: Sendable {
         if sourceDir.standardizedFileURL.resolvingSymlinksInPath().path
             == directory.diskURL.standardizedFileURL.resolvingSymlinksInPath().path {
             return
+        }
+        // A folder can't be moved into itself or one of its own subfolders.
+        if item.isDirectory {
+            let itemPath = item.diskURL.standardizedFileURL.resolvingSymlinksInPath().path
+            let destPath = directory.diskURL.standardizedFileURL.resolvingSymlinksInPath().path
+            if destPath == itemPath || destPath.hasPrefix(itemPath + "/") {
+                throw FileSystemError.moveIntoItself
+            }
         }
         let name = resolvedName(for: item.diskURL.lastPathComponent, in: directory.diskURL)
         let destination = directory.diskURL.appendingPathComponent(name)

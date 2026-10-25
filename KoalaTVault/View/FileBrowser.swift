@@ -522,14 +522,31 @@ extension FileBrowserViewController: UICollectionViewDelegate {
 extension FileBrowserViewController: FolderPickerDelegate {
     func folderPicker(_ picker: FolderPickerViewController, didSelectFolder directory: VaultDirectory) {
         if let items = itemsPendingBulkAction {
+            var errors: [Error] = []
             for item in items {
-                try? FileSystem.shared.move(item, to: directory)
+                do {
+                    try FileSystem.shared.move(item, to: directory)
+                } catch {
+                    errors.append(error)
+                }
             }
             itemsPendingBulkAction = nil
             exitSelectMode()
+            loadContents()
+            // Bulk results report how many failed, with the first error.
+            if let firstError = errors.first {
+                showError("\(errors.count) of \(items.count) failed. \(firstError.localizedDescription)")
+            }
+            return
         } else if let item = itemPendingMove {
-            try? FileSystem.shared.move(item, to: directory)
             itemPendingMove = nil
+            do {
+                try FileSystem.shared.move(item, to: directory)
+            } catch {
+                loadContents()
+                showError(error)
+                return
+            }
         }
         loadContents()
     }
