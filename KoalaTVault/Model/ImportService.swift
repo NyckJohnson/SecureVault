@@ -136,7 +136,10 @@ extension ImportService: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         guard !results.isEmpty,
               let viewController = presentingViewController,
-              let directory = targetDirectory else { return }
+              let directory = targetDirectory else {
+            picker.dismiss(animated: true)
+            return
+        }
 
         do {
             try FileSystem.shared.checkImportAllowed(additionalCount: results.count, in: directory)
@@ -148,7 +151,9 @@ extension ImportService: PHPickerViewControllerDelegate {
             }
             return
         } catch {
-            (viewController as? ErrorPresenting)?.showError(error)
+            picker.dismiss(animated: true) {
+                (viewController as? ErrorPresenting)?.showError(error)
+            }
             return
         }
 

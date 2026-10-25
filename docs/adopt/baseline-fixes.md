@@ -10,7 +10,7 @@ Decisions by the human, 2026-10-24.
 | 1 | J3 testJourney3_FolderNameWithSlashShowsError | raw system error "The file “b” doesn’t exist." | alert "Names can't contain /" | fixed |
 | 2 | J3 testJourney3_MoveIntoItsOwnFolderDoesNothing | renamed "alpha 1.txt" | nothing changes | fixed |
 | 3 | J3 testJourney3_FolderCannotBeMovedIntoItself | silent failure (`try?`), picker offers the folder itself | alert "A folder can't be moved into itself" | fixed |
-| 4 | J4 testJourney4_PhotoPickerCancelClosesPickerAndImportsNothing | Cancel leaves the picker open | closes, imports nothing | open |
+| 4 | J4 testJourney4_PhotoPickerCancelClosesPickerAndImportsNothing | Cancel leaves the picker open | closes, imports nothing | fixed |
 | 5 | J5 testJourney5_UndecryptableFileShowsCantBeOpenedLabel | blank black page | "This file can't be opened." | open |
 | 6 | J5 testJourney5_EditorLoadFailureShowsErrorAndIsReadOnly | editable after a failed load | read-only | open |
 | 7 | J6 testJourney6_RestoreWithSameNameInFolderGetsNumberSuffix | error alert, item stays in trash (no lock) | restored as "alpha 1.rtf" | open |
