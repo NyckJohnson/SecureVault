@@ -416,7 +416,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlocking with FaceID";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"Save photos and videos to your camera roll\"";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save photos and videos to your camera roll";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Koala T Vault needs access to your photo library to let you delete photos after importing them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -459,7 +459,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlocking with FaceID";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "\"Save photos and videos to your camera roll\"";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save photos and videos to your camera roll";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Koala T Vault needs access to your photo library to let you delete photos after importing them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
