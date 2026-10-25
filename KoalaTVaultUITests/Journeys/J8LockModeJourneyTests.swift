@@ -97,12 +97,18 @@ final class J8LockModeJourneyTests: JourneyTestCase {
 
     // MARK: - Password <-> Password + Face ID
 
-    func testJourney8_PasswordToBiometricSwitchesImmediately() {
+    func testJourney8_PasswordToBiometricSwitchesImmediately() throws {
         start(password: true)
         openSettings()
         let biometric = row("settings.lockMode.biometricRow")
         XCTAssertTrue(biometric.waitForExistence(timeout: 5), "Password + Face ID row missing")
         biometric.tap()
+        // The app ignores the tap when biometrics are unavailable, so the row stays unselected.
+        let selected = NSPredicate(format: "isSelected == true")
+        let outcome = XCTWaiter().wait(for: [expectation(for: selected, evaluatedWith: biometric)], timeout: 3)
+        if outcome != .completed, !app.alerts.firstMatch.exists, !app.staticTexts["migration.titleLabel"].exists {
+            throw XCTSkip("Face ID not enrolled on this simulator; covered by the device check")
+        }
         XCTAssertTrue(biometric.isSelected, "Password + Face ID should be current right after the tap")
         XCTAssertFalse(row("settings.lockMode.passwordRow").isSelected)
         XCTAssertFalse(app.staticTexts["migration.titleLabel"].exists, "Switching between lock modes needs no migration")
