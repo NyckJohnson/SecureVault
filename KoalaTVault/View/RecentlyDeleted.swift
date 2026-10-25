@@ -26,6 +26,7 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
+        tableView.accessibilityIdentifier = "recentlyDeleted.list"
         view.addSubview(tableView)
     }
 
@@ -37,6 +38,7 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
             action: #selector(emptyTrash)
         )
         navigationItem.rightBarButtonItem?.tintColor = .systemRed
+        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "recentlyDeleted.emptyTrashButton"
     }
 
     private func loadItems() {
@@ -57,6 +59,7 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
         label.textAlignment = .center
         label.textColor = .secondaryLabel
         label.font = .preferredFont(forTextStyle: .body)
+        label.accessibilityIdentifier = "recentlyDeleted.emptyStateLabel"
         return label
     }
 
@@ -96,6 +99,7 @@ extension RecentlyDeletedViewController: UITableViewDataSource {
         config.image = FileIconProvider.icon(for: item)
         config.imageProperties.tintColor = FileIconProvider.iconColor(for: item)
         cell.contentConfiguration = config
+        cell.accessibilityIdentifier = "recentlyDeleted.row.\(item.name)"
         return cell
     }
 }

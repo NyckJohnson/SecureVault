@@ -50,6 +50,7 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Cell")
+        tableView.accessibilityIdentifier = "settings.table"
         view.addSubview(tableView)
     }
 
@@ -120,26 +121,32 @@ extension SecuritySettingsViewController: UITableViewDataSource {
             switch indexPath.row {
             case 0:
                 cell.textLabel?.text = "No Lock"
+                cell.accessibilityIdentifier = "settings.lockMode.noLockRow"
                 cell.accessoryType = authService.lockMode == .none ? .checkmark : .none
             case 1:
                 cell.textLabel?.text = "Password"
+                cell.accessibilityIdentifier = "settings.lockMode.passwordRow"
                 cell.accessoryType = authService.lockMode == .password ? .checkmark : .none
             case 2:
                 cell.textLabel?.text = "Password + \(authService.biometricType)"
+                cell.accessibilityIdentifier = "settings.lockMode.biometricRow"
                 cell.accessoryType = authService.lockMode == .passwordAndBiometrics ? .checkmark : .none
                 cell.textLabel?.textColor = authService.biometricsAvailable ? .label : .secondaryLabel
             case 3:
                 cell.textLabel?.text = "Re-encrypt Everything"
+                cell.accessibilityIdentifier = "settings.lockMode.reEncryptRow"
                 cell.textLabel?.textColor = .systemBlue
             default: break
             }
 
         case .password:
             cell.textLabel?.text = "Change Password"
+            cell.accessibilityIdentifier = "settings.changePasswordRow"
             cell.textLabel?.textColor = .systemBlue
 
         case .trash:
             cell.textLabel?.text = "Recently Deleted"
+            cell.accessibilityIdentifier = "settings.recentlyDeletedRow"
             cell.accessoryType = .disclosureIndicator
         }
         return cell
@@ -245,8 +252,14 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 
     private func promptSetPassword(for mode: LockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
         let alert = UIAlertController(title: "Set Password", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "Password"; $0.isSecureTextEntry = true }
-        alert.addTextField { $0.placeholder = "Confirm password"; $0.isSecureTextEntry = true }
+        alert.addTextField {
+            $0.placeholder = "Password"; $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "settings.passwordField"
+        }
+        alert.addTextField {
+            $0.placeholder = "Confirm password"; $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "settings.confirmPasswordField"
+        }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Set", style: .default) { [weak self] _ in
             guard let self else { return }
@@ -284,9 +297,18 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 
     private func promptChangePassword() {
         let alert = UIAlertController(title: "Change Password", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "Current password"; $0.isSecureTextEntry = true }
-        alert.addTextField { $0.placeholder = "New password"; $0.isSecureTextEntry = true }
-        alert.addTextField { $0.placeholder = "Confirm new password"; $0.isSecureTextEntry = true }
+        alert.addTextField {
+            $0.placeholder = "Current password"; $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "settings.currentPasswordField"
+        }
+        alert.addTextField {
+            $0.placeholder = "New password"; $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "settings.newPasswordField"
+        }
+        alert.addTextField {
+            $0.placeholder = "Confirm new password"; $0.isSecureTextEntry = true
+            $0.accessibilityIdentifier = "settings.confirmNewPasswordField"
+        }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Change", style: .default) { [weak self] _ in
             guard let self else { return }

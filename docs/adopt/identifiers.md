@@ -173,3 +173,62 @@ Notes for the journey tests:
 - There is no Cancel button; Done saves and dismisses. The navigation title is the item's name:
   `app.navigationBars["<name>"]`.
 - A load failure shows an alert (find its OK button by label); the memo's read-only mode does not exist yet.
+
+## Security settings (`KoalaTVault/View/SecuritySettings.swift`)
+
+| element | identifier | journey |
+| --- | --- | --- |
+| Settings table | `settings.table` | 6, 8, 9 |
+| Pro row ("Upgrade to Pro" / "Pro Unlocked") | `upgradeToProCell` (existing) | 9 |
+| Lock Mode: No Lock row | `settings.lockMode.noLockRow` | 8 |
+| Lock Mode: Password row | `settings.lockMode.passwordRow` | 8 |
+| Lock Mode: "Password + Face ID/Touch ID" row | `settings.lockMode.biometricRow` | 8 |
+| Lock Mode: "Re-encrypt Everything" row (only with a lock and plaintext files left) | `settings.lockMode.reEncryptRow` | 8 |
+| Password: Change Password row (absent in No Lock) | `settings.changePasswordRow` | 8 |
+| Storage: Recently Deleted row | `settings.recentlyDeletedRow` | 6 |
+| "Set Password" alert, password field | `settings.passwordField` | 8 |
+| "Set Password" alert, confirm field | `settings.confirmPasswordField` | 8 |
+| "Change Password" alert, current password field | `settings.currentPasswordField` | 8 |
+| "Change Password" alert, new password field | `settings.newPasswordField` | 8 |
+| "Change Password" alert, confirm field | `settings.confirmNewPasswordField` | 8 |
+
+Notes for the journey tests:
+- **No Done/close button.** Settings is a form-sheet nav with no bar buttons; dismiss by swiping the sheet down.
+  The navigation title is `app.navigationBars["Security"]`.
+- **No biometrics switch and no storage/size row.** Biometrics is the third Lock Mode row (greyed, and a tap does
+  nothing, when biometrics are unavailable); the Storage section holds only the Recently Deleted row.
+- **The current lock mode** is the row with the checkmark accessory; XCUITest reports it as `isSelected` on the cell.
+  "Pro Unlocked" vs "Upgrade to Pro" is the text of `cells["upgradeToProCell"].staticTexts`.
+- Alert buttons ("Remove Lock?" Cancel/Remove, "Set", "Change", success/error OK) are `UIAlertAction`s: find them by label.
+
+## Recently Deleted (`KoalaTVault/View/RecentlyDeleted.swift`)
+
+| element | identifier | journey |
+| --- | --- | --- |
+| Trash table | `recentlyDeleted.list` | 6 |
+| Row for an item ("Deletes in N days" is its secondary text) | `recentlyDeleted.row.<name>` (`<name>` = item name, extension included) | 6 |
+| "Empty Trash" bar button (disabled when empty) | `recentlyDeleted.emptyTrashButton` | 6 |
+| Empty-state label "No recently deleted files" (table background) | `recentlyDeleted.emptyStateLabel` | 6 |
+
+Notes for the journey tests:
+- **Restore / Delete Permanently / Cancel** (the row's action sheet, titled with the item name) and the "Empty Trash?"
+  confirm's buttons are `UIAlertAction`s: find them by label in `app.sheets` / `app.alerts`.
+- Back is the system back button ("Security"). The navigation title is `app.navigationBars["Recently Deleted"]`.
+- Two trashed items with the same name share an identifier; use `.firstMatch` or `.element(boundBy:)`.
+
+## Paywall (`KoalaTVault/View/PaywallViewController.swift`)
+
+| element | identifier | journey |
+| --- | --- | --- |
+| Paywall root view | `paywall` | 4, 9 |
+| Title "Unlock Pro" | `paywall.titleLabel` | 9 |
+| Description "Store more than 100 files." | `paywall.descriptionLabel` | 9 |
+| Price label | `paywall.priceLabel` | 9 |
+| Unlock (purchase) button | `paywallUnlockButton` (existing) | 9 |
+| Restore Purchases button | `restoreButton` (existing) | 9 |
+| Close (X) button | `paywall.closeButton` | 9 |
+| Activity indicator (only while purchasing/restoring) | `paywall.activityIndicator` | 9 |
+
+Notes for the journey tests:
+- **No status label.** "Purchase pending approval." and "No previous purchase found to restore." are error alerts
+  (find OK by label). The memo's "Price unavailable" does not exist: on a load failure the price label is empty.

@@ -22,6 +22,7 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        view.accessibilityIdentifier = "paywall"
         setUpLayout()
         Task { await loadProduct() }
     }
@@ -31,16 +32,19 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
         titleLabel.text = "Unlock Pro"
         titleLabel.font = .preferredFont(forTextStyle: .title1)
         titleLabel.textAlignment = .center
+        titleLabel.accessibilityIdentifier = "paywall.titleLabel"
 
         descriptionLabel.text = "Store more than \(EntitlementService.freeFileLimit) files."
         descriptionLabel.font = .preferredFont(forTextStyle: .body)
         descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.textAlignment = .center
         descriptionLabel.numberOfLines = 0
+        descriptionLabel.accessibilityIdentifier = "paywall.descriptionLabel"
 
         priceLabel.font = .preferredFont(forTextStyle: .headline)
         priceLabel.textAlignment = .center
         priceLabel.text = " "
+        priceLabel.accessibilityIdentifier = "paywall.priceLabel"
 
         unlockButton.configuration = .filled()
         unlockButton.setTitle("Unlock", for: .normal)
@@ -54,8 +58,10 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
         closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         closeButton.tintColor = .tertiaryLabel
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        closeButton.accessibilityIdentifier = "paywall.closeButton"
 
         activityIndicator.hidesWhenStopped = true
+        activityIndicator.accessibilityIdentifier = "paywall.activityIndicator"
 
         let stack = UIStackView(arrangedSubviews: [
             titleLabel, descriptionLabel, priceLabel, unlockButton, restoreButton, activityIndicator
