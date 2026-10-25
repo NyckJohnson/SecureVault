@@ -55,6 +55,7 @@ enum FileSystemError: Error, LocalizedError {
     case fileLimitReached
     case invalidName
     case moveIntoItself
+    case trashEntryInvalid
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +67,8 @@ enum FileSystemError: Error, LocalizedError {
             return "Names can't contain /"
         case .moveIntoItself:
             return "A folder can't be moved into itself"
+        case .trashEntryInvalid:
+            return "This item can't be restored: its original location is outside the vault."
         }
     }
 }
@@ -529,9 +532,10 @@ nonisolated final class FileSystem: Sendable {
         let trashURL = trashDirectory(for: item.rootURL).diskURL
         let uuid = UUID().uuidString
         let destination = trashURL.appendingPathComponent(uuid)
-        try FileManager.default.moveItem(at: item.diskURL, to: destination)             // move first
 
-        var trashMap = try loadTrashMap(for: item.rootURL)                              // trash map before source mapping
+        // Entry first, then move: a file in .trash is never unmapped (emptyTrash would sweep it).
+        // If the map can't be read or saved, nothing has moved and the error propagates.
+        var trashMap = try loadTrashMap(for: item.rootURL)
         trashMap[uuid] = TrashEntry(
             originalDiskName: item.diskURL.lastPathComponent,
             originalDirectoryURL: item.diskURL.deletingLastPathComponent().path,
@@ -541,6 +545,16 @@ nonisolated final class FileSystem: Sendable {
             rootURL: item.rootURL.path
         )
         try saveTrashMap(trashMap, for: item.rootURL)
+
+        do {
+            try FileManager.default.moveItem(at: item.diskURL, to: destination)
+        } catch {
+            // Drop the entry again. Best-effort is safe here: an entry whose file is missing
+            // is never listed (contentsOfTrash skips it) and the item is still in place.
+            trashMap.removeValue(forKey: uuid)
+            try? saveTrashMap(trashMap, for: item.rootURL)
+            throw error
+        }
 
         if item.isEncrypted {                                                            // source mapping last
             let sourceDir = item.diskURL.deletingLastPathComponent()
@@ -556,6 +570,7 @@ nonisolated final class FileSystem: Sendable {
         guard let entry = trashMap[uuid] else { return }
 
         let originalDir = URL(fileURLWithPath: entry.originalDirectoryURL)
+        try validateRestoreTarget(entry, directory: originalDir, rootURL: item.rootURL)
         try FileManager.default.createDirectory(at: originalDir, withIntermediateDirectories: true)
 
         // An item with the same name may have appeared since deletion: restore as "name 1" etc.
@@ -573,6 +588,23 @@ nonisolated final class FileSystem: Sendable {
 
         trashMap.removeValue(forKey: uuid)
         try saveTrashMap(trashMap, for: item.rootURL)
+    }
+
+    /// A trash map can come from disk unauthenticated (legacy plaintext), so its paths are
+    /// untrusted: the disk name must be a single component and the folder must resolve
+    /// (standardized, symlinks resolved) to the vault root or somewhere inside it.
+    private func validateRestoreTarget(_ entry: TrashEntry, directory: URL, rootURL: URL) throws {
+        let name = entry.originalDiskName
+        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else {
+            throw FileSystemError.trashEntryInvalid
+        }
+        let rootParts = rootURL.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let dirParts  = directory.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        guard dirParts.count >= rootParts.count,
+              Array(dirParts.prefix(rootParts.count)) == rootParts,
+              !dirParts.dropFirst(rootParts.count).contains("..") else {
+            throw FileSystemError.trashEntryInvalid
+        }
     }
 
     func contentsOfTrash(for root: VaultDirectory) throws -> [VaultItem] {
@@ -646,7 +678,17 @@ nonisolated final class FileSystem: Sendable {
 
     private func loadTrashMap(for rootURL: URL) throws -> [String: TrashEntry] {
         let trashMapURL = trashDirectory(for: rootURL).diskURL.appendingPathComponent(trashMapName)
-        return try loadEncryptedJSON([String: TrashEntry].self, from: trashMapURL) ?? [:]
+        do {
+            return try loadEncryptedJSON([String: TrashEntry].self, from: trashMapURL) ?? [:]
+        } catch FileSystemError.mappingUnreadable where CryptoService.shared.isKeyLoaded {
+            // Every decrypt attempt failed. A map written before a lock was added is plaintext
+            // JSON; accept it only if it parses as the trash map. The next save encrypts it.
+            guard let data = try? Data(contentsOf: trashMapURL),
+                  let plaintext = try? JSONDecoder().decode([String: TrashEntry].self, from: data) else {
+                throw FileSystemError.mappingUnreadable
+            }
+            return plaintext
+        }
     }
 
     private func saveTrashMap(_ map: [String: TrashEntry], for rootURL: URL) throws {
