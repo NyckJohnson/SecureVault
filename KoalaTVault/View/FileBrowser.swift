@@ -71,6 +71,13 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             navigationItem.leftBarButtonItem = cancel
             navigationItem.title = selectedItems.isEmpty ? "Select Items" : "\(selectedItems.count) Selected"
             navigationItem.rightBarButtonItems = [deleteButton, moveButton, exportButton, copyButton]
+
+            // for ui tests
+            cancel.accessibilityIdentifier       = "browser.cancelSelectButton"
+            deleteButton.accessibilityIdentifier = "browser.bulkDeleteButton"
+            moveButton.accessibilityIdentifier   = "browser.bulkMoveButton"
+            exportButton.accessibilityIdentifier = "browser.bulkExportButton"
+            copyButton.accessibilityIdentifier   = "browser.bulkCopyButton"
         } else {
             // Left side
             if directory.diskURL == VaultDirectory.root.diskURL {
@@ -101,6 +108,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             newFolderButton.accessibilityIdentifier = "newFolderButton"
             importButton.accessibilityIdentifier    = "importButton"
             selectButton.accessibilityIdentifier    = "selectButton"
+            newDocButton.accessibilityIdentifier    = "browser.newDocumentButton"
         }
     }
 
@@ -150,6 +158,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
                 fatalError("FileCell not registered for reuse ID \(FileCell.reuseID)")
             }
             cell.configure(with: item, gridMode: true)
+            cell.accessibilityIdentifier = "browser.cell.\(item.name)"
             if let self {
                 cell.setSelected(selectedItems.contains(item), inSelectMode: isSelectMode)
             }
@@ -196,7 +205,10 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     @objc private func promptNewFolder() {
         let alert = UIAlertController(title: "New Folder", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "Folder name" }
+        alert.addTextField {
+            $0.placeholder = "Folder name"
+            $0.accessibilityIdentifier = "browser.newFolderNameField"
+        }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self] _ in
             guard let self, let name = alert.textFields?.first?.text, !name.isEmpty else { return }
@@ -212,7 +224,10 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     @objc private func promptNewDocument() {
         let alert = UIAlertController(title: "New Document", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "Document name" }
+        alert.addTextField {
+            $0.placeholder = "Document name"
+            $0.accessibilityIdentifier = "browser.newDocumentNameField"
+        }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self] _ in
             guard let self,
@@ -341,12 +356,16 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         label.textAlignment = .center
         label.textColor = .secondaryLabel
         label.font = .preferredFont(forTextStyle: .body)
+        label.accessibilityIdentifier = "browser.emptyStateLabel"
         return label
     }
 
     private func promptRename(item: VaultItem) {
         let alert = UIAlertController(title: "Rename", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.text = item.name }
+        alert.addTextField {
+            $0.text = item.name
+            $0.accessibilityIdentifier = "browser.renameField"
+        }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak self] _ in
             guard let self, let name = alert.textFields?.first?.text, !name.isEmpty else { return }
@@ -435,23 +454,38 @@ extension FileBrowserViewController: UICollectionViewDelegate {
     ) -> UIContextMenuConfiguration? {
         let item = items[indexPath.item]
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
-            let rename = UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { [weak self] _ in
+            let rename = UIAction(
+                title: "Rename", image: UIImage(systemName: "pencil"),
+                identifier: UIAction.Identifier("browser.contextMenu.rename")
+            ) { [weak self] _ in
                 self?.promptRename(item: item)
             }
-            let delete = UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+            let delete = UIAction(
+                title: "Delete", image: UIImage(systemName: "trash"),
+                identifier: UIAction.Identifier("browser.contextMenu.delete"), attributes: .destructive
+            ) { [weak self] _ in
                 self?.confirmDelete(item: item)
             }
-            let export = UIAction(title: "Export", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+            let export = UIAction(
+                title: "Export", image: UIImage(systemName: "square.and.arrow.up"),
+                identifier: UIAction.Identifier("browser.contextMenu.export")
+            ) { [weak self] _ in
                 guard let self else { return }
                 let cell = collectionView.cellForItem(at: indexPath)
                 ExportService.shared.export(item, from: self, sourceView: cell)
             }
-            let move = UIAction(title: "Move", image: UIImage(systemName: "folder")) { [weak self] _ in
+            let move = UIAction(
+                title: "Move", image: UIImage(systemName: "folder"),
+                identifier: UIAction.Identifier("browser.contextMenu.move")
+            ) { [weak self] _ in
                 guard let self else { return }
                 self.itemPendingMove = item
                 self.pendingAction = { self.presentFolderPicker(for: item) }
             }
-            let copy = UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+            let copy = UIAction(
+                title: "Copy", image: UIImage(systemName: "doc.on.doc"),
+                identifier: UIAction.Identifier("browser.contextMenu.copy")
+            ) { [weak self] _ in
                 guard let self else { return }
                 do {
                     try FileSystem.shared.copy(item, to: self.directory)

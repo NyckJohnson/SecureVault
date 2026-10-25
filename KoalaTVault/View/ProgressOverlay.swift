@@ -42,6 +42,13 @@ final class ProgressOverlay: UIView {
     private func setupUI() {
         backgroundColor = UIColor.black.withAlphaComponent(0.5)
 
+        // for ui tests
+        accessibilityIdentifier              = "progressOverlay"
+        titleLabel.accessibilityIdentifier   = "progressOverlay.titleLabel"
+        progressBar.accessibilityIdentifier  = "progressOverlay.progressBar"
+        statusLabel.accessibilityIdentifier  = "progressOverlay.statusLabel"
+        cancelButton.accessibilityIdentifier = "progressOverlay.cancelButton"
+
         containerView.backgroundColor = .systemBackground
         containerView.layer.cornerRadius = 16
         containerView.translatesAutoresizingMaskIntoConstraints = false

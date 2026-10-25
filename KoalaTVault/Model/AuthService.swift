@@ -289,6 +289,7 @@ final class AuthService {
         let privacy = UIView()
         privacy.backgroundColor = .systemBackground
         privacy.tag = privacyScreenTag
+        privacy.accessibilityIdentifier = "privacyCover"
         let logo = UIImageView(image: UIImage(systemName: "lock.fill"))
         logo.tintColor = .systemBlue
         logo.contentMode = .scaleAspectFit

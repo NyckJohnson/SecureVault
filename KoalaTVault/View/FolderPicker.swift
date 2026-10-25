@@ -32,18 +32,24 @@ final class FolderPickerViewController: UIViewController {
 
         view.backgroundColor = .systemBackground
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
+        let cancelButton = UIBarButtonItem(
             title: "Cancel", style: .plain, target: self, action: #selector(cancel)
         )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let moveHereButton = UIBarButtonItem(
             title: "Move Here", style: .done, target: self, action: #selector(moveHere)
         )
+        // for ui tests
+        cancelButton.accessibilityIdentifier   = "folderPicker.cancelButton"
+        moveHereButton.accessibilityIdentifier = "folderPicker.moveHereButton"
+        navigationItem.leftBarButtonItem = cancelButton
+        navigationItem.rightBarButtonItem = moveHereButton
 
         tableView = UITableView(frame: view.bounds, style: .plain)
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tableView.delegate = self
         tableView.dataSource = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderCell")
+        tableView.accessibilityIdentifier = "folderPicker.folderList"
         view.addSubview(tableView)
 
         loadContents()
@@ -78,6 +84,7 @@ extension FolderPickerViewController: UITableViewDataSource {
         config.imageProperties.tintColor = UIColor.systemYellow
         cell.contentConfiguration = config
         cell.accessoryType = .disclosureIndicator
+        cell.accessibilityIdentifier = "folderPicker.row.\(items[indexPath.row].name)"
         return cell
     }
 }

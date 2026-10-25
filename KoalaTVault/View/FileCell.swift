@@ -96,6 +96,11 @@ final class FileCell: UICollectionViewCell {
         nameLabel.text       = item.name
         detailLabel.text     = item.isDirectory ? "" : formattedSize(item.fileSize)
 
+        // for ui tests
+        nameLabel.accessibilityIdentifier   = "browser.cell.\(item.name).nameLabel"
+        detailLabel.accessibilityIdentifier = "browser.cell.\(item.name).sizeLabel"
+        checkmark.accessibilityIdentifier   = "browser.cell.\(item.name).checkmark"
+
         thumbnailRequest = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 40, height: 40)) { [weak self] image in
             guard let self, let image else { return }
             self.iconView.image = image
