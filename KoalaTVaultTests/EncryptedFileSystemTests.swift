@@ -169,4 +169,45 @@ final class EncryptedFileSystemTests: VaultTestCase {
         CryptoService.shared.wipeKey()
         XCTAssertThrowsError(try FileSystem.shared.open(item))
     }
+
+    // MARK: - createDocument (baseline fix 13)
+    func testCreateDocumentUnderKeyWritesUUIDNamedSVC5FileAndMapEntry() throws {
+        let item = try FileSystem.shared.createDocument(named: "notes", in: testDirectory)
+
+        XCTAssertEqual(item.name, "notes.rtf")
+        XCTAssertTrue(item.isEncrypted)
+        let diskName = item.diskURL.lastPathComponent
+        XCTAssertNotNil(UUID(uuidString: diskName))
+        let bytes = try Data(contentsOf: item.diskURL)
+        XCTAssertEqual(Array(bytes.prefix(4)), [0x53, 0x56, 0x43, 0x35], "File starts with the SVC5 magic")
+        XCTAssertEqual(try FileSystem.shared.testMapping(in: testDirectory)[diskName]?.originalName, "notes.rtf")
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: testDirectory.diskURL.appendingPathComponent("notes.rtf").path))
+        XCTAssertEqual(try FileSystem.shared.contents(of: testDirectory).map(\.name), ["notes.rtf"])
+    }
+
+    func testCreateDocumentWithSameNameUnderKeyGetsNumberSuffix() throws {
+        _ = try FileSystem.shared.createDocument(named: "notes", in: testDirectory)
+        let second = try FileSystem.shared.createDocument(named: "notes", in: testDirectory)
+
+        XCTAssertEqual(second.name, "notes 1.rtf")
+        XCTAssertEqual(Set(try FileSystem.shared.contents(of: testDirectory).map(\.name)),
+                       ["notes.rtf", "notes 1.rtf"])
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: testDirectory.diskURL.appendingPathComponent("notes.rtf").path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: testDirectory.diskURL.appendingPathComponent("notes 1.rtf").path))
+    }
+
+    func testCreateDocumentWithoutLockNeverTruncatesExistingDocument() throws {
+        CryptoService.shared.wipeKey()
+        try? CryptoService.shared.wipeMasterKeyBlob()
+        let existing = testDirectory.diskURL.appendingPathComponent("notes.rtf")
+        try "precious".write(to: existing, atomically: true, encoding: .utf8)
+
+        let created = try FileSystem.shared.createDocument(named: "notes", in: testDirectory)
+
+        XCTAssertEqual(created.name, "notes 1.rtf")
+        XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "precious")
+    }
 }

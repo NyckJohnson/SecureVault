@@ -122,4 +122,41 @@ final class MigrationViewControllerTests: VaultTestCase {
 
         wait(for: [done], timeout: 10)
     }
+
+    // MARK: - Lock screen dismissed over the migration (baseline fix 15)
+    func testReappearingWhilePausedDoesNotRestartAndUnlockCompletesOnce() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        let url = testDirectory.diskURL.appendingPathComponent("file.txt")
+        try "content".write(to: url, atomically: true, encoding: .utf8)
+        CryptoService.shared.wipeKey()  // paused before any file is migrated
+
+        let done = expectation(description: "complete once")
+        done.assertForOverFulfill = true
+        var results: [Bool] = []
+        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+            results.append(completedFully)
+            done.fulfill()
+        }
+        _ = presentAndWait(sut, timeout: 1)
+        XCTAssertTrue(sut.testIsPaused)
+        let originalTask = try XCTUnwrap(sut.testMigrationTask)
+
+        sut.viewDidAppear(false)  // the lock screen was dismissed over this screen
+
+        XCTAssertEqual(sut.testMigrationTask, originalTask, "No second migration loop is started")
+        XCTAssertTrue(sut.testIsPaused)
+
+        try CryptoService.shared.unwrapMasterKey(with: "testpassword")
+        NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
+
+        wait(for: [done], timeout: 10)
+        let settle = expectation(description: "settle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { settle.fulfill() }
+        wait(for: [settle], timeout: 5)
+
+        XCTAssertEqual(results, [true])
+        XCTAssertTrue(sut.testFailedFileNames.isEmpty)
+        XCTAssertNil(sut.presentedViewController, "No failure alert")
+        XCTAssertTrue(try FileSystem.shared.filesToMigrate(toEncrypted: true, in: testDirectory).isEmpty)
+    }
 }

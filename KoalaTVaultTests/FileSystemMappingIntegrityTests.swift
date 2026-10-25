@@ -229,11 +229,11 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         XCTAssertEqual(secondPass.first?.item.name, "two.txt")
     }
 
-    // MARK: - sweepOrphanedEncryptedFiles: pre-auth safety
+    // MARK: - sweepOrphanedEncryptedFiles: key-not-loaded safety
     //
     // The critical invariant: the sweep must never delete files when it cannot read
     // the mapping. On an encrypted vault the mapping is ciphertext that can only be
-    // decoded after the user authenticates. If the sweep runs at launch — before auth
+    // decoded after the user authenticates. If the sweep runs with the key not loaded (locked, or no-lock mode)
     // — loadMapping throws, and the guard-let must bail rather than falling back to
     // an empty dict (which would make every encrypted file look like an orphan).
 
@@ -250,8 +250,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         let item = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first(where: { !$0.isDirectory }))
         XCTAssertTrue(item.isEncrypted)
 
-        // Wipe the key — this is the state the sweep runs in at app launch, before the
-        // user has authenticated. Without the key, loadMapping cannot decrypt the map.
+        // Wipe the key — the key-not-loaded state (locked, or no-lock mode).
+        // Without the key, loadMapping cannot decrypt the map.
         CryptoService.shared.wipeKey()
         XCTAssertFalse(CryptoService.shared.isKeyLoaded)
 
@@ -531,5 +531,25 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         let items = try FileSystem.shared.contents(of: testDirectory)
         XCTAssertTrue(items.contains { $0.name == "renamed-roundtrip.txt" && $0.isEncrypted })
+    }
+
+    // MARK: - sweepOrphanedEncryptedFiles: unreadable index (baseline fix 17)
+
+    func testSweepDeletesNothingWhenVaultMapIsUnreadableAndKeyIsLoaded() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        try corruptMapping()
+        let uuidFile = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
+        try "data".write(to: uuidFile, atomically: true, encoding: .utf8)
+        let namedFile = try createDummyFile(named: "plain.txt", in: testDirectory)
+        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: uuidFile.path),
+                      "An unreadable index means orphans can't be told from live files: delete nothing")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: namedFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mappingURL.path))
     }
 }
