@@ -89,9 +89,9 @@ final class PaywallViewController: UIViewController, ErrorPresenting {
     private func loadProduct() async {
         do {
             let products = try await Product.products(for: [EntitlementService.unlockProductID])
-            priceLabel.text = products.first?.displayPrice
+            priceLabel.text = products.first?.displayPrice ?? "Price unavailable"
         } catch {
-            priceLabel.text = nil
+            priceLabel.text = "Price unavailable"
         }
     }
 

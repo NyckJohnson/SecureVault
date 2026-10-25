@@ -14,7 +14,7 @@ Decisions by the human, 2026-10-24.
 | 5 | J5 testJourney5_UndecryptableFileShowsCantBeOpenedLabel | blank black page | "This file can't be opened." | fixed |
 | 6 | J5 testJourney5_EditorLoadFailureShowsErrorAndIsReadOnly | editable after a failed load | read-only | fixed |
 | 7 | J6 testJourney6_RestoreWithSameNameInFolderGetsNumberSuffix | error alert, item stays in trash (no lock) | restored as "alpha 1.rtf" | fixed |
-| 8 | J9 testJourney9_PriceUnavailableShowsMessageAndUnlockStillPresent | empty price label | "Price unavailable" | open (confirmed on iOS 18.6) |
+| 8 | J9 testJourney9_PriceUnavailableShowsMessageAndUnlockStillPresent | empty price label | "Price unavailable" | fixed |
 | 9 | J9 testJourney9_PendingPurchaseShowsApprovalAlertAndKeepsPaywall | alert "Purchase is pending approval." (EntitlementService.swift:16) | "Purchase pending approval." (the app changes to match the memo) | open |
 | 10 | J4 testJourney4_ChooseFolderOpensDocumentPickerAndCancelImportsNothing | iOS 18 only: SIGABRT after Cancel in the folder picker (`DOCWeakProxy`; picker delegate released early, ImportService.swift:62) | Cancel imports nothing | open |
 | 11 | (planned in memo Known issues) | "Remove Lock" leaves encrypted `.vault_map`s, then deletes the key | listings work after Remove Lock | open |
