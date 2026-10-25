@@ -24,8 +24,8 @@ Decisions by the human, 2026-10-24.
 | 15 | (planned) | migration screen starts a second loop when the lock screen is dismissed over it | one loop | fixed |
 | 16 | (planned) | folder picker Cancel keeps the pending (bulk) move; Move Here double-tap calls the delegate twice | Cancel clears it; one call | fixed |
 | 17 | (planned) | orphan sweep deletes extensionless UUID-named plaintext files in folders with no index | only sweeps encrypted, indexed folders | fixed |
-| 18 | (planned) | Info.plist leftovers (`NSFaceIDUsageDscription` typo) | tidy | open |
-| 19 | (planned, § Legacy code) | empty Base.lproj/Main.storyboard | deleted if nothing references it | open |
+| 18 | (planned) | Info.plist leftovers (`NSFaceIDUsageDscription` typo) | tidy | fixed |
+| 19 | (planned, § Legacy code) | empty Base.lproj/Main.storyboard | deleted if nothing references it | fixed |
 Row 4 also covers "a non-limit error alerts under the open picker".
 
 ## Environment
