@@ -17,6 +17,8 @@ final class FilePageViewController: UIViewController {
     private var imageView: UIImageView?
     private var scrollView: UIScrollView?
     private var resourceLoaderDelegate: VaultResourceLoaderDelegate?
+    private var playerItemStatusObservation: NSKeyValueObservation?  // invalidated when released
+    private var errorLabel: UILabel?
     
     init(item: VaultItem, viewer: FileViewerViewController) {
         self.item = item
@@ -55,8 +57,34 @@ final class FilePageViewController: UIViewController {
         viewer?.player?.pause()
     }
     
+    /// Shows "This file can't be opened." centred on the page (any load or decrypt failure).
+    private func showErrorLabel() {
+        guard errorLabel == nil else { return }
+        let label = UILabel()
+            label.text          = "This file can't be opened."
+            label.textColor     = .white
+            label.textAlignment = .center
+            label.numberOfLines = 0
+            label.font          = .preferredFont(forTextStyle: .body)
+            label.adjustsFontForContentSizeCategory = true
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.accessibilityIdentifier = "filePage.\(item.name).errorLabel"
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: view.layoutMarginsGuide.leadingAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: view.layoutMarginsGuide.trailingAnchor)
+        ])
+        errorLabel = label
+    }
+    
     private func setupImageView() {
-        guard let url = try? FileSystem.shared.open(item) else { return }
+        guard let url = try? FileSystem.shared.open(item),
+              let image = UIImage(contentsOfFile: url.path) else {
+            showErrorLabel()
+            return
+        }
         let scrollView = UIScrollView()
             scrollView.delegate         = self
             scrollView.minimumZoomScale = 1.0
@@ -76,7 +104,7 @@ final class FilePageViewController: UIViewController {
         
         let imageView = UIImageView()
             imageView.contentMode = .scaleAspectFit
-            imageView.image       = UIImage(contentsOfFile: url.path)
+            imageView.image       = image
             imageView.frame       = view.bounds
             imageView.accessibilityIdentifier = "filePage.\(item.name).imageView"
         
@@ -108,15 +136,24 @@ final class FilePageViewController: UIViewController {
         guard item.isEncrypted,
               let delegate = VaultResourceLoaderDelegate(encryptedURL: item.diskURL, fileExtension: ext) else {
             // Not encrypted (or streaming setup failed) — play directly.
-            guard let url = try? FileSystem.shared.open(item) else { return }
+            guard let url = try? FileSystem.shared.open(item) else {
+                showErrorLabel()
+                return
+            }
             installVideoPlayer(url: url)
             return
         }
 
         resourceLoaderDelegate = delegate
-        guard var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false) else { return }
+        guard var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false) else {
+            showErrorLabel()
+            return
+        }
         comps.scheme = "vault-stream"
-        guard let streamURL = comps.url else { return }
+        guard let streamURL = comps.url else {
+            showErrorLabel()
+            return
+        }
         let asset = AVURLAsset(url: streamURL)
         asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue(label: "com.KoalaTVault.resourceloader"))
         installVideoPlayer(url: nil, asset: asset)
@@ -129,7 +166,16 @@ final class FilePageViewController: UIViewController {
         } else if let url {
             playerItem = AVPlayerItem(url: url)
         } else {
+            showErrorLabel()
             return
+        }
+        // A file that can't be decoded (or decrypted while streaming) fails asynchronously.
+        playerItemStatusObservation = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.playerLayer?.isHidden = true
+                self?.showErrorLabel()
+            }
         }
         let player = AVPlayer(playerItem: playerItem)
         viewer?.player = player
@@ -151,6 +197,10 @@ final class FilePageViewController: UIViewController {
     
     private func setupQuickLook() {
         previewURL = try? FileSystem.shared.open(item)
+        guard previewURL != nil else {
+            showErrorLabel()
+            return
+        }
         let qlController = QLPreviewController()
         qlController.dataSource = self
         addChild(qlController)

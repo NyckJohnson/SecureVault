@@ -135,19 +135,21 @@ Each nested folder pushes a new picker with the same identifiers; query the topm
 
 | element | identifier | journey |
 | --- | --- | --- |
-| Page root view (image, QuickLook and rtf pages; also the black page left on failure) | `filePage.<name>` | 5 |
+| Page root view (image, QuickLook and rtf pages; also the page showing the failure label) | `filePage.<name>` | 5 |
 | Image page: zoom scroll view (pinch / double-tap here) | `filePage.<name>.scrollView` | 5 |
 | Image page: image view | `filePage.<name>.imageView` | 5 |
 | Video page: page root view hosting the `AVPlayerLayer` (replaces `filePage.<name>` once the player is installed) | `filePage.<name>.videoPlayer` | 5 |
 | QuickLook page: embedded `QLPreviewController` view | `filePage.<name>.quickLook` | 5 |
+| Failure label "This file can't be opened." (centred; shown when an image, video or QuickLook page can't be loaded or decrypted) | `filePage.<name>.errorLabel` | 5 |
 
 Notes for the journey tests:
 - **Neighbour pages.** `UIPageViewController` may keep the previous/next pages loaded, so several `filePage.*`
   elements can exist at once. Query by the name you expect (`viewer.titleLabel` tells you the current item).
 - **Video pages** have no player view (the video is a layer), so the page root carries `filePage.<name>.videoPlayer`
   instead of `filePage.<name>`. Match any page with `identifier BEGINSWITH "filePage.<name>"`.
-- **Failure label not in the app yet.** The memo's "This file can't be opened." does not exist today: a decrypt failure
-  leaves a blank black page (`filePage.<name>` with no `.imageView` image / no `.videoPlayer`). There is no
+- **Failure label.** A page that can't be loaded or decrypted shows "This file can't be opened."
+  (`filePage.<name>.errorLabel`, baseline fix 5). Image and QuickLook failures show it at once; a video that fails while
+  loading shows it once the player item fails (its page root may already be `filePage.<name>.videoPlayer`). There is no
   page-position label and no loading indicator other than `viewer.bufferingSpinner`.
 - **rtf pages** present the text editor from the page; after Done, the page is black (`filePage.<name>`, no content).
 - The viewer has no Edit or Delete buttons.

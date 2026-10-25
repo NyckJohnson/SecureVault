@@ -846,6 +846,7 @@ extension matching ignores case.
 - The text editor saves an empty document over the original after a failed load — TextEditor.swift:116-132 — fixed in baseline
 - Photo picker Cancel doesn't close the picker; a non-limit error alerts under the open picker — ImportService.swift:135-151 — fixed in baseline
 - The orphan sweep deletes extensionless UUID-named plaintext files in folders with no index — FileSystem.swift:733-752 — fixed in baseline
+- A viewer page that failed to load showed a blank page (QuickLook previewed the encrypted file) instead of "This file can't be opened." — FilePage.swift — fixed in baseline
 - Moving a folder into itself failed silently (`try?` in the picker delegate); other move errors were swallowed too — FileBrowser.swift (FolderPickerDelegate), FileSystem.swift (move) — fixed in baseline
 - A name with "/" (new folder, new document, rename) showed a raw system error instead of "Names can't contain /" — FileBrowser.swift:213-242, FileSystem.swift (createFolder, rename) — fixed in baseline
 - A key wipe (backgrounding) between an index load and save writes the index in plaintext, exposing names and making the folder unreadable after unlock — FileSystem.swift:669-680, :716-722, :874-879 — fixed in module VaultStore
