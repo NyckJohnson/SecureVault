@@ -558,12 +558,16 @@ nonisolated final class FileSystem: Sendable {
         let originalDir = URL(fileURLWithPath: entry.originalDirectoryURL)
         try FileManager.default.createDirectory(at: originalDir, withIntermediateDirectories: true)
 
-        let destination = originalDir.appendingPathComponent(entry.originalDiskName)
+        // An item with the same name may have appeared since deletion: restore as "name 1" etc.
+        let diskName    = resolvedName(for: entry.originalDiskName, in: originalDir)
+        let destination = originalDir.appendingPathComponent(diskName)
         try FileManager.default.moveItem(at: item.diskURL, to: destination)
 
         if entry.isEncrypted {
             var mapping = try loadMapping(from: originalDir)
-            mapping[entry.originalDiskName] = VaultMapping(originalName: entry.originalName)
+            let existingNames = mapping.values.map { $0.originalName }
+            let name = resolvedNameInMapping(for: entry.originalName, existingNames: existingNames)
+            mapping[diskName] = VaultMapping(originalName: name)
             try saveMapping(mapping, to: originalDir)
         }
 
