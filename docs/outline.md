@@ -845,7 +845,7 @@ extension matching ignores case.
 - Cancelling the folder picker keeps the pending bulk move, so a later single move moves the old selection — FileBrowser.swift:17-21, :485-497 — fixed in baseline
 - The text editor saves an empty document over the original after a failed load — TextEditor.swift:116-132 — fixed in baseline
 - Photo picker Cancel doesn't close the picker; a non-limit error alerts under the open picker — ImportService.swift:135-151 — fixed in baseline
-- The orphan sweep deletes extensionless UUID-named plaintext files in folders with no index — FileSystem.swift:733-752 — fixed in baseline
+- The orphan sweep deletes extensionless UUID-named plaintext files in folders with no index — FileSystem.swift:733-752 — fixed in baseline (sweeps only folders with a readable index, with the key loaded; runs after unlock instead of at launch; two legacy tests that asserted the old behaviour were updated)
 - On iOS 18, cancelling the document picker could crash (SIGABRT in DOCWeakProxy: the picker was released before a late XPC message); the service now holds the last picker until the next one replaces it — ImportService.swift — fixed in baseline
 - The pending-purchase alert read "Purchase is pending approval." instead of the specified "Purchase pending approval." — EntitlementService.swift:16 — fixed in baseline
 - The paywall showed a blank price on a load failure (now "Price unavailable"; the rest of the minor-UX line stays with its modules) — PaywallViewController.swift:83-90 — fixed in baseline

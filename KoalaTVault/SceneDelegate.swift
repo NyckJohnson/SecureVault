@@ -35,7 +35,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
 
         FileSystem.shared.cleanupTempFiles()
-        FileSystem.shared.sweepOrphanedEncryptedFiles(in: .root)
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
@@ -79,6 +78,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     private func handleVaultUnlocked() {
         purgeExpiredTrashIfUnlocked()
+        // After unlock, so the key is loaded and the folder indexes can be read.
+        // A no-op without the key (no-lock mode).
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: .root)
         guard let type = PreferencesService.shared.pendingMigrationType,
               let root = window?.rootViewController else { return }
         var topVC = root

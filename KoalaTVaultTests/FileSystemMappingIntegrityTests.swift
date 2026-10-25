@@ -319,15 +319,47 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
         defer { try? CryptoService.shared.wipeMasterKeyBlob() }
 
-        let orphanUUID = UUID().uuidString
-        let orphanURL = testDirectory.diskURL.appendingPathComponent(orphanUUID)
+        // The folder has a readable index that lacks this file's entry.
+        try writeEncryptedMapping([:], authenticating: mappingFileName, in: testDirectory)
+        let orphanURL = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
         try "orphan data".write(to: orphanURL, atomically: true, encoding: .utf8)
         XCTAssertTrue(FileManager.default.fileExists(atPath: orphanURL.path))
 
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path),
-                       "Orphaned UUID-named file must be removed by the sweep")
+                       "Orphaned UUID-named file in an indexed folder must be removed by the sweep")
+    }
+
+    func testSweepKeepsUUIDNamedFileInFolderWithNoIndex() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        // No .vault_map: this is plaintext user data, not an encrypted orphan.
+        let plainURL = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
+        try "plaintext data".write(to: plainURL, atomically: true, encoding: .utf8)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plainURL.path),
+                      "UUID-named file in a folder with no index must be kept")
+    }
+
+    func testSweepKeepsUnmappedUUIDFileWhenKeyIsNotLoaded() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        try writeEncryptedMapping([:], authenticating: mappingFileName, in: testDirectory)
+        let fileURL = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
+        try "data".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        CryptoService.shared.wipeKey()
+        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                      "Nothing may be deleted when the key is not loaded")
     }
 
     func testSweepKeepsMappedEncryptedFiles() throws {
@@ -363,15 +395,31 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         let subDir = testDirectory.diskURL.appendingPathComponent("subdir")
         try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+        let sub = VaultDirectory(name: "subdir", diskURL: subDir, rootURL: testDirectory.rootURL)
+        try writeEncryptedMapping([:], authenticating: mappingFileName, in: sub)
 
-        let orphanUUID = UUID().uuidString
-        let orphanURL = subDir.appendingPathComponent(orphanUUID)
+        let orphanURL = subDir.appendingPathComponent(UUID().uuidString)
         try "orphan".write(to: orphanURL, atomically: true, encoding: .utf8)
 
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path),
-                       "Orphaned UUID file inside a subdirectory must be removed")
+                       "Orphaned UUID file inside an indexed subdirectory must be removed")
+    }
+
+    func testSweepKeepsUUIDNamedFileInSubdirectoryWithNoIndex() throws {
+        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+
+        let subDir = testDirectory.diskURL.appendingPathComponent("subdir")
+        try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+        let plainURL = subDir.appendingPathComponent(UUID().uuidString)
+        try "plaintext".write(to: plainURL, atomically: true, encoding: .utf8)
+
+        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plainURL.path),
+                      "UUID-named file in a subdirectory with no index must be kept")
     }
 
     // MARK: - AAD fallback chain: backward-compatibility for maps from different code eras

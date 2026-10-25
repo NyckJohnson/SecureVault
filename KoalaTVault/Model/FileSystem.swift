@@ -857,13 +857,25 @@ nonisolated final class FileSystem: Sendable {
 
     /// Removes UUID-named encrypted files that have no mapping entry — orphans left by a
     /// process kill between `encryptFile` and `saveMapping`. Best-effort; runs at launch.
+    /// Only runs with the key loaded, and only deletes in folders that have a readable
+    /// `.vault_map`: a folder with no index holds plaintext files, which are never orphans.
     func sweepOrphanedEncryptedFiles(in directory: VaultDirectory) {
+        guard isEncryptionEnabled else { return }
         guard let diskFiles = try? FileManager.default.contentsOfDirectory(
             at: directory.diskURL, includingPropertiesForKeys: [.isDirectoryKey],
             options: .skipsHiddenFiles) else { return }
-        // If the mapping can't be read (e.g. key not loaded, corrupted), bail without deleting
-        // anything — we can't distinguish orphans from live encrypted files without it.
-        guard let mapping = try? loadMapping(from: directory.diskURL) else { return }
+        // No index in this folder: nothing here is an encrypted orphan, but subfolders may
+        // have their own index, so still recurse. If the index exists but can't be read
+        // (corrupted), bail without deleting anything — we can't tell orphans from live files.
+        let hasMapping = FileManager.default.fileExists(
+            atPath: directory.diskURL.appendingPathComponent(mappingFileName).path)
+        let mapping: [String: VaultMapping]?
+        if hasMapping {
+            guard let loaded = try? loadMapping(from: directory.diskURL) else { return }
+            mapping = loaded
+        } else {
+            mapping = nil
+        }
         let uuidPattern = #"^[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}$"#
         for url in diskFiles {
             let name = url.lastPathComponent
@@ -871,7 +883,8 @@ nonisolated final class FileSystem: Sendable {
             if isDir {
                 let sub = VaultDirectory(name: name, diskURL: url, rootURL: directory.rootURL)
                 sweepOrphanedEncryptedFiles(in: sub)
-            } else if name.range(of: uuidPattern, options: [.regularExpression, .caseInsensitive]) != nil,
+            } else if let mapping,
+                      name.range(of: uuidPattern, options: [.regularExpression, .caseInsensitive]) != nil,
                       mapping[name] == nil {
                 try? FileManager.default.removeItem(at: url)
             }
