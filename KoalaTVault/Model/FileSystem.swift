@@ -427,19 +427,25 @@ nonisolated final class FileSystem: Sendable {
     }
 
     func move(_ item: VaultItem, to directory: VaultDirectory) throws {
+        // Moving into the folder the item is already in changes nothing.
+        let sourceDir = item.diskURL.deletingLastPathComponent()
+        if sourceDir.standardizedFileURL.resolvingSymlinksInPath().path
+            == directory.diskURL.standardizedFileURL.resolvingSymlinksInPath().path {
+            return
+        }
         let name = resolvedName(for: item.diskURL.lastPathComponent, in: directory.diskURL)
         let destination = directory.diskURL.appendingPathComponent(name)
         if item.isEncrypted {
-            let sourceDir = item.diskURL.deletingLastPathComponent()
             var sourceMapping = try loadMapping(from: sourceDir)
             var destMapping = try loadMapping(from: directory.diskURL)
             let uuid = item.diskURL.lastPathComponent
-            if let entry = sourceMapping[uuid] {
-                let existingNames = destMapping.values.map { $0.originalName }
-                let resolvedOriginalName = resolvedNameInMapping(for: entry.originalName, existingNames: existingNames)
-                destMapping[uuid] = VaultMapping(originalName: resolvedOriginalName)
-                try saveMapping(destMapping, to: directory.diskURL)          // dest mapping first
-            }
+            // Without a source entry (index changed since listing) keep the listed name,
+            // so the moved file is never left unmapped for the orphan sweep.
+            let originalName = sourceMapping[uuid]?.originalName ?? item.name
+            let existingNames = destMapping.values.map { $0.originalName }
+            let resolvedOriginalName = resolvedNameInMapping(for: originalName, existingNames: existingNames)
+            destMapping[uuid] = VaultMapping(originalName: resolvedOriginalName)
+            try saveMapping(destMapping, to: directory.diskURL)              // dest mapping first
             try FileManager.default.moveItem(at: item.diskURL, to: destination) // then move
             sourceMapping.removeValue(forKey: uuid)
             try saveMapping(sourceMapping, to: sourceDir)                    // source mapping last
