@@ -17,6 +17,11 @@ final class ImportService: NSObject {
     private weak var presentingViewController: UIViewController?
     private var targetDirectory: VaultDirectory?
     private var completion: (() -> Void)?
+    /// The most recently presented picker. UIKit only holds a presented picker until it is dismissed, but on
+    /// iOS 18 the document picker's remote service can still send XPC messages to it right after
+    /// Cancel; if it has been deallocated, DocumentManager's `DOCWeakProxy` asserts and the app aborts.
+    /// We hold it until the next picker replaces it.
+    private var activePicker: UIViewController?
 
     override init() {}
 
@@ -53,6 +58,7 @@ final class ImportService: NSObject {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item])
         picker.delegate = self
         picker.allowsMultipleSelection = true
+        activePicker = picker
         viewController.present(picker, animated: true)
     }
 
@@ -61,6 +67,7 @@ final class ImportService: NSObject {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
         picker.delegate = self
         picker.allowsMultipleSelection = true
+        activePicker = picker
         viewController.present(picker, animated: true)
     }
 
@@ -84,6 +91,7 @@ final class ImportService: NSObject {
         config.filter = .any(of: [.images, .videos])
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
+        activePicker = picker
         viewController.present(picker, animated: true)
     }
 
