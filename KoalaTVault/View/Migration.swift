@@ -30,6 +30,9 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private let directory: VaultDirectory
     private var migrationTask: Task<Void, Never>?
+    /// Set when the closing index cleanup of a decrypt migration failed; a Skip then reports
+    /// the migration as not completed, so the key and lock are kept.
+    private var decryptCleanupFailed = false
 
     init(
         type: MigrationType,
@@ -143,7 +146,55 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
             progressBar.setProgress(Float(progress), animated: true)
             statusLabel.text = "\(Int(progress * 100))% complete"
         }
+        if type == .decrypt && failedFiles.isEmpty {
+            guard await finishDecryption() else { return }
+        }
         finishOrShowFailures()
+    }
+
+    /// Last step of a decrypt migration, run while the key is still loaded: decrypts any
+    /// encrypted file that appeared since the scan and deletes every folder's `.vault_map`,
+    /// so the vault lists once the key is removed. Returns false when the run stopped here
+    /// (paused for a key wipe, or the failure alert is shown); the caller must then not finish.
+    private func finishDecryption() async -> Bool {
+        guard CryptoService.shared.isKeyLoaded else {
+            pauseMigration()
+            return false
+        }
+        do {
+            try await Self.removeIndexes(in: directory)
+            decryptCleanupFailed = false
+            return true
+        } catch {
+            if !CryptoService.shared.isKeyLoaded {
+                // The key was wiped mid-cleanup; unlocking resumes it.
+                pauseMigration()
+            } else {
+                decryptCleanupFailed = true
+                presentCleanupFailure(error)
+            }
+            return false
+        }
+    }
+
+    @concurrent
+    private nonisolated static func removeIndexes(in directory: VaultDirectory) async throws {
+        try FileSystem.shared.migrateVaultToDecrypted(in: directory) { _ in }
+    }
+
+    private func presentCleanupFailure(_ error: Error) {
+        let alert = UIAlertController(
+            title: "Some Files Failed",
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+            self?.retryFailedFiles()
+        })
+        alert.addAction(UIAlertAction(title: "Skip", style: .default) { [weak self] _ in
+            self?.finishMigration()
+        })
+        present(alert, animated: true)
     }
 
     @concurrent
@@ -164,7 +215,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     }
 
     private func finishMigration() {
-        let completedFully = failedFiles.isEmpty
+        let completedFully = failedFiles.isEmpty && !decryptCleanupFailed
         if completedFully {
             PreferencesService.shared.pendingMigrationType = nil
             PreferencesService.shared.pendingMigrationTargetLockMode = nil

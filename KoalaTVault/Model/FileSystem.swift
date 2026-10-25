@@ -708,24 +708,34 @@ nonisolated final class FileSystem: Sendable {
         try FileManager.default.removeItem(at: item.diskURL)
     }
 
+    /// Decrypts every encrypted file left in `directory` and its subfolders, then deletes each
+    /// folder's `.vault_map`, so the vault lists with no key afterwards. Run with the key loaded
+    /// as the last step of a decrypt migration, before the key is removed.
+    /// A file that fails to decrypt throws and leaves its folder's index (and the indexes of the
+    /// folders not yet visited) in place, so nothing is left unreadable while the key is kept.
+    /// The hidden `.trash` folder is not visited.
     func migrateVaultToDecrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
-        let mapping = try loadMapping(from: directory.diskURL)
-        let total   = Double(mapping.count)
         let items   = try contents(of: directory).filter { !$0.isDirectory && $0.isEncrypted }
-        
+        let total   = Double(items.count)
+
         for (index, item) in items.enumerated() {
             try migrateFileToDecrypted(item, in: directory)
             if total > 0 { progress(Double(index + 1) / total) }
         }
 
+        // Every mapped file is now plaintext; any entries left point at missing files.
         let mapURL = directory.diskURL.appendingPathComponent(mappingFileName)
-        try? FileManager.default.removeItem(at: mapURL)
+        if FileManager.default.fileExists(atPath: mapURL.path) {
+            try FileManager.default.removeItem(at: mapURL)
+        }
 
-        let subdirs = (try? FileManager.default.contentsOfDirectory(
+        // Throws rather than skipping: an unvisited subfolder would keep an index the key
+        // removal then makes unreadable.
+        let subdirs = try FileManager.default.contentsOfDirectory(
             at: directory.diskURL,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: .skipsHiddenFiles
-        ))?.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true } ?? []
+        ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
 
         for subdir in subdirs {
             let subVaultDir = VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir, rootURL: directory.rootURL)

@@ -17,7 +17,7 @@ Decisions by the human, 2026-10-24.
 | 8 | J9 testJourney9_PriceUnavailableShowsMessageAndUnlockStillPresent | empty price label | "Price unavailable" | fixed |
 | 9 | J9 testJourney9_PendingPurchaseShowsApprovalAlertAndKeepsPaywall | alert "Purchase is pending approval." (EntitlementService.swift:16) | "Purchase pending approval." (the app changes to match the memo) | fixed |
 | 10 | J4 testJourney4_ChooseFolderOpensDocumentPickerAndCancelImportsNothing | iOS 18 only: SIGABRT after Cancel in the folder picker (`DOCWeakProxy`; picker delegate released early, ImportService.swift:62) | Cancel imports nothing | fixed |
-| 11 | (planned in memo Known issues) | "Remove Lock" leaves encrypted `.vault_map`s, then deletes the key | listings work after Remove Lock | open |
+| 11 | (planned in memo Known issues) | "Remove Lock" leaves encrypted `.vault_map`s, then deletes the key | listings work after Remove Lock | fixed |
 | 12 | (planned) | plaintext `.trash_map` unreadable once a lock is on | delete / Recently Deleted work after adding a lock | open |
 | 13 | (planned) | New Document writes an unencrypted, unindexed file in an encrypted vault; truncates a same-name document | encrypted + indexed, name conflict resolved (move the "/" check into FileSystem too) | open |
 | 14 | (planned) | 30-day trash purge never runs | purged after unlock (shell responsibility) | open |
