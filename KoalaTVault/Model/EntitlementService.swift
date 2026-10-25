@@ -13,7 +13,7 @@ enum EntitlementError: LocalizedError {
         switch self {
         case .purchaseFailed:     return "Purchase could not be completed."
         case .productUnavailable: return "Pro upgrade is currently unavailable."
-        case .purchasePending:    return "Purchase is pending approval."
+        case .purchasePending:    return "Purchase pending approval."
         case .verificationFailed: return "Could not verify purchase."
         }
     }

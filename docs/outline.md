@@ -846,6 +846,7 @@ extension matching ignores case.
 - The text editor saves an empty document over the original after a failed load — TextEditor.swift:116-132 — fixed in baseline
 - Photo picker Cancel doesn't close the picker; a non-limit error alerts under the open picker — ImportService.swift:135-151 — fixed in baseline
 - The orphan sweep deletes extensionless UUID-named plaintext files in folders with no index — FileSystem.swift:733-752 — fixed in baseline
+- The pending-purchase alert read "Purchase is pending approval." instead of the specified "Purchase pending approval." — EntitlementService.swift:16 — fixed in baseline
 - The paywall showed a blank price on a load failure (now "Price unavailable"; the rest of the minor-UX line stays with its modules) — PaywallViewController.swift:83-90 — fixed in baseline
 - Restoring into a folder with a same-named item failed (no lock) or duplicated the visible name (encrypted); now suffixed " 1" — FileSystem.swift (restoreFromTrash) — fixed in baseline
 - A viewer page that failed to load showed a blank page (QuickLook previewed the encrypted file) instead of "This file can't be opened." — FilePage.swift — fixed in baseline
