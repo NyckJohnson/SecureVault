@@ -202,4 +202,23 @@ class JourneyTestCase: XCTestCase {
     func dismissActionSheetByTappingOutside() {
         app.tap()
     }
+
+    // MARK: - Shared helpers for journeys 7-9 (additive)
+
+    /// Opens the Security settings sheet from the browser's gear.
+    func openSettings(file: StaticString = #filePath, line: UInt = #line) {
+        let gear = app.buttons["settingsButton"]
+        XCTAssertTrue(gear.waitForExistence(timeout: 10), "Settings gear missing", file: file, line: line)
+        gear.tap()
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 5),
+                      "Settings did not open", file: file, line: line)
+    }
+
+    /// Unlocks the lock screen with `password` and waits for the browser (journeys seeded with `UITEST_PASSWORD`).
+    func unlockWithPassword(_ password: String = JourneyTestCase.password,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        type(password, into: app.secureTextFields["passwordField"], file: file, line: line)
+        app.buttons["unlockButton"].tap()
+        waitForBrowser(file: file, line: line)
+    }
 }
