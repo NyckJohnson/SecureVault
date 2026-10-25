@@ -856,7 +856,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     /// Removes UUID-named encrypted files that have no mapping entry — orphans left by a
-    /// process kill between `encryptFile` and `saveMapping`. Best-effort; runs at launch.
+    /// process kill between `encryptFile` and `saveMapping`. Best-effort; runs after unlock.
     /// Only runs with the key loaded, and only deletes in folders that have a readable
     /// `.vault_map`: a folder with no index holds plaintext files, which are never orphans.
     func sweepOrphanedEncryptedFiles(in directory: VaultDirectory) {
