@@ -181,4 +181,39 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         cell("Box").tap()
         XCTAssertTrue(cell("inner.rtf").waitForExistence(timeout: 5), "The file should be inside the recreated folder")
     }
+
+    // MARK: - Regression: trash across adding a lock (baseline fix 12)
+
+    func testJourney6_TrashStaysReadableAfterAddingLock() {
+        createDocument(named: "A")
+        deleteViaContextMenu("A.rtf")
+
+        app.buttons["settingsButton"].tap()
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 5), "Settings did not open")
+        app.cells["settings.lockMode.passwordRow"].tap()
+        let setAlert = app.alerts["Set Password"]
+        XCTAssertTrue(setAlert.waitForExistence(timeout: 5), "Set Password alert missing")
+        type(Self.password, into: setAlert.secureTextFields["settings.passwordField"])
+        type(Self.password, into: setAlert.secureTextFields["settings.confirmPasswordField"])
+        tapAlertButton("Set", in: setAlert)
+        XCTAssertTrue(app.staticTexts["migration.titleLabel"].waitForNonExistence(timeout: 30), "Migration did not close")
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 10), "Settings should be back")
+        XCTAssertTrue(app.cells["settings.lockMode.passwordRow"].isSelected, "Password should be the lock mode")
+        dismissSettingsSheet()
+
+        createDocument(named: "B")
+        deleteViaContextMenu("B.rtf")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Deleting under a lock must not fail")
+
+        openRecentlyDeleted()
+        XCTAssertTrue(trashRow("A.rtf").waitForExistence(timeout: 5), "A.rtf (deleted before the lock) should be listed")
+        XCTAssertTrue(trashRow("B.rtf").exists, "B.rtf (deleted after the lock) should be listed")
+
+        trashRow("A.rtf").tap()
+        tapSheetButton("Restore")
+        XCTAssertTrue(trashRow("A.rtf").waitForNonExistence(timeout: 5), "A.rtf should leave the trash")
+        XCTAssertTrue(trashRow("B.rtf").exists)
+        leaveTrash()
+        XCTAssertTrue(cell("A.rtf").waitForExistence(timeout: 5), "A.rtf should be back in the grid")
+    }
 }

@@ -171,4 +171,33 @@ final class J8LockModeJourneyTests: JourneyTestCase {
         XCTAssertTrue(row("settings.lockMode.reEncryptRow").waitForExistence(timeout: 5),
                       "A skipped plaintext file should leave \"Re-encrypt Everything\" showing")
     }
+
+    // MARK: - Regression: Remove Lock with encrypted content (baseline fix 11)
+
+    func testJourney8_RemoveLockKeepsEncryptedFolderContentListable() {
+        start(password: true)
+        createFolderViaBar(named: "F")
+        cell("F").tap()
+        XCTAssertTrue(app.navigationBars["F"].waitForExistence(timeout: 5))
+        createDocument(named: "notes")
+        app.navigationBars["F"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+
+        openSettings()
+        row("settings.lockMode.noLockRow").tap()
+        let alert = app.alerts["Remove Lock?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "Remove Lock? alert missing")
+        tapAlertButton("Remove", in: alert)
+        waitForMigrationToClose()
+        XCTAssertFalse(app.alerts["Some Files Failed"].exists, "Removing the lock must not report failures")
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 10), "Settings should be back")
+        XCTAssertTrue(row("settings.lockMode.noLockRow").isSelected)
+        dismissSettingsSheet()
+
+        XCTAssertTrue(cell("F").waitForExistence(timeout: 5), "The root must still list F")
+        cell("F").tap()
+        XCTAssertTrue(app.navigationBars["F"].waitForExistence(timeout: 5))
+        XCTAssertTrue(cell("notes.rtf").waitForExistence(timeout: 5), "notes.rtf should be listed in F")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Listing F must not show an error. Alert: \(app.alerts.firstMatch.debugDescription)")
+    }
 }

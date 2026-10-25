@@ -132,3 +132,30 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
         waitForBrowser()
     }
 }
+
+/// Journey 5 regression (baseline fix 13): New Document in an encrypted vault is encrypted, indexed and conflict-safe.
+final class J5NewDocumentUnderLockJourneyTests: JourneyTestCase {
+
+    override var launchEnvironment: [String: String] { ["UITEST_PASSWORD": Self.password] }
+
+    override func setUp() {
+        super.setUp()
+        unlockWithPassword()
+    }
+
+    func testJourney5_NewDocumentUnderLockKeepsSameNameDocumentsAndText() {
+        createDocument(named: "notes", resultingFileName: "notes.rtf", text: "First text")
+        createDocument(named: "notes", resultingFileName: "notes 1.rtf")
+        XCTAssertTrue(cell("notes.rtf").exists, "The first document stays")
+        XCTAssertTrue(cell("notes 1.rtf").exists, "The second gets a numbered name")
+
+        cell("notes.rtf").tap()
+        XCTAssertTrue(app.navigationBars["notes.rtf"].waitForExistence(timeout: 5), "An .rtf opens the editor")
+        let textView = app.textViews["textEditor.textView"]
+        XCTAssertTrue(textView.waitForExistence(timeout: 5))
+        XCTAssertTrue((textView.value as? String ?? "").contains("First text"),
+                      "The first document must keep its text. Value: \(String(describing: textView.value))")
+        app.buttons["textEditor.doneButton"].tap()
+        XCTAssertTrue(app.navigationBars["notes.rtf"].waitForNonExistence(timeout: 5))
+    }
+}

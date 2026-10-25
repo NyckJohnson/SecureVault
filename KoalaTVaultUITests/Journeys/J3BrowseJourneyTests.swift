@@ -335,4 +335,71 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell(seedName).waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["browser.emptyStateLabel"].waitForExistence(timeout: 5))
     }
+
+    // MARK: - Regression: picker Cancel clears the pending move (baseline fix 16)
+
+    /// Makes documents A, B, C and a folder F at the root.
+    private func makeABCAndF() {
+        createDocument(named: "A")
+        createDocument(named: "B")
+        createDocument(named: "C")
+        createFolder(named: "F")
+    }
+
+    private func expectOnlyCMovedIntoF() {
+        XCTAssertTrue(cell("C.rtf").waitForNonExistence(timeout: 5), "C should leave the root")
+        XCTAssertTrue(cell("A.rtf").exists, "A must stay in the root")
+        XCTAssertTrue(cell("B.rtf").exists, "B must stay in the root")
+        cell("F").tap()
+        XCTAssertTrue(app.navigationBars["F"].waitForExistence(timeout: 5))
+        XCTAssertTrue(cell("C.rtf").waitForExistence(timeout: 5), "F should contain C")
+        XCTAssertFalse(cell("A.rtf").exists, "F must not contain A")
+        XCTAssertFalse(cell("B.rtf").exists, "F must not contain B")
+    }
+
+    func testJourney3_PickerCancelAfterBulkMoveClearsPendingMove() {
+        makeABCAndF()
+        enterSelectMode()
+        cell("A.rtf").tap()
+        cell("B.rtf").tap()
+        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
+        tapBarButton("browser.bulkMoveButton", fallbackLabel: "Move")
+        let cancel = app.buttons["folderPicker.cancelButton"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "The folder picker did not appear")
+        cancel.tap()
+        XCTAssertTrue(cancel.waitForNonExistence(timeout: 5))
+
+        app.buttons["browser.cancelSelectButton"].tap()
+        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+
+        openContextMenu(of: "C.rtf")
+        tapContextAction("browser.contextMenu.move", title: "Move")
+        pickMoveTarget("F")
+        expectOnlyCMovedIntoF()
+    }
+
+    func testJourney3_PickerSwipeDownAfterBulkMoveClearsPendingMove() throws {
+        makeABCAndF()
+        enterSelectMode()
+        cell("A.rtf").tap()
+        cell("B.rtf").tap()
+        tapBarButton("browser.bulkMoveButton", fallbackLabel: "Move")
+        let moveHere = app.buttons["folderPicker.moveHereButton"]
+        XCTAssertTrue(moveHere.waitForExistence(timeout: 5), "The folder picker did not appear")
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+            .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.0)))
+        if !moveHere.waitForNonExistence(timeout: 3) {
+            throw XCTSkip("XCUITest could not swipe the folder picker sheet away reliably")
+        }
+        if app.buttons["browser.cancelSelectButton"].waitForExistence(timeout: 3) {
+            app.buttons["browser.cancelSelectButton"].tap()
+        }
+        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+
+        openContextMenu(of: "C.rtf")
+        tapContextAction("browser.contextMenu.move", title: "Move")
+        pickMoveTarget("F")
+        expectOnlyCMovedIntoF()
+    }
 }

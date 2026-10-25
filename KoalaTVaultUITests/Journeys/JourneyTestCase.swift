@@ -221,4 +221,39 @@ class JourneyTestCase: XCTestCase {
         app.buttons["unlockButton"].tap()
         waitForBrowser(file: file, line: line)
     }
+
+    // MARK: - Shared helpers for the regression tests of baseline fixes (additive)
+
+    /// Like `createDocument`, for when the app resolves a name conflict: types `name`, expects the editor titled
+    /// `resultingFileName`, optionally types `text`, taps Done and waits for that cell.
+    func createDocument(named name: String, resultingFileName: String, text: String? = nil,
+                        file: StaticString = #filePath, line: UInt = #line) {
+        let button = app.navigationBars.buttons["browser.newDocumentButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "New Document button missing", file: file, line: line)
+        button.tap()
+        let alert = app.alerts["New Document"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Document alert missing", file: file, line: line)
+        type(name, into: alert.textFields["browser.newDocumentNameField"], file: file, line: line)
+        tapAlertButton("Create", in: alert, file: file, line: line)
+        XCTAssertTrue(app.navigationBars[resultingFileName].waitForExistence(timeout: 5),
+                      "Editor did not open titled \(resultingFileName)", file: file, line: line)
+        if let text {
+            type(text, into: app.textViews["textEditor.textView"], file: file, line: line)
+        }
+        app.buttons["textEditor.doneButton"].tap()
+        XCTAssertTrue(app.navigationBars[resultingFileName].waitForNonExistence(timeout: 5),
+                      "Editor did not close", file: file, line: line)
+        XCTAssertTrue(cell(resultingFileName).waitForExistence(timeout: 5),
+                      "\(resultingFileName) missing from grid", file: file, line: line)
+    }
+
+    /// Creates a folder through New Folder (the button may be in the overflow menu).
+    func createFolderViaBar(named name: String, file: StaticString = #filePath, line: UInt = #line) {
+        tapBarButton("newFolderButton", fallbackLabel: "New Folder", file: file, line: line)
+        let alert = app.alerts["New Folder"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Folder alert missing", file: file, line: line)
+        type(name, into: alert.textFields["browser.newFolderNameField"], file: file, line: line)
+        tapAlertButton("Create", in: alert, file: file, line: line)
+        XCTAssertTrue(cell(name).waitForExistence(timeout: 5), "Folder \(name) missing from grid", file: file, line: line)
+    }
 }
