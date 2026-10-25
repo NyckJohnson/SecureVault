@@ -233,23 +233,13 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             guard let self,
                   let name = alert.textFields?.first?.text,
                   !name.isEmpty else { return }
-            guard !name.contains("/") else {
-                self.showError(FileSystemError.invalidName)
+            let vaultItem: VaultItem
+            do {
+                vaultItem = try FileSystem.shared.createDocument(named: name, in: self.directory)
+            } catch {
+                self.showError(error)
                 return
             }
-            let fileName = name.hasSuffix(".rtf") ? name : "\(name).rtf"
-            let fileURL = self.directory.diskURL.appendingPathComponent(fileName)
-            FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-            let vaultItem = VaultItem(
-                id: UUID(),
-                name: fileName,
-                isDirectory: false,
-                dateModified: Date(),
-                fileSize: 0,
-                diskURL: fileURL,
-                rootURL: self.directory.rootURL,
-                isEncrypted: false
-            )
             let editor = TextEditorViewController(item: vaultItem)
             let nav = UINavigationController(rootViewController: editor)
             nav.modalPresentationStyle = .fullScreen

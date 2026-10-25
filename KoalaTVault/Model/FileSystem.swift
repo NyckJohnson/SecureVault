@@ -432,6 +432,39 @@ nonisolated final class FileSystem: Sendable {
         return VaultDirectory(name: folderName, diskURL: url, rootURL: directory.rootURL)
     }
 
+    /// Creates an empty rich-text document `<name>.rtf` in `directory` and returns it.
+    /// A taken name gets the " N" suffix; an existing document is never overwritten.
+    /// With a lock on, the file is an empty SVC5 file under a UUID with a `.vault_map` entry.
+    func createDocument(named name: String, in directory: VaultDirectory) throws -> VaultItem {
+        guard !name.contains("/") else { throw FileSystemError.invalidName }
+        let fileName = name.hasSuffix(".rtf") ? name : "\(name).rtf"
+        if isEncryptionEnabled {
+            var mapping = try loadMapping(from: directory.diskURL)
+            let resolved = resolvedNameInMapping(for: fileName, existingNames: mapping.values.map { $0.originalName })
+            let uuid = UUID().uuidString
+            let destination = directory.diskURL.appendingPathComponent(uuid)
+            let tempPlain = tempDir.appendingPathComponent(UUID().uuidString)
+            try Data().write(to: tempPlain)
+            defer { try? FileManager.default.removeItem(at: tempPlain) }
+            try CryptoService.shared.encryptFile(at: tempPlain, to: destination)  // file first
+            mapping[uuid] = VaultMapping(originalName: resolved)
+            do {
+                try saveMapping(mapping, to: directory.diskURL)                    // then the index
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                throw error
+            }
+            return VaultItem(id: UUID(), name: resolved, isDirectory: false, dateModified: Date(), fileSize: 0,
+                             diskURL: destination, rootURL: directory.rootURL, isEncrypted: true)
+        } else {
+            let resolved = resolvedName(for: fileName, in: directory.diskURL)
+            let destination = directory.diskURL.appendingPathComponent(resolved)
+            try Data().write(to: destination, options: .withoutOverwriting)
+            return VaultItem(id: UUID(), name: resolved, isDirectory: false, dateModified: Date(), fileSize: 0,
+                             diskURL: destination, rootURL: directory.rootURL, isEncrypted: false)
+        }
+    }
+
     func move(_ item: VaultItem, to directory: VaultDirectory) throws {
         // Moving into the folder the item is already in changes nothing.
         let sourceDir = item.diskURL.deletingLastPathComponent()
