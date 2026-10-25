@@ -57,6 +57,7 @@ final class FileViewerViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        view.accessibilityIdentifier = "viewer"
         setupPageViewController()
         setupNavBar()
         setupVideoControls()
@@ -78,6 +79,7 @@ final class FileViewerViewController: UIViewController {
         view.addSubview(pageViewController.view)
         pageViewController.view.frame = view.bounds
         pageViewController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        pageViewController.view.accessibilityIdentifier = "viewer.pager"
         pageViewController.didMove(toParent: self)
         
         let tap = UITapGestureRecognizer(target: self, action: #selector(toggleNavBar))
@@ -88,17 +90,20 @@ final class FileViewerViewController: UIViewController {
     private func setupNavBar() {
         navBar.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         navBar.translatesAutoresizingMaskIntoConstraints = false
+        navBar.accessibilityIdentifier = "viewer.topBar"
         view.addSubview(navBar)
         
         closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         closeButton.tintColor = .white
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.accessibilityIdentifier = "viewer.closeButton"
         
         titleLabel.textColor     = .white
         titleLabel.font          = .preferredFont(forTextStyle: .headline)
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.accessibilityIdentifier = "viewer.titleLabel"
         
         navBar.addSubview(closeButton)
         navBar.addSubview(titleLabel)
@@ -108,6 +113,7 @@ final class FileViewerViewController: UIViewController {
         exportButton.tintColor = .white
         exportButton.addTarget(self, action: #selector(exportCurrent), for: .touchUpInside)
         exportButton.translatesAutoresizingMaskIntoConstraints = false
+        exportButton.accessibilityIdentifier = "viewer.shareButton"
         navBar.addSubview(exportButton)
         
         NSLayoutConstraint.activate([
@@ -136,6 +142,7 @@ final class FileViewerViewController: UIViewController {
     private func setupVideoControls() {
         videoControls.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         videoControls.translatesAutoresizingMaskIntoConstraints = false
+        videoControls.accessibilityIdentifier = "viewer.videoControls"
         view.addSubview(videoControls)
 
         let buttonConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .regular)
@@ -144,31 +151,37 @@ final class FileViewerViewController: UIViewController {
         skipBackButton.tintColor = .white
         skipBackButton.addTarget(self, action: #selector(skipBack), for: .touchUpInside)
         skipBackButton.translatesAutoresizingMaskIntoConstraints = false
+        skipBackButton.accessibilityIdentifier = "viewer.skipBackButton"
 
         playPauseButton.setImage(UIImage(systemName: "play.fill", withConfiguration: buttonConfig), for: .normal)
         playPauseButton.tintColor = .white
         playPauseButton.addTarget(self, action: #selector(togglePlayPause), for: .touchUpInside)
         playPauseButton.translatesAutoresizingMaskIntoConstraints = false
+        playPauseButton.accessibilityIdentifier = "viewer.playPauseButton"
 
         skipForwardButton.setImage(UIImage(systemName: "goforward.10", withConfiguration: buttonConfig), for: .normal)
         skipForwardButton.tintColor = .white
         skipForwardButton.addTarget(self, action: #selector(skipForward), for: .touchUpInside)
         skipForwardButton.translatesAutoresizingMaskIntoConstraints = false
+        skipForwardButton.accessibilityIdentifier = "viewer.skipForwardButton"
 
         currentTimeLabel.text = "0:00"
         currentTimeLabel.textColor = .white
         currentTimeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         currentTimeLabel.translatesAutoresizingMaskIntoConstraints = false
+        currentTimeLabel.accessibilityIdentifier = "viewer.currentTimeLabel"
 
         totalTimeLabel.text = "0:00"
         totalTimeLabel.textColor = .white
         totalTimeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         totalTimeLabel.translatesAutoresizingMaskIntoConstraints = false
+        totalTimeLabel.accessibilityIdentifier = "viewer.totalTimeLabel"
 
         // buffer background track
         bufferView.backgroundColor = UIColor.white.withAlphaComponent(0.3)
         bufferView.layer.cornerRadius = 1
         bufferView.translatesAutoresizingMaskIntoConstraints = false
+        bufferView.accessibilityIdentifier = "viewer.bufferIndicator"
 
         scrubber.minimumValue = 0
         scrubber.maximumValue = 1
@@ -180,10 +193,12 @@ final class FileViewerViewController: UIViewController {
         scrubber.addTarget(self, action: #selector(scrubberValueChanged), for: .valueChanged)
         scrubber.addTarget(self, action: #selector(scrubberTouchEnded), for: [.touchUpInside, .touchUpOutside])
         scrubber.translatesAutoresizingMaskIntoConstraints = false
+        scrubber.accessibilityIdentifier = "viewer.scrubber"
 
         spinner.tintColor = .white
         spinner.hidesWhenStopped = true
         spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.accessibilityIdentifier = "viewer.bufferingSpinner"
 
         videoControls.addSubview(bufferView)
         videoControls.addSubview(scrubber)

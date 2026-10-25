@@ -108,3 +108,68 @@ Each nested folder pushes a new picker with the same identifiers; query the topm
 | element | identifier | journey |
 | --- | --- | --- |
 | Privacy cover (full-window view with lock icon, shown while inactive) | `privacyCover` | 2 |
+
+## File viewer (`KoalaTVault/View/FileViewer.swift`)
+
+| element | identifier | journey |
+| --- | --- | --- |
+| Viewer root view (full-screen, black) | `viewer` | 5, 7 |
+| Paging container (`UIPageViewController` view; swipe here) | `viewer.pager` | 5 |
+| Top bar (X, title, share; tap the pager toggles its alpha) | `viewer.topBar` | 5 |
+| Close (X) button | `viewer.closeButton` | 5 |
+| Title label (current item's name) | `viewer.titleLabel` | 5 |
+| Share button | `viewer.shareButton` | 7 |
+| Video controls bar (hidden unless the current item is a video) | `viewer.videoControls` | 5 |
+| Play/pause button | `viewer.playPauseButton` | 5 |
+| Skip back 10 s button | `viewer.skipBackButton` | 5 |
+| Skip forward 10 s button | `viewer.skipForwardButton` | 5 |
+| Scrubber (slider) | `viewer.scrubber` | 5 |
+| Current time label ("0:00") | `viewer.currentTimeLabel` | 5 |
+| Total time label | `viewer.totalTimeLabel` | 5 |
+| Buffer indicator track | `viewer.bufferIndicator` | 5 |
+| Buffering spinner (only while stalled) | `viewer.bufferingSpinner` | 5 |
+
+## File page (`KoalaTVault/View/FilePage.swift`)
+
+`<name>` = the item's displayed name, extension included (same as `browser.cell.<name>`).
+
+| element | identifier | journey |
+| --- | --- | --- |
+| Page root view (image, QuickLook and rtf pages; also the black page left on failure) | `filePage.<name>` | 5 |
+| Image page: zoom scroll view (pinch / double-tap here) | `filePage.<name>.scrollView` | 5 |
+| Image page: image view | `filePage.<name>.imageView` | 5 |
+| Video page: page root view hosting the `AVPlayerLayer` (replaces `filePage.<name>` once the player is installed) | `filePage.<name>.videoPlayer` | 5 |
+| QuickLook page: embedded `QLPreviewController` view | `filePage.<name>.quickLook` | 5 |
+
+Notes for the journey tests:
+- **Neighbour pages.** `UIPageViewController` may keep the previous/next pages loaded, so several `filePage.*`
+  elements can exist at once. Query by the name you expect (`viewer.titleLabel` tells you the current item).
+- **Video pages** have no player view (the video is a layer), so the page root carries `filePage.<name>.videoPlayer`
+  instead of `filePage.<name>`. Match any page with `identifier BEGINSWITH "filePage.<name>"`.
+- **Failure label not in the app yet.** The memo's "This file can't be opened." does not exist today: a decrypt failure
+  leaves a blank black page (`filePage.<name>` with no `.imageView` image / no `.videoPlayer`). There is no
+  page-position label and no loading indicator other than `viewer.bufferingSpinner`.
+- **rtf pages** present the text editor from the page; after Done, the page is black (`filePage.<name>`, no content).
+- The viewer has no Edit or Delete buttons.
+
+## Text editor (`KoalaTVault/View/TextEditor.swift`)
+
+| element | identifier | journey |
+| --- | --- | --- |
+| Editor root view | `textEditor` | 3, 5 |
+| Text view | `textEditor.textView` | 3, 5 |
+| Done (right bar button) | `textEditor.doneButton` | 3, 5 |
+| Formatting toolbar (keyboard accessory; only while the keyboard is up) | `textEditor.formattingToolbar` | 5 |
+| Bold | `textEditor.boldButton` | 5 |
+| Italic | `textEditor.italicButton` | 5 |
+| Underline | `textEditor.underlineButton` | 5 |
+| Decrease font size | `textEditor.decreaseFontSizeButton` | 5 |
+| Increase font size | `textEditor.increaseFontSizeButton` | 5 |
+| Align left | `textEditor.alignLeftButton` | 5 |
+| Align centre | `textEditor.alignCenterButton` | 5 |
+| Align right | `textEditor.alignRightButton` | 5 |
+
+Notes for the journey tests:
+- There is no Cancel button; Done saves and dismisses. The navigation title is the item's name:
+  `app.navigationBars["<name>"]`.
+- A load failure shows an alert (find its OK button by label); the memo's read-only mode does not exist yet.

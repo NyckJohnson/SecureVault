@@ -28,6 +28,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        view.accessibilityIdentifier = "textEditor"
         title = item.name
         setupNavigationBar()
         setupTextView()
@@ -49,11 +50,13 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Setup
     private func setupNavigationBar() {
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let doneButton = UIBarButtonItem(
             barButtonSystemItem: .done,
             target: self,
             action: #selector(dismissEditor)
         )
+        doneButton.accessibilityIdentifier = "textEditor.doneButton"
+        navigationItem.rightBarButtonItem = doneButton
     }
 
     private func setupTextView() {
@@ -62,6 +65,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         textView.allowsEditingTextAttributes = true
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.delegate = self
+        textView.accessibilityIdentifier = "textEditor.textView"
         view.addSubview(textView)
 
         NSLayoutConstraint.activate([
@@ -75,6 +79,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
     private func setupFormattingToolbar() {
         toolbar = UIToolbar()
         toolbar.sizeToFit()
+        toolbar.accessibilityIdentifier = "textEditor.formattingToolbar"
 
         let bold = UIBarButtonItem(image: UIImage(systemName: "bold"), style: .plain, target: self, action: #selector(toggleBold))
         let italic = UIBarButtonItem(
@@ -92,6 +97,14 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
         let alignRight = UIBarButtonItem(
             image: UIImage(systemName: "text.alignright"), style: .plain, target: self, action: #selector(alignRight))
         let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+        bold.accessibilityIdentifier = "textEditor.boldButton"
+        italic.accessibilityIdentifier = "textEditor.italicButton"
+        underline.accessibilityIdentifier = "textEditor.underlineButton"
+        decreaseFontSize.accessibilityIdentifier = "textEditor.decreaseFontSizeButton"
+        increaseFontSize.accessibilityIdentifier = "textEditor.increaseFontSizeButton"
+        alignLeft.accessibilityIdentifier = "textEditor.alignLeftButton"
+        alignCenter.accessibilityIdentifier = "textEditor.alignCenterButton"
+        alignRight.accessibilityIdentifier = "textEditor.alignRightButton"
 
         toolbar.items = [bold, italic, underline, flex, decreaseFontSize, increaseFontSize, flex, alignLeft, alignCenter, alignRight]
         textView.inputAccessoryView = toolbar

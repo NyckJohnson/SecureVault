@@ -29,6 +29,7 @@ final class FilePageViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        view.accessibilityIdentifier = "filePage.\(item.name)"
         let ext = (item.name as NSString).pathExtension.lowercased()
         switch FileKind(extension: ext) {
         case .image:
@@ -63,6 +64,7 @@ final class FilePageViewController: UIViewController {
             scrollView.showsVerticalScrollIndicator   = false
             scrollView.showsHorizontalScrollIndicator = false
             scrollView.translatesAutoresizingMaskIntoConstraints = false
+            scrollView.accessibilityIdentifier = "filePage.\(item.name).scrollView"
         view.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
@@ -76,6 +78,7 @@ final class FilePageViewController: UIViewController {
             imageView.contentMode = .scaleAspectFit
             imageView.image       = UIImage(contentsOfFile: url.path)
             imageView.frame       = view.bounds
+            imageView.accessibilityIdentifier = "filePage.\(item.name).imageView"
         
         scrollView.addSubview(imageView)
         scrollView.contentSize = view.bounds.size
@@ -136,6 +139,7 @@ final class FilePageViewController: UIViewController {
         layer.frame = view.bounds
         view.layer.addSublayer(layer)
         playerLayer = layer
+        view.accessibilityIdentifier = "filePage.\(item.name).videoPlayer"
     }
     
     private func openInTextEditor() {
@@ -153,6 +157,7 @@ final class FilePageViewController: UIViewController {
         view.addSubview(qlController.view)
         qlController.view.frame = view.bounds
         qlController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        qlController.view.accessibilityIdentifier = "filePage.\(item.name).quickLook"
         qlController.didMove(toParent: self)
         qlController.reloadData()
     }
