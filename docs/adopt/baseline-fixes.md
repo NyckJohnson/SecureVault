@@ -22,7 +22,7 @@ Decisions by the human, 2026-10-24.
 | 13 | (planned) | New Document writes an unencrypted, unindexed file in an encrypted vault; truncates a same-name document | encrypted + indexed, name conflict resolved (move the "/" check into FileSystem too) | fixed |
 | 14 | (planned) | 30-day trash purge never runs | purged after unlock (shell responsibility) | fixed |
 | 15 | (planned) | migration screen starts a second loop when the lock screen is dismissed over it | one loop | fixed |
-| 16 | (planned) | folder picker Cancel keeps the pending (bulk) move; Move Here double-tap calls the delegate twice | Cancel clears it; one call | open |
+| 16 | (planned) | folder picker Cancel keeps the pending (bulk) move; Move Here double-tap calls the delegate twice | Cancel clears it; one call | fixed |
 | 17 | (planned) | orphan sweep deletes extensionless UUID-named plaintext files in folders with no index | only sweeps encrypted, indexed folders | open |
 | 18 | (planned) | Info.plist leftovers (`NSFaceIDUsageDscription` typo) | tidy | open |
 | 19 | (planned, § Legacy code) | empty Base.lproj/Main.storyboard | deleted if nothing references it | open |

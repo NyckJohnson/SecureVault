@@ -9,6 +9,8 @@ import UIKit
 
 protocol FolderPickerDelegate: AnyObject {
     func folderPicker(_ picker: FolderPickerViewController, didSelectFolder directory: VaultDirectory)
+    /// Called once when the picker closes without a choice (Cancel, at any level, or swipe-down).
+    func folderPickerDidCancel(_ picker: FolderPickerViewController)
 }
 
 final class FolderPickerViewController: UIViewController {
@@ -18,6 +20,8 @@ final class FolderPickerViewController: UIViewController {
     private let currentDirectory: VaultDirectory
     private var items: [VaultItem] = []
     private var tableView: UITableView!
+    /// Set on the first Move Here or Cancel, so a double-tap can't tell the delegate twice.
+    private var didFinish = false
     
     init(rootDirectory: VaultDirectory, currentDirectory: VaultDirectory) {
         self.rootDirectory = rootDirectory
@@ -62,10 +66,17 @@ final class FolderPickerViewController: UIViewController {
     }
     
     @objc private func cancel() {
-        dismiss(animated: true)
+        guard !didFinish else { return }
+        didFinish = true
+        let delegate = delegate
+        dismiss(animated: true) {
+            delegate?.folderPickerDidCancel(self)
+        }
     }
     
     @objc private func moveHere() {
+        guard !didFinish else { return }
+        didFinish = true
         // Tell the delegate after the sheet is gone, so it can present an error alert.
         let delegate = delegate
         let directory = currentDirectory

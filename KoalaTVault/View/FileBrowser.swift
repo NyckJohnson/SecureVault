@@ -284,6 +284,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     @objc private func bulkMove() {
         guard !selectedItems.isEmpty else { return }
         let itemsToMove = Array(selectedItems)
+        itemPendingMove = nil
         itemsPendingBulkAction = itemsToMove
         guard let firstItem = itemsToMove.first else { return }
         presentFolderPicker(for: firstItem)
@@ -313,6 +314,8 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         picker.delegate = self
         let nav = UINavigationController(rootViewController: picker)
         nav.modalPresentationStyle = .formSheet
+        // Swipe-down dismissal clears the pending move like Cancel does.
+        nav.presentationController?.delegate = self
         navigationController?.present(nav, animated: true)
     }
     
@@ -473,6 +476,7 @@ extension FileBrowserViewController: UICollectionViewDelegate {
                 identifier: UIAction.Identifier("browser.contextMenu.move")
             ) { [weak self] _ in
                 guard let self else { return }
+                self.itemsPendingBulkAction = nil
                 self.itemPendingMove = item
                 self.pendingAction = { self.presentFolderPicker(for: item) }
             }
@@ -539,6 +543,23 @@ extension FileBrowserViewController: FolderPickerDelegate {
             }
         }
         loadContents()
+    }
+
+    func folderPickerDidCancel(_ picker: FolderPickerViewController) {
+        clearPendingMove()
+    }
+
+    /// One pending move at a time: cancelling the picker drops it (select mode and its selection stay).
+    private func clearPendingMove() {
+        itemPendingMove = nil
+        itemsPendingBulkAction = nil
+    }
+}
+
+// MARK: - UIAdaptivePresentationControllerDelegate
+extension FileBrowserViewController: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        clearPendingMove()
     }
 }
 
