@@ -53,6 +53,7 @@ struct VaultMapping: Codable {
 enum FileSystemError: Error, LocalizedError {
     case mappingUnreadable
     case fileLimitReached
+    case invalidName
 
     var errorDescription: String? {
         switch self {
@@ -60,6 +61,8 @@ enum FileSystemError: Error, LocalizedError {
             return "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."
         case .fileLimitReached:
             return "You've reached the 100-file limit. Unlock more storage to continue importing."
+        case .invalidName:
+            return "Names can't contain /"
         }
     }
 }
@@ -416,6 +419,7 @@ nonisolated final class FileSystem: Sendable {
 
     // MARK: - Manage
     func createFolder(named name: String, in directory: VaultDirectory) throws -> VaultDirectory {
+        guard !name.contains("/") else { throw FileSystemError.invalidName }
         let folderName = resolvedName(for: name, in: directory.diskURL)
         let url = directory.diskURL.appendingPathComponent(folderName)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
@@ -462,6 +466,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     func rename(_ item: VaultItem, to name: String) throws {
+        guard !name.contains("/") else { throw FileSystemError.invalidName }
         if item.isEncrypted {
             let uuid = item.diskURL.lastPathComponent
             let dir = item.diskURL.deletingLastPathComponent()

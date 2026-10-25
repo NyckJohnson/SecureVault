@@ -233,6 +233,10 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             guard let self,
                   let name = alert.textFields?.first?.text,
                   !name.isEmpty else { return }
+            guard !name.contains("/") else {
+                self.showError(FileSystemError.invalidName)
+                return
+            }
             let fileName = name.hasSuffix(".rtf") ? name : "\(name).rtf"
             let fileURL = self.directory.diskURL.appendingPathComponent(fileName)
             FileManager.default.createFile(atPath: fileURL.path, contents: nil)
