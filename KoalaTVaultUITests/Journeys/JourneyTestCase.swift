@@ -124,4 +124,82 @@ class JourneyTestCase: XCTestCase {
         tapAlertButton("OK", in: alert, file: file, line: line)
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5), "Alert did not close", file: file, line: line)
     }
+
+    // MARK: - Shared helpers for journeys 4-6 (additive)
+
+    /// Long-presses a grid cell to open its context menu.
+    func longPressCell(_ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        let target = cell(name)
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "No cell for \(name)", file: file, line: line)
+        target.press(forDuration: 1.5)
+    }
+
+    /// Taps a context-menu action by identifier, falling back to its title (identifiers are not
+    /// exposed for context menus on iOS 26.5).
+    func tapMenuAction(_ identifier: String, title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let byId = app.buttons[identifier]
+        if byId.waitForExistence(timeout: 2) { byId.tap(); return }
+        let byTitle = app.buttons[title]
+        XCTAssertTrue(byTitle.waitForExistence(timeout: 3), "Context menu action \(title) missing",
+                      file: file, line: line)
+        byTitle.tap()
+    }
+
+    /// Creates a document through New Document and closes the editor with Done. Returns once the cell shows.
+    func createDocument(named name: String, text: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        let button = app.navigationBars.buttons["browser.newDocumentButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "New Document button missing", file: file, line: line)
+        button.tap()
+        let alert = app.alerts["New Document"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Document alert missing", file: file, line: line)
+        type(name, into: alert.textFields["browser.newDocumentNameField"], file: file, line: line)
+        tapAlertButton("Create", in: alert, file: file, line: line)
+        let fileName = name.hasSuffix(".rtf") ? name : "\(name).rtf"
+        XCTAssertTrue(app.navigationBars[fileName].waitForExistence(timeout: 5), "Editor did not open", file: file, line: line)
+        if let text {
+            type(text, into: app.textViews["textEditor.textView"], file: file, line: line)
+        }
+        app.buttons["textEditor.doneButton"].tap()
+        XCTAssertTrue(app.navigationBars[fileName].waitForNonExistence(timeout: 5), "Editor did not close", file: file, line: line)
+        XCTAssertTrue(cell(fileName).waitForExistence(timeout: 5), "\(fileName) missing from grid", file: file, line: line)
+    }
+
+    /// Deletes a grid item through its context menu and the confirm alert.
+    func deleteViaContextMenu(_ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        longPressCell(name, file: file, line: line)
+        tapMenuAction("browser.contextMenu.delete", title: "Delete", file: file, line: line)
+        let alert = app.alerts["Delete \"\(name)\"?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "Delete confirm missing for \(name)", file: file, line: line)
+        tapAlertButton("Delete", in: alert, file: file, line: line)
+        XCTAssertTrue(cell(name).waitForNonExistence(timeout: 5), "\(name) still in grid", file: file, line: line)
+    }
+
+    /// Settings gear -> Recently Deleted.
+    func openRecentlyDeleted(file: StaticString = #filePath, line: UInt = #line) {
+        app.buttons["settingsButton"].tap()
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 5), "Settings did not open", file: file, line: line)
+        let row = app.cells["settings.recentlyDeletedRow"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Recently Deleted row missing", file: file, line: line)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Recently Deleted"].waitForExistence(timeout: 5),
+                      "Recently Deleted did not open", file: file, line: line)
+    }
+
+    /// Dismisses the settings form sheet (it has no close button) and waits for the browser.
+    func dismissSettingsSheet(file: StaticString = #filePath, line: UInt = #line) {
+        app.navigationBars.firstMatch.swipeDown(velocity: .fast)
+        if !app.collectionViews["fileGrid"].buttons.firstMatch.exists {
+            // swipe from the nav bar can miss; drag the sheet by its top edge
+            let top = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+            top.press(forDuration: 0.1, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.0)))
+        }
+        XCTAssertTrue(app.buttons["settingsButton"].waitForExistence(timeout: 5) && app.buttons["settingsButton"].isHittable,
+                      "Settings sheet did not dismiss", file: file, line: line)
+    }
+
+    /// Dismisses an action sheet by tapping the dimmed area outside it. iOS 26.5 does not expose a
+    /// `UIAlertAction` Cancel button of an action sheet to XCUITest, so this is how Cancel is exercised.
+    func dismissActionSheetByTappingOutside() {
+        app.tap()
+    }
 }
