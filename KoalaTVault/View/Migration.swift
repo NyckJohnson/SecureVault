@@ -30,6 +30,8 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private let directory: VaultDirectory
     private var migrationTask: Task<Void, Never>?
+    /// True while a `runMigration` loop is executing; at most one loop runs per screen.
+    private var isLoopRunning = false
     /// Set when the closing index cleanup of a decrypt migration failed; a Skip then reports
     /// the migration as not completed, so the key and lock are kept.
     private var decryptCleanupFailed = false
@@ -68,6 +70,9 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // Appears again when a lock screen is dismissed over it; the migration is already
+        // under way then (running or paused), and unlocking resumes it via vaultUnlocked.
+        guard migrationTask == nil else { return }
         startMigration()
     }
 
@@ -130,6 +135,9 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     /// Migrates remaining files one at a time. State stays on the main actor;
     /// only the file I/O runs in the background.
     private func runMigration() async {
+        guard !isLoopRunning else { return }
+        isLoopRunning = true
+        defer { isLoopRunning = false }
         while currentIndex < filesToMigrate.count {
             guard CryptoService.shared.isKeyLoaded else {
                 pauseMigration()
@@ -270,7 +278,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     }
 
     @objc private func vaultUnlocked() {
-        guard isPaused else { return }
+        guard isPaused, !isLoopRunning else { return }
         isPaused = false
         beginBackgroundTask()
         migrationTask = Task { await runMigration() }

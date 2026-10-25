@@ -725,8 +725,10 @@ nonisolated final class FileSystem: Sendable {
 
         // Every mapped file is now plaintext; any entries left point at missing files.
         let mapURL = directory.diskURL.appendingPathComponent(mappingFileName)
-        if FileManager.default.fileExists(atPath: mapURL.path) {
+        do {
             try FileManager.default.removeItem(at: mapURL)
+        } catch CocoaError.fileNoSuchFile {
+            // Already gone (no index here, or removed by an earlier run): nothing to do.
         }
 
         // Throws rather than skipping: an unvisited subfolder would keep an index the key
