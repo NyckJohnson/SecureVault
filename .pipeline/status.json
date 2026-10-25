@@ -560,7 +560,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-24T20:01:26-07:00",
+  "updatedAt": "2026-10-25T16:59:48-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -670,11 +670,11 @@
       },
       {
         "name": "fixes",
-        "done": false
+        "done": true
       },
       {
         "name": "old-tests",
-        "done": false
+        "done": true
       },
       {
         "name": "device-check",
