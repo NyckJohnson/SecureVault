@@ -262,6 +262,20 @@ nonisolated final class CryptoService: @unchecked Sendable {
     private let maxChunkSize                = 16 * 1024 * 1024         // sanity cap on header chunkSize
     private let maxTotalSize                = 1 << 41                  // 2 TiB; keeps all offset math far below Int.max
 
+    /// Whether the file at `url` may be an encrypted vault file: it starts with the encrypted
+    /// format's magic bytes. Errs on the safe side: a file that can't be read counts as encrypted.
+    /// Needs no key.
+    func mayBeEncryptedFile(at url: URL) -> Bool {
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            guard let prefix = try readFully(from: handle, count: chunkedFormatMagic.count) else { return false }
+            return Array(prefix) == chunkedFormatMagic
+        } catch {
+            return true
+        }
+    }
+
     /// Creates an empty file on the same volume as `destination` so the final move is an atomic rename.
     /// Caller must remove `directory` when done.
     private func makeStagingFile(for destination: URL) throws -> (directory: URL, file: URL) {

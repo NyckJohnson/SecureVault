@@ -30,7 +30,7 @@ Decisions by the human, 2026-10-24.
 | 21 | (device check) | videos don't play correctly when scrolled onto in the viewer | the video page plays as the memo says (journey 5) | fixed |
 | 22 | (device check) | Face ID usage text "Unlocking with FaceID" | "Unlock with Face ID" (human, 2026-10-26) | fixed |
 | 23 | (device check) | encrypting the vault (No Lock → Password) with the screen auto-locking mid-way: many files fail, Retry fails, and the app is stuck on the migration screen at launch ("preparing to encrypt") | the migration pauses on lock and resumes after unlock; a stuck vault can always finish or get out (journey 8) | fixed |
-| 24 | (device, fresh install) | setup's encrypted modes fail with "master key already exists" after a reinstall (the Keychain blob outlives the app); known issue planned for VaultLock, moved to the baseline because it blocks first-time setup | setup creates a new vault key when the vault is fresh | open |
+| 24 | (device, fresh install) | setup's encrypted modes fail with "master key already exists" after a reinstall (the Keychain blob outlives the app); known issue planned for VaultLock, moved to the baseline because it blocks first-time setup | setup creates a new vault key when the vault is fresh (empty vault: the stale key is replaced; human, 2026-10-26) | fixed |
 | 25 | (device) | No Lock → Password + Face ID fails with "no encryption key is loaded" (No Lock → Password works) | adding Password + Face ID from No Lock works like Password, then enables Face ID | open |
 Row 4 also covers "a non-limit error alerts under the open picker".
 

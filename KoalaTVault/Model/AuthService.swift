@@ -14,6 +14,20 @@ import UIKit
 enum AuthError: Error {
     case wrongPassword
     case keychainError
+    /// A vault key from an earlier install is in the Keychain, the vault holds data encrypted
+    /// with it, and the typed password does not unlock it.
+    case existingPasswordRequired
+}
+
+extension AuthError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .existingPasswordRequired:
+            return "A vault password already exists on this device. Enter that password."
+        case .wrongPassword, .keychainError:
+            return nil   // unchanged: the system's default description
+        }
+    }
 }
 
 @MainActor
@@ -37,9 +51,61 @@ final class AuthService {
     }
 
     // MARK: - Password
-    nonisolated func createPassword(_ password: String) throws {
+    /// Sets up the vault key for `password` and loads it.
+    ///
+    /// A key blob can outlive the app in the Keychain (e.g. after a reinstall). If one exists and
+    /// nothing under `vaultRootURL` was encrypted with it, the stale blob and biometric item are
+    /// deleted and a new key is created. If the vault does hold encrypted data, that blob is kept
+    /// and `password` must unlock it; a wrong one throws `AuthError.existingPasswordRequired`.
+    nonisolated func createPassword(
+        _ password: String,
+        vaultRootURL: URL = LegacyStorage.current.vaultRootURL
+    ) throws {
+        if try CryptoService.shared.hasMasterKeyBlob() {
+            if vaultHoldsEncryptedData(at: vaultRootURL) {
+                do {
+                    try CryptoService.shared.unwrapMasterKey(with: password)
+                } catch CryptoError.wrongPassword {
+                    throw AuthError.existingPasswordRequired
+                }
+                return
+            }
+            try CryptoService.shared.wipeMasterKeyBlob()
+            removeBiometricSecret()
+        }
         try CryptoService.shared.createMasterKey(wrappedBy: password)
         // Caller is responsible for calling enableBiometrics() afterwards if lockMode is .passwordAndBiometrics.
+    }
+
+    /// Whether anything under `rootURL` was encrypted with a vault key: a `.vault_map` index, a
+    /// file in the encrypted format, or a trash entry (a `.trash_map` or anything in a `.trash`
+    /// folder). Hidden files are included. Errs on the safe side: if the root or any part of it
+    /// can't be read, the vault counts as holding encrypted data. Needs no key.
+    nonisolated func vaultHoldsEncryptedData(at rootURL: URL) -> Bool {
+        let fileManager = FileManager.default
+        // A root that can't be listed (missing, no permission) is treated as not empty.
+        guard (try? fileManager.contentsOfDirectory(atPath: rootURL.path)) != nil else { return true }
+        var unreadable = false
+        guard let enumerator = fileManager.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [],
+            errorHandler: { _, _ in unreadable = true; return false }
+        ) else { return true }
+
+        while let url = enumerator.nextObject() as? URL {
+            let name = url.lastPathComponent
+            if name == ".vault_map" || name == ".trash_map" { return true }
+            guard let isDirectory = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory else { return true }
+            if isDirectory {
+                if name == ".trash", (try? fileManager.contentsOfDirectory(atPath: url.path))?.isEmpty != true {
+                    return true
+                }
+            } else if CryptoService.shared.mayBeEncryptedFile(at: url) {
+                return true
+            }
+        }
+        return unreadable
     }
 
     nonisolated func changePassword(to newPassword: String) throws {

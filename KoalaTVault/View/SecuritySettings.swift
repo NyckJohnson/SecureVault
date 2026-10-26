@@ -220,7 +220,9 @@ extension SecuritySettingsViewController: UITableViewDelegate {
                 self.present(migration, animated: true)
             })
             present(alert, animated: true)
-        } else if !authService.hasPassword() {
+        } else if authService.lockMode == .none || !authService.hasPassword() {
+            // Adding a lock from No Lock always asks for a password, even if a key blob from an
+            // earlier install exists: createPassword replaces it (empty vault) or checks it.
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
                 if mode == .passwordAndBiometrics {
