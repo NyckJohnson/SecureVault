@@ -5,7 +5,7 @@
 //  Journey 8: Change lock mode. Biometrics cannot be enrolled on the simulator, so the
 //  Password + Face ID rows are checked but the switch to biometric is an environment case.
 //  Not covered: a failed lock removal (Retry/Skip keeps Password) because `UITEST_PASSWORD` seeds the file as
-//  plaintext, so no decrypt ever touches it and there is no way to start with an encrypted failing file; pausing a migration when backgrounded and resuming after a kill (the migration
+//  plaintext, so no decrypt ever touches it and there is no way to start with an encrypted failing file; resuming a migration after the app is killed (the migration
 //  is too short-lived to interrupt reliably), and the migration screen's progress text beyond what
 //  can be seen before it closes. Current lock mode = the Lock Mode row with `isSelected`.
 //
