@@ -26,6 +26,9 @@ Decisions by the human, 2026-10-24.
 | 17 | (planned) | orphan sweep deletes extensionless UUID-named plaintext files in folders with no index | only sweeps encrypted, indexed folders | fixed |
 | 18 | (planned) | Info.plist leftovers (`NSFaceIDUsageDscription` typo) | tidy | fixed |
 | 19 | (planned, § Legacy code) | empty Base.lproj/Main.storyboard | deleted if nothing references it | fixed |
+| 20 | (device check) | export from an encrypted vault writes the encrypted bytes, not the decrypted file | exports are decrypted (journey 7) | open |
+| 21 | (device check) | videos don't play correctly when scrolled onto in the viewer | the video page plays as the memo says (journey 5) | open |
+| 22 | (device check) | Face ID usage text "Unlocking with FaceID" | "Unlock with Face ID" (human, 2026-10-26) | open |
 Row 4 also covers "a non-limit error alerts under the open picker".
 
 ## Environment
@@ -37,3 +40,8 @@ Row 4 also covers "a non-limit error alerts under the open picker".
   setup so they run under the gates. Cause: Apple bug on the iOS 26.x simulators (FB22237318; SKTestSession writes fail under
   xcodebuild). Fix: the gates run on iOS 18.6 (`SIMULATOR_NAME` in .pipeline/config.sh, 2026-10-25); all StoreKit tests
   pass there. iOS 26 is covered by the device check.
+
+## Device check (2026-10-26)
+
+Found by the human on a device: rows 20-22. The legacy UI tests (marked obsolete in the memo) are deleted now that the
+journey tests replace them (human, 2026-10-26).
