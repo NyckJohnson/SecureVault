@@ -1,7 +1,7 @@
 {
   "stage": 3,
-  "paused": false,
-  "pauseReason": null,
+  "paused": true,
+  "pauseReason": "weekly usage 97%; baseline: rows 20-21, 23 fixed; next: tests for rows 20/23 (unit + journey with UITEST_MIGRATION_FILE_DELAY / UITEST_PENDING_MIGRATION / UITEST_PLAINTEXT_INDEX), row 22 Face ID text, delete obsolete legacy UI tests, then device re-check",
   "checkpoints": {
     "outline-approved": "2026-10-24T13:06:36-07:00",
     "setup": "2026-10-24T13:39:18-07:00"
@@ -560,7 +560,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-25T16:59:48-07:00",
+  "updatedAt": "2026-10-26T02:30:48-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
