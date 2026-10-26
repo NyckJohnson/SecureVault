@@ -576,6 +576,15 @@ extension FileBrowserViewController: UICollectionViewDragDelegate {
         dragItem.localObject = item
         return [dragItem]
     }
+
+    // The provider hands out the on-disk URL, which is ciphertext in an encrypted vault, so
+    // such drags stay inside the app (move onto a folder); export goes through ExportService.
+    func collectionView(_ collectionView: UICollectionView, dragSessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool {
+        session.items.contains { dragItem in
+            guard let item = dragItem.localObject as? VaultItem else { return true }
+            return FileSystem.shared.needsDecryptedCopy(item)
+        }
+    }
 }
 
 // MARK: - UICollectionViewDropDelegate

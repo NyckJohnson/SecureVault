@@ -387,7 +387,53 @@ nonisolated final class FileSystem: Sendable {
                 try CryptoService.shared.decryptFile(at: item.diskURL, to: tempURL)
                 return tempURL
             }
+            if needsDecryptedCopy(item) {
+                // A folder in an encrypted vault holds UUID-named SVC5 files and a `.vault_map`;
+                // export a decrypted copy of the tree under the visible names instead.
+                let tempSubDir = tempDir.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
+                let tempURL = tempSubDir.appendingPathComponent(item.name)
+                do {
+                    let folder = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
+                    try copyDecrypted(folder, to: tempURL)
+                } catch {
+                    try? FileManager.default.removeItem(at: tempSubDir)
+                    throw error
+                }
+                return tempURL
+            }
             return item.diskURL
+        }
+    }
+
+    /// True when exporting or sharing `item` must go through a decrypted copy: an encrypted file,
+    /// or a folder with a `.vault_map` anywhere inside it. Plaintext files and folders (no lock)
+    /// can be handed out as they are.
+    func needsDecryptedCopy(_ item: VaultItem) -> Bool {
+        if item.isEncrypted { return true }
+        guard item.isDirectory else { return false }
+        if FileManager.default.fileExists(atPath: item.diskURL.appendingPathComponent(mappingFileName).path) { return true }
+        guard let enumerator = FileManager.default.enumerator(at: item.diskURL, includingPropertiesForKeys: nil) else { return false }
+        for case let url as URL in enumerator where url.lastPathComponent == mappingFileName {
+            return true
+        }
+        return false
+    }
+
+    /// Writes `directory`'s files, decrypted, under their visible names into a new folder at
+    /// `destination`, recursing into subfolders. No `.vault_map` or UUID names are copied.
+    private func copyDecrypted(_ directory: VaultDirectory, to destination: URL) throws {
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        for child in try contents(of: directory) {
+            let target = destination.appendingPathComponent(resolvedName(for: child.name, in: destination))
+            if child.isDirectory {
+                let sub = VaultDirectory(name: child.name, diskURL: child.diskURL, rootURL: child.rootURL)
+                try copyDecrypted(sub, to: target)
+            } else if child.isEncrypted {
+                try CryptoService.shared.decryptFile(at: child.diskURL, to: target)
+            } else {
+                try FileManager.default.copyItem(at: child.diskURL, to: target)
+            }
         }
     }
 

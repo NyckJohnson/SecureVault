@@ -73,7 +73,9 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    → document picker (copies); decrypted copies are removed when the picker closes. Save to Camera Roll → "N saved, M
    failed". Ends when the copy is saved.
    - Failure path: a failure part-way removes every decrypted copy made so far and shows the error; photo access denied →
-     "Allow KoalaTVault to add photos in Settings."; folders in a selection are skipped.
+     "Allow KoalaTVault to add photos in Settings.".
+   - Folders are exported whole: an encrypted folder becomes a decrypted copy of its whole tree with the original names
+     (no index files, no UUID names). Encrypted items can't be dragged out to other apps (drags stay inside the app).
 8. **Change lock mode** — the user wants more or less protection. Settings ("Security") → Lock Mode: No Lock, Password,
    Password + Face ID, and "Re-encrypt Everything" when a lock is on and some files are still plaintext; Password section:
    Change Password. No Lock → "Remove Lock?" → decrypt migration → lock removed. Password/biometric from No Lock → set a
@@ -703,7 +705,7 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - prepareForSharing: plaintext items → their disk URLs; encrypted → decrypted copies with their original names in one store temp folder; folders skipped; only folders → `.nothingToExport`; a failure part-way removes every copy made and rethrows; `cleanUp` removes the temp folder (safe to call twice).
+  - prepareForSharing: plaintext items → their disk URLs; encrypted → decrypted copies with their original names in one store temp folder; a folder holding encrypted items → a decrypted copy of its whole tree (original names, no `.vault_map`, no UUID names), a plaintext folder → its disk URL; an empty selection → `.nothingToExport`; a failure part-way removes every copy made and rethrows; `cleanUp` removes the temp folder (safe to call twice).
   - saveToPhotos: add-only access required (`.photoAccessDenied` otherwise); images and videos only (others counted in `skipped`); each decrypted to temp, saved, temp removed; per-item failures counted.
   - canSaveToPhotos: true when any item is an image or video.
   - ExportPresenter (view): sheet "Save to Files", "Save to Camera Roll" (when allowed), "Cancel"; "Exporting..." overlay; document picker for export as copies, `cleanUp` on pick or cancel; "N saved, M failed"; access denied → "Allow KoalaTVault to add photos in Settings."; errors shown.
@@ -846,6 +848,7 @@ extension matching ignores case.
 - The text editor saves an empty document over the original after a failed load — TextEditor.swift:116-132 — fixed in baseline
 - Photo picker Cancel doesn't close the picker; a non-limit error alerts under the open picker — ImportService.swift:135-151 — fixed in baseline
 - The orphan sweep deletes extensionless UUID-named plaintext files in folders with no index — FileSystem.swift:733-752 — fixed in baseline (sweeps only folders with a readable index, with the key loaded; runs after unlock instead of at launch; two legacy tests that asserted the old behaviour were updated)
+- Exporting a folder from an encrypted vault handed out the encrypted tree (UUID names, `.vault_map`); dragging encrypted items to other apps handed out ciphertext. Folders now export as a decrypted copy; encrypted drags stay in the app — FileSystem.swift (prepareForExport), FileBrowser.swift (drag) — fixed in baseline
 - On iOS 18, cancelling the document picker could crash (SIGABRT in DOCWeakProxy: the picker was released before a late XPC message); the service now holds the last picker until the next one replaces it — ImportService.swift — fixed in baseline
 - The pending-purchase alert read "Purchase is pending approval." instead of the specified "Purchase pending approval." — EntitlementService.swift:16 — fixed in baseline
 - The paywall showed a blank price on a load failure (now "Price unavailable"; the rest of the minor-UX line stays with its modules) — PaywallViewController.swift:83-90 — fixed in baseline
@@ -888,6 +891,8 @@ extension matching ignores case.
 - 2026-10-24: 14 modules as in `docs/adopt/module-proposal.md`; VaultStore stays one module because the index read-modify-write and the encrypted-or-not rule are shared invariants — approved by the human
 - 2026-10-24: Bugs split by risk: data-loss bugs fixed in the baseline; key-lifecycle failure paths corrected in the VaultStore / VaultLock / LockMigration specs; cosmetic issues fixed where a module's spec covers them or queued — approved by the human
 - 2026-10-24: The vault format to preserve is SVC5 (the discussion notes said SVC4; the code only has SVC5) — approved by the human
+- 2026-10-26: Exporting a folder exports a decrypted copy of the whole folder (the memo said folders were skipped; today's app exported the encrypted tree) — decided by the human after the device check
+- 2026-10-26: Gates run on the iOS 18.6 simulator (StoreKit test sessions fail under xcodebuild on iOS 26.x, Apple FB22237318) — approved by the human
 - 2026-10-24: Folder names, sizes and structure stay plaintext on disk for now; "encrypt folder names" queued as a feature — approved by the human
 - 2026-10-24: Encrypted mode is `lockMode != .none`, not "a key is loaded"; with a lock and no key, store operations throw `.locked` instead of writing plaintext — key-handling robustness (the human's goal for the adoption)
 - 2026-10-24: Tests never use the real Keychain, UserDefaults.standard or Documents; every module takes them by injection; `-uiTesting` replaces `--uitesting` — the old tests and UI-test reset could delete a real vault

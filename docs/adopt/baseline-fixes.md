@@ -26,7 +26,7 @@ Decisions by the human, 2026-10-24.
 | 17 | (planned) | orphan sweep deletes extensionless UUID-named plaintext files in folders with no index | only sweeps encrypted, indexed folders | fixed |
 | 18 | (planned) | Info.plist leftovers (`NSFaceIDUsageDscription` typo) | tidy | fixed |
 | 19 | (planned, § Legacy code) | empty Base.lproj/Main.storyboard | deleted if nothing references it | fixed |
-| 20 | (device check) | export from an encrypted vault writes the encrypted bytes, not the decrypted file | exports are decrypted (journey 7) | open |
+| 20 | (device check) | export from an encrypted vault writes the encrypted bytes, not the decrypted file | exports are decrypted (journey 7) | fixed |
 | 21 | (device check) | videos don't play correctly when scrolled onto in the viewer | the video page plays as the memo says (journey 5) | open |
 | 22 | (device check) | Face ID usage text "Unlocking with FaceID" | "Unlock with Face ID" (human, 2026-10-26) | open |
 Row 4 also covers "a non-limit error alerts under the open picker".
