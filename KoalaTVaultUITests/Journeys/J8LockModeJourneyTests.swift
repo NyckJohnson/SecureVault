@@ -200,4 +200,73 @@ final class J8LockModeJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell("notes.rtf").waitForExistence(timeout: 5), "notes.rtf should be listed in F")
         XCTAssertFalse(app.alerts.firstMatch.exists, "Listing F must not show an error. Alert: \(app.alerts.firstMatch.debugDescription)")
     }
+
+    // MARK: - Regression: adding a lock survives the device locking mid-migration (baseline fix 23)
+
+    /// Unlocks the lock screen without waiting for the browser (a migration screen may be covering it).
+    private func unlockOnly() {
+        type(Self.password, into: app.secureTextFields["passwordField"])
+        app.buttons["unlockButton"].tap()
+        XCTAssertTrue(app.secureTextFields["passwordField"].waitForNonExistence(timeout: 10), "The lock screen did not close")
+    }
+
+    func testJourney8_AddLockSurvivesAppLockingMidMigrationAndResumesAfterUnlock() {
+        launch(environment: ["UITEST_SEED_FILE_NAME": seedName, "UITEST_SEED_FILE_COUNT": "3",
+                             "UITEST_MIGRATION_FILE_DELAY": "3"])
+        completeSetupWithNoLockIfShown()
+        openSettings()
+        setPassword()
+        XCTAssertTrue(app.staticTexts["migration.titleLabel"].waitForExistence(timeout: 10), "Migration did not start")
+
+        // Lock the app mid-migration: leaving the foreground wipes the key under a password lock.
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        XCTAssertTrue(app.secureTextFields["passwordField"].waitForExistence(timeout: 15),
+                      "The lock screen should show after returning from the background")
+        unlockOnly()
+
+        waitForMigrationToClose()
+        XCTAssertFalse(app.alerts["Some Files Failed"].exists, "Locking mid-migration must not fail any files")
+        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 10), "Settings should be back")
+        XCTAssertTrue(row("settings.lockMode.passwordRow").isSelected, "Password should now be the lock mode")
+        dismissSettingsSheet()
+
+        XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5), "The seeded file must still be listed")
+        XCTAssertTrue(cell("uitest-seed-0.txt").exists, "The other seeded files must still be listed")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Listing must not show an error. Alert: \(app.alerts.firstMatch.debugDescription)")
+        cell(seedName).tap()
+        XCTAssertTrue(app.buttons["viewer.closeButton"].waitForExistence(timeout: 10), "The file did not open")
+    }
+
+    /// An older build left a pending encryption with an empty plaintext `.vault_map`; every launch sat on "Preparing...".
+    /// Now the launch finishes the migration or offers Retry/Close, and the vault is usable either way.
+    func testJourney8_PendingEncryptionWithPlaintextIndexDoesNotHangAndVaultIsUsable() {
+        launch(environment: ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password,
+                             "UITEST_PENDING_MIGRATION": "encrypt", "UITEST_PLAINTEXT_INDEX": "1"])
+        unlockOnly()
+
+        let title = app.staticTexts["migration.titleLabel"]
+        let stuckAlert = app.alerts["Couldn't prepare the files"]
+        let deadline = Date().addingTimeInterval(45)
+        var offeredWayOut = false
+        while Date() < deadline {
+            if stuckAlert.exists || app.alerts.firstMatch.buttons["Close"].exists {
+                offeredWayOut = true
+                break
+            }
+            if !title.exists { break }
+            sleep(1)
+        }
+        if offeredWayOut {
+            XCTAssertTrue(app.alerts.firstMatch.buttons["Retry"].exists, "The way out should offer Retry")
+            tapAlertButton("Close", in: app.alerts.firstMatch)
+        }
+        XCTAssertTrue(title.waitForNonExistence(timeout: 10),
+                      "The launch is stuck on the migration screen. Status: \(app.staticTexts["migration.statusLabel"].label)")
+        XCTAssertFalse(app.alerts["Some Files Failed"].exists, "No files should have failed")
+        XCTAssertTrue(cell(seedName).waitForExistence(timeout: 10), "The seeded file should be listed")
+        cell(seedName).tap()
+        XCTAssertTrue(app.buttons["viewer.closeButton"].waitForExistence(timeout: 10), "The file did not open")
+    }
 }
