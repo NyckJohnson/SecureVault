@@ -29,7 +29,7 @@ Decisions by the human, 2026-10-24.
 | 20 | (device check) | export from an encrypted vault writes the encrypted bytes, not the decrypted file | exports are decrypted (journey 7) | fixed |
 | 21 | (device check) | videos don't play correctly when scrolled onto in the viewer | the video page plays as the memo says (journey 5) | fixed |
 | 22 | (device check) | Face ID usage text "Unlocking with FaceID" | "Unlock with Face ID" (human, 2026-10-26) | open |
-| 23 | (device check) | encrypting the vault (No Lock → Password) with the screen auto-locking mid-way: many files fail, Retry fails, and the app is stuck on the migration screen at launch ("preparing to encrypt") | the migration pauses on lock and resumes after unlock; a stuck vault can always finish or get out (journey 8) | open — urgent: the human's device vault is in this state |
+| 23 | (device check) | encrypting the vault (No Lock → Password) with the screen auto-locking mid-way: many files fail, Retry fails, and the app is stuck on the migration screen at launch ("preparing to encrypt") | the migration pauses on lock and resumes after unlock; a stuck vault can always finish or get out (journey 8) | fixed |
 Row 4 also covers "a non-limit error alerts under the open picker".
 
 ## Environment

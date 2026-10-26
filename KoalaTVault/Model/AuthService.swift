@@ -250,7 +250,8 @@ final class AuthService {
     }
 
     func handleInitialLaunch(in window: UIWindow?) {
-        guard lockMode != .none else {
+        resolveUnfinishableEncryption()
+        guard lockMode != .none || pendingEncryptionNeedsPassword else {
             NotificationCenter.default.post(
                 name: AuthService.vaultUnlockedNotification,
                 object: nil
@@ -259,6 +260,33 @@ final class AuthService {
         }
         isLocked = true
         showLockScreen(in: window)
+    }
+
+    /// An interrupted encryption (adding a lock) finishes only with the key, so the launch asks
+    /// for the password even if the lock mode was never saved (lock mode none, password set).
+    private var pendingEncryptionNeedsPassword: Bool {
+        PreferencesService.shared.pendingMigrationType == .encrypt && hasPassword()
+    }
+
+    /// A pending encryption with no password at all can never finish (no key exists, so
+    /// nothing was encrypted with it): drop the pending record and leave the vault unlocked, so
+    /// launch never sits on a lock screen or migration screen with no way forward. Files stay
+    /// as they are on disk; nothing is deleted.
+    private func resolveUnfinishableEncryption() {
+        guard PreferencesService.shared.pendingMigrationType == .encrypt else { return }
+        let blobExists: Bool
+        do {
+            blobExists = try CryptoService.shared.hasMasterKeyBlob()
+        } catch {
+            // Keychain unreadable right now: keep everything and ask for the password as usual.
+            logger.error("Keychain read failed at launch: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        guard !blobExists else { return }
+        logger.error("Pending encryption without a password; finishing as No Lock")
+        PreferencesService.shared.pendingMigrationType = nil
+        PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        lockMode = .none
     }
 
     // MARK: - Auth Success

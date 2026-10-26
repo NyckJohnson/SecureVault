@@ -136,12 +136,24 @@ nonisolated struct UITestSettings: Sendable, Equatable {
     var password: String?
     /// `UITEST_FAIL_MIGRATION_FILE`: migrating a file with this name fails.
     var failMigrationFileName: String?
+    /// `UITEST_MIGRATION_FILE_DELAY`: seconds the migration waits before each file, so a test
+    /// can background or lock mid-migration.
+    var migrationFileDelay: Double?
+    /// `UITEST_PENDING_MIGRATION`: `encrypt` or `decrypt`; the launch finds that migration
+    /// pending (an interrupted one), with the seeded lock mode as its target.
+    var pendingMigration: String?
+    /// `UITEST_PLAINTEXT_INDEX=1`: an empty plaintext `.vault_map` in the vault root, as older
+    /// builds wrote when the key was wiped mid-migration (baseline fix 23).
+    var plaintextIndex: Bool
 
     init(environment: [String: String]) {
         seedFileName = environment["UITEST_SEED_FILE_NAME"]
         seedFileCount = environment["UITEST_SEED_FILE_COUNT"].flatMap { Int($0) }
         password = environment["UITEST_PASSWORD"]
         failMigrationFileName = environment["UITEST_FAIL_MIGRATION_FILE"]
+        migrationFileDelay = environment["UITEST_MIGRATION_FILE_DELAY"].flatMap { Double($0) }
+        pendingMigration = environment["UITEST_PENDING_MIGRATION"]
+        plaintextIndex = environment["UITEST_PLAINTEXT_INDEX"] == "1"
     }
 }
 
@@ -273,6 +285,14 @@ final class AppDependencies {
                 logger.error("\(message, privacy: .public)")
                 fatalError(message)
             }
+        }
+
+        if let pending = settings.pendingMigration {
+            PreferencesService.shared.pendingMigrationType = MigrationViewController.MigrationType(rawValue: pending)
+            PreferencesService.shared.pendingMigrationTargetLockMode = AuthService.shared.lockMode
+        }
+        if settings.plaintextIndex {
+            seedFile(at: root.appendingPathComponent(".vault_map"), content: Data("{}".utf8))
         }
     }
 

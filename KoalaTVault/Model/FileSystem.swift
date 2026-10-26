@@ -798,45 +798,62 @@ nonisolated final class FileSystem: Sendable {
         return result
     }
     
-    func migrateVaultToEncrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
-        let items = try contents(of: directory)
-        let files = items.filter { !$0.isDirectory && !$0.isEncrypted }
-        let total = Double(files.count)
-        guard total > 0 else { return }
-
-        for (index, item) in files.enumerated() {
-            try migrateFileToEncrypted(item, in: directory)
-            progress(Double(index + 1) / total)
-        }
-
-        let subdirs = items.filter { $0.isDirectory }
-        for subdir in subdirs {
-            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL, rootURL: directory.rootURL)
-            try migrateVaultToEncrypted(in: subVaultDir, progress: progress)
-        }
-    }
-
+    /// Encrypts one plaintext file; safe to interrupt at any instant (the plaintext, or a verified
+    /// copy plus its index entry, always exists). Copy written and verified → entry saved encrypted
+    /// (never plaintext) and read back → copy re-verified → plaintext removed. A rerun drops entries
+    /// without files, removes a plaintext whose same-name copy matches byte for byte, and otherwise
+    /// keeps both (free name). Throws `CryptoError.noKeyLoaded` without the key, or the I/O error.
     func migrateFileToEncrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
-        if let failName = LegacyStorage.current.uiTestSettings?.failMigrationFileName, failName == item.name {
-            throw CryptoError.encryptionFailed
-        }
-#if DEBUG
-        if FileSystem.testForcedMigrationFailureFileName == item.name {
-            throw CryptoError.encryptionFailed
-        }
-#endif
+        try throwIfFailureInjected(for: item.name)
+        guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
+        let fileManager = FileManager.default
+        // Removed only by an earlier run, after its copy and entry were verified.
+        guard fileManager.fileExists(atPath: item.diskURL.path) else { return }
+        let attributes = try fileManager.attributesOfItem(atPath: item.diskURL.path)
+        guard let sourceSize = attributes[.size] as? Int else { throw CocoaError(.fileReadUnknown) }
         var mapping = try loadMapping(from: directory.diskURL)
-        if mapping.values.contains(where: { $0.originalName == item.name }) {
-            // plaintext survived a prior partial migration run — encrypted copy already exists
-            try FileManager.default.removeItem(at: item.diskURL)
-            return
+        var nameTaken = false
+        for (uuid, entry) in mapping where entry.originalName == item.name {
+            let copyURL = directory.diskURL.appendingPathComponent(uuid)
+            // An entry without its file points at nothing.
+            guard fileManager.fileExists(atPath: copyURL.path) else { mapping.removeValue(forKey: uuid); continue }
+            // An exact match means an earlier run stopped just before removing the plaintext.
+            if CryptoService.shared.isCompleteEncryptedCopy(at: copyURL, plaintextSize: sourceSize),
+               try CryptoService.shared.encryptedFile(at: copyURL, hasSameContentAs: item.diskURL) {
+                try fileManager.removeItem(at: item.diskURL)
+                return
+            }
+            nameTaken = true
         }
+        let name = nameTaken
+            ? resolvedNameInMapping(for: item.name, existingNames: mapping.values.map { $0.originalName })
+            : item.name
         let uuid = UUID().uuidString
         let destination = directory.diskURL.appendingPathComponent(uuid)
         try CryptoService.shared.encryptFile(at: item.diskURL, to: destination)
-        mapping[uuid] = VaultMapping(originalName: item.name)
-        try saveMapping(mapping, to: directory.diskURL)
-        try FileManager.default.removeItem(at: item.diskURL)
+        do {
+            guard CryptoService.shared.isCompleteEncryptedCopy(at: destination, plaintextSize: sourceSize) else {
+                throw CryptoService.shared.isKeyLoaded ? CryptoError.encryptionFailed : CryptoError.noKeyLoaded
+            }
+            mapping[uuid] = VaultMapping(originalName: name)
+            try saveMappingRequiringKey(mapping, to: directory.diskURL)
+        } catch {
+            // Source untouched; drop the unindexed copy (else the orphan sweep removes it).
+            try? fileManager.removeItem(at: destination)
+            throw error
+        }
+        // The entry must be on disk before the plaintext goes (if this throws, the source stays).
+        var saved = try loadMapping(from: directory.diskURL)
+        guard saved[uuid]?.originalName == name else { throw FileSystemError.mappingUnreadable }
+        // Re-check the copy right before deleting the plaintext: it must still exist, complete.
+        guard CryptoService.shared.isCompleteEncryptedCopy(at: destination, plaintextSize: sourceSize) else {
+            guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
+            // Keep the plaintext; drop the bad entry (best effort: a rerun drops or re-checks it).
+            saved.removeValue(forKey: uuid)
+            try? saveMappingRequiringKey(saved, to: directory.diskURL)
+            throw CryptoError.encryptionFailed
+        }
+        try fileManager.removeItem(at: item.diskURL)
     }
 
     /// Decrypts every encrypted file left in `directory` and its subfolders, then deletes each
@@ -877,22 +894,40 @@ nonisolated final class FileSystem: Sendable {
     }
     
     func migrateFileToDecrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
-        if let failName = LegacyStorage.current.uiTestSettings?.failMigrationFileName, failName == item.name {
-            throw CryptoError.encryptionFailed
-        }
-#if DEBUG
-        if FileSystem.testForcedMigrationFailureFileName == item.name {
-            throw CryptoError.encryptionFailed
-        }
-#endif
+        try throwIfFailureInjected(for: item.name)
         let encryptedURL = item.diskURL
+        // Removed only after its decrypted copy was committed by an earlier run.
+        guard FileManager.default.fileExists(atPath: encryptedURL.path) else { return }
+        // Rerun after the decrypted copy was written: a byte-identical plaintext means done.
+        let sameNameURL = directory.diskURL.appendingPathComponent(item.name)
+        if FileManager.default.fileExists(atPath: sameNameURL.path),
+           let plainSize = try FileManager.default.attributesOfItem(atPath: sameNameURL.path)[.size] as? Int,
+           CryptoService.shared.isCompleteEncryptedCopy(at: encryptedURL, plaintextSize: plainSize),
+           try CryptoService.shared.encryptedFile(at: encryptedURL, hasSameContentAs: sameNameURL) {
+            try removeDecryptedSource(encryptedURL, in: directory)
+            return
+        }
         let name = resolvedName(for: item.name, in: directory.diskURL)
         let decryptedURL = directory.diskURL.appendingPathComponent(name)
         try CryptoService.shared.decryptFile(at: encryptedURL, to: decryptedURL)
+        try removeDecryptedSource(encryptedURL, in: directory)
+    }
+
+    /// Test hooks: `UITEST_FAIL_MIGRATION_FILE` (-uiTesting) and, in DEBUG, the unit-test name.
+    private func throwIfFailureInjected(for name: String) throws {
+        var injected = LegacyStorage.current.uiTestSettings?.failMigrationFileName == name
+#if DEBUG
+        injected = injected || FileSystem.testForcedMigrationFailureFileName == name
+#endif
+        if injected { throw CryptoError.encryptionFailed }
+    }
+
+    /// Removes an encrypted file whose plaintext is in place, then its index entry.
+    private func removeDecryptedSource(_ encryptedURL: URL, in directory: VaultDirectory) throws {
         try FileManager.default.removeItem(at: encryptedURL)
         var mapping = try loadMapping(from: directory.diskURL)
-        mapping.removeValue(forKey: encryptedURL.lastPathComponent)
-        try saveMapping(mapping, to: directory.diskURL)
+        mapping.removeValue(forKey: encryptedURL.lastPathComponent)   // a stale entry lists nothing
+        try saveMappingRequiringKey(mapping, to: directory.diskURL)
     }
 
     // MARK: - Cleanup
@@ -907,6 +942,8 @@ nonisolated final class FileSystem: Sendable {
     /// `.vault_map`: a folder with no index holds plaintext files, which are never orphans.
     func sweepOrphanedEncryptedFiles(in directory: VaultDirectory) {
         guard isEncryptionEnabled else { return }
+        // A migration in progress has copies not indexed yet; sweep after it finishes instead.
+        guard PreferencesService.shared.pendingMigrationType == nil else { return }
         guard let diskFiles = try? FileManager.default.contentsOfDirectory(
             at: directory.diskURL, includingPropertiesForKeys: [.isDirectoryKey],
             options: .skipsHiddenFiles) else { return }
@@ -1066,13 +1103,20 @@ nonisolated final class FileSystem: Sendable {
     }
 
     private func loadMapping(from directory: URL) throws -> [String: VaultMapping] {
-        try loadEncryptedJSON([String: VaultMapping].self, from: directory.appendingPathComponent(mappingFileName)) ?? [:]
+        let mapURL = directory.appendingPathComponent(mappingFileName)
+        do {
+            return try loadEncryptedJSON([String: VaultMapping].self, from: mapURL) ?? [:]
+        } catch FileSystemError.mappingUnreadable where CryptoService.shared.isKeyLoaded {
+            // Older builds wrote plaintext indexes when the key was wiped mid-migration; accept
+            // one only if it parses. The next save encrypts it (see encryptPlaintextIndexes).
+            guard let data = try? Data(contentsOf: mapURL),
+                  let plaintext = try? JSONDecoder().decode([String: VaultMapping].self, from: data) else {
+                throw FileSystemError.mappingUnreadable
+            }
+            return plaintext
+        }
     }
 
-    private func saveMapping(_ mapping: [String: VaultMapping], to directory: URL) throws {
-        try saveEncryptedJSON(mapping, to: directory.appendingPathComponent(mappingFileName))
-    }
-    
     private var sortComparator: (VaultItem, VaultItem) -> Bool {
         let option    = PreferencesService.shared.sortOption
         let ascending = PreferencesService.shared.sortDirection == .ascending
@@ -1107,6 +1151,42 @@ nonisolated final class FileSystem: Sendable {
     func testMapping(in directory: VaultDirectory) throws -> [String: VaultMapping] { try loadMapping(from: directory.diskURL) }
     typealias TrashEntryForTesting = TrashEntry
 #endif
+}
+
+// MARK: - Migration index safety
+extension FileSystem {
+    /// Re-saves encrypted every plaintext folder index under `directory` (older builds wrote them
+    /// when the key was wiped mid-migration). Throws `CryptoError.noKeyLoaded` without the key.
+    /// Damaged indexes are left alone; the hidden `.trash` folder is not visited.
+    func encryptPlaintextIndexes(in directory: VaultDirectory) throws {
+        guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
+        let mapURL = directory.diskURL.appendingPathComponent(mappingFileName)
+        if FileManager.default.fileExists(atPath: mapURL.path) {
+            let data = try Data(contentsOf: mapURL)
+            let opensWithKey = (try? CryptoService.shared.decrypt(data: data, authenticating: mappingFileName)) != nil
+            if !opensWithKey, let plaintext = try? JSONDecoder().decode([String: VaultMapping].self, from: data) {
+                try saveMappingRequiringKey(plaintext, to: directory.diskURL)
+            }
+        }
+        let subdirs = try FileManager.default.contentsOfDirectory(
+            at: directory.diskURL, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles
+        ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        for subdir in subdirs {
+            try encryptPlaintextIndexes(in: VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir,
+                                                           rootURL: directory.rootURL))
+        }
+    }
+
+    /// Saves an index encrypted; throws `CryptoError.noKeyLoaded` rather than writing plaintext.
+    fileprivate func saveMappingRequiringKey(_ mapping: [String: VaultMapping], to directory: URL) throws {
+        let data = try JSONEncoder().encode(mapping)
+        let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: mappingFileName)
+        try encrypted.write(to: directory.appendingPathComponent(mappingFileName), options: .atomic)
+    }
+
+    private func saveMapping(_ mapping: [String: VaultMapping], to directory: URL) throws {
+        try saveEncryptedJSON(mapping, to: directory.appendingPathComponent(mappingFileName))
+    }
 }
 
 extension Notification.Name {

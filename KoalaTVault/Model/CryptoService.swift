@@ -387,6 +387,73 @@ nonisolated final class CryptoService: @unchecked Sendable {
         return (info.totalSize, info.chunkSize)
     }
 
+    /// True when `url` holds a complete encrypted copy of a `plaintextSize`-byte file made with
+    /// the loaded key: the header records that size, the file is exactly as long as the format
+    /// gives for it, and the last chunk authenticates. False otherwise (including with no key).
+    /// A migration checks this before it deletes a plaintext source.
+    func isCompleteEncryptedCopy(at url: URL, plaintextSize: Int) -> Bool {
+        guard isKeyLoaded,
+              let info = try? streamInfo(for: url), info.totalSize == plaintextSize,
+              let length = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int else {
+            return false
+        }
+        let chunkCount = (plaintextSize + info.chunkSize - 1) / info.chunkSize
+        guard chunkCount > 0 else { return length == headerSize }
+        let lastChunkSize = plaintextSize - (chunkCount - 1) * info.chunkSize
+        let expectedLength = headerSize
+            + (chunkCount - 1) * (4 + info.chunkSize + gcmOverhead)
+            + 4 + lastChunkSize + gcmOverhead
+        guard length == expectedLength else { return false }
+        return (try? decryptChunk(at: chunkCount - 1, from: url, chunkSize: info.chunkSize,
+                                  totalSize: plaintextSize)) != nil
+    }
+
+    /// True when the encrypted file at `url` decrypts, chunk by chunk, to exactly the bytes of
+    /// the plaintext file at `plainURL` (same length, same content). A damaged or different copy
+    /// gives false. Throws `CryptoError.noKeyLoaded` without the key, or a read error (e.g. files
+    /// closed by data protection), so a caller never mistakes "couldn't check" for "different".
+    func encryptedFile(at url: URL, hasSameContentAs plainURL: URL) throws -> Bool {
+        guard let masterKey = symmetricKey else { throw CryptoError.noKeyLoaded }
+        let input = try FileHandle(forReadingFrom: url)
+        defer { try? input.close() }
+        let plain = try FileHandle(forReadingFrom: plainURL)
+        defer { try? plain.close() }
+        let header = try readFully(from: input, count: headerSize) ?? Data()
+        guard let info = try? parseHeader(header) else { return false }
+        let encKey = fileKey(from: masterKey, fileID: info.fileID)
+
+        var compared = 0
+        var chunkIndex = 0
+        while true {
+            let step: ChunkComparison = try autoreleasepool {
+                let lengthData = try readFully(from: input, count: 4) ?? Data()
+                if lengthData.isEmpty { return .end }
+                guard lengthData.count == 4 else { return .different }
+                let length = Int(uint32Value(lengthData))
+                guard (gcmOverhead + 1)...(info.chunkSize + gcmOverhead) ~= length else { return .different }
+                let combined = try readFully(from: input, count: length) ?? Data()
+                guard combined.count == length,
+                      let decrypted = try? openSealed(combined, using: encKey,
+                                                      authenticating: chunkAAD(header: header, index: chunkIndex)) else {
+                    return .different
+                }
+                let original = try readFully(from: plain, count: decrypted.count) ?? Data()
+                guard original == decrypted else { return .different }
+                compared += decrypted.count
+                chunkIndex += 1
+                return .same
+            }
+            if step == .end { break }
+            if step == .different { return false }
+        }
+        guard compared == info.totalSize else { return false }
+        return try plain.read(upToCount: 1)?.isEmpty ?? true   // the plaintext must end here too
+    }
+
+    /// One step of `encryptedFile(at:hasSameContentAs:)`: the chunk matched, differed (or was
+    /// damaged), or the encrypted file ended cleanly.
+    private enum ChunkComparison { case same, different, end }
+
     /// Decrypts a single chunk by index without touching any other chunk.
     /// Relies on every chunk but the last being exactly `chunkSize` plaintext bytes,
     /// so its on-disk offset can be computed directly.
