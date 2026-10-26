@@ -223,9 +223,14 @@ final class SetupWizardViewController: UIViewController, ErrorPresenting {
             let selectedMode = self.selectedLockMode
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let result = Result<Void, Error> {
-                    try authService.createPassword(password)
-                    if selectedMode == .passwordAndBiometrics {
+                    let createdNewKey = try authService.createPassword(password)
+                    guard selectedMode == .passwordAndBiometrics else { return }
+                    do {
                         try authService.enableBiometrics()
+                    } catch {
+                        // Don't leave a half-done setup: the lock mode stays as it was.
+                        authService.rollBackPasswordSetup(createdNewKey: createdNewKey)
+                        throw error
                     }
                 }
                 DispatchQueue.main.async {

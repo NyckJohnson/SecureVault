@@ -80,7 +80,8 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
 8. **Change lock mode** — the user wants more or less protection. Settings ("Security") → Lock Mode: No Lock, Password,
    Password + Face ID, and "Re-encrypt Everything" when a lock is on and some files are still plaintext; Password section:
    Change Password. No Lock → "Remove Lock?" → decrypt migration → lock removed. Password/biometric from No Lock → set a
-   password (or enter the existing one) → encrypt migration. Password ↔ Password + Face ID → immediate switch. Change
+   password (or enter the existing one) → encrypt migration under Password; for Password + Face ID, Face ID is turned on
+   once the migration completes fully. Password ↔ Password + Face ID → immediate switch. Change
    Password → current, new, confirm → "Password changed successfully". The migration screen shows "Encrypting Files" /
    "Decrypting Files", a progress bar and "N% complete". Ends when the new mode is in force and every file (trash
    included) matches it.
@@ -89,6 +90,9 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    - Failure path: backgrounding pauses the migration ("Paused — unlock to continue"); after unlock it resumes. A kill
      resumes it after the next unlock (or launch, without a lock).
    - Failure path: wrong current password → "Current password is incorrect".
+   - Failure path: adding Password + Face ID and the migration ends incomplete (Skip, Close or a kill) → the vault stays
+     Password; after Skip or Close the alert "Face ID wasn't turned on because some files aren't encrypted yet. Use
+     Re-encrypt Everything, then turn on Face ID." A Face ID failure after a full migration shows the error and keeps Password.
 9. **Paywall** — a free user wants more than 100 files. Settings "Upgrade to Pro" or the import limit opens the paywall
    ("Unlock Pro", "Store more than 100 files.", price, Unlock, Restore Purchases, X). Unlock → App Store purchase → paywall
    closes, Settings shows "Pro Unlocked". Ends when Pro is unlocked.

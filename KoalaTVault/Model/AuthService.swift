@@ -41,7 +41,7 @@ final class AuthService {
     nonisolated private let biometricMasterKeyAccount = "com.KoalaTVault.biometricMasterKey"
     nonisolated private let biometricKeychainService  = "com.KoalaTVault"
     private let privacyScreenTag = 999
-    private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
+    nonisolated private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
     nonisolated private var keychain: any KeychainAccess { LegacyStorage.current.keychain }
 
     // MARK: - Lock Mode
@@ -57,10 +57,14 @@ final class AuthService {
     /// nothing under `vaultRootURL` was encrypted with it, the stale blob and biometric item are
     /// deleted and a new key is created. If the vault does hold encrypted data, that blob is kept
     /// and `password` must unlock it; a wrong one throws `AuthError.existingPasswordRequired`.
+    ///
+    /// Returns true when a new key was created, false when the existing one was kept (pass it
+    /// to `rollBackPasswordSetup(createdNewKey:)` if the rest of the setup fails).
+    @discardableResult
     nonisolated func createPassword(
         _ password: String,
         vaultRootURL: URL = LegacyStorage.current.vaultRootURL
-    ) throws {
+    ) throws -> Bool {
         if try CryptoService.shared.hasMasterKeyBlob() {
             if vaultHoldsEncryptedData(at: vaultRootURL) {
                 do {
@@ -68,13 +72,31 @@ final class AuthService {
                 } catch CryptoError.wrongPassword {
                     throw AuthError.existingPasswordRequired
                 }
-                return
+                return false
             }
             try CryptoService.shared.wipeMasterKeyBlob()
             removeBiometricSecret()
         }
         try CryptoService.shared.createMasterKey(wrappedBy: password)
         // Caller is responsible for calling enableBiometrics() afterwards if lockMode is .passwordAndBiometrics.
+        return true
+    }
+
+    /// Undoes a `createPassword` whose setup could not finish (e.g. enabling biometrics failed):
+    /// removes the biometric item, removes the key blob when `createdNewKey` (a kept blob still
+    /// protects encrypted data, so it stays), and wipes the key from memory. Lock mode is not
+    /// touched. A blob that can't be removed is logged; the next `createPassword` on the empty
+    /// vault replaces it.
+    nonisolated func rollBackPasswordSetup(createdNewKey: Bool) {
+        removeBiometricSecret()
+        if createdNewKey {
+            do {
+                try CryptoService.shared.wipeMasterKeyBlob()
+            } catch {
+                logger.error("Rolling back the vault key failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        CryptoService.shared.wipeKey()
     }
 
     /// Whether anything under `rootURL` was encrypted with a vault key: a `.vault_map` index, a

@@ -223,15 +223,28 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         } else if authService.lockMode == .none || !authService.hasPassword() {
             // Adding a lock from No Lock always asks for a password, even if a key blob from an
             // earlier install exists: createPassword replaces it (empty vault) or checks it.
+            // Password + Face ID: lock with the password and encrypt first, then enable Face ID,
+            // but only if every file was encrypted. Otherwise (Close or Skip with failed files)
+            // the pending migration targets Password and resumes on the next unlock, so the vault
+            // stays Password with no biometric item and the user is told why.
+            // If enabling Face ID fails, the vault stays locked with Password and the error shows.
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
-                if mode == .passwordAndBiometrics {
-                    try? self.authService.enableBiometrics()
-                }
-                self.authService.lockMode = mode
-                let migration = MigrationViewController(type: .encrypt, targetLockMode: mode) { [weak self] completedFully in
+                self.authService.lockMode = .password
+                let migration = MigrationViewController(type: .encrypt, targetLockMode: .password) { [weak self] completedFully in
                     guard let self else { return }
-                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: mode, completedFully: completedFully)
+                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: .password, completedFully: completedFully)
+                    if mode == .passwordAndBiometrics {
+                        if completedFully {
+                            self.enableBiometricsAfterAddingLock()
+                        } else {
+                            self.authService.removeBiometricSecret()
+                            self.showError(
+                                "Face ID wasn't turned on because some files aren't encrypted yet. "
+                                    + "Use Re-encrypt Everything, then turn on Face ID."
+                            )
+                        }
+                    }
                     self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
                 self.present(migration, animated: true)
@@ -250,6 +263,19 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             authService.lockMode = mode
             tableView.reloadData()
         }
+    }
+
+    /// Last step of adding Password + Face ID from No Lock: stores the biometric item and
+    /// switches the lock mode. On failure the lock mode stays Password and the error shows.
+    private func enableBiometricsAfterAddingLock() {
+        do {
+            try authService.enableBiometrics()
+            authService.lockMode = .passwordAndBiometrics
+        } catch {
+            authService.removeBiometricSecret()
+            showError(error)
+        }
+        tableView.reloadData()
     }
 
     private func promptSetPassword(for mode: LockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
