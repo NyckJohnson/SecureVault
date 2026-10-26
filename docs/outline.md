@@ -19,9 +19,10 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    - Failure path: empty password → "Password cannot be empty"; mismatch → "Passwords do not match"; the alert closes and
      the user retries. A Keychain or biometric failure shows the error, the wizard stays, and nothing is left half set up
      (a created key is rolled back).
-   - Failure path: a vault password already exists on the device (e.g. after a reinstall) → the typed password must
-     unlock it; a wrong one shows "A vault password already exists on this device. Enter that password." The existing key
-     is never replaced.
+   - Failure path: a vault password already exists on the device (e.g. after a reinstall). If the vault is empty (no
+     encrypted file, index or trash entry on disk), the stale key and biometric item are deleted and a new key is created.
+     Otherwise (e.g. restored from a backup) the typed password must unlock it; a wrong one shows "A vault password already
+     exists on this device. Enter that password." and that key is never replaced.
 2. **Unlock** — a returning user with a lock wants in. Cold launch or return from background shows the lock screen
    ("KoalaTVault Locked", password field, Unlock, and "Use Face ID/Touch ID" in biometric mode). In biometric mode the
    prompt starts automatically once the app is active. A correct password or biometric match dismisses the lock screen and
@@ -559,7 +560,7 @@ extension matching ignores case.
   - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`.
   - Launch: with a lock, starts `.locked`; with none, `.open`.
   - setUp(.none): lockMode .none; nothing in the Keychain changes.
-  - setUp(password modes): no blob → key created; blob exists → the password must unlock it (`.existingPasswordRequired` on a wrong one; the blob is never replaced); then (biometric mode) the biometric item is stored; then lockMode is written; any failure after a key was created deletes that blob and biometric item, wipes the key, leaves lockMode unchanged and rethrows; empty password → `.emptyPassword`; biometric mode without biometrics → `.biometricsUnavailable`. Ends `.unlocked`.
+  - setUp(password modes): no blob → key created; blob exists and the vault holds no encrypted data (no index, encrypted file or trash entry) → the stale blob and biometric item are deleted and a new key created; blob exists otherwise → the password must unlock it (`.existingPasswordRequired` on a wrong one; that blob is never replaced); then (biometric mode) the biometric item is stored; then lockMode is written; any failure after a key was created deletes that blob and biometric item, wipes the key, leaves lockMode unchanged and rethrows; empty password → `.emptyPassword`; biometric mode without biometrics → `.biometricsUnavailable`. Ends `.unlocked`.
   - unlock(password): right → key loaded, `.unlocked`; in biometric mode the biometric item is then refreshed and a failure there is reported in the log only; wrong → `.wrongPassword`, stays `.locked`; no blob → `.passwordMissing`; empty → `.emptyPassword`.
   - unlockWithBiometrics: item read → key loaded; key not matching the vault (`VaultStoring.keyMatchesVault` false) → key wiped, item deleted, `.biometricChanged`; cancel → `.biometricCancelled`; missing/invalidated → `.biometricChanged`; lockout → `.biometryLockedOut`; not enrolled → `.biometryNotEnrolled`; no passcode → `.passcodeNotSet`; lockMode not biometric → `.biometricsUnavailable`.
   - appWillResignActive: returns true (show the privacy cover) when a lock is set and the state is `.unlocked`; nothing is wiped.
@@ -569,7 +570,7 @@ extension matching ignores case.
   - switchMode(.passwordAndBiometrics) from .password: key required (`.notUnlocked`); biometric item stored, then lockMode; failure → lockMode unchanged and error thrown.
   - switchMode(.password) from .passwordAndBiometrics: lockMode written, then the biometric item deleted (a delete failure is thrown after lockMode is set; the item is harmless).
   - switchMode to or from .none is not allowed here (those go through LockMigration) → `.notUnlocked`.
-  - prepareToAddLock(mode, password) from .none: no blob → key created; blob exists → the password must unlock it (`.existingPasswordRequired`); biometric item stored for biometric mode (failure → rollback as in setUp); then lockMode = mode. Ends `.unlocked`.
+  - prepareToAddLock(mode, password) from .none: no blob → key created; blob exists → as in setUp (empty vault: replaced; otherwise the password must unlock it, `.existingPasswordRequired`); biometric item stored for biometric mode (failure → rollback as in setUp); then lockMode = mode. Ends `.unlocked`.
   - removeKeysAfterDecryption: in order: biometric item deleted, lockMode .none, blob deleted, key wiped; each step is safe to repeat; a failure throws and leaves the later steps for the next call. Ends `.open`.
 - Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
 - Legacy files: Model/AuthService.swift (part: lock mode, password create/verify/change/remove, biometric enable/remove/authenticate, isLocked/hasAuthenticated, scene lifecycle wipe and temp clean-up)
@@ -866,7 +867,7 @@ extension matching ignores case.
 - Trash entries store absolute paths; restore after a container move targets a stale path — FileSystem.swift:494-497, :536 — fixed in module VaultStore
 - Restore and permanent delete of an unknown trash item succeed silently; encrypted restore doesn't resolve name conflicts; trashed folders show as files — FileSystem.swift:531-581, :545, :559-561 — fixed in module VaultStore
 - `VaultItem.id` is a new UUID on every listing (thumbnail cache misses) — FileSystem.swift:27-45 — fixed in module VaultStore
-- Setup or adding a lock that fails after creating the key leaves a blob with lock mode none; retrying fails forever with "master key already exists" (also after a reinstall) — SetupWizard.swift:218-232, SecuritySettings.swift:216-229, CryptoService.swift:62 — fixed in module VaultLock
+- Setup or adding a lock that fails after creating the key leaves a blob with lock mode none; retrying fails forever with "master key already exists" (also after a reinstall) — SetupWizard.swift:218-232, SecuritySettings.swift:216-229, CryptoService.swift:62 — fixed in module VaultLock (the reinstall case, which blocked first-time setup, fixed in baseline: an empty vault replaces the stale key)
 - `hasPassword()` is true on a Keychain error, so adding a lock can skip the password and the migration — AuthService.swift:57-59, SecuritySettings.swift:230-243 — fixed in module VaultLock
 - `removePassword` stops at a blob-delete error and leaves the raw-key biometric item; finalize clears the pending record before it runs, so a kill leaves plaintext files under a password lock — AuthService.swift:61-65, :127-148, Migration.swift:161-176 — fixed in module VaultLock and LockMigration
 - Biometric unlock loads any 32 bytes without checking them against the vault; enabling biometrics deletes the old item before adding the new one and callers swallow the failure — AuthService.swift:71-115, :172-207 — fixed in module VaultLock
@@ -897,5 +898,6 @@ extension matching ignores case.
 - 2026-10-26: Gates run on the iOS 18.6 simulator (StoreKit test sessions fail under xcodebuild on iOS 26.x, Apple FB22237318) — approved by the human
 - 2026-10-24: Folder names, sizes and structure stay plaintext on disk for now; "encrypt folder names" queued as a feature — approved by the human
 - 2026-10-24: Encrypted mode is `lockMode != .none`, not "a key is loaded"; with a lock and no key, store operations throw `.locked` instead of writing plaintext — key-handling robustness (the human's goal for the adoption)
+- 2026-10-26: After a reinstall, a leftover vault key is replaced when the vault holds no encrypted data; with encrypted data (e.g. a restored backup) the old password is still required — decided by the human (baseline row 24)
 - 2026-10-24: Tests never use the real Keychain, UserDefaults.standard or Documents; every module takes them by injection; `-uiTesting` replaces `--uitesting` — the old tests and UI-test reset could delete a real vault
 - 2026-10-24: Setup: app target Default Actor Isolation MainActor → nonisolated; legacy `AuthService`, `ImportService`, `ExportService` marked `@MainActor` explicitly (their previous implicit isolation, no behavior change) and the old tests that touch them (`AuthServiceTests`, `ImportServiceTests`, `SecuritySettings*Tests`) made `@MainActor` with async setUp/tearDown, assertions unchanged — approved by the human
