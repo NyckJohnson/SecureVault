@@ -472,16 +472,23 @@ extension FileViewerViewController: UIPageViewControllerDataSource {
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
-        guard currentIndex > 0 else { return nil }
-        return FilePageViewController(item: items[currentIndex - 1], viewer: self)
+        guard let index = index(of: viewController), index > 0 else { return nil }
+        return FilePageViewController(item: items[index - 1], viewer: self)
     }
 
     func pageViewController(
         _ pageViewController: UIPageViewController,
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
-        guard currentIndex < items.count - 1 else { return nil }
-        return FilePageViewController(item: items[currentIndex + 1], viewer: self)
+        guard let index = index(of: viewController), index < items.count - 1 else { return nil }
+        return FilePageViewController(item: items[index + 1], viewer: self)
+    }
+
+    /// Neighbours come from the page asked about, not `currentIndex`: the scroll-style pager can ask for the
+    /// new page's neighbours before `didFinishAnimating` updates `currentIndex`.
+    private func index(of viewController: UIViewController) -> Int? {
+        guard let page = viewController as? FilePageViewController else { return nil }
+        return items.firstIndex(where: { $0.id == page.item.id })
     }
 }
 

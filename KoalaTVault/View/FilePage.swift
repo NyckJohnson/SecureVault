@@ -13,6 +13,9 @@ final class FilePageViewController: UIViewController {
     let item: VaultItem
     private weak var viewer: FileViewerViewController?
     private var playerLayer: AVPlayerLayer?
+    /// This page's own player. The pager loads neighbour pages before they show, so the page hands it to the
+    /// viewer's controls only when it appears (`viewDidAppear`) and pauses it when it leaves.
+    private var player: AVPlayer?
     private var previewURL: URL?
     private var imageView: UIImageView?
     private var scrollView: UIScrollView?
@@ -52,9 +55,18 @@ final class FilePageViewController: UIViewController {
         playerLayer?.frame = view.bounds
     }
     
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The visible page drives the viewer's controls (nil for non-video pages releases the last video).
+        guard let viewer, viewer.player !== player else { return }
+        viewer.player = player
+        viewer.updatePlayPauseButton(isPlaying: player?.timeControlStatus == .playing)
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        viewer?.player?.pause()
+        player?.pause()
+        if let viewer, viewer.player === player { viewer.updatePlayPauseButton(isPlaying: false) }
     }
     
     /// Shows "This file can't be opened." centred on the page (any load or decrypt failure).
@@ -178,8 +190,7 @@ final class FilePageViewController: UIViewController {
             }
         }
         let player = AVPlayer(playerItem: playerItem)
-        viewer?.player = player
-        viewer?.updatePlayPauseButton(isPlaying: false)
+        self.player = player
         let layer = AVPlayerLayer(player: player)
         layer.videoGravity = .resizeAspect
         layer.frame = view.bounds
