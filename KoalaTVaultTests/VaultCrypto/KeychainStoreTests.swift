@@ -74,10 +74,8 @@ import Testing
     @Test("Deleting removes a legacy item that has no service attribute")
     func deleteRemovesUnscopedLegacyItem() throws {
         let account = "com.KoalaTVault.password"
-        let match: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: account,
-        ]
+        var match: [String: Any] = [kSecClass as String: kSecClassGenericPassword]
+        match[kSecAttrAccount as String] = account
         SecItemDelete(match as CFDictionary)
         var add = match
         add[kSecValueData as String] = Data([7])
@@ -92,16 +90,17 @@ import Testing
         #expect(SecItemCopyMatching(query as CFDictionary, nil) == errSecItemNotFound)
     }
 
-    static let laMappings: [(code: Int, error: VaultCryptoError?)] = [
-        (LAError.userCancel.rawValue, .biometricCancelled),
-        (LAError.userFallback.rawValue, .biometricCancelled),
-        (LAError.systemCancel.rawValue, .biometricCancelled),
-        (LAError.appCancel.rawValue, .biometricCancelled),
-        (LAError.passcodeNotSet.rawValue, .passcodeNotSet),
-        (LAError.biometryNotEnrolled.rawValue, .biometryNotEnrolled),
-        (LAError.biometryLockout.rawValue, .biometryLockedOut),
-        (-9999, nil),
-    ]
+    static let laMappings: [(code: Int, error: VaultCryptoError?)] = {
+        var rows: [(code: Int, error: VaultCryptoError?)] = []
+        for code in [LAError.userCancel, .userFallback, .systemCancel, .appCancel] {
+            rows.append((code.rawValue, .biometricCancelled))
+        }
+        rows.append((LAError.passcodeNotSet.rawValue, .passcodeNotSet))
+        rows.append((LAError.biometryNotEnrolled.rawValue, .biometryNotEnrolled))
+        rows.append((LAError.biometryLockout.rawValue, .biometryLockedOut))
+        rows.append((-9999, nil))
+        return rows
+    }()
 
     // biometryNotAvailable (-6) is left out: the spec does not say how it maps.
     @Test("LocalAuthentication codes map to the matching VaultCryptoError", arguments: laMappings)

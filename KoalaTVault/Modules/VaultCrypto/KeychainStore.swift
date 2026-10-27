@@ -97,9 +97,13 @@ struct KeychainStore: KeychainAccessing {
     /// when the enrolled biometrics change (`kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` +
     /// `.biometryCurrentSet`).
     ///
-    /// Access control can't be changed by `SecItemUpdate`, so an existing item gets its data
+    /// The new item is written before the old one is removed, so a failure leaves the old item:
+    /// access control can't be changed by `SecItemUpdate`, so an existing item gets its data
     /// replaced in place without user interaction (same access control as a new item). Only
-    /// if that is refused (e.g. the item was invalidated) is the old item deleted and re-added.
+    /// when the old item can't be updated without user interaction (`errSecInteractionNotAllowed`
+    /// or `errSecAuthFailed`, e.g. it was invalidated) is it deleted and re-added; a failed
+    /// re-add there leaves no item. If it vanished meanwhile (`errSecItemNotFound`) it is just
+    /// added. Any other update status throws `.keychain(status)` and leaves the old item.
     private func writeBiometric(_ data: Data, account: String) throws {
         var accessError: Unmanaged<CFError>?
         let access = SecAccessControlCreateWithFlags(
@@ -124,9 +128,16 @@ struct KeychainStore: KeychainAccessing {
         updateQuery[kSecUseAuthenticationContext as String] = silent
         let updateStatus = SecItemUpdate(
             updateQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if updateStatus == errSecSuccess { return }
-
-        try delete(account: account)
+        switch updateStatus {
+        case errSecSuccess:
+            return
+        case errSecInteractionNotAllowed, errSecAuthFailed:
+            try delete(account: account)
+        case errSecItemNotFound:
+            break
+        default:
+            throw VaultCryptoError.keychain(updateStatus)
+        }
         let retryStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard retryStatus == errSecSuccess else { throw VaultCryptoError.keychain(retryStatus) }
     }
@@ -151,7 +162,9 @@ struct KeychainStore: KeychainAccessing {
         return .keychain(status)
     }
 
-    private static func map(laCode: Int) -> VaultCryptoError? {
+    /// Maps a LocalAuthentication error code to its typed error, or `nil` for codes with no
+    /// dedicated case (cancel-like codes all become `.biometricCancelled`).
+    static func map(laCode: Int) -> VaultCryptoError? {
         switch LAError.Code(rawValue: laCode) {
         case .userCancel, .systemCancel, .appCancel, .userFallback:
             return .biometricCancelled
