@@ -10,15 +10,20 @@ import UniformTypeIdentifiers
 /// so large encrypted videos can start playing without decrypting the whole file first.
 nonisolated final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, Sendable {
     private let encryptedURL: URL
+    private let info: StreamInfo
     private let totalSize: Int
     private let chunkSize: Int
     private let contentType: UTType
+    private let cipher: any FileCipher
 
-    init?(encryptedURL: URL, fileExtension: String) {
-        guard let info = try? CryptoService.shared.streamInfo(for: encryptedURL) else { return nil }
+    /// - Parameter cipher: decrypts the chunks; defaults to the one the composition root built.
+    init?(encryptedURL: URL, fileExtension: String, cipher: any FileCipher = LegacyStorage.current.fileCipher) {
+        guard let info = try? cipher.streamInfo(of: encryptedURL) else { return nil }
         self.encryptedURL = encryptedURL
+        self.info = info
         self.totalSize = info.totalSize
         self.chunkSize = info.chunkSize
+        self.cipher = cipher
         self.contentType = UTType(filenameExtension: fileExtension) ?? .mpeg4Movie
         super.init()
     }
@@ -65,9 +70,7 @@ nonisolated final class VaultResourceLoaderDelegate: NSObject, AVAssetResourceLo
             for chunkIndex in firstChunk...lastChunk {
                 try autoreleasepool {
                     guard !loadingRequest.isCancelled else { return }
-                    let chunkData = try CryptoService.shared.decryptChunk(
-                        at: chunkIndex, from: encryptedURL, chunkSize: chunkSize, totalSize: totalSize
-                    )
+                    let chunkData = try cipher.decryptChunk(chunkIndex, of: encryptedURL, info: info)
                     let chunkStart = chunkIndex * chunkSize
                     let sliceStart = max(requestedOffset, chunkStart) - chunkStart
                     let sliceEnd = min(endOffset, chunkStart + chunkData.count) - chunkStart

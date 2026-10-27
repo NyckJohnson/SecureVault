@@ -100,7 +100,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// while locked the encrypted trash map can't be read, and a legacy plaintext one would
     /// be rewritten as plaintext. Runs on the main thread, like the orphan sweep.
     private func purgeExpiredTrashIfUnlocked() {
-        guard AuthService.shared.lockMode == .none || CryptoService.shared.isKeyLoaded else { return }
+        guard AuthService.shared.lockMode == .none || LegacyStorage.current.masterKeyStore.isKeyLoaded else { return }
         FileSystem.shared.cleanupExpiredTrashItems(for: .root)
     }
 }

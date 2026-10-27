@@ -78,6 +78,12 @@ nonisolated final class FileSystem: Sendable {
     static let shared = FileSystem()
     private init() {}
 
+    // The master key store and cipher built once by the composition root (`AppDependencies`),
+    // and the migration's checks of encrypted copies.
+    private var keyStore: any MasterKeyStoring { LegacyStorage.current.masterKeyStore }
+    private var cipher: any FileCipher { LegacyStorage.current.fileCipher }
+    private var copyChecker: EncryptedCopyChecker { EncryptedCopyChecker(keyStore: keyStore, cipher: cipher) }
+
     private let mappingFileName = ".vault_map"
     private let tempDir = FileManager.default.temporaryDirectory
 
@@ -87,7 +93,7 @@ nonisolated final class FileSystem: Sendable {
 
     // MARK: - Encryption state
     private var isEncryptionEnabled: Bool {
-        CryptoService.shared.isKeyLoaded
+        keyStore.isKeyLoaded
     }
 
     // MARK: - Browse
@@ -200,7 +206,7 @@ nonisolated final class FileSystem: Sendable {
             let name = resolvedNameInMapping(for: originalName, existingNames: existingNames)
             let uuid = UUID().uuidString
             let destination = directory.diskURL.appendingPathComponent(uuid)
-            try CryptoService.shared.encryptFile(at: url, to: destination)
+            try cipher.encryptFile(at: url, to: destination)
             var mapping = try loadMapping(from: directory.diskURL)
             mapping[uuid] = VaultMapping(originalName: name)
             try saveMapping(mapping, to: directory.diskURL)
@@ -319,7 +325,7 @@ nonisolated final class FileSystem: Sendable {
             // decryptFile writes to a temp location so we can stream-hash it too
             let tempURL = tempDir.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: tempURL) }
-            guard (try? CryptoService.shared.decryptFile(at: directory.appendingPathComponent(existingUUID), to: tempURL)) != nil,
+            guard (try? cipher.decryptFile(at: directory.appendingPathComponent(existingUUID), to: tempURL)) != nil,
                   let existingHash = sha256Hex(ofFileAt: tempURL) else {
                 return false
             }
@@ -354,7 +360,7 @@ nonisolated final class FileSystem: Sendable {
         let tempSubDir = tempDir.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
         let tempURL = tempSubDir.appendingPathComponent(item.name)
-        try CryptoService.shared.decryptFile(at: item.diskURL, to: tempURL)
+        try cipher.decryptFile(at: item.diskURL, to: tempURL)
         return tempURL
     }
 
@@ -366,7 +372,7 @@ nonisolated final class FileSystem: Sendable {
             defer { try? FileManager.default.removeItem(at: tempPlain) }
 
             let tempEncrypted = tempDir.appendingPathComponent(UUID().uuidString)
-            try CryptoService.shared.encryptFile(at: tempPlain, to: tempEncrypted)
+            try cipher.encryptFile(at: tempPlain, to: tempEncrypted)
             defer { try? FileManager.default.removeItem(at: tempEncrypted) }
 
             _ = try FileManager.default.replaceItemAt(item.diskURL, withItemAt: tempEncrypted)
@@ -384,7 +390,7 @@ nonisolated final class FileSystem: Sendable {
                 let tempSubDir = tempDir.appendingPathComponent(UUID().uuidString)
                 try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
                 let tempURL = tempSubDir.appendingPathComponent(item.name)
-                try CryptoService.shared.decryptFile(at: item.diskURL, to: tempURL)
+                try cipher.decryptFile(at: item.diskURL, to: tempURL)
                 return tempURL
             }
             if needsDecryptedCopy(item) {
@@ -430,7 +436,7 @@ nonisolated final class FileSystem: Sendable {
                 let sub = LegacyVaultDirectory(name: child.name, diskURL: child.diskURL, rootURL: child.rootURL)
                 try copyDecrypted(sub, to: target)
             } else if child.isEncrypted {
-                try CryptoService.shared.decryptFile(at: child.diskURL, to: target)
+                try cipher.decryptFile(at: child.diskURL, to: target)
             } else {
                 try FileManager.default.copyItem(at: child.diskURL, to: target)
             }
@@ -492,7 +498,7 @@ nonisolated final class FileSystem: Sendable {
             let tempPlain = tempDir.appendingPathComponent(UUID().uuidString)
             try Data().write(to: tempPlain)
             defer { try? FileManager.default.removeItem(at: tempPlain) }
-            try CryptoService.shared.encryptFile(at: tempPlain, to: destination)  // file first
+            try cipher.encryptFile(at: tempPlain, to: destination)  // file first
             mapping[uuid] = VaultMapping(originalName: resolved)
             do {
                 try saveMapping(mapping, to: directory.diskURL)                    // then the index
@@ -769,7 +775,7 @@ nonisolated final class FileSystem: Sendable {
         let trashMapURL = trashDirectory(for: rootURL).diskURL.appendingPathComponent(trashMapName)
         do {
             return try loadEncryptedJSON([String: TrashEntry].self, from: trashMapURL) ?? [:]
-        } catch FileSystemError.mappingUnreadable where CryptoService.shared.isKeyLoaded {
+        } catch FileSystemError.mappingUnreadable where keyStore.isKeyLoaded {
             // Every decrypt attempt failed. A map written before a lock was added is plaintext
             // JSON; accept it only if it parses as the trash map. The next save encrypts it.
             guard let data = try? Data(contentsOf: trashMapURL),
@@ -802,10 +808,10 @@ nonisolated final class FileSystem: Sendable {
     /// copy plus its index entry, always exists). Copy written and verified → entry saved encrypted
     /// (never plaintext) and read back → copy re-verified → plaintext removed. A rerun drops entries
     /// without files, removes a plaintext whose same-name copy matches byte for byte, and otherwise
-    /// keeps both (free name). Throws `CryptoError.noKeyLoaded` without the key, or the I/O error.
+    /// keeps both (free name). Throws `VaultCryptoError.noKeyLoaded` without the key, or the I/O error.
     func migrateFileToEncrypted(_ item: LegacyVaultItem, in directory: LegacyVaultDirectory) throws {
         try throwIfFailureInjected(for: item.name)
-        guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
+        guard keyStore.isKeyLoaded else { throw VaultCryptoError.noKeyLoaded }
         let fileManager = FileManager.default
         // Removed only by an earlier run, after its copy and entry were verified.
         guard fileManager.fileExists(atPath: item.diskURL.path) else { return }
@@ -818,8 +824,8 @@ nonisolated final class FileSystem: Sendable {
             // An entry without its file points at nothing.
             guard fileManager.fileExists(atPath: copyURL.path) else { mapping.removeValue(forKey: uuid); continue }
             // An exact match means an earlier run stopped just before removing the plaintext.
-            if CryptoService.shared.isCompleteEncryptedCopy(at: copyURL, plaintextSize: sourceSize),
-               try CryptoService.shared.encryptedFile(at: copyURL, hasSameContentAs: item.diskURL) {
+            if copyChecker.isCompleteEncryptedCopy(at: copyURL, plaintextSize: sourceSize),
+               try copyChecker.encryptedFile(at: copyURL, hasSameContentAs: item.diskURL) {
                 try fileManager.removeItem(at: item.diskURL)
                 return
             }
@@ -830,10 +836,10 @@ nonisolated final class FileSystem: Sendable {
             : item.name
         let uuid = UUID().uuidString
         let destination = directory.diskURL.appendingPathComponent(uuid)
-        try CryptoService.shared.encryptFile(at: item.diskURL, to: destination)
+        try cipher.encryptFile(at: item.diskURL, to: destination)
         do {
-            guard CryptoService.shared.isCompleteEncryptedCopy(at: destination, plaintextSize: sourceSize) else {
-                throw CryptoService.shared.isKeyLoaded ? CryptoError.encryptionFailed : CryptoError.noKeyLoaded
+            guard copyChecker.isCompleteEncryptedCopy(at: destination, plaintextSize: sourceSize) else {
+                throw keyStore.isKeyLoaded ? VaultCryptoError.encryptionFailed : VaultCryptoError.noKeyLoaded
             }
             mapping[uuid] = VaultMapping(originalName: name)
             try saveMappingRequiringKey(mapping, to: directory.diskURL)
@@ -846,12 +852,12 @@ nonisolated final class FileSystem: Sendable {
         var saved = try loadMapping(from: directory.diskURL)
         guard saved[uuid]?.originalName == name else { throw FileSystemError.mappingUnreadable }
         // Re-check the copy right before deleting the plaintext: it must still exist, complete.
-        guard CryptoService.shared.isCompleteEncryptedCopy(at: destination, plaintextSize: sourceSize) else {
-            guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
+        guard copyChecker.isCompleteEncryptedCopy(at: destination, plaintextSize: sourceSize) else {
+            guard keyStore.isKeyLoaded else { throw VaultCryptoError.noKeyLoaded }
             // Keep the plaintext; drop the bad entry (best effort: a rerun drops or re-checks it).
             saved.removeValue(forKey: uuid)
             try? saveMappingRequiringKey(saved, to: directory.diskURL)
-            throw CryptoError.encryptionFailed
+            throw VaultCryptoError.encryptionFailed
         }
         try fileManager.removeItem(at: item.diskURL)
     }
@@ -902,14 +908,14 @@ nonisolated final class FileSystem: Sendable {
         let sameNameURL = directory.diskURL.appendingPathComponent(item.name)
         if FileManager.default.fileExists(atPath: sameNameURL.path),
            let plainSize = try FileManager.default.attributesOfItem(atPath: sameNameURL.path)[.size] as? Int,
-           CryptoService.shared.isCompleteEncryptedCopy(at: encryptedURL, plaintextSize: plainSize),
-           try CryptoService.shared.encryptedFile(at: encryptedURL, hasSameContentAs: sameNameURL) {
+           copyChecker.isCompleteEncryptedCopy(at: encryptedURL, plaintextSize: plainSize),
+           try copyChecker.encryptedFile(at: encryptedURL, hasSameContentAs: sameNameURL) {
             try removeDecryptedSource(encryptedURL, in: directory)
             return
         }
         let name = resolvedName(for: item.name, in: directory.diskURL)
         let decryptedURL = directory.diskURL.appendingPathComponent(name)
-        try CryptoService.shared.decryptFile(at: encryptedURL, to: decryptedURL)
+        try cipher.decryptFile(at: encryptedURL, to: decryptedURL)
         try removeDecryptedSource(encryptedURL, in: directory)
     }
 
@@ -919,7 +925,7 @@ nonisolated final class FileSystem: Sendable {
 #if DEBUG
         injected = injected || FileSystem.testForcedMigrationFailureFileName == name
 #endif
-        if injected { throw CryptoError.encryptionFailed }
+        if injected { throw VaultCryptoError.encryptionFailed }
     }
 
     /// Removes an encrypted file whose plaintext is in place, then its index entry.
@@ -1062,10 +1068,10 @@ nonisolated final class FileSystem: Sendable {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         guard let data = try? Data(contentsOf: url) else { throw FileSystemError.mappingUnreadable }
 
-        if CryptoService.shared.isKeyLoaded {
+        if keyStore.isKeyLoaded {
             // Primary: filename-only domain (.vault_map) — what saveEncryptedJSON always writes.
             let lastName = url.lastPathComponent
-            if let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: lastName),
+            if let decrypted = try? cipher.decrypt(data, contexts: [lastName]),
                let decoded = try? JSONDecoder().decode(T.self, from: decrypted) {
                 return decoded
             }
@@ -1073,13 +1079,13 @@ nonisolated final class FileSystem: Sendable {
             // saveEncryptedJSON used authDomain(for:) instead of lastPathComponent.
             let relDomain = authDomain(for: url)
             if relDomain != lastName,
-               let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: relDomain),
+               let decrypted = try? cipher.decrypt(data, contexts: [relDomain]),
                let decoded = try? JSONDecoder().decode(T.self, from: decrypted) {
                 return decoded
             }
             // Fallback 2: empty AAD — for maps written by the original encrypt(data:) API before
             // the authenticating: parameter existed.
-            if let decrypted = try? CryptoService.shared.decrypt(data: data, authenticating: ""),
+            if let decrypted = try? cipher.decrypt(data, contexts: [""]),
                let decoded = try? JSONDecoder().decode(T.self, from: decrypted) {
                 return decoded
             }
@@ -1094,8 +1100,8 @@ nonisolated final class FileSystem: Sendable {
 
     private func saveEncryptedJSON<T: Encodable>(_ value: T, to url: URL) throws {
         let data = try JSONEncoder().encode(value)
-        if CryptoService.shared.isKeyLoaded {
-            let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: url.lastPathComponent)
+        if keyStore.isKeyLoaded {
+            let encrypted = try cipher.encrypt(data, context: url.lastPathComponent)
             try encrypted.write(to: url, options: .atomic)
         } else {
             try data.write(to: url, options: .atomic)
@@ -1106,7 +1112,7 @@ nonisolated final class FileSystem: Sendable {
         let mapURL = directory.appendingPathComponent(mappingFileName)
         do {
             return try loadEncryptedJSON([String: VaultMapping].self, from: mapURL) ?? [:]
-        } catch FileSystemError.mappingUnreadable where CryptoService.shared.isKeyLoaded {
+        } catch FileSystemError.mappingUnreadable where keyStore.isKeyLoaded {
             // Older builds wrote plaintext indexes when the key was wiped mid-migration; accept
             // one only if it parses. The next save encrypts it (see encryptPlaintextIndexes).
             guard let data = try? Data(contentsOf: mapURL),
@@ -1156,14 +1162,14 @@ nonisolated final class FileSystem: Sendable {
 // MARK: - Migration index safety
 extension FileSystem {
     /// Re-saves encrypted every plaintext folder index under `directory` (older builds wrote them
-    /// when the key was wiped mid-migration). Throws `CryptoError.noKeyLoaded` without the key.
+    /// when the key was wiped mid-migration). Throws `VaultCryptoError.noKeyLoaded` without the key.
     /// Damaged indexes are left alone; the hidden `.trash` folder is not visited.
     func encryptPlaintextIndexes(in directory: LegacyVaultDirectory) throws {
-        guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
+        guard keyStore.isKeyLoaded else { throw VaultCryptoError.noKeyLoaded }
         let mapURL = directory.diskURL.appendingPathComponent(mappingFileName)
         if FileManager.default.fileExists(atPath: mapURL.path) {
             let data = try Data(contentsOf: mapURL)
-            let opensWithKey = (try? CryptoService.shared.decrypt(data: data, authenticating: mappingFileName)) != nil
+            let opensWithKey = (try? cipher.decrypt(data, contexts: [mappingFileName])) != nil
             if !opensWithKey, let plaintext = try? JSONDecoder().decode([String: VaultMapping].self, from: data) {
                 try saveMappingRequiringKey(plaintext, to: directory.diskURL)
             }
@@ -1177,10 +1183,10 @@ extension FileSystem {
         }
     }
 
-    /// Saves an index encrypted; throws `CryptoError.noKeyLoaded` rather than writing plaintext.
+    /// Saves an index encrypted; throws `VaultCryptoError.noKeyLoaded` rather than writing plaintext.
     fileprivate func saveMappingRequiringKey(_ mapping: [String: VaultMapping], to directory: URL) throws {
         let data = try JSONEncoder().encode(mapping)
-        let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: mappingFileName)
+        let encrypted = try cipher.encrypt(data, context: mappingFileName)
         try encrypted.write(to: directory.appendingPathComponent(mappingFileName), options: .atomic)
     }
 
