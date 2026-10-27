@@ -4,7 +4,6 @@ import Testing
 
 @testable import KoalaTVault
 
-// Assumes the initializer `LiveFileCipher(keyStore: MasterKeyStoring)`.
 @Suite struct LiveFileCipherTests {
     private let mebibyte = SVC5Builder.mebibyte
 
@@ -534,6 +533,92 @@ import Testing
             try SVC5Builder.make(plaintext: SVC5Builder.pattern(2500), chunkSize: 1000, master: other).write(to: url)
             let info = StreamInfo(totalSize: 2500, chunkSize: 1000)
             #expect(throws: VaultCryptoError.decryptionFailed) { try makeCipher().decryptChunk(0, of: url, info: info) }
+        }
+    }
+
+    // MARK: no key, mismatched info, missing source
+
+    @Test("decryptFile without a key throws noKeyLoaded, creates no output and keeps an existing destination")
+    func decryptFileWithoutKey() throws {
+        try withDirectory { directory in
+            let source = directory.appendingPathComponent("sealed")
+            try SVC5Builder.make(plaintext: SVC5Builder.pattern(2500), chunkSize: 1000).write(to: source)
+            let cipher = makeCipher(keyLoaded: false)
+            let fresh = directory.appendingPathComponent("fresh")
+            #expect(throws: VaultCryptoError.noKeyLoaded) { try cipher.decryptFile(at: source, to: fresh) }
+            #expect(try listing(directory) == ["sealed"])
+            let existing = directory.appendingPathComponent("existing")
+            try Data("keep".utf8).write(to: existing)
+            #expect(throws: VaultCryptoError.noKeyLoaded) { try cipher.decryptFile(at: source, to: existing) }
+            #expect(try Data(contentsOf: existing) == Data("keep".utf8))
+            #expect(try listing(directory) == ["existing", "sealed"])
+        }
+    }
+
+    @Test("decryptChunk without a key throws noKeyLoaded")
+    func decryptChunkWithoutKey() throws {
+        try withDirectory { directory in
+            let (url, info) = try builtFile(in: directory, plain: SVC5Builder.pattern(2500))
+            #expect(throws: VaultCryptoError.noKeyLoaded) {
+                try makeCipher(keyLoaded: false).decryptChunk(0, of: url, info: info)
+            }
+        }
+    }
+
+    @Test("decryptChunk with a chunkSize that doesn't match the header fails with decryptionFailed")
+    func decryptChunkWrongChunkSize() throws {
+        try withDirectory { directory in
+            let (url, _) = try builtFile(in: directory, plain: SVC5Builder.pattern(2500))
+            let wrong = StreamInfo(totalSize: 2500, chunkSize: 500)
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptChunk(1, of: url, info: wrong)
+            }
+        }
+    }
+
+    @Test("decryptChunk with a totalSize that doesn't match the header fails with decryptionFailed")
+    func decryptChunkWrongTotalSize() throws {
+        try withDirectory { directory in
+            let (url, _) = try builtFile(in: directory, plain: SVC5Builder.pattern(2500))
+            let wrong = StreamInfo(totalSize: 2400, chunkSize: 1000)
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptChunk(2, of: url, info: wrong)
+            }
+        }
+    }
+
+    @Test("encryptFile with a missing source throws encryptionFailed and leaves an existing destination untouched")
+    func encryptFileMissingSource() throws {
+        try withDirectory { directory in
+            let destination = directory.appendingPathComponent("sealed")
+            try Data("keep".utf8).write(to: destination)
+            let missing = directory.appendingPathComponent("missing")
+            #expect(throws: VaultCryptoError.encryptionFailed) {
+                try makeCipher().encryptFile(at: missing, to: destination)
+            }
+            #expect(try Data(contentsOf: destination) == Data("keep".utf8))
+            #expect(try listing(directory) == ["sealed"])
+        }
+    }
+
+    @Test("decryptFile with a missing source throws decryptionFailed")
+    func decryptFileMissingSource() throws {
+        try withDirectory { directory in
+            let missing = directory.appendingPathComponent("missing")
+            let destination = directory.appendingPathComponent("output")
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptFile(at: missing, to: destination)
+            }
+            let remaining = try listing(directory)
+            #expect(remaining.isEmpty)
+        }
+    }
+
+    @Test("streamInfo with a missing file throws decryptionFailed")
+    func streamInfoMissingFile() throws {
+        try withDirectory { directory in
+            let missing = directory.appendingPathComponent("missing")
+            #expect(throws: VaultCryptoError.decryptionFailed) { try makeCipher().streamInfo(of: missing) }
         }
     }
 }
