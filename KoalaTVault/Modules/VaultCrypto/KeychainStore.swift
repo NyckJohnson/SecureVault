@@ -40,8 +40,10 @@ struct KeychainStore: KeychainAccessing {
         case errSecItemNotFound:
             return nil
         default:
+            // coverage-exempt-begin: a failing SecItemCopyMatching can't be provoked on the simulator
             if prompt != nil { throw Self.biometricError(for: status) }
             throw VaultCryptoError.keychain(status)
+            // coverage-exempt-end
         }
     }
 
@@ -50,7 +52,7 @@ struct KeychainStore: KeychainAccessing {
         case .whenUnlocked:
             try writeUpdatingInPlace(data, account: account)
         case .biometryCurrentSetThisDeviceOnly:
-            try writeBiometric(data, account: account)
+            try writeBiometric(data, account: account) // coverage-exempt: biometric access control needs a device with a passcode and enrolled biometrics
         }
     }
 
@@ -61,7 +63,7 @@ struct KeychainStore: KeychainAccessing {
         }
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw VaultCryptoError.keychain(status)
+            throw VaultCryptoError.keychain(status) // coverage-exempt: SecItemDelete failure can't be provoked
         }
     }
 
@@ -89,7 +91,7 @@ struct KeychainStore: KeychainAccessing {
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess else { throw VaultCryptoError.keychain(addStatus) }
         default:
-            throw VaultCryptoError.keychain(updateStatus)
+            throw VaultCryptoError.keychain(updateStatus) // coverage-exempt: SecItemUpdate failure can't be provoked
         }
     }
 
@@ -104,6 +106,7 @@ struct KeychainStore: KeychainAccessing {
     /// or `errSecAuthFailed`, e.g. it was invalidated) is it deleted and re-added; a failed
     /// re-add there leaves no item. If it vanished meanwhile (`errSecItemNotFound`) it is just
     /// added. Any other update status throws `.keychain(status)` and leaves the old item.
+    // coverage-exempt-begin: biometric-protected Keychain items need a passcode and enrolled biometrics, unavailable on the simulator
     private func writeBiometric(_ data: Data, account: String) throws {
         var accessError: Unmanaged<CFError>?
         let access = SecAccessControlCreateWithFlags(
@@ -141,12 +144,14 @@ struct KeychainStore: KeychainAccessing {
         let retryStatus = SecItemAdd(addQuery as CFDictionary, nil)
         guard retryStatus == errSecSuccess else { throw VaultCryptoError.keychain(retryStatus) }
     }
+    // coverage-exempt-end
 
     /// Maps a failed biometric-prompted read to its typed error.
     ///
     /// The Keychain reports some LocalAuthentication outcomes with the `LAError` code as the
     /// status, and others only as `errSecAuthFailed`; for the latter the device's biometric
     /// state is checked (without prompting) to tell lockout, enrollment and passcode apart.
+    // coverage-exempt-begin: reached only by a failed biometric Keychain read and LAContext.canEvaluatePolicy, hardware-bound (map(laCode:) is tested directly)
     private static func biometricError(for status: OSStatus) -> VaultCryptoError {
         // -4 is both `LAError.systemCancel` and `errSecUnimplemented`; only the latter is meant here.
         if status != errSecUnimplemented, let mapped = map(laCode: Int(status)) { return mapped }
@@ -161,6 +166,7 @@ struct KeychainStore: KeychainAccessing {
         }
         return .keychain(status)
     }
+    // coverage-exempt-end
 
     /// Maps a LocalAuthentication error code to its typed error, or `nil` for codes with no
     /// dedicated case (cancel-like codes all become `.biometricCancelled`).
