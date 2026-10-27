@@ -251,6 +251,9 @@ extension matching ignores case.
       case keychain(OSStatus)
   }
 
+  /// User-facing text; callers show `localizedDescription` in alerts.
+  extension VaultCryptoError: LocalizedError { var errorDescription: String? { get } }
+
   enum KeychainAccessibility: Sendable { case whenUnlocked, biometryCurrentSetThisDeviceOnly }
 
   /// Seam over the Keychain (generic password items in one service); tests use an in-memory fake.
@@ -304,9 +307,10 @@ extension matching ignores case.
   - decryptFile: round trip; wrong magic, flipped header byte, swapped or foreign chunk, dropped last chunk, truncation, trailing bytes, or size mismatch → `.decryptionFailed`, an existing destination left untouched; success replaces the destination.
   - streamInfo: reads the header only; bad magic or truncated header → `.decryptionFailed`; chunkSize outside 1…16 MiB or total over 2 TiB → `.decryptionFailed`.
   - decryptChunk: index in range → that chunk's plaintext; out of range → `.decryptionFailed`.
+  - errorDescription (logic in `Contracts/`): noKeyLoaded "No encryption key is loaded."; noMasterKeyBlob "No password has been set up."; masterKeyAlreadyExists "A master key already exists."; wrongPassword "Incorrect password."; emptyPassword "Password cannot be empty."; corruptBlob "The stored password data is damaged."; invalidKeyData "The stored key is invalid."; encryptionFailed "Encryption failed."; decryptionFailed "Decryption failed. The data may be damaged."; biometricItemMissing "Face ID key not found. Use your password."; biometricCancelled "Authentication was cancelled."; biometryLockedOut "Too many attempts. Use your password."; biometryNotEnrolled "Face ID is not set up."; passcodeNotSet "Set a device passcode to use Face ID."; keychain(status) "Couldn't access secure storage (error <status>)." (the status number appears in the text).
 - Contract: see `docs/api/VaultCrypto.md` (generated; do not edit by hand)
 - Legacy files: Model/CryptoService.swift; Model/AuthService.swift (part: biometric Keychain item store/read/delete, legacy password item delete)
-- Legacy tests: KoalaTVaultTests/CryptoServiceTests.swift
+- Legacy tests: KoalaTVaultTests/CryptoServiceTests.swift (export/load-key tests obsolete: the raw key never leaves VaultCrypto)
 - Callers to repoint: AppDelegate.swift, Model/AuthService.swift, Model/FileSystem.swift, Model/VaultResourceLoaderDelegate.swift, View/Migration.swift
 
 ### Preferences
@@ -907,3 +911,5 @@ extension matching ignores case.
 - 2026-10-24: Tests never use the real Keychain, UserDefaults.standard or Documents; every module takes them by injection; `-uiTesting` replaces `--uitesting` — the old tests and UI-test reset could delete a real vault
 - 2026-10-24: Setup: app target Default Actor Isolation MainActor → nonisolated; legacy `AuthService`, `ImportService`, `ExportService` marked `@MainActor` explicitly (their previous implicit isolation, no behavior change) and the old tests that touch them (`AuthServiceTests`, `ImportServiceTests`, `SecuritySettings*Tests`) made `@MainActor` with async setUp/tearDown, assertions unchanged — approved by the human
 - 2026-10-27: Logic in `Contracts/` (`FileKind(extension:)`, `VaultItem.kind`/`asDirectory`, `SortOption.displayName`, `FileIconMapping.icon`) is module code: never coverage-exempt, specced in the owning module and tested in its unit 1, and the test-writer brief names the contract file — the scaffold had to give these contract members bodies — requested by the human
+- 2026-10-27: `VaultCryptoError` conforms to `LocalizedError` with the legacy wording (new cases get their own text) — alerts show `localizedDescription`; contract change found by the VaultCrypto legacy-test scan — approved by the human
+- 2026-10-27: Legacy `exportMasterKeyData` / `loadMasterKey(from:)` and their tests are obsolete; `storeBiometricKey` / `unlockWithBiometricKey` replace their only callers — approved by the human
