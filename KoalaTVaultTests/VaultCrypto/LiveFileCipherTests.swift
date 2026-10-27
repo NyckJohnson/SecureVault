@@ -31,6 +31,15 @@ import Testing
         #expect(try cipher.decrypt(sealed, contexts: [".vault_map"]) == plain)
     }
 
+    @Test("A 1 MiB payload round-trips through small-data encrypt and decrypt")
+    func oneMebibyteDataRoundTrip() throws {
+        let cipher = makeCipher()
+        let plain = SVC5Builder.pattern(mebibyte)
+        let sealed = try cipher.encrypt(plain, context: "big")
+        #expect(sealed.count == mebibyte + 28)
+        #expect(try cipher.decrypt(sealed, contexts: ["big"]) == plain)
+    }
+
     @Test("Empty data round-trips")
     func emptyDataRoundTrip() throws {
         let cipher = makeCipher()
