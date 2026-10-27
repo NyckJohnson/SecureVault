@@ -293,7 +293,7 @@ extension matching ignores case.
   - rewrap: key loaded → blob replaced in place with a new salt, same key (files still decrypt; old password now `.wrongPassword`); no key → `.noKeyLoaded`; write failure → old blob intact.
   - hasMasterKeyBlob: true / false; Keychain error → `.keychain(status)`.
   - deleteMasterKeyBlob: removes it; already absent → succeeds; other failure → `.keychain(status)`.
-  - storeBiometricKey: key loaded → item written with `.biometryCurrentSetThisDeviceOnly`, replacing any old item; the new item is written before the old one is removed, so a failure leaves the old item; no key → `.noKeyLoaded`.
+  - storeBiometricKey: key loaded → item written with `.biometryCurrentSetThisDeviceOnly`, replacing any old item; the new item is written before the old one is removed, so a failure leaves the old item; only when the old item can't be updated without user interaction (invalidated, or the system refuses a silent update) is it deleted and re-added, and a failed re-add there leaves no item (the password still unlocks; Face ID can be re-enabled); no key → `.noKeyLoaded`.
   - unlockWithBiometricKey: item present and approved → key loaded (32 bytes required, else `.invalidKeyData`); user cancel → `.biometricCancelled`; missing or invalidated → `.biometricItemMissing`; lockout → `.biometryLockedOut`; not enrolled → `.biometryNotEnrolled`; no passcode → `.passcodeNotSet`; other → `.keychain(status)`.
   - deleteBiometricKey: removes it; absent → succeeds; other failure → `.keychain(status)`.
   - wipeKey: key unloaded; `isKeyLoaded` false; a `withKey` body already running finishes with its captured key.
