@@ -140,7 +140,7 @@ struct LiveFileCipher: FileCipher {
                 // Seeking readers need every chunk but the last to be full, so data after a short
                 // chunk (or beyond the recorded size) means the source changed under us.
                 guard bytesRead % header.chunkSize == 0, bytesRead + chunk.count <= header.totalSize else {
-                    throw VaultCryptoError.encryptionFailed // coverage-exempt: needs the source file to grow mid-read, a race a unit test can't stage
+                    throw VaultCryptoError.encryptionFailed // coverage-exempt: source growing mid-read
                 }
                 try writer.write(contentsOf: SVC5Format.sealRecord(chunk, key: key, aad: header.chunkAAD(index: index)))
                 bytesRead += chunk.count

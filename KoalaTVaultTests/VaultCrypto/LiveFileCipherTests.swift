@@ -596,6 +596,40 @@ import Testing
         }
     }
 
+    @Test("decryptChunk on a file truncated right after the header fails with decryptionFailed")
+    func decryptChunkTruncatedAfterHeader() throws {
+        try withDirectory { directory in
+            let (url, info) = try builtFile(in: directory, plain: SVC5Builder.pattern(2500))
+            let full = try Data(contentsOf: url)
+            try full.prefix(SVC5Builder.headerLength).write(to: url)
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptChunk(0, of: url, info: info)
+            }
+        }
+    }
+
+    @Test("decryptFile fails and leaves no destination when the chunks hold more than the header's totalSize")
+    func decryptFileChunksExceedTotalSize() throws {
+        try withDirectory { directory in
+            let fileID = Data(repeating: 0x11, count: 16)
+            let header = SVC5Builder.header(chunkSize: 1000, totalSize: 1500, fileID: fileID)
+            let key = SVC5Builder.fileKey(fileID: fileID)
+            var file = header
+            for index in 0..<2 {
+                file.append(
+                    try SVC5Builder.record(
+                        plain: SVC5Builder.pattern(1000, seed: index), header: header, index: index, key: key))
+            }
+            let source = directory.appendingPathComponent("sealed")
+            try file.write(to: source)
+            let destination = directory.appendingPathComponent("output")
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptFile(at: source, to: destination)
+            }
+            #expect(try listing(directory) == ["sealed"])
+        }
+    }
+
     @Test("encryptFile with a missing source throws encryptionFailed and leaves an existing destination untouched")
     func encryptFileMissingSource() throws {
         try withDirectory { directory in

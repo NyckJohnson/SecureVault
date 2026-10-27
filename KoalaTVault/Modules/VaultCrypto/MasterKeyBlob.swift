@@ -73,7 +73,7 @@ enum MasterKeyBlob {
         } catch CryptoKitError.authenticationFailure {
             throw VaultCryptoError.wrongPassword
         } catch {
-            throw VaultCryptoError.corruptBlob
+            throw VaultCryptoError.corruptBlob // coverage-exempt: validated box and 32-byte key only fail authentication
         }
         defer { zero(&keyData) }
         guard keyData.count == keySize else { throw VaultCryptoError.corruptBlob }

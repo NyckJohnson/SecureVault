@@ -26,6 +26,15 @@ import Testing
         #expect(try store.read(account: "a", prompt: nil) == data)
     }
 
+    @Test("Reading with a prompt returns the data of an ordinary item")
+    func readWithPromptReturnsData() throws {
+        let store = makeStore()
+        defer { try? store.delete(account: "a") }
+        let data = Data([5, 6, 7])
+        try store.write(data, account: "a", accessibility: .whenUnlocked)
+        #expect(try store.read(account: "a", prompt: "Unlock your vault") == data)
+    }
+
     @Test("Writing an existing account replaces its data")
     func writeReplaces() throws {
         let store = makeStore()

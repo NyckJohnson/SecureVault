@@ -52,7 +52,7 @@ struct KeychainStore: KeychainAccessing {
         case .whenUnlocked:
             try writeUpdatingInPlace(data, account: account)
         case .biometryCurrentSetThisDeviceOnly:
-            try writeBiometric(data, account: account) // coverage-exempt: biometric access control needs a device with a passcode and enrolled biometrics
+            try writeBiometric(data, account: account) // coverage-exempt: needs passcode and biometrics
         }
     }
 
@@ -95,6 +95,7 @@ struct KeychainStore: KeychainAccessing {
         }
     }
 
+    // coverage-exempt-begin: needs a passcode and enrolled biometrics
     /// Writes an item readable only after biometric authentication on this device, invalidated
     /// when the enrolled biometrics change (`kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` +
     /// `.biometryCurrentSet`).
@@ -106,7 +107,6 @@ struct KeychainStore: KeychainAccessing {
     /// or `errSecAuthFailed`, e.g. it was invalidated) is it deleted and re-added; a failed
     /// re-add there leaves no item. If it vanished meanwhile (`errSecItemNotFound`) it is just
     /// added. Any other update status throws `.keychain(status)` and leaves the old item.
-    // coverage-exempt-begin: biometric-protected Keychain items need a passcode and enrolled biometrics, unavailable on the simulator
     private func writeBiometric(_ data: Data, account: String) throws {
         var accessError: Unmanaged<CFError>?
         let access = SecAccessControlCreateWithFlags(
@@ -146,12 +146,12 @@ struct KeychainStore: KeychainAccessing {
     }
     // coverage-exempt-end
 
+    // coverage-exempt-begin: hardware-bound; map(laCode:) is tested directly
     /// Maps a failed biometric-prompted read to its typed error.
     ///
     /// The Keychain reports some LocalAuthentication outcomes with the `LAError` code as the
     /// status, and others only as `errSecAuthFailed`; for the latter the device's biometric
     /// state is checked (without prompting) to tell lockout, enrollment and passcode apart.
-    // coverage-exempt-begin: reached only by a failed biometric Keychain read and LAContext.canEvaluatePolicy, hardware-bound (map(laCode:) is tested directly)
     private static func biometricError(for status: OSStatus) -> VaultCryptoError {
         // -4 is both `LAError.systemCancel` and `errSecUnimplemented`; only the latter is meant here.
         if status != errSecUnimplemented, let mapped = map(laCode: Int(status)) { return mapped }
