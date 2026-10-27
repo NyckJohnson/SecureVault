@@ -40,8 +40,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
-        CryptoService.shared.wipeKey()
-        try? CryptoService.shared.wipeMasterKeyBlob()
+        TestCrypto.keyStore.wipeKey()
+        try? TestCrypto.keyStore.deleteMasterKeyBlob()
         try super.tearDownWithError()
     }
 
@@ -68,7 +68,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     /// Used to simulate maps written by different code eras (empty-AAD, relative-path, etc.).
     private func writeEncryptedMapping(_ mapping: [String: VaultMapping], authenticating domain: String, in directory: LegacyVaultDirectory) throws {
         let data = try JSONEncoder().encode(mapping)
-        let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: domain)
+        let encrypted = try TestCrypto.cipher.encrypt(data, context: domain)
         try encrypted.write(to: directory.diskURL.appendingPathComponent(mappingFileName), options: .atomic)
     }
 
@@ -210,8 +210,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         // Mirrors the "kill mid-migration, relaunch, resume" scenario: filesToMigrate must
         // be computed fresh from actual on-disk state each time, not from in-memory progress,
         // so a second call after partial migration only returns the genuine remainder.
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-password-\(UUID().uuidString)")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "test-password-\(UUID().uuidString)")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         _ = try createDummyFile(named: "one.txt", in: testDirectory, content: "content one")
         _ = try createDummyFile(named: "two.txt", in: testDirectory, content: "content two")
@@ -238,8 +238,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     // an empty dict (which would make every encrypted file look like an orphan).
 
     func testSweepPreservesEncryptedFilesWhenKeyIsNotLoaded() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let sourceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("sweep-preauth-\(UUID()).txt")
@@ -252,8 +252,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         // Wipe the key — the key-not-loaded state (locked, or no-lock mode).
         // Without the key, loadMapping cannot decrypt the map.
-        CryptoService.shared.wipeKey()
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        TestCrypto.keyStore.wipeKey()
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
 
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
 
@@ -262,8 +262,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testSweepPreservesEncryptedFilesInSubdirectoryWhenKeyIsNotLoaded() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let subFolder = try FileSystem.shared.createFolder(named: "SubFolder", in: testDirectory)
 
@@ -276,8 +276,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         let item = try XCTUnwrap(try FileSystem.shared.contents(of: subFolder).first(where: { !$0.isDirectory }))
         XCTAssertTrue(item.isEncrypted)
 
-        CryptoService.shared.wipeKey()
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        TestCrypto.keyStore.wipeKey()
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
 
         // Sweep from the root — it recurses into SubFolder. Without the key, the
         // subfolder's mapping is also unreadable; sweep must bail for that directory too.
@@ -290,8 +290,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     func testSweepStillDeletesOrphansAfterKeyIsReloaded() throws {
         // Verify the fix doesn't break normal orphan cleanup: once the key IS loaded,
         // a UUID file with no mapping entry must still be removed.
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         // Plant a genuine orphan (UUID-named, no mapping entry) alongside a real encrypted file.
         let sourceURL = FileManager.default.temporaryDirectory
@@ -316,8 +316,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     // MARK: - sweepOrphanedEncryptedFiles
 
     func testSweepDeletesUUIDNamedFileWithNoMappingEntry() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         // The folder has a readable index that lacks this file's entry.
         try writeEncryptedMapping([:], authenticating: mappingFileName, in: testDirectory)
@@ -332,8 +332,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testSweepKeepsUUIDNamedFileInFolderWithNoIndex() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         // No .vault_map: this is plaintext user data, not an encrypted orphan.
         let plainURL = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
@@ -346,15 +346,15 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testSweepKeepsUnmappedUUIDFileWhenKeyIsNotLoaded() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         try writeEncryptedMapping([:], authenticating: mappingFileName, in: testDirectory)
         let fileURL = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
         try "data".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        CryptoService.shared.wipeKey()
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        TestCrypto.keyStore.wipeKey()
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
 
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
 
@@ -363,8 +363,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testSweepKeepsMappedEncryptedFiles() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("sweep-keep-\(UUID()).txt")
         try "hello".write(to: sourceURL, atomically: true, encoding: .utf8)
@@ -390,8 +390,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testSweepRecursesIntoSubdirectories() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let subDir = testDirectory.diskURL.appendingPathComponent("subdir")
         try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
@@ -408,8 +408,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     }
 
     func testSweepKeepsUUIDNamedFileInSubdirectoryWithNoIndex() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let subDir = testDirectory.diskURL.appendingPathComponent("subdir")
         try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
@@ -434,8 +434,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     // backward-compatibility and leave users staring at empty folders.
 
     func testContents_ReadsMap_EncryptedWithLastPathComponentDomain() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "test-\(UUID().uuidString)")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let uuid = UUID().uuidString
         _ = try createDummyFile(named: uuid, in: testDirectory)
@@ -450,8 +450,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     func testContents_ReadsLegacyMap_EncryptedWithEmptyAAD() throws {
         // Maps written by the original encrypt(data:) API — before authenticating: existed —
         // used empty AAD. This is fallback 2 in loadEncryptedJSON.
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "test-\(UUID().uuidString)")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let uuid = UUID().uuidString
         _ = try createDummyFile(named: uuid, in: testDirectory)
@@ -468,8 +468,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         // empty AAD must not throw mappingUnreadable. importSingleFile reads the existing map
         // first; if that read fails with the wrong domain, the whole import aborts and the
         // caller sees "vault index unreadable" even though the files are perfectly fine.
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "test-\(UUID().uuidString)")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let existingUUID = UUID().uuidString
         _ = try createDummyFile(named: existingUUID, in: testDirectory)
@@ -493,8 +493,8 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     func testContents_ThrowsMappingUnreadable_ForCompletelyUnrecognizedAADDomain() throws {
         // Safety net: the fallback chain must not become a free-for-all. A map encrypted with
         // a domain that matches none of the known fallbacks must still throw mappingUnreadable.
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-\(UUID().uuidString)")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "test-\(UUID().uuidString)")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         let uuid = UUID().uuidString
         _ = try createDummyFile(named: uuid, in: testDirectory)
@@ -536,14 +536,14 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     // MARK: - sweepOrphanedEncryptedFiles: unreadable index (baseline fix 17)
 
     func testSweepDeletesNothingWhenVaultMapIsUnreadableAndKeyIsLoaded() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
-        defer { try? CryptoService.shared.wipeMasterKeyBlob() }
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        defer { try? TestCrypto.keyStore.deleteMasterKeyBlob() }
 
         try corruptMapping()
         let uuidFile = testDirectory.diskURL.appendingPathComponent(UUID().uuidString)
         try "data".write(to: uuidFile, atomically: true, encoding: .utf8)
         let namedFile = try createDummyFile(named: "plain.txt", in: testDirectory)
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
 
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
 

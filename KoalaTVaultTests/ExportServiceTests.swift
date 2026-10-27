@@ -37,7 +37,7 @@ final class ExportServiceTests: VaultTestCase {
 
     // MARK: - Prepare For Export (Encrypted)
     func testPrepareForExportDecryptsEncryptedFile() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         let content = "secret content"
         try content.write(to: sourceURL, atomically: true, encoding: .utf8)
@@ -55,7 +55,7 @@ final class ExportServiceTests: VaultTestCase {
     }
 
     func testPrepareForExportEncryptedFileHasOriginalName() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("myfile.txt")
         try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }
@@ -68,7 +68,7 @@ final class ExportServiceTests: VaultTestCase {
     }
 
     func testPrepareForExportEncryptedFileWithNoKeyThrows() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }
@@ -76,7 +76,7 @@ final class ExportServiceTests: VaultTestCase {
         try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
         let item = try FileSystem.shared.contents(of: testDirectory).first!
 
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         XCTAssertThrowsError(try FileSystem.shared.prepareForExport([item]))
     }
 
@@ -87,7 +87,7 @@ final class ExportServiceTests: VaultTestCase {
 
     // MARK: - Cleanup
     func testCleanupTempFilesRemovesExportedFiles() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "content".write(to: sourceURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: sourceURL) }

@@ -24,12 +24,12 @@ final class VaultResourceLoaderDelegateTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-password")
+        try TestCrypto.keyStore.createMasterKey(password: "test-password")
     }
 
     override func tearDownWithError() throws {
-        CryptoService.shared.wipeKey()
-        try CryptoService.shared.wipeMasterKeyBlob()
+        TestCrypto.keyStore.wipeKey()
+        try TestCrypto.keyStore.deleteMasterKeyBlob()
         tempURLs.forEach { try? FileManager.default.removeItem(at: $0) }
         try super.tearDownWithError()
     }
@@ -52,7 +52,7 @@ final class VaultResourceLoaderDelegateTests: XCTestCase {
         let src = tempURL()
         let enc = tempURL()
         try data.write(to: src)
-        try CryptoService.shared.encryptFile(at: src, to: enc)
+        try TestCrypto.cipher.encryptFile(at: src, to: enc)
         return enc
     }
 
@@ -131,12 +131,12 @@ final class ThumbnailServiceTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        try CryptoService.shared.createMasterKey(wrappedBy: "test-password")
+        try TestCrypto.keyStore.createMasterKey(password: "test-password")
     }
 
     override func tearDownWithError() throws {
-        CryptoService.shared.wipeKey()
-        try? CryptoService.shared.wipeMasterKeyBlob()
+        TestCrypto.keyStore.wipeKey()
+        try? TestCrypto.keyStore.deleteMasterKeyBlob()
         ThumbnailService.shared.clearCache()
         tempURLs.forEach { try? FileManager.default.removeItem(at: $0) }
         try super.tearDownWithError()
@@ -160,7 +160,7 @@ final class ThumbnailServiceTests: XCTestCase {
         let src = tempURL()
         let enc = tempURL()
         try data.write(to: src)
-        try CryptoService.shared.encryptFile(at: src, to: enc)
+        try TestCrypto.cipher.encryptFile(at: src, to: enc)
         return LegacyVaultItem(
             id: UUID(),
             name: name,

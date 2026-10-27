@@ -88,7 +88,7 @@ final class ConflictResolutionTests: VaultTestCase {
 
     // MARK: - Encrypted Conflicts
     func testEncryptedImportSameFileTwiceDoesNotDuplicate() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -101,7 +101,7 @@ final class ConflictResolutionTests: VaultTestCase {
     }
 
     func testEncryptedImportDifferentFileWithSameNameCreatesConflict() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         try FileSystem.shared.importItems(from: [url], to: testDirectory)
