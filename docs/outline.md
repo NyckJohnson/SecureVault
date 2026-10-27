@@ -341,7 +341,7 @@ extension matching ignores case.
   - Values written by a store are read by a new store on the same suite (persistence).
   - Unknown raw values read as the defaults.
   - pendingMigration nil removes both keys; a target is stored only for `.encrypt` and ignored for `.decrypt`.
-  - displayName: "Name", "Type", "Date Modified".
+  - displayName: "Name", "Type", "Date Modified". (Contract logic in `Contracts/PreferencesModels.swift`; unit 1 tests it.)
   - Thread-safe: reads and writes from several threads don't crash or tear.
 - Contract: see `docs/api/Preferences.md` (generated; do not edit by hand)
 - Legacy files: Model/PreferencesService.swift
@@ -490,6 +490,7 @@ extension matching ignores case.
   - keyMatchesVault: true when the loaded key decrypts the root index, or when there is no encrypted index to check; false otherwise.
   - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list; folders with no index, an unreadable index, and the trash are never swept.
   - Temp files: `makeTempDirectory` creates a unique folder under the app temp folder; `removeTemporary` removes one; `removeAllTemporaryFiles` removes everything the store created.
+  - Contract logic (in `Contracts/VaultStoreModels.swift`; unit 1 tests it): `FileKind(extension:)` maps every extension in Data models › FileKind (one case per extension, also upper and mixed case); an empty or unknown extension → `.other`. `VaultItem.kind` comes from the display name's extension (an encrypted item's original name, not its UUID disk name). `asDirectory`: a folder → `VaultDirectory` with the item's name, diskURL and rootURL; a file → nil.
 - Contract: see `docs/api/VaultStore.md` (generated; do not edit by hand)
 - Legacy files: Model/FileSystem.swift (part: vault types, index, browse/sort, open/write, create/move/copy/rename/delete, trash, migration steps, orphan sweep, temp files); Model/LegacyFileKind.swift
 - Legacy tests: KoalaTVaultTests/VaultTestCase.swift, KoalaTVaultTests/FileSystemTests.swift, KoalaTVaultTests/EncryptedFileSystemTests.swift, KoalaTVaultTests/FileSystemMappingIntegrityTests.swift, KoalaTVaultTests/TrashTests.swift, KoalaTVaultTests/SortTests.swift, KoalaTVaultTests/CopyTests.swift, KoalaTVaultTests/ConflictResolutionTests.swift, KoalaTVaultTests/VaultDirectoryTests.swift, KoalaTVaultTests/VaultItemTests.swift, KoalaTVaultTests/FileKindTests.swift, KoalaTVaultTests/EdgeCaseTests.swift, KoalaTVaultTests/AdditionalEdgeCaseTests.swift
@@ -514,7 +515,7 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - FileIconMapping: folders → asset "nej_FolderIconB" with clear tint when available, else "folder.fill" yellow; each FileKind → its SF Symbol and tint as today (the legacy table, one test per kind).
+  - FileIconMapping (the logic lives in `Contracts/FileIconMappingContract.swift`; unit 1 tests it there, and `FileIconMapping.swift` needs no code of its own): folders → `FileIcon("nej_FolderIconB", tint "clear", usesFolderAsset: true)` when the asset is available, else `("folder.fill", "systemYellow", false)`; files, by kind (symbol, tint): image ("photo", "systemGreen"), video ("video", "systemPurple"), audio ("music.note", "systemPink"), pdf ("doc.richtext", "systemRed"), word ("doc.text", "systemBlue"), spreadsheet ("tablecells", "systemGreen"), presentation ("rectangle.stack", "systemOrange"), archive ("archivebox", "systemBrown"), text ("doc.plaintext", "systemGray"), other ("doc", "systemGray"); one test per kind. Tints are `UIColor` names.
   - AlertPresenting (default implementation for view controllers): error alert titled "Error" with OK and the message (or `localizedDescription`); success alert with no title; presented from the topmost presented controller so it never fails silently.
   - ProgressOverlayView: title, progress bar, status "Preparing...", optional Cancel; `update(progress:status:)` and `dismiss()` are main-actor and safe to call repeatedly. (View; covered by journey tests.)
   - UIViewController+Topmost: `topmostPresentedController` follows `presentedViewController` to the end. (View.)
@@ -905,3 +906,4 @@ extension matching ignores case.
 - 2026-10-26: After a reinstall, a leftover vault key is replaced when the vault holds no encrypted data; with encrypted data (e.g. a restored backup) the old password is still required — decided by the human (baseline row 24)
 - 2026-10-24: Tests never use the real Keychain, UserDefaults.standard or Documents; every module takes them by injection; `-uiTesting` replaces `--uitesting` — the old tests and UI-test reset could delete a real vault
 - 2026-10-24: Setup: app target Default Actor Isolation MainActor → nonisolated; legacy `AuthService`, `ImportService`, `ExportService` marked `@MainActor` explicitly (their previous implicit isolation, no behavior change) and the old tests that touch them (`AuthServiceTests`, `ImportServiceTests`, `SecuritySettings*Tests`) made `@MainActor` with async setUp/tearDown, assertions unchanged — approved by the human
+- 2026-10-27: Logic in `Contracts/` (`FileKind(extension:)`, `VaultItem.kind`/`asDirectory`, `SortOption.displayName`, `FileIconMapping.icon`) is module code: never coverage-exempt, specced in the owning module and tested in its unit 1, and the test-writer brief names the contract file — the scaffold had to give these contract members bodies — requested by the human

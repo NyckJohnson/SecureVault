@@ -6,3 +6,9 @@
 
 Anything specific to this app that every session should know goes here, below the
 managed block above.
+
+- Logic in contracts: `Preferences/Contracts/PreferencesModels.swift`, `VaultStore/Contracts/VaultStoreModels.swift`
+  and `SharedUI/Contracts/FileIconMappingContract.swift` hold real code. In each owning module's unit 1, the
+  test-writer brief lists that file and its spec bullet in READ and ACCEPTANCE. Coverage triage may never
+  classify their lines `exempt`, and the reviewer checks that every branch has an asserting test, not just
+  coverage. Never add a `coverage-exempt` marker to these files.
