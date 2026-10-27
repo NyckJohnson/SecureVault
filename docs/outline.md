@@ -581,6 +581,7 @@ extension matching ignores case.
   - switchMode to or from .none is not allowed here (those go through LockMigration) → `.notUnlocked`.
   - prepareToAddLock(mode, password) from .none: no blob → key created; blob exists → as in setUp (empty vault: replaced; otherwise the password must unlock it, `.existingPasswordRequired`); biometric item stored for biometric mode (failure → rollback as in setUp); then lockMode = mode. Ends `.unlocked`.
   - removeKeysAfterDecryption: in order: biometric item deleted, lockMode .none, blob deleted, key wiped; each step is safe to repeat; a failure throws and leaves the later steps for the next call. Ends `.open`.
+  - removeKeysAfterDecryption also deletes the legacy plaintext "com.KoalaTVault.password" Keychain item (through `KeychainAccessing.delete(account:)`, errors ignored), so a device that never password-unlocked since upgrading doesn't keep it.
 - Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
 - Legacy files: Model/AuthService.swift (part: lock mode, password create/verify/change/remove, biometric enable/remove/authenticate, isLocked/hasAuthenticated, scene lifecycle wipe and temp clean-up)
 - Legacy tests: KoalaTVaultTests/AuthServiceTests.swift (part: AuthServiceTests, AuthServiceForegroundTests)
@@ -913,3 +914,6 @@ extension matching ignores case.
 - 2026-10-27: Logic in `Contracts/` (`FileKind(extension:)`, `VaultItem.kind`/`asDirectory`, `SortOption.displayName`, `FileIconMapping.icon`) is module code: never coverage-exempt, specced in the owning module and tested in its unit 1, and the test-writer brief names the contract file — the scaffold had to give these contract members bodies — requested by the human
 - 2026-10-27: `VaultCryptoError` conforms to `LocalizedError` with the legacy wording (new cases get their own text) — alerts show `localizedDescription`; contract change found by the VaultCrypto legacy-test scan — approved by the human
 - 2026-10-27: Legacy `exportMasterKeyData` / `loadMasterKey(from:)` and their tests are obsolete; `storeBiometricKey` / `unlockWithBiometricKey` replace their only callers — approved by the human
+- 2026-10-27: Exception to "tests never use the real Keychain": KeychainStoreTests (only) use the simulator's real Keychain with a unique service per test, and the legacy-account test adds and deletes the service-less "com.KoalaTVault.password" item — the only way to test the SecItem wrapper — approved by the human
+- 2026-10-27: Removing the lock (VaultLock.removeKeysAfterDecryption) deletes the legacy plaintext password item; VaultCrypto's unlock already does — gap found in the VaultCrypto switch-over review — approved by the human
+- 2026-10-27: Hosted unit tests run with `-uiTesting` (test plan default argument) so legacy singletons get the in-memory Keychain, a temporary vault and a UserDefaults suite; `TestCrypto` preconditions fail closed otherwise — VaultCrypto switch-over
