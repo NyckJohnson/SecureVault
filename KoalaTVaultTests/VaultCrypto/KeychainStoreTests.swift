@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 import Testing
 
@@ -68,5 +69,43 @@ import Testing
         defer { try? one.delete(account: "a") }
         try one.write(Data([1]), account: "a", accessibility: .whenUnlocked)
         #expect(try two.read(account: "a", prompt: nil) == nil)
+    }
+
+    @Test("Deleting removes a legacy item that has no service attribute")
+    func deleteRemovesUnscopedLegacyItem() throws {
+        let account = "com.KoalaTVault.password"
+        let match: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(match as CFDictionary)
+        var add = match
+        add[kSecValueData as String] = Data([7])
+        let status = SecItemAdd(add as CFDictionary, nil)
+        defer { SecItemDelete(match as CFDictionary) }
+        try #require(status == errSecSuccess)
+
+        try makeStore().delete(account: account)
+
+        var query = match
+        query[kSecReturnData as String] = true
+        #expect(SecItemCopyMatching(query as CFDictionary, nil) == errSecItemNotFound)
+    }
+
+    static let laMappings: [(code: Int, error: VaultCryptoError?)] = [
+        (LAError.userCancel.rawValue, .biometricCancelled),
+        (LAError.userFallback.rawValue, .biometricCancelled),
+        (LAError.systemCancel.rawValue, .biometricCancelled),
+        (LAError.appCancel.rawValue, .biometricCancelled),
+        (LAError.passcodeNotSet.rawValue, .passcodeNotSet),
+        (LAError.biometryNotEnrolled.rawValue, .biometryNotEnrolled),
+        (LAError.biometryLockout.rawValue, .biometryLockedOut),
+        (-9999, nil),
+    ]
+
+    // biometryNotAvailable (-6) is left out: the spec does not say how it maps.
+    @Test("LocalAuthentication codes map to the matching VaultCryptoError", arguments: laMappings)
+    func laCodeMapping(code: Int, error: VaultCryptoError?) {
+        #expect(KeychainStore.map(laCode: code) == error)
     }
 }

@@ -221,6 +221,26 @@ final class ScriptedKeychain: KeychainAccessing {
         try fresh.unlock(password: "old")
     }
 
+    @Test("Unlocking with an empty password throws wrongPassword and keeps the loaded key")
+    func unlockEmptyPassword() throws {
+        let (store, _) = try created(password: "right")
+        let before = try keyData(store)
+        #expect(throws: VaultCryptoError.wrongPassword) { try store.unlock(password: "") }
+        #expect(store.isKeyLoaded)
+        #expect(try keyData(store) == before)
+    }
+
+    @Test("Rewrapping with an empty password throws emptyPassword and leaves the old blob intact")
+    func rewrapEmptyPassword() throws {
+        let (store, keychain) = try created(password: "old")
+        let old = keychain.state.withLock { $0.items[Self.blob] }
+        #expect(throws: VaultCryptoError.emptyPassword) { try store.rewrap(newPassword: "") }
+        #expect(keychain.state.withLock { $0.items[Self.blob] } == old)
+        let fresh = LiveMasterKeyStore(keychain: keychain)
+        try fresh.unlock(password: "old")
+        #expect(fresh.isKeyLoaded)
+    }
+
     // MARK: hasMasterKeyBlob / deleteMasterKeyBlob
 
     @Test("hasMasterKeyBlob is false when absent and true when present")
@@ -287,16 +307,16 @@ final class ScriptedKeychain: KeychainAccessing {
         #expect(keychain.state.withLock { $0.items[Self.bio] } == (try keyData(store)))
     }
 
-    @Test("The new biometric item is written before any old one is removed")
-    func storeBiometricWritesBeforeDelete() throws {
+    @Test("Storing the biometric key writes the biometric account and never deletes it")
+    func storeBiometricWritesWithoutDeleting() throws {
         let (store, keychain) = try created()
         keychain.state.withLock { $0.log = [] }
         try store.storeBiometricKey()
         let log = keychain.state.withLock { $0.log }
-        let writeIndex = log.firstIndex(of: "write:\(Self.bio)")
-        let deleteIndex = log.firstIndex(of: "delete:\(Self.bio)")
-        #expect(writeIndex != nil)
-        if let writePos = writeIndex, let deletePos = deleteIndex { #expect(writePos < deletePos) }
+        #expect(log.contains("write:\(Self.bio)"))
+        #expect(!log.contains("delete:\(Self.bio)"))
+        // The write-then-remove ordering for a stale item belongs to KeychainStore
+        // and is not unit-testable on the simulator.
     }
 
     @Test("A failing biometric write leaves the old item and surfaces the error")
