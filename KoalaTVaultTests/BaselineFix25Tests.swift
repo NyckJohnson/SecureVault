@@ -69,7 +69,7 @@ final class PasswordSetupRollbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: sourceDir) }
         let source = sourceDir.appendingPathComponent("secret.txt")
         try "secret".write(to: source, atomically: true, encoding: .utf8)
-        let root = VaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
+        let root = LegacyVaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
         try FileSystem.shared.importItems(from: [source], to: root)
     }
 

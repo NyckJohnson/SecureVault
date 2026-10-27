@@ -117,7 +117,7 @@ final class EdgeCaseTests: VaultTestCase {
         XCTAssertTrue(contents.first?.isDirectory == true)
         XCTAssertEqual(contents.first?.name, "TestImportFolder")
 
-        let importedFolder = VaultDirectory(name: "TestImportFolder", diskURL: contents.first!.diskURL, rootURL: testDirectory.rootURL)
+        let importedFolder = LegacyVaultDirectory(name: "TestImportFolder", diskURL: contents.first!.diskURL, rootURL: testDirectory.rootURL)
         let folderContents = try FileSystem.shared.contents(of: importedFolder)
         XCTAssertEqual(folderContents.count, 2)
     }
@@ -136,7 +136,7 @@ final class EdgeCaseTests: VaultTestCase {
         XCTAssertEqual(contents.count, 1)
         XCTAssertTrue(contents.first?.isDirectory == true)
 
-        let importedFolder = VaultDirectory(name: "ParentFolder", diskURL: contents.first!.diskURL, rootURL: testDirectory.rootURL)
+        let importedFolder = LegacyVaultDirectory(name: "ParentFolder", diskURL: contents.first!.diskURL, rootURL: testDirectory.rootURL)
         let folderContents = try FileSystem.shared.contents(of: importedFolder)
         XCTAssertEqual(folderContents.count, 1)
         XCTAssertTrue(folderContents.first?.isDirectory == true)

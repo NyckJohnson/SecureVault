@@ -156,12 +156,12 @@ final class ThumbnailServiceTests: XCTestCase {
         return data
     }
 
-    private func makeEncryptedVaultItem(name: String, data: Data) throws -> VaultItem {
+    private func makeEncryptedVaultItem(name: String, data: Data) throws -> LegacyVaultItem {
         let src = tempURL()
         let enc = tempURL()
         try data.write(to: src)
         try CryptoService.shared.encryptFile(at: src, to: enc)
-        return VaultItem(
+        return LegacyVaultItem(
             id: UUID(),
             name: name,
             isDirectory: false,
@@ -174,10 +174,10 @@ final class ThumbnailServiceTests: XCTestCase {
         )
     }
 
-    private func makeCorruptVaultItem(name: String) throws -> VaultItem {
+    private func makeCorruptVaultItem(name: String) throws -> LegacyVaultItem {
         let url = tempURL()
         try Data("not a valid SVC5 file".utf8).write(to: url)
-        return VaultItem(
+        return LegacyVaultItem(
             id: UUID(),
             name: name,
             isDirectory: false,
@@ -205,7 +205,7 @@ final class ThumbnailServiceTests: XCTestCase {
     }
 
     func testClearCacheForSpecificItemDoesNotCrash() {
-        let item = VaultItem(
+        let item = LegacyVaultItem(
             id: UUID(),
             name: "photo.jpg",
             isDirectory: false,
@@ -248,7 +248,7 @@ final class ThumbnailServiceTests: XCTestCase {
         // Four SVC5 magic bytes followed by junk — decryptFile will throw, open returns nil
         let url = tempURL()
         try Data([0x53, 0x56, 0x43, 0x35, 0xAB, 0xCD, 0xEF, 0x01]).write(to: url)
-        let item = VaultItem(
+        let item = LegacyVaultItem(
             id: UUID(),
             name: "notes.pdf",
             isDirectory: false,
@@ -330,8 +330,8 @@ final class FileViewerViewControllerTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeItem(name: String = "test.mp4") -> VaultItem {
-        VaultItem(
+    private func makeItem(name: String = "test.mp4") -> LegacyVaultItem {
+        LegacyVaultItem(
             id: UUID(),
             name: name,
             isDirectory: false,
@@ -349,18 +349,18 @@ final class FileViewerViewControllerTests: XCTestCase {
     // "controls called with no media" scenarios.
 
     func testTogglePlayPauseWithNilPlayerDoesNotCrash() {
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         XCTAssertNil(vc.player)
         vc.togglePlayPause()
     }
 
     func testSkipBackWithNilPlayerDoesNotCrash() {
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.skipBack()
     }
 
     func testSkipForwardWithNilPlayerDoesNotCrash() {
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.skipForward()
     }
 
@@ -369,7 +369,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     func testSkipForwardRepeatedlyNearEndDoesNotCrash() {
         // AVPlayer with no item: currentTime() == .zero, seek() is a no-op.
         // Simulates user hammering skip-forward past the end of a file.
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.player = AVPlayer()
         vc.skipForward()
         vc.skipForward()
@@ -379,7 +379,7 @@ final class FileViewerViewControllerTests: XCTestCase {
 
     func testSkipBackRepeatedlyPastStartDoesNotCrash() {
         // CMTimeSubtract from zero yields negative CMTime; AVPlayer clamps to zero.
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.player = AVPlayer()
         vc.skipBack()
         vc.skipBack()
@@ -390,7 +390,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     // MARK: - Player observer lifecycle
 
     func testAssigningAndClearingPlayerDoesNotCrash() {
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.player = AVPlayer()
         vc.player = nil
     }
@@ -398,7 +398,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     func testReplacingPlayerCleansUpPreviousObserverWithoutCrash() {
         // Replacing the player triggers removeTimeObserver on the old player and
         // addTimeObserver on the new one; must not double-remove or leak.
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         let playerA = AVPlayer()
         let playerB = AVPlayer()
         vc.player = playerA
@@ -407,7 +407,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     }
 
     func testTogglePlayPauseWithRealPlayerDoesNotCrash() {
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.player = AVPlayer()
         vc.togglePlayPause() // player.play() → updates button, starts timer
         vc.togglePlayPause() // player.pause() → updates button, cancels timer
@@ -417,7 +417,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     // MARK: - updatePlayPauseButton
 
     func testUpdatePlayPauseButtonDoesNotCrash() {
-        let vc = FileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
         vc.updatePlayPauseButton(isPlaying: true)
         vc.updatePlayPauseButton(isPlaying: false)
     }

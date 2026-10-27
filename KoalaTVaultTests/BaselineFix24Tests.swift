@@ -60,7 +60,7 @@ final class StaleVaultKeyTests: XCTestCase {
         try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: sourceDir) }
         let source = try writeFile("secret.txt", "secret", in: sourceDir)
-        let root = VaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
+        let root = LegacyVaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
         try FileSystem.shared.importItems(from: [source], to: root)
     }
 
@@ -130,7 +130,7 @@ final class StaleVaultKeyTests: XCTestCase {
 
         XCTAssertTrue(CryptoService.shared.isKeyLoaded)
         XCTAssertEqual(storedBlob(), oldBlob)
-        let root = VaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
+        let root = LegacyVaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
         let item = try XCTUnwrap(try FileSystem.shared.contents(of: root).first)
         XCTAssertEqual(try String(contentsOf: try FileSystem.shared.open(item), encoding: .utf8), "secret")
     }

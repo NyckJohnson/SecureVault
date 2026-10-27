@@ -288,7 +288,7 @@ final class AppDependencies {
         }
 
         if let pending = settings.pendingMigration {
-            PreferencesService.shared.pendingMigrationType = MigrationViewController.MigrationType(rawValue: pending)
+            PreferencesService.shared.pendingMigrationType = LegacyMigrationViewController.MigrationType(rawValue: pending)
             PreferencesService.shared.pendingMigrationTargetLockMode = AuthService.shared.lockMode
         }
         if settings.plaintextIndex {

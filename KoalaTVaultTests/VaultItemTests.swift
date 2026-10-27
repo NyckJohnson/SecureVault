@@ -3,8 +3,8 @@ import XCTest
 
 final class VaultItemTests: XCTestCase {
 
-    func makeItem(name: String = "test.txt", isDirectory: Bool = false, isEncrypted: Bool = false) -> VaultItem {
-        VaultItem(
+    func makeItem(name: String = "test.txt", isDirectory: Bool = false, isEncrypted: Bool = false) -> LegacyVaultItem {
+        LegacyVaultItem(
             id: UUID(),
             name: name,
             isDirectory: isDirectory,
@@ -20,9 +20,9 @@ final class VaultItemTests: XCTestCase {
     func testItemsWithSameIDAreEqual() {
         let id = UUID()
         let tmpDir = FileManager.default.temporaryDirectory
-        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(),
+        let item1 = LegacyVaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(),
                               fileSize: 1, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
-        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(),
+        let item2 = LegacyVaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(),
                               fileSize: 2, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
         XCTAssertEqual(item1, item2)
     }
@@ -37,9 +37,9 @@ final class VaultItemTests: XCTestCase {
     func testItemsWithSameIDHaveSameHash() {
         let id = UUID()
         let tmpDir = FileManager.default.temporaryDirectory
-        let item1 = VaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(),
+        let item1 = LegacyVaultItem(id: id, name: "a.txt", isDirectory: false, dateModified: Date(),
                               fileSize: 1, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
-        let item2 = VaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(),
+        let item2 = LegacyVaultItem(id: id, name: "b.txt", isDirectory: false, dateModified: Date(),
                               fileSize: 2, diskURL: tmpDir, rootURL: tmpDir, isEncrypted: false)
         XCTAssertEqual(item1.hashValue, item2.hashValue)
     }
@@ -47,7 +47,7 @@ final class VaultItemTests: XCTestCase {
     func testItemCanBeStoredInSet() {
         let item1 = makeItem(name: "test.txt")
         let item2 = makeItem(name: "other.txt")
-        var set = Set<VaultItem>()
+        var set = Set<LegacyVaultItem>()
         set.insert(item1)
         set.insert(item2)
         XCTAssertEqual(set.count, 2)
@@ -55,7 +55,7 @@ final class VaultItemTests: XCTestCase {
 
     func testDuplicateItemNotAddedToSet() {
         let item = makeItem(name: "test.txt")
-        var set = Set<VaultItem>()
+        var set = Set<LegacyVaultItem>()
         set.insert(item)
         set.insert(item)
         XCTAssertEqual(set.count, 1)
@@ -63,7 +63,7 @@ final class VaultItemTests: XCTestCase {
 
     func testItemCanBeUsedAsDictionaryKey() {
         let item = makeItem(name: "test.txt")
-        var dict = [VaultItem: String]()
+        var dict = [LegacyVaultItem: String]()
         dict[item] = "value"
         XCTAssertEqual(dict[item], "value")
     }

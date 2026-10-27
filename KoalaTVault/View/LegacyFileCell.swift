@@ -1,5 +1,5 @@
 //
-//  FileCell.swift
+//  LegacyFileCell.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/10/26.
@@ -8,7 +8,7 @@
 import UIKit
 import QuickLookThumbnailing
 
-final class FileCell: UICollectionViewCell {
+final class LegacyFileCell: UICollectionViewCell {
     static let reuseID = "FileCell"
     
     private let iconView    = UIImageView()
@@ -85,7 +85,7 @@ final class FileCell: UICollectionViewCell {
         */
     }
     
-    func configure(with item: VaultItem, gridMode: Bool) {
+    func configure(with item: LegacyVaultItem, gridMode: Bool) {
         let config = UIImage.SymbolConfiguration(pointSize: 50, weight: .regular)
         let icon = FileIconProvider.icon(for: item)
         

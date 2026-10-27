@@ -227,7 +227,7 @@ final class TrashTests: VaultTestCase {
         FileSystem.shared.trashDirectory(for: testDirectory.rootURL).diskURL.appendingPathComponent(".trash_map")
     }
 
-    private func importPlainFile(named name: String) throws -> VaultItem {
+    private func importPlainFile(named name: String) throws -> LegacyVaultItem {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID())-\(name)")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -271,7 +271,7 @@ final class TrashTests: VaultTestCase {
     }
 
     /// Deletes a file to the trash, then rewrites its trash entry with the given folder and disk name.
-    private func trashItemWithTamperedEntry(directory: String?, diskName: String?) throws -> VaultItem {
+    private func trashItemWithTamperedEntry(directory: String?, diskName: String?) throws -> LegacyVaultItem {
         let item = try importPlainFile(named: "victim.txt")
         try FileSystem.shared.delete(item)
         var map = try FileSystem.shared.testTrashMap(for: testDirectory)
@@ -286,7 +286,7 @@ final class TrashTests: VaultTestCase {
         return try XCTUnwrap(try FileSystem.shared.contentsOfTrash(for: testDirectory).first)
     }
 
-    private func assertRestoreRejected(_ trashItem: VaultItem, file: StaticString = #filePath, line: UInt = #line) throws {
+    private func assertRestoreRejected(_ trashItem: LegacyVaultItem, file: StaticString = #filePath, line: UInt = #line) throws {
         XCTAssertThrowsError(try FileSystem.shared.restoreFromTrash(trashItem), file: file, line: line)
         XCTAssertTrue(FileManager.default.fileExists(atPath: trashItem.diskURL.path), file: file, line: line)
         XCTAssertEqual(try FileSystem.shared.contentsOfTrash(for: testDirectory).count, 1, file: file, line: line)

@@ -1,5 +1,5 @@
 //
-//  FileViewerViewController.swift
+//  LegacyFileViewerViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/11/26.
@@ -8,8 +8,8 @@
 import UIKit
 import AVKit
 
-final class FileViewerViewController: UIViewController {
-    private let items: [VaultItem]
+final class LegacyFileViewerViewController: UIViewController {
+    private let items: [LegacyVaultItem]
     private var currentIndex: Int
     private var pageViewController: UIPageViewController!
     private var isNavBarHidden      = false
@@ -44,7 +44,7 @@ final class FileViewerViewController: UIViewController {
         }
     }
     
-    init(items: [VaultItem], startingAt index: Int) {
+    init(items: [LegacyVaultItem], startingAt index: Int) {
         self.items = items
         self.currentIndex = index
         super.init(nibName: nil, bundle: nil)
@@ -72,7 +72,7 @@ final class FileViewerViewController: UIViewController {
         pageViewController.dataSource = self
         pageViewController.delegate   = self
         
-        let initial = FilePageViewController(item: items[currentIndex], viewer: self)
+        let initial = LegacyFilePageViewController(item: items[currentIndex], viewer: self)
         pageViewController.setViewControllers([initial], direction: .forward, animated: false)
         
         addChild(pageViewController)
@@ -271,10 +271,10 @@ final class FileViewerViewController: UIViewController {
         bufferWidthConstraint?.constant = 0
     }
 
-    func updateUI(for item: VaultItem) {
+    func updateUI(for item: LegacyVaultItem) {
         titleLabel.text = item.name
         let ext = (item.name as NSString).pathExtension.lowercased()
-        videoControls.isHidden = FileKind(extension: ext) != .video
+        videoControls.isHidden = LegacyFileKind(extension: ext) != .video
     }
     
     func updatePlayPauseButton(isPlaying: Bool) {
@@ -467,13 +467,13 @@ final class FileViewerViewController: UIViewController {
 }
 
 // MARK: - UIPageViewControllerDataSource
-extension FileViewerViewController: UIPageViewControllerDataSource {
+extension LegacyFileViewerViewController: UIPageViewControllerDataSource {
     func pageViewController(
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
         guard let index = index(of: viewController), index > 0 else { return nil }
-        return FilePageViewController(item: items[index - 1], viewer: self)
+        return LegacyFilePageViewController(item: items[index - 1], viewer: self)
     }
 
     func pageViewController(
@@ -481,19 +481,19 @@ extension FileViewerViewController: UIPageViewControllerDataSource {
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
         guard let index = index(of: viewController), index < items.count - 1 else { return nil }
-        return FilePageViewController(item: items[index + 1], viewer: self)
+        return LegacyFilePageViewController(item: items[index + 1], viewer: self)
     }
 
     /// Neighbours come from the page asked about, not `currentIndex`: the scroll-style pager can ask for the
     /// new page's neighbours before `didFinishAnimating` updates `currentIndex`.
     private func index(of viewController: UIViewController) -> Int? {
-        guard let page = viewController as? FilePageViewController else { return nil }
+        guard let page = viewController as? LegacyFilePageViewController else { return nil }
         return items.firstIndex(where: { $0.id == page.item.id })
     }
 }
 
 // MARK: - UIViewControllerDelegate
-extension FileViewerViewController: UIPageViewControllerDelegate {
+extension LegacyFileViewerViewController: UIPageViewControllerDelegate {
     func pageViewController(
         _ pageViewController: UIPageViewController,
         didFinishAnimating finished: Bool,
@@ -501,7 +501,7 @@ extension FileViewerViewController: UIPageViewControllerDelegate {
         transitionCompleted completed: Bool
     ) {
         guard completed,
-              let current = pageViewController.viewControllers?.first as? FilePageViewController else { return }
+              let current = pageViewController.viewControllers?.first as? LegacyFilePageViewController else { return }
         currentIndex = items.firstIndex(where: { $0.id == current.item.id }) ?? currentIndex
         updateUI(for: items[currentIndex])
     }

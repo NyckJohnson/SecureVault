@@ -1,5 +1,5 @@
 //
-//  FileKind.swift
+//  LegacyFileKind.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 8/4/26.
@@ -7,7 +7,7 @@
 
 import Foundation
 
-nonisolated enum FileKind {
+nonisolated enum LegacyFileKind {
     case image, video, audio, pdf, word, spreadsheet, presentation, archive,
         text, other
 

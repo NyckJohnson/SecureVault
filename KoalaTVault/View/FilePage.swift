@@ -1,5 +1,5 @@
 //
-//  FilePageViewController.swift
+//  LegacyFilePageViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/12/26.
@@ -9,9 +9,9 @@ import UIKit
 import AVKit
 import QuickLook
 
-final class FilePageViewController: UIViewController {
-    let item: VaultItem
-    private weak var viewer: FileViewerViewController?
+final class LegacyFilePageViewController: UIViewController {
+    let item: LegacyVaultItem
+    private weak var viewer: LegacyFileViewerViewController?
     private var playerLayer: AVPlayerLayer?
     /// This page's own player. The pager loads neighbour pages before they show, so the page hands it to the
     /// viewer's controls only when it appears (`viewDidAppear`) and pauses it when it leaves.
@@ -23,7 +23,7 @@ final class FilePageViewController: UIViewController {
     private var playerItemStatusObservation: NSKeyValueObservation?  // invalidated when released
     private var errorLabel: UILabel?
     
-    init(item: VaultItem, viewer: FileViewerViewController) {
+    init(item: LegacyVaultItem, viewer: LegacyFileViewerViewController) {
         self.item = item
         self.viewer = viewer
         super.init(nibName: nil, bundle: nil)
@@ -36,7 +36,7 @@ final class FilePageViewController: UIViewController {
         view.backgroundColor = .black
         view.accessibilityIdentifier = "filePage.\(item.name)"
         let ext = (item.name as NSString).pathExtension.lowercased()
-        switch FileKind(extension: ext) {
+        switch LegacyFileKind(extension: ext) {
         case .image:
             setupImageView()
         case .video:
@@ -200,7 +200,7 @@ final class FilePageViewController: UIViewController {
     }
     
     private func openInTextEditor() {
-        let editor = TextEditorViewController(item: item)
+        let editor = LegacyTextEditorViewController(item: item)
         let nav = UINavigationController(rootViewController: editor)
         nav.modalPresentationStyle = .fullScreen
         present(nav, animated: true)
@@ -225,14 +225,14 @@ final class FilePageViewController: UIViewController {
 }
 
 // MARK: - QLPreviewControlleDataSource
-extension FilePageViewController: QLPreviewControllerDataSource {
+extension LegacyFilePageViewController: QLPreviewControllerDataSource {
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
         (previewURL ?? item.diskURL) as QLPreviewItem
     }
 }
 
-extension FilePageViewController: UIScrollViewDelegate {
+extension LegacyFilePageViewController: UIScrollViewDelegate {
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         return imageView
     }

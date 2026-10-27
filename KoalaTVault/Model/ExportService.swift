@@ -46,7 +46,7 @@ final class ExportService {
     private init() {}
 
     func export(
-        _ item: VaultItem,
+        _ item: LegacyVaultItem,
         from viewController: UIViewController,
         sourceView: UIView? = nil,
         barButtonItem: UIBarButtonItem? = nil
@@ -55,13 +55,13 @@ final class ExportService {
     }
 
     func exportMultiple(
-        _ items: [VaultItem],
+        _ items: [LegacyVaultItem],
         from viewController: UIViewController,
         sourceView: UIView? = nil,
         barButtonItem: UIBarButtonItem? = nil
     ) {
         let hasMedia = items.contains {
-            let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
+            let kind = LegacyFileKind(extension: ($0.name as NSString).pathExtension.lowercased())
             return kind == .image || kind == .video
         }
 

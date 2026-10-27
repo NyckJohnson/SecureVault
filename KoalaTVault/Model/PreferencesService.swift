@@ -7,7 +7,7 @@
 
 import Foundation
 
-nonisolated enum LockMode: String {
+nonisolated enum LegacyLockMode: String {
     case none
     case password
     case passwordAndBiometrics
@@ -27,8 +27,8 @@ nonisolated final class PreferencesService: Sendable {
         set { defaults.set(newValue, forKey: hasCompletedSetupKey) }
     }
 
-    var lockMode: LockMode {
-        get { LockMode(rawValue: defaults.string(forKey: lockModeKey) ?? "none") ?? .none }
+    var lockMode: LegacyLockMode {
+        get { LegacyLockMode(rawValue: defaults.string(forKey: lockModeKey) ?? "none") ?? .none }
         set { defaults.set(newValue.rawValue, forKey: lockModeKey) }
     }
     
@@ -38,30 +38,30 @@ nonisolated final class PreferencesService: Sendable {
     private let pendingMigrationTypeKey           = "pendingMigrationType"
     private let pendingMigrationTargetLockModeKey = "pendingMigrationTargetLockMode"
 
-    var pendingMigrationType: MigrationViewController.MigrationType? {
-        get { MigrationViewController.MigrationType(rawValue: defaults.string(forKey: pendingMigrationTypeKey) ?? "") }
+    var pendingMigrationType: LegacyMigrationViewController.MigrationType? {
+        get { LegacyMigrationViewController.MigrationType(rawValue: defaults.string(forKey: pendingMigrationTypeKey) ?? "") }
         set { defaults.set(newValue?.rawValue, forKey: pendingMigrationTypeKey) }
     }
 
-    /// Only meaningful when pendingMigrationType == .encrypt — the LockMode the user
+    /// Only meaningful when pendingMigrationType == .encrypt — the LegacyLockMode the user
     /// originally selected, needed to finalize correctly if migration is resumed later.
-    var pendingMigrationTargetLockMode: LockMode? {
-        get { defaults.string(forKey: pendingMigrationTargetLockModeKey).flatMap(LockMode.init(rawValue:)) }
+    var pendingMigrationTargetLockMode: LegacyLockMode? {
+        get { defaults.string(forKey: pendingMigrationTargetLockModeKey).flatMap(LegacyLockMode.init(rawValue:)) }
         set { defaults.set(newValue?.rawValue, forKey: pendingMigrationTargetLockModeKey) }
     }
 
-    var sortOption: SortOption {
-        get { SortOption(rawValue: defaults.string(forKey: sortOptionKey) ?? "name") ?? .name }
+    var sortOption: LegacySortOption {
+        get { LegacySortOption(rawValue: defaults.string(forKey: sortOptionKey) ?? "name") ?? .name }
         set { defaults.set(newValue.rawValue, forKey: sortOptionKey) }
     }
 
-    var sortDirection: SortDirection {
-        get { SortDirection(rawValue: defaults.string(forKey: sortDirectionKey) ?? "ascending") ?? .ascending }
+    var sortDirection: LegacySortDirection {
+        get { LegacySortDirection(rawValue: defaults.string(forKey: sortDirectionKey) ?? "ascending") ?? .ascending }
         set { defaults.set(newValue.rawValue, forKey: sortDirectionKey) }
     }
 }
 
-nonisolated enum SortOption: String, CaseIterable {
+nonisolated enum LegacySortOption: String, CaseIterable {
     case name
     case type
     case dateModified
@@ -75,7 +75,7 @@ nonisolated enum SortOption: String, CaseIterable {
     }
 }
 
-nonisolated enum SortDirection: String {
+nonisolated enum LegacySortDirection: String {
     case ascending
     case descending
 }

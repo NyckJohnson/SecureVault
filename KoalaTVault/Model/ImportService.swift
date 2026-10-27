@@ -12,10 +12,10 @@ import UniformTypeIdentifiers
 final class ImportService: NSObject {
     static let shared = ImportService()
 
-    var cameraRollDeleter: CameraRollDeleting = PhotoLibraryCameraRollDeleter()
+    var cameraRollDeleter: LegacyCameraRollDeleting = PhotoLibraryCameraRollDeleter()
 
     private weak var presentingViewController: UIViewController?
-    private var targetDirectory: VaultDirectory?
+    private var targetDirectory: LegacyVaultDirectory?
     private var completion: (() -> Void)?
     /// The most recently presented picker. UIKit only holds a presented picker until it is dismissed, but on
     /// iOS 18 the document picker's remote service can still send XPC messages to it right after
@@ -26,7 +26,7 @@ final class ImportService: NSObject {
     override init() {}
 
     func promptImport(
-        into directory: VaultDirectory,
+        into directory: LegacyVaultDirectory,
         from viewController: UIViewController,
         barButtonItem: UIBarButtonItem? = nil,
         completion: (() -> Void)? = nil
@@ -120,7 +120,7 @@ final class ImportService: NSObject {
                 self.completion?()
                 if let error = importError {
                     if case FileSystemError.fileLimitReached = error {
-                        let paywall = PaywallViewController()
+                        let paywall = LegacyPaywallViewController()
                         paywall.modalPresentationStyle = .formSheet
                         viewController.present(paywall, animated: true)
                     } else {
@@ -153,7 +153,7 @@ extension ImportService: PHPickerViewControllerDelegate {
             try FileSystem.shared.checkImportAllowed(additionalCount: results.count, in: directory)
         } catch FileSystemError.fileLimitReached {
             picker.dismiss(animated: true) {
-                let paywall = PaywallViewController()
+                let paywall = LegacyPaywallViewController()
                 paywall.modalPresentationStyle = .formSheet
                 viewController.present(paywall, animated: true)
             }
@@ -191,11 +191,11 @@ extension ImportService: PHPickerViewControllerDelegate {
     }
 }
 
-protocol CameraRollDeleting {
+protocol LegacyCameraRollDeleting {
     func deleteAssets(withIdentifiers identifiers: [String])
 }
 
-struct PhotoLibraryCameraRollDeleter: CameraRollDeleting {
+struct PhotoLibraryCameraRollDeleter: LegacyCameraRollDeleting {
     func deleteAssets(withIdentifiers identifiers: [String]) {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
         guard assets.firstObject != nil else { return }

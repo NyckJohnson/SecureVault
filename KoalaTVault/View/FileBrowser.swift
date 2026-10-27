@@ -1,5 +1,5 @@
 //
-//  FileBrowserViewController.swift
+//  LegacyFileBrowserViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 5/10/26.
@@ -7,21 +7,21 @@
 
 import UIKit
 
-final class FileBrowserViewController: UIViewController, ErrorPresenting {
+final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
-    private let directory: VaultDirectory
-    private var items: [VaultItem] = []
+    private let directory: LegacyVaultDirectory
+    private var items: [LegacyVaultItem] = []
     private var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<Int, VaultItem>!
-    private var itemPendingMove: VaultItem?
+    private var dataSource: UICollectionViewDiffableDataSource<Int, LegacyVaultItem>!
+    private var itemPendingMove: LegacyVaultItem?
     private var pendingAction: (() -> Void)?
     private var isSelectMode = false
-    private var selectedItems: Set<VaultItem> = []
-    private var itemsPendingBulkAction: [VaultItem]?
+    private var selectedItems: Set<LegacyVaultItem> = []
+    private var itemsPendingBulkAction: [LegacyVaultItem]?
 
     // MARK: - Init
-    init(directory: VaultDirectory) {
+    init(directory: LegacyVaultDirectory) {
         self.directory = directory
         super.init(nibName: nil, bundle: nil)
         self.title = directory.name
@@ -80,7 +80,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             copyButton.accessibilityIdentifier   = "browser.bulkCopyButton"
         } else {
             // Left side
-            if directory.diskURL == VaultDirectory.root.diskURL {
+            if directory.diskURL == LegacyVaultDirectory.root.diskURL {
                 let settingsButton = UIBarButtonItem(
                     image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(openSettings))
                 navigationItem.leftBarButtonItem = settingsButton
@@ -121,7 +121,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         collectionView.dragDelegate = self
         collectionView.dropDelegate = self
         collectionView.dragInteractionEnabled = true
-        collectionView.register(FileCell.self, forCellWithReuseIdentifier: FileCell.reuseID)
+        collectionView.register(LegacyFileCell.self, forCellWithReuseIdentifier: LegacyFileCell.reuseID)
         view.addSubview(collectionView)
 
         // for ui tests
@@ -154,8 +154,8 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     // MARK: - Data Source
     private func configureDataSource() {
         dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] collectionView, indexPath, item in
-            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FileCell.reuseID, for: indexPath) as? FileCell else {
-                fatalError("FileCell not registered for reuse ID \(FileCell.reuseID)")
+            guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LegacyFileCell.reuseID, for: indexPath) as? LegacyFileCell else {
+                fatalError("FileCell not registered for reuse ID \(LegacyFileCell.reuseID)")
             }
             cell.configure(with: item, gridMode: true)
             cell.accessibilityIdentifier = "browser.cell.\(item.name)"
@@ -178,7 +178,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     }
 
     private func applySnapshot() {
-        var snapshot = NSDiffableDataSourceSnapshot<Int, VaultItem>()
+        var snapshot = NSDiffableDataSourceSnapshot<Int, LegacyVaultItem>()
         snapshot.appendSections([0])
         snapshot.appendItems(items)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -197,7 +197,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Actions
     @objc private func openSettings() {
-        let settings = SecuritySettingsViewController()
+        let settings = LegacySecuritySettingsViewController()
         let nav = UINavigationController(rootViewController: settings)
         nav.modalPresentationStyle = .formSheet
         present(nav, animated: true)
@@ -233,14 +233,14 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
             guard let self,
                   let name = alert.textFields?.first?.text,
                   !name.isEmpty else { return }
-            let vaultItem: VaultItem
+            let vaultItem: LegacyVaultItem
             do {
                 vaultItem = try FileSystem.shared.createDocument(named: name, in: self.directory)
             } catch {
                 self.showError(error)
                 return
             }
-            let editor = TextEditorViewController(item: vaultItem)
+            let editor = LegacyTextEditorViewController(item: vaultItem)
             let nav = UINavigationController(rootViewController: editor)
             nav.modalPresentationStyle = .fullScreen
             self.present(nav, animated: true) {
@@ -309,8 +309,8 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         loadContents()
     }
 
-    private func presentFolderPicker(for item: VaultItem) {
-        let picker = FolderPickerViewController(rootDirectory: VaultDirectory.root, currentDirectory: VaultDirectory.root)
+    private func presentFolderPicker(for item: LegacyVaultItem) {
+        let picker = LegacyFolderPickerViewController(rootDirectory: LegacyVaultDirectory.root, currentDirectory: LegacyVaultDirectory.root)
         picker.delegate = self
         let nav = UINavigationController(rootViewController: picker)
         nav.modalPresentationStyle = .formSheet
@@ -322,7 +322,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
     @objc private func promptSort() {
         let sheet = UIAlertController(title: "Sort By", message: nil, preferredStyle: .actionSheet)
 
-        for option in SortOption.allCases {
+        for option in LegacySortOption.allCases {
             let isCurrent = PreferencesService.shared.sortOption == option
             let direction = PreferencesService.shared.sortDirection
             let dirSymbol = direction == .ascending ? "↑" : "↓"
@@ -357,7 +357,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         return label
     }
 
-    private func promptRename(item: VaultItem) {
+    private func promptRename(item: LegacyVaultItem) {
         let alert = UIAlertController(title: "Rename", message: nil, preferredStyle: .alert)
         alert.addTextField {
             $0.text = item.name
@@ -376,7 +376,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
         present(alert, animated: true)
     }
 
-    private func confirmDelete(item: VaultItem) {
+    private func confirmDelete(item: LegacyVaultItem) {
         let alert = UIAlertController(
             title: "Delete \"\(item.name)\"?",
             message: item.isDirectory ? "This will delete the folder and all its contents." : nil,
@@ -406,7 +406,7 @@ final class FileBrowserViewController: UIViewController, ErrorPresenting {
 }
 
 // MARK: - UICollectionViewDelegate
-extension FileBrowserViewController: UICollectionViewDelegate {
+extension LegacyFileBrowserViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         let item = items[indexPath.item]
@@ -418,27 +418,27 @@ extension FileBrowserViewController: UICollectionViewDelegate {
                 selectedItems.insert(item)
             }
             setupNavigationBar()
-            if let cell = collectionView.cellForItem(at: indexPath) as? FileCell {
+            if let cell = collectionView.cellForItem(at: indexPath) as? LegacyFileCell {
                 cell.setSelected(selectedItems.contains(item), inSelectMode: true)
             }
             return
         }
 
         if item.isDirectory {
-            let subDir = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
-            let browser = FileBrowserViewController(directory: subDir)
+            let subDir = LegacyVaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
+            let browser = LegacyFileBrowserViewController(directory: subDir)
             navigationController?.pushViewController(browser, animated: true)
         } else {
             let ext = (item.name as NSString).pathExtension.lowercased()
             if ext == "rtf" {
-                let editor = TextEditorViewController(item: item)
+                let editor = LegacyTextEditorViewController(item: item)
                 let nav = UINavigationController(rootViewController: editor)
                 nav.modalPresentationStyle = .fullScreen
                 present(nav, animated: true)
             } else {
                 let nonDirectories = items.filter { !$0.isDirectory }
                 let startIndex = nonDirectories.firstIndex(where: { $0.id == item.id }) ?? 0
-                let viewer = FileViewerViewController(items: nonDirectories, startingAt: startIndex)
+                let viewer = LegacyFileViewerViewController(items: nonDirectories, startingAt: startIndex)
                 present(viewer, animated: true)
             }
         }
@@ -513,8 +513,8 @@ extension FileBrowserViewController: UICollectionViewDelegate {
 }
 
 // MARK: - FolderPickerDelegate
-extension FileBrowserViewController: FolderPickerDelegate {
-    func folderPicker(_ picker: FolderPickerViewController, didSelectFolder directory: VaultDirectory) {
+extension LegacyFileBrowserViewController: FolderPickerDelegate {
+    func folderPicker(_ picker: LegacyFolderPickerViewController, didSelectFolder directory: LegacyVaultDirectory) {
         if let items = itemsPendingBulkAction {
             var errors: [Error] = []
             for item in items {
@@ -545,7 +545,7 @@ extension FileBrowserViewController: FolderPickerDelegate {
         loadContents()
     }
 
-    func folderPickerDidCancel(_ picker: FolderPickerViewController) {
+    func folderPickerDidCancel(_ picker: LegacyFolderPickerViewController) {
         clearPendingMove()
     }
 
@@ -557,14 +557,14 @@ extension FileBrowserViewController: FolderPickerDelegate {
 }
 
 // MARK: - UIAdaptivePresentationControllerDelegate
-extension FileBrowserViewController: UIAdaptivePresentationControllerDelegate {
+extension LegacyFileBrowserViewController: UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         clearPendingMove()
     }
 }
 
 // MARK: - UICollectionViewDragDelegate
-extension FileBrowserViewController: UICollectionViewDragDelegate {
+extension LegacyFileBrowserViewController: UICollectionViewDragDelegate {
     func collectionView(
         _ collectionView: UICollectionView,
         itemsForBeginning session: UIDragSession,
@@ -581,14 +581,14 @@ extension FileBrowserViewController: UICollectionViewDragDelegate {
     // such drags stay inside the app (move onto a folder); export goes through ExportService.
     func collectionView(_ collectionView: UICollectionView, dragSessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool {
         session.items.contains { dragItem in
-            guard let item = dragItem.localObject as? VaultItem else { return true }
+            guard let item = dragItem.localObject as? LegacyVaultItem else { return true }
             return FileSystem.shared.needsDecryptedCopy(item)
         }
     }
 }
 
 // MARK: - UICollectionViewDropDelegate
-extension FileBrowserViewController: UICollectionViewDropDelegate {
+extension LegacyFileBrowserViewController: UICollectionViewDropDelegate {
     func collectionView(
         _ collectionView: UICollectionView,
         dropSessionDidUpdate session: UIDropSession,
@@ -608,10 +608,10 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
         guard let destinationIndexPath = coordinator.destinationIndexPath else { return }
         for item in coordinator.items {
-            guard let draggedItem = item.dragItem.localObject as? VaultItem else { continue }
+            guard let draggedItem = item.dragItem.localObject as? LegacyVaultItem else { continue }
             let destinationItem = items[destinationIndexPath.item]
             if destinationItem.isDirectory {
-                let destDir = VaultDirectory(name: destinationItem.name, diskURL: destinationItem.diskURL, rootURL: destinationItem.rootURL)
+                let destDir = LegacyVaultDirectory(name: destinationItem.name, diskURL: destinationItem.diskURL, rootURL: destinationItem.rootURL)
                 do {
                     try FileSystem.shared.move(draggedItem, to: destDir)
                     loadContents()

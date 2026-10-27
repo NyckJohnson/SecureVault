@@ -21,7 +21,7 @@ final class FileImportLimitTests: VaultTestCase {
     // MARK: - Helpers
     /// Writes `count` plain files directly into the directory, bypassing importItems
     /// so seeding doesn't depend on the import/encryption pipeline under test.
-    private func seedFiles(count: Int, in directory: VaultDirectory) throws {
+    private func seedFiles(count: Int, in directory: LegacyVaultDirectory) throws {
         for i in 0..<count {
             let url = directory.diskURL.appendingPathComponent("seed-\(i).txt")
             try "seed".write(to: url, atomically: true, encoding: .utf8)

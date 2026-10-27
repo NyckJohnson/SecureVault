@@ -18,7 +18,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         setupVaultUnlockObserver()
 
-        let root = FileBrowserViewController(directory: .root)
+        let root = LegacyFileBrowserViewController(directory: .root)
         let nav = UINavigationController(rootViewController: root)
         nav.navigationBar.prefersLargeTitles = true
         let window = UIWindow(windowScene: windowScene)
@@ -27,7 +27,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
 
         if !PreferencesService.shared.hasCompletedSetup {
-            let wizard = SetupWizardViewController()
+            let wizard = LegacySetupWizardViewController()
             wizard.modalPresentationStyle = .fullScreen
             nav.present(wizard, animated: false)
         } else {
@@ -85,12 +85,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
               let root = window?.rootViewController else { return }
         var topVC = root
         while let presented = topVC.presentedViewController {
-            if presented is MigrationViewController { return }   // new: check the whole stack
+            if presented is LegacyMigrationViewController { return }   // new: check the whole stack
             topVC = presented
         }
-        guard !(topVC is MigrationViewController) else { return }
+        guard !(topVC is LegacyMigrationViewController) else { return }
         let targetLockMode = PreferencesService.shared.pendingMigrationTargetLockMode
-        let migration = MigrationViewController(type: type, targetLockMode: targetLockMode) { completedFully in
+        let migration = LegacyMigrationViewController(type: type, targetLockMode: targetLockMode) { completedFully in
             AuthService.shared.finalizeMigration(type: type, targetLockMode: targetLockMode, completedFully: completedFully)
         }
         topVC.present(migration, animated: true)

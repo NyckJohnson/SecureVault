@@ -26,7 +26,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
     private let mappingFileName = ".vault_map"
     private let trashMapFileName = ".trash_map"
 
-    private var testDirectory: VaultDirectory!
+    private var testDirectory: LegacyVaultDirectory!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -35,7 +35,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("IntegrityTest-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        testDirectory = VaultDirectory(name: "IntegrityTest", diskURL: tempURL, rootURL: tempURL)
+        testDirectory = LegacyVaultDirectory(name: "IntegrityTest", diskURL: tempURL, rootURL: tempURL)
     }
 
     override func tearDownWithError() throws {
@@ -66,13 +66,13 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
     /// Writes an *encrypted* mapping using the given AES-GCM AAD domain, bypassing FileSystem.
     /// Used to simulate maps written by different code eras (empty-AAD, relative-path, etc.).
-    private func writeEncryptedMapping(_ mapping: [String: VaultMapping], authenticating domain: String, in directory: VaultDirectory) throws {
+    private func writeEncryptedMapping(_ mapping: [String: VaultMapping], authenticating domain: String, in directory: LegacyVaultDirectory) throws {
         let data = try JSONEncoder().encode(mapping)
         let encrypted = try CryptoService.shared.encrypt(data: data, authenticating: domain)
         try encrypted.write(to: directory.diskURL.appendingPathComponent(mappingFileName), options: .atomic)
     }
 
-    private func createDummyFile(named name: String, in directory: VaultDirectory, content: String = "dummy") throws -> URL {
+    private func createDummyFile(named name: String, in directory: LegacyVaultDirectory, content: String = "dummy") throws -> URL {
         let url = directory.diskURL.appendingPathComponent(name)
         try content.data(using: .utf8)!.write(to: url)
         return url
@@ -119,7 +119,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         try corruptMapping()
         let corruptedBytesBeforeAttempt = try Data(contentsOf: mappingURL)
 
-        let itemToRename = VaultItem(
+        let itemToRename = LegacyVaultItem(
             id: UUID(), name: "Original.txt", isDirectory: false, dateModified: Date(), fileSize: nil,
             diskURL: testDirectory.diskURL.appendingPathComponent(targetUUID), rootURL: testDirectory.rootURL, isEncrypted: true
         )
@@ -157,7 +157,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         _ = try createDummyFile(named: movingUUID, in: testDirectory)
         try writeRawMapping([movingUUID: VaultMapping(originalName: "Moving.txt")])
 
-        let itemToMove = VaultItem(
+        let itemToMove = LegacyVaultItem(
             id: UUID(), name: "Moving.txt", isDirectory: false, dateModified: Date(), fileSize: nil,
             diskURL: testDirectory.diskURL.appendingPathComponent(movingUUID), rootURL: testDirectory.rootURL, isEncrypted: true
         )
@@ -395,7 +395,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
 
         let subDir = testDirectory.diskURL.appendingPathComponent("subdir")
         try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
-        let sub = VaultDirectory(name: "subdir", diskURL: subDir, rootURL: testDirectory.rootURL)
+        let sub = LegacyVaultDirectory(name: "subdir", diskURL: subDir, rootURL: testDirectory.rootURL)
         try writeEncryptedMapping([:], authenticating: mappingFileName, in: sub)
 
         let orphanURL = subDir.appendingPathComponent(UUID().uuidString)
@@ -523,7 +523,7 @@ final class FileSystemMappingIntegrityTests: XCTestCase {
         _ = try createDummyFile(named: uuid, in: testDirectory)
         try writeRawMapping([uuid: VaultMapping(originalName: "roundtrip.txt")])
 
-        let item = VaultItem(
+        let item = LegacyVaultItem(
             id: UUID(), name: "roundtrip.txt", isDirectory: false, dateModified: Date(), fileSize: nil,
             diskURL: testDirectory.diskURL.appendingPathComponent(uuid), rootURL: testDirectory.rootURL, isEncrypted: true
         )

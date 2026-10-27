@@ -7,8 +7,8 @@
 
 import UIKit
 
-final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
-    private var items: [VaultItem] = []
+final class LegacyRecentlyDeletedViewController: UIViewController, ErrorPresenting {
+    private var items: [LegacyVaultItem] = []
     private var tableView: UITableView!
 
     override func viewDidLoad() {
@@ -84,7 +84,7 @@ final class RecentlyDeletedViewController: UIViewController, ErrorPresenting {
 }
 
 // MARK: - UITableViewDataSource
-extension RecentlyDeletedViewController: UITableViewDataSource {
+extension LegacyRecentlyDeletedViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         items.count
     }
@@ -105,7 +105,7 @@ extension RecentlyDeletedViewController: UITableViewDataSource {
 }
 
 // MARK: - UITableViewDelegate
-extension RecentlyDeletedViewController: UITableViewDelegate {
+extension LegacyRecentlyDeletedViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = items[indexPath.row]

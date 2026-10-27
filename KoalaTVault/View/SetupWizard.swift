@@ -1,5 +1,5 @@
 //
-//  SetupWizardViewController.swift
+//  LegacySetupWizardViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
@@ -7,10 +7,10 @@
 
 import UIKit
 
-final class SetupWizardViewController: UIViewController, ErrorPresenting {
+final class LegacySetupWizardViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
-    private var selectedLockMode: LockMode = .none
+    private var selectedLockMode: LegacyLockMode = .none
     private let authService = AuthService.shared
 
     // MARK: - UI

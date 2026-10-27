@@ -126,7 +126,7 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
         return url
     }
 
-    private func plaintextItems() throws -> [(item: VaultItem, directory: VaultDirectory)] {
+    private func plaintextItems() throws -> [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] {
         try FileSystem.shared.filesToMigrate(toEncrypted: true, in: testDirectory)
     }
 

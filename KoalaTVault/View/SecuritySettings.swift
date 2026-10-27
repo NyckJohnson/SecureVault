@@ -1,5 +1,5 @@
 //
-//  SecuritySettingsViewController.swift
+//  LegacySecuritySettingsViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
@@ -8,7 +8,7 @@
 import UIKit
 import Combine
 
-final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
+final class LegacySecuritySettingsViewController: UIViewController, ErrorPresenting {
 
     private let authService         = AuthService.shared
     private var tableView: UITableView!
@@ -67,7 +67,7 @@ final class SecuritySettingsViewController: UIViewController, ErrorPresenting {
 }
 
 // MARK: - UITableViewDataSource
-extension SecuritySettingsViewController: UITableViewDataSource {
+extension LegacySecuritySettingsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
         Section.allCases.count
     }
@@ -154,7 +154,7 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 }
 
 // MARK: - UITableViewDelegate
-extension SecuritySettingsViewController: UITableViewDelegate {
+extension LegacySecuritySettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
@@ -162,7 +162,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         switch sectionKind {
         case .pro:
             guard !EntitlementService.isUnlockedSync else { return }
-            let paywall = PaywallViewController()
+            let paywall = LegacyPaywallViewController()
             paywall.modalPresentationStyle = .formSheet
             paywall.onUnlock = { [weak self] in self?.tableView.reloadData() }
             present(paywall, animated: true)
@@ -182,7 +182,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             promptChangePassword()
 
         case .trash:
-            let viewController = RecentlyDeletedViewController()
+            let viewController = LegacyRecentlyDeletedViewController()
             navigationController?.pushViewController(viewController, animated: true)
         }
     }
@@ -196,14 +196,14 @@ extension SecuritySettingsViewController: UITableViewDelegate {
 #endif
 
     private func reEncryptRemainingFiles() {
-        let migration = MigrationViewController(type: .encrypt) { completedFully in
+        let migration = LegacyMigrationViewController(type: .encrypt) { completedFully in
             self.authService.finalizeMigration(type: .encrypt, targetLockMode: self.authService.lockMode, completedFully: completedFully)
             self.refreshUnencryptedFilesState { self.tableView.reloadData() }
         }
         present(migration, animated: true)
     }
 
-    private func setLockMode(_ mode: LockMode) {
+    private func setLockMode(_ mode: LegacyLockMode) {
         if mode == .none {
             let alert = UIAlertController(
                 title: "Remove Lock?",
@@ -213,7 +213,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                let migration = MigrationViewController(type: .decrypt, targetLockMode: mode) { completedFully in
+                let migration = LegacyMigrationViewController(type: .decrypt, targetLockMode: mode) { completedFully in
                     self.authService.finalizeMigration(type: .decrypt, targetLockMode: mode, completedFully: completedFully)
                     self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
@@ -231,7 +231,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
                 self.authService.lockMode = .password
-                let migration = MigrationViewController(type: .encrypt, targetLockMode: .password) { [weak self] completedFully in
+                let migration = LegacyMigrationViewController(type: .encrypt, targetLockMode: .password) { [weak self] completedFully in
                     guard let self else { return }
                     self.authService.finalizeMigration(type: .encrypt, targetLockMode: .password, completedFully: completedFully)
                     if mode == .passwordAndBiometrics {
@@ -278,7 +278,7 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         tableView.reloadData()
     }
 
-    private func promptSetPassword(for mode: LockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
+    private func promptSetPassword(for mode: LegacyLockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
         let alert = UIAlertController(title: "Set Password", message: nil, preferredStyle: .alert)
         alert.addTextField {
             $0.placeholder = "Password"; $0.isSecureTextEntry = true

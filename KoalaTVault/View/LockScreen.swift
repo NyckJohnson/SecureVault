@@ -1,5 +1,5 @@
 //
-//  LockScreenViewController.swift
+//  LegacyLockScreenViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
@@ -8,7 +8,7 @@
 import UIKit
 import LocalAuthentication
 
-final class LockScreenViewController: UIViewController {
+final class LegacyLockScreenViewController: UIViewController {
 
     private let authService = AuthService.shared
 
@@ -212,7 +212,7 @@ final class LockScreenViewController: UIViewController {
     }
 }
 
-extension LockScreenViewController: UITextFieldDelegate {
+extension LegacyLockScreenViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard let password = passwordField.text, !password.isEmpty else { return true }
         attemptUnlock(with: password)

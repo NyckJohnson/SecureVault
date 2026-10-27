@@ -386,7 +386,7 @@ extension matching ignores case.
 - Contract: see `docs/api/Entitlements.md` (generated; do not edit by hand)
 - Legacy files: Model/EntitlementService.swift
 - Legacy tests: KoalaTVaultTests/StoreKitConfigurationTests.swift
-- Callers to repoint: AppDelegate.swift, Model/FileSystem.swift, View/SecuritySettings.swift, View/PaywallViewController.swift
+- Callers to repoint: AppDelegate.swift, Model/FileSystem.swift, View/SecuritySettings.swift, View/LegacyPaywallViewController.swift
 
 ### VaultStore
 - Purpose: the vault on disk: folder indexes, browse and sort, open and write, folder and file operations, trash, the
@@ -491,9 +491,9 @@ extension matching ignores case.
   - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list; folders with no index, an unreadable index, and the trash are never swept.
   - Temp files: `makeTempDirectory` creates a unique folder under the app temp folder; `removeTemporary` removes one; `removeAllTemporaryFiles` removes everything the store created.
 - Contract: see `docs/api/VaultStore.md` (generated; do not edit by hand)
-- Legacy files: Model/FileSystem.swift (part: vault types, index, browse/sort, open/write, create/move/copy/rename/delete, trash, migration steps, orphan sweep, temp files); Model/FileKind.swift
+- Legacy files: Model/FileSystem.swift (part: vault types, index, browse/sort, open/write, create/move/copy/rename/delete, trash, migration steps, orphan sweep, temp files); Model/LegacyFileKind.swift
 - Legacy tests: KoalaTVaultTests/VaultTestCase.swift, KoalaTVaultTests/FileSystemTests.swift, KoalaTVaultTests/EncryptedFileSystemTests.swift, KoalaTVaultTests/FileSystemMappingIntegrityTests.swift, KoalaTVaultTests/TrashTests.swift, KoalaTVaultTests/SortTests.swift, KoalaTVaultTests/CopyTests.swift, KoalaTVaultTests/ConflictResolutionTests.swift, KoalaTVaultTests/VaultDirectoryTests.swift, KoalaTVaultTests/VaultItemTests.swift, KoalaTVaultTests/FileKindTests.swift, KoalaTVaultTests/EdgeCaseTests.swift, KoalaTVaultTests/AdditionalEdgeCaseTests.swift
-- Callers to repoint: AppDelegate.swift, SceneDelegate.swift, Model/AuthService.swift, Model/ExportService.swift, Model/ImportService.swift, Model/ThumbnailService.swift, View/FileBrowser.swift, View/FileCell.swift, View/FileIconProvider.swift, View/FilePage.swift, View/FileViewer.swift, View/FolderPicker.swift, View/Migration.swift, View/RecentlyDeleted.swift, View/SecuritySettings.swift, View/TextEditor.swift
+- Callers to repoint: AppDelegate.swift, SceneDelegate.swift, Model/AuthService.swift, Model/ExportService.swift, Model/ImportService.swift, Model/ThumbnailService.swift, View/FileBrowser.swift, View/LegacyFileCell.swift, View/FileIconProvider.swift, View/FilePage.swift, View/FileViewer.swift, View/FolderPicker.swift, View/Migration.swift, View/RecentlyDeleted.swift, View/SecuritySettings.swift, View/TextEditor.swift
 
 ### SharedUI
 - Purpose: UIKit pieces several screens use: progress overlay, alerts, presentation helpers, file icons.
@@ -521,7 +521,7 @@ extension matching ignores case.
 - Contract: see `docs/api/SharedUI.md` (generated; do not edit by hand)
 - Legacy files: View/ProgressOverlay.swift, Model/ErrorPresenting.swift, View/UIViewController+Presentation.swift, View/FileIconProvider.swift
 - Legacy tests: none
-- Callers to repoint: SceneDelegate.swift, Model/AuthService.swift, Model/ExportService.swift, Model/ImportService.swift, Model/ThumbnailService.swift, View/FileBrowser.swift, View/FileCell.swift, View/Migration.swift, View/PaywallViewController.swift, View/RecentlyDeleted.swift, View/SecuritySettings.swift, View/SetupWizard.swift, View/TextEditor.swift
+- Callers to repoint: SceneDelegate.swift, Model/AuthService.swift, Model/ExportService.swift, Model/ImportService.swift, Model/ThumbnailService.swift, View/FileBrowser.swift, View/LegacyFileCell.swift, View/Migration.swift, View/LegacyPaywallViewController.swift, View/RecentlyDeleted.swift, View/SecuritySettings.swift, View/SetupWizard.swift, View/TextEditor.swift
 
 ### VaultLock
 - Purpose: the key lifecycle and lock state: set up a lock, unlock, lock on background, change password, switch between
@@ -652,7 +652,7 @@ extension matching ignores case.
 - Contract: see `docs/api/Media.md` (generated; do not edit by hand)
 - Legacy files: Model/ThumbnailService.swift, Model/VaultResourceLoaderDelegate.swift
 - Legacy tests: KoalaTVaultTests/MediaPipelineTests.swift (part: VaultResourceLoaderDelegateTests, ThumbnailServiceTests)
-- Callers to repoint: SceneDelegate.swift, Model/AuthService.swift, View/FileCell.swift, View/FilePage.swift
+- Callers to repoint: SceneDelegate.swift, Model/AuthService.swift, View/LegacyFileCell.swift, View/FilePage.swift
 
 ### Import
 - Purpose: bring files, folders and photos into the vault with the free-tier limit and duplicate detection, and present
@@ -798,7 +798,7 @@ extension matching ignores case.
   - RecentlyDeletedViewModel: rows with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
   - Views: identifiers `upgradeToProCell`, `lockModeNoneCell`, `lockModePasswordCell`, `lockModeBiometricCell`, `reencryptCell`, `changePasswordCell`, `recentlyDeletedCell`, `paywallUnlockButton`, `restoreButton`, `paywallCloseButton`, `migrationStatusLabel`, `emptyTrashButton`. (Views.)
 - Contract: see `docs/api/Settings.md` (generated; do not edit by hand)
-- Legacy files: View/SecuritySettings.swift, View/PaywallViewController.swift, View/RecentlyDeleted.swift, View/Migration.swift (part: the view)
+- Legacy files: View/SecuritySettings.swift, View/LegacyPaywallViewController.swift, View/RecentlyDeleted.swift, View/Migration.swift (part: the view)
 - Legacy tests: KoalaTVaultTests/SecuritySettingsProTests.swift, KoalaTVaultTests/SecuritySettingsViewControllerTests.swift
 - Callers to repoint: SceneDelegate.swift, View/FileBrowser.swift
 
@@ -831,7 +831,7 @@ extension matching ignores case.
   - FileCellModel: name, size text (`ByteCountFormatter` file style; empty for folders), icon from `FileIconMapping`, thumbnail requested and cancelled on reuse, and ignored if the cell now shows another item.
   - Views: identifiers `fileGrid`, `settingsButton`, `sortButton`, `newFolderButton`, `newDocumentButton`, `importButton`, `selectButton`, `bulkDeleteButton`, `bulkMoveButton`, `bulkExportButton`, `bulkCopyButton`, `fileCell_<name>`, `emptyStateLabel`, `folderPickerMoveHere`, `folderPickerCancel`. (Views.)
 - Contract: see `docs/api/Browser.md` (generated; do not edit by hand)
-- Legacy files: View/FileBrowser.swift, View/FileCell.swift, View/FolderPicker.swift
+- Legacy files: View/FileBrowser.swift, View/LegacyFileCell.swift, View/FolderPicker.swift
 - Legacy tests: none
 - Callers to repoint: SceneDelegate.swift
 

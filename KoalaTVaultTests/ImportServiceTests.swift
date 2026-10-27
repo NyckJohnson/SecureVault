@@ -6,7 +6,7 @@
 import XCTest
 @testable import KoalaTVault
 
-final class FakeCameraRollDeleter: CameraRollDeleting {
+final class FakeCameraRollDeleter: LegacyCameraRollDeleting {
     private(set) var deletedIdentifiers: [String]?
     private(set) var deleteCallCount = 0
 

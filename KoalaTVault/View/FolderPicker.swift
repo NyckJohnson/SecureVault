@@ -1,5 +1,5 @@
 //
-//  FolderPickerViewController.swift
+//  LegacyFolderPickerViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/10/26.
@@ -8,22 +8,22 @@
 import UIKit
 
 protocol FolderPickerDelegate: AnyObject {
-    func folderPicker(_ picker: FolderPickerViewController, didSelectFolder directory: VaultDirectory)
+    func folderPicker(_ picker: LegacyFolderPickerViewController, didSelectFolder directory: LegacyVaultDirectory)
     /// Called once when the picker closes without a choice (Cancel, at any level, or swipe-down).
-    func folderPickerDidCancel(_ picker: FolderPickerViewController)
+    func folderPickerDidCancel(_ picker: LegacyFolderPickerViewController)
 }
 
-final class FolderPickerViewController: UIViewController {
+final class LegacyFolderPickerViewController: UIViewController {
     
     weak var delegate: FolderPickerDelegate?
-    private let rootDirectory: VaultDirectory
-    private let currentDirectory: VaultDirectory
-    private var items: [VaultItem] = []
+    private let rootDirectory: LegacyVaultDirectory
+    private let currentDirectory: LegacyVaultDirectory
+    private var items: [LegacyVaultItem] = []
     private var tableView: UITableView!
     /// Set on the first Move Here or Cancel, so a double-tap can't tell the delegate twice.
     private var didFinish = false
     
-    init(rootDirectory: VaultDirectory, currentDirectory: VaultDirectory) {
+    init(rootDirectory: LegacyVaultDirectory, currentDirectory: LegacyVaultDirectory) {
         self.rootDirectory = rootDirectory
         self.currentDirectory = currentDirectory
         super.init(nibName: nil, bundle: nil)
@@ -86,7 +86,7 @@ final class FolderPickerViewController: UIViewController {
     }
 }
 
-extension FolderPickerViewController: UITableViewDataSource {
+extension LegacyFolderPickerViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         items.count
     }
@@ -104,13 +104,13 @@ extension FolderPickerViewController: UITableViewDataSource {
     }
 }
 
-extension FolderPickerViewController: UITableViewDelegate {
+extension LegacyFolderPickerViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let folder = items[indexPath.row]
-        let next = FolderPickerViewController(
+        let next = LegacyFolderPickerViewController(
             rootDirectory: rootDirectory,
-            currentDirectory: VaultDirectory(name: folder.name, diskURL: folder.diskURL, rootURL: currentDirectory.rootURL)
+            currentDirectory: LegacyVaultDirectory(name: folder.name, diskURL: folder.diskURL, rootURL: currentDirectory.rootURL)
         )
         next.delegate = delegate
         navigationController?.pushViewController(next, animated: true)

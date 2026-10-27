@@ -11,20 +11,20 @@ import CommonCrypto
 import os
 @preconcurrency import PhotosUI
 
-// MARK: - VaultDirectory
-nonisolated struct VaultDirectory: Sendable {
+// MARK: - LegacyVaultDirectory
+nonisolated struct LegacyVaultDirectory: Sendable {
     var name: String
     internal var diskURL: URL
     internal var rootURL: URL
 
-    static var root: VaultDirectory {
+    static var root: LegacyVaultDirectory {
         let url = LegacyStorage.current.vaultRootURL
-        return VaultDirectory(name: "KoalaTVault", diskURL: url, rootURL: url)
+        return LegacyVaultDirectory(name: "KoalaTVault", diskURL: url, rootURL: url)
     }
 }
 
-// MARK: - VaultItem
-nonisolated struct VaultItem: Identifiable, Hashable, Sendable {
+// MARK: - LegacyVaultItem
+nonisolated struct LegacyVaultItem: Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var isDirectory: Bool
@@ -39,7 +39,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Sendable {
         hasher.combine(id)
     }
 
-    nonisolated static func == (lhs: VaultItem, rhs: VaultItem) -> Bool {
+    nonisolated static func == (lhs: LegacyVaultItem, rhs: LegacyVaultItem) -> Bool {
         lhs.id == rhs.id
     }
 }
@@ -91,14 +91,14 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Browse
-    func contents(of directory: VaultDirectory) throws -> [VaultItem] {
+    func contents(of directory: LegacyVaultDirectory) throws -> [LegacyVaultItem] {
         let urls = try FileManager.default.contentsOfDirectory(
             at: directory.diskURL,
             includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey],
             options: .skipsHiddenFiles
         )
         let mapping = try loadMapping(from: directory.diskURL)
-        return urls.compactMap { url -> VaultItem? in
+        return urls.compactMap { url -> LegacyVaultItem? in
             let fileName = url.lastPathComponent
             guard fileName != mappingFileName else { return nil }
             let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey])
@@ -108,7 +108,7 @@ nonisolated final class FileSystem: Sendable {
 
             if let mapped = mapping[fileName] {
                 // encrypted file
-                return VaultItem(
+                return LegacyVaultItem(
                     id: UUID(),
                     name: mapped.originalName,
                     isDirectory: isDirectory,
@@ -120,7 +120,7 @@ nonisolated final class FileSystem: Sendable {
                 )
             } else {
                 // unencrypted file or directory
-                return VaultItem(
+                return LegacyVaultItem(
                     id: UUID(),
                     name: fileName,
                     isDirectory: isDirectory,
@@ -135,7 +135,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Import
-    func importItems(from urls: [URL], to directory: VaultDirectory, progress: ((Double) -> Void)? = nil) throws {
+    func importItems(from urls: [URL], to directory: LegacyVaultDirectory, progress: ((Double) -> Void)? = nil) throws {
         let total = Double(urls.reduce(0) { count, url in
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
@@ -190,7 +190,7 @@ nonisolated final class FileSystem: Sendable {
         return count
     }
 
-    private func importSingleFile(from url: URL, to directory: VaultDirectory) throws {
+    private func importSingleFile(from url: URL, to directory: LegacyVaultDirectory) throws {
         let originalName = url.lastPathComponent
         guard !isDuplicate(sourceURL: url, originalName: originalName, in: directory.diskURL) else { return }
         
@@ -211,7 +211,7 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    private func importFolder(from url: URL, to directory: VaultDirectory, onFileImported: (() -> Void)? = nil) throws {
+    private func importFolder(from url: URL, to directory: LegacyVaultDirectory, onFileImported: (() -> Void)? = nil) throws {
         let existingURL = directory.diskURL.appendingPathComponent(url.lastPathComponent)
         var isDir: ObjCBool = false
         let folderExists = FileManager.default.fileExists(atPath: existingURL.path, isDirectory: &isDir) && isDir.boolValue
@@ -220,7 +220,7 @@ nonisolated final class FileSystem: Sendable {
         if !folderExists {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         }
-        let subDirectory = VaultDirectory(name: folderName, diskURL: destination, rootURL: directory.rootURL)
+        let subDirectory = LegacyVaultDirectory(name: folderName, diskURL: destination, rootURL: directory.rootURL)
 
         let contents = try FileManager.default.contentsOfDirectory(
             at: url,
@@ -243,7 +243,7 @@ nonisolated final class FileSystem: Sendable {
 
     /// Call before starting a camera-roll import; throws `.fileLimitReached` if the
     /// import would exceed the free tier for this vault.
-    func checkImportAllowed(additionalCount: Int, in directory: VaultDirectory) throws {
+    func checkImportAllowed(additionalCount: Int, in directory: LegacyVaultDirectory) throws {
         guard !EntitlementService.isUnlockedSync else { return }
         let existingCount = countFiles(in: directory.rootURL)
         guard existingCount + additionalCount <= EntitlementService.freeFileLimit else {
@@ -253,7 +253,7 @@ nonisolated final class FileSystem: Sendable {
 
     func importFromCameraRoll(
         results: [PHPickerResult],
-        to directory: VaultDirectory,
+        to directory: LegacyVaultDirectory,
         completion: @escaping @MainActor @Sendable (_ succeededIdentifiers: [String], _ failed: Int) -> Void
     ) {
         let group = DispatchGroup()
@@ -349,7 +349,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Open
-    func open(_ item: VaultItem) throws -> URL {
+    func open(_ item: LegacyVaultItem) throws -> URL {
         guard item.isEncrypted else { return item.diskURL }
         let tempSubDir = tempDir.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
@@ -359,7 +359,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Write
-    func write(data: Data, to item: VaultItem) throws {
+    func write(data: Data, to item: LegacyVaultItem) throws {
         if item.isEncrypted {
             let tempPlain = tempDir.appendingPathComponent(UUID().uuidString)
             try data.write(to: tempPlain)
@@ -376,7 +376,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Export
-    func prepareForExport(_ items: [VaultItem], progress: ((Double) -> Void)? = nil) throws -> [URL] {
+    func prepareForExport(_ items: [LegacyVaultItem], progress: ((Double) -> Void)? = nil) throws -> [URL] {
         let total = Double(items.count)
         return try items.enumerated().map { index, item in
             defer { progress?(Double(index + 1) / total) }
@@ -394,7 +394,7 @@ nonisolated final class FileSystem: Sendable {
                 try FileManager.default.createDirectory(at: tempSubDir, withIntermediateDirectories: true)
                 let tempURL = tempSubDir.appendingPathComponent(item.name)
                 do {
-                    let folder = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
+                    let folder = LegacyVaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
                     try copyDecrypted(folder, to: tempURL)
                 } catch {
                     try? FileManager.default.removeItem(at: tempSubDir)
@@ -409,7 +409,7 @@ nonisolated final class FileSystem: Sendable {
     /// True when exporting or sharing `item` must go through a decrypted copy: an encrypted file,
     /// or a folder with a `.vault_map` anywhere inside it. Plaintext files and folders (no lock)
     /// can be handed out as they are.
-    func needsDecryptedCopy(_ item: VaultItem) -> Bool {
+    func needsDecryptedCopy(_ item: LegacyVaultItem) -> Bool {
         if item.isEncrypted { return true }
         guard item.isDirectory else { return false }
         if FileManager.default.fileExists(atPath: item.diskURL.appendingPathComponent(mappingFileName).path) { return true }
@@ -422,12 +422,12 @@ nonisolated final class FileSystem: Sendable {
 
     /// Writes `directory`'s files, decrypted, under their visible names into a new folder at
     /// `destination`, recursing into subfolders. No `.vault_map` or UUID names are copied.
-    private func copyDecrypted(_ directory: VaultDirectory, to destination: URL) throws {
+    private func copyDecrypted(_ directory: LegacyVaultDirectory, to destination: URL) throws {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         for child in try contents(of: directory) {
             let target = destination.appendingPathComponent(resolvedName(for: child.name, in: destination))
             if child.isDirectory {
-                let sub = VaultDirectory(name: child.name, diskURL: child.diskURL, rootURL: child.rootURL)
+                let sub = LegacyVaultDirectory(name: child.name, diskURL: child.diskURL, rootURL: child.rootURL)
                 try copyDecrypted(sub, to: target)
             } else if child.isEncrypted {
                 try CryptoService.shared.decryptFile(at: child.diskURL, to: target)
@@ -438,9 +438,9 @@ nonisolated final class FileSystem: Sendable {
     }
 
     @concurrent
-    func exportToCameraRoll(_ items: [VaultItem]) async -> (succeeded: Int, failed: Int) {
+    func exportToCameraRoll(_ items: [LegacyVaultItem]) async -> (succeeded: Int, failed: Int) {
         let mediaItems = items.filter {
-            let kind = FileKind(extension: ($0.name as NSString).pathExtension.lowercased())
+            let kind = LegacyFileKind(extension: ($0.name as NSString).pathExtension.lowercased())
             return kind == .image || kind == .video
         }
         guard !mediaItems.isEmpty else { return (0, 0) }
@@ -450,7 +450,7 @@ nonisolated final class FileSystem: Sendable {
 
         var succeeded = 0
         for item in mediaItems {
-            let isVideo = FileKind(extension: (item.name as NSString).pathExtension.lowercased()) == .video
+            let isVideo = LegacyFileKind(extension: (item.name as NSString).pathExtension.lowercased()) == .video
             do {
                 let url = try open(item)
                 defer { if item.isEncrypted { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
@@ -470,18 +470,18 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Manage
-    func createFolder(named name: String, in directory: VaultDirectory) throws -> VaultDirectory {
+    func createFolder(named name: String, in directory: LegacyVaultDirectory) throws -> LegacyVaultDirectory {
         guard !name.contains("/") else { throw FileSystemError.invalidName }
         let folderName = resolvedName(for: name, in: directory.diskURL)
         let url = directory.diskURL.appendingPathComponent(folderName)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
-        return VaultDirectory(name: folderName, diskURL: url, rootURL: directory.rootURL)
+        return LegacyVaultDirectory(name: folderName, diskURL: url, rootURL: directory.rootURL)
     }
 
     /// Creates an empty rich-text document `<name>.rtf` in `directory` and returns it.
     /// A taken name gets the " N" suffix; an existing document is never overwritten.
     /// With a lock on, the file is an empty SVC5 file under a UUID with a `.vault_map` entry.
-    func createDocument(named name: String, in directory: VaultDirectory) throws -> VaultItem {
+    func createDocument(named name: String, in directory: LegacyVaultDirectory) throws -> LegacyVaultItem {
         guard !name.contains("/") else { throw FileSystemError.invalidName }
         let fileName = name.hasSuffix(".rtf") ? name : "\(name).rtf"
         if isEncryptionEnabled {
@@ -500,18 +500,18 @@ nonisolated final class FileSystem: Sendable {
                 try? FileManager.default.removeItem(at: destination)
                 throw error
             }
-            return VaultItem(id: UUID(), name: resolved, isDirectory: false, dateModified: Date(), fileSize: 0,
+            return LegacyVaultItem(id: UUID(), name: resolved, isDirectory: false, dateModified: Date(), fileSize: 0,
                              diskURL: destination, rootURL: directory.rootURL, isEncrypted: true)
         } else {
             let resolved = resolvedName(for: fileName, in: directory.diskURL)
             let destination = directory.diskURL.appendingPathComponent(resolved)
             try Data().write(to: destination, options: .withoutOverwriting)
-            return VaultItem(id: UUID(), name: resolved, isDirectory: false, dateModified: Date(), fileSize: 0,
+            return LegacyVaultItem(id: UUID(), name: resolved, isDirectory: false, dateModified: Date(), fileSize: 0,
                              diskURL: destination, rootURL: directory.rootURL, isEncrypted: false)
         }
     }
 
-    func move(_ item: VaultItem, to directory: VaultDirectory) throws {
+    func move(_ item: LegacyVaultItem, to directory: LegacyVaultDirectory) throws {
         // Moving into the folder the item is already in changes nothing.
         let sourceDir = item.diskURL.deletingLastPathComponent()
         if sourceDir.standardizedFileURL.resolvingSymlinksInPath().path
@@ -547,7 +547,7 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    func copy(_ item: VaultItem, to directory: VaultDirectory) throws {
+    func copy(_ item: LegacyVaultItem, to directory: LegacyVaultDirectory) throws {
         if item.isEncrypted {
             let newUUID = UUID().uuidString
             let destination = directory.diskURL.appendingPathComponent(newUUID)
@@ -564,7 +564,7 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    func rename(_ item: VaultItem, to name: String) throws {
+    func rename(_ item: LegacyVaultItem, to name: String) throws {
         guard !name.contains("/") else { throw FileSystemError.invalidName }
         if item.isEncrypted {
             let uuid = item.diskURL.lastPathComponent
@@ -580,7 +580,7 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    func delete(_ item: VaultItem) throws {
+    func delete(_ item: LegacyVaultItem) throws {
         try moveToTrash(item)
     }
     
@@ -601,13 +601,13 @@ nonisolated final class FileSystem: Sendable {
         let rootURL: String
     }
 
-    func trashDirectory(for rootURL: URL) -> VaultDirectory {
+    func trashDirectory(for rootURL: URL) -> LegacyVaultDirectory {
         let url = rootURL.appendingPathComponent(trashFolderName)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return VaultDirectory(name: "Recently Deleted", diskURL: url, rootURL: rootURL)
+        return LegacyVaultDirectory(name: "Recently Deleted", diskURL: url, rootURL: rootURL)
     }
 
-    func moveToTrash(_ item: VaultItem) throws {
+    func moveToTrash(_ item: LegacyVaultItem) throws {
         let trashURL = trashDirectory(for: item.rootURL).diskURL
         let uuid = UUID().uuidString
         let destination = trashURL.appendingPathComponent(uuid)
@@ -643,7 +643,7 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    func restoreFromTrash(_ item: VaultItem) throws {
+    func restoreFromTrash(_ item: LegacyVaultItem) throws {
         var trashMap    = try loadTrashMap(for: item.rootURL)
         let uuid        = item.diskURL.lastPathComponent
         guard let entry = trashMap[uuid] else { return }
@@ -686,13 +686,13 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    func contentsOfTrash(for root: VaultDirectory) throws -> [VaultItem] {
+    func contentsOfTrash(for root: LegacyVaultDirectory) throws -> [LegacyVaultItem] {
         let trashMap = try loadTrashMap(for: root.rootURL)
         let trashURL = trashDirectory(for: root.rootURL).diskURL
         return trashMap.compactMap { uuid, entry in
             let diskURL = trashURL.appendingPathComponent(uuid)
             guard FileManager.default.fileExists(atPath: diskURL.path) else { return nil }
-            return VaultItem(
+            return LegacyVaultItem(
                 id: UUID(),
                 name: entry.originalName,
                 isDirectory: false,
@@ -706,7 +706,7 @@ nonisolated final class FileSystem: Sendable {
         }.sorted { $0.dateModified > $1.dateModified }
     }
 
-    func permanentlyDelete(_ item: VaultItem) throws {
+    func permanentlyDelete(_ item: LegacyVaultItem) throws {
         var trashMap          = try loadTrashMap(for: item.rootURL)
         let uuid              = item.diskURL.lastPathComponent
         guard trashMap[uuid] != nil else { return }
@@ -717,7 +717,7 @@ nonisolated final class FileSystem: Sendable {
         try saveTrashMap(trashMap, for: item.rootURL)
     }
 
-    func emptyTrash(for root: VaultDirectory) throws {
+    func emptyTrash(for root: LegacyVaultDirectory) throws {
         // Deliberately best-effort: emptying the trash must always succeed at wiping
         // everything, even if the existing map can't be decrypted (stale/mismatched key,
         // corruption, etc.) — otherwise one unreadable map permanently wedges the trash
@@ -738,7 +738,7 @@ nonisolated final class FileSystem: Sendable {
         try? FileManager.default.removeItem(at: mapURL)
     }
 
-    func cleanupExpiredTrashItems(for root: VaultDirectory) {
+    func cleanupExpiredTrashItems(for root: LegacyVaultDirectory) {
         // An unreadable map is logged and we return before saveTrashMap — so a failed
         // read here can never overwrite good data with an empty one.
         var trashMap: [String: TrashEntry]
@@ -785,14 +785,14 @@ nonisolated final class FileSystem: Sendable {
     }
 
     // MARK: - Migration
-    func filesToMigrate(toEncrypted: Bool, in directory: VaultDirectory) throws -> [(item: VaultItem, directory: VaultDirectory)] {
+    func filesToMigrate(toEncrypted: Bool, in directory: LegacyVaultDirectory) throws -> [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] {
         let items = try contents(of: directory)
         let files = items.filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
         var result = files.map { (item: $0, directory: directory) }
 
         let subdirs = items.filter { $0.isDirectory }
         for subdir in subdirs {
-            let subVaultDir = VaultDirectory(name: subdir.name, diskURL: subdir.diskURL, rootURL: directory.rootURL)
+            let subVaultDir = LegacyVaultDirectory(name: subdir.name, diskURL: subdir.diskURL, rootURL: directory.rootURL)
             result += try filesToMigrate(toEncrypted: toEncrypted, in: subVaultDir)
         }
         return result
@@ -803,7 +803,7 @@ nonisolated final class FileSystem: Sendable {
     /// (never plaintext) and read back → copy re-verified → plaintext removed. A rerun drops entries
     /// without files, removes a plaintext whose same-name copy matches byte for byte, and otherwise
     /// keeps both (free name). Throws `CryptoError.noKeyLoaded` without the key, or the I/O error.
-    func migrateFileToEncrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+    func migrateFileToEncrypted(_ item: LegacyVaultItem, in directory: LegacyVaultDirectory) throws {
         try throwIfFailureInjected(for: item.name)
         guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
         let fileManager = FileManager.default
@@ -862,7 +862,7 @@ nonisolated final class FileSystem: Sendable {
     /// A file that fails to decrypt throws and leaves its folder's index (and the indexes of the
     /// folders not yet visited) in place, so nothing is left unreadable while the key is kept.
     /// The hidden `.trash` folder is not visited.
-    func migrateVaultToDecrypted(in directory: VaultDirectory, progress: @escaping (Double) -> Void) throws {
+    func migrateVaultToDecrypted(in directory: LegacyVaultDirectory, progress: @escaping (Double) -> Void) throws {
         let items   = try contents(of: directory).filter { !$0.isDirectory && $0.isEncrypted }
         let total   = Double(items.count)
 
@@ -888,12 +888,12 @@ nonisolated final class FileSystem: Sendable {
         ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
 
         for subdir in subdirs {
-            let subVaultDir = VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir, rootURL: directory.rootURL)
+            let subVaultDir = LegacyVaultDirectory(name: subdir.lastPathComponent, diskURL: subdir, rootURL: directory.rootURL)
             try migrateVaultToDecrypted(in: subVaultDir, progress: progress)
         }
     }
     
-    func migrateFileToDecrypted(_ item: VaultItem, in directory: VaultDirectory) throws {
+    func migrateFileToDecrypted(_ item: LegacyVaultItem, in directory: LegacyVaultDirectory) throws {
         try throwIfFailureInjected(for: item.name)
         let encryptedURL = item.diskURL
         // Removed only after its decrypted copy was committed by an earlier run.
@@ -923,7 +923,7 @@ nonisolated final class FileSystem: Sendable {
     }
 
     /// Removes an encrypted file whose plaintext is in place, then its index entry.
-    private func removeDecryptedSource(_ encryptedURL: URL, in directory: VaultDirectory) throws {
+    private func removeDecryptedSource(_ encryptedURL: URL, in directory: LegacyVaultDirectory) throws {
         try FileManager.default.removeItem(at: encryptedURL)
         var mapping = try loadMapping(from: directory.diskURL)
         mapping.removeValue(forKey: encryptedURL.lastPathComponent)   // a stale entry lists nothing
@@ -940,7 +940,7 @@ nonisolated final class FileSystem: Sendable {
     /// process kill between `encryptFile` and `saveMapping`. Best-effort; runs after unlock.
     /// Only runs with the key loaded, and only deletes in folders that have a readable
     /// `.vault_map`: a folder with no index holds plaintext files, which are never orphans.
-    func sweepOrphanedEncryptedFiles(in directory: VaultDirectory) {
+    func sweepOrphanedEncryptedFiles(in directory: LegacyVaultDirectory) {
         guard isEncryptionEnabled else { return }
         // A migration in progress has copies not indexed yet; sweep after it finishes instead.
         guard PreferencesService.shared.pendingMigrationType == nil else { return }
@@ -964,7 +964,7 @@ nonisolated final class FileSystem: Sendable {
             let name = url.lastPathComponent
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDir {
-                let sub = VaultDirectory(name: name, diskURL: url, rootURL: directory.rootURL)
+                let sub = LegacyVaultDirectory(name: name, diskURL: url, rootURL: directory.rootURL)
                 sweepOrphanedEncryptedFiles(in: sub)
             } else if let mapping,
                       name.range(of: uuidPattern, options: [.regularExpression, .caseInsensitive]) != nil,
@@ -976,7 +976,7 @@ nonisolated final class FileSystem: Sendable {
     
     #if DEBUG
     func diagnoseDiskState() {
-        let root = VaultDirectory.root.diskURL
+        let root = LegacyVaultDirectory.root.diskURL
         let mapping: [String: VaultMapping]
         do {
             mapping = try loadMapping(from: root)
@@ -1117,7 +1117,7 @@ nonisolated final class FileSystem: Sendable {
         }
     }
 
-    private var sortComparator: (VaultItem, VaultItem) -> Bool {
+    private var sortComparator: (LegacyVaultItem, LegacyVaultItem) -> Bool {
         let option    = PreferencesService.shared.sortOption
         let ascending = PreferencesService.shared.sortDirection == .ascending
 
@@ -1146,9 +1146,9 @@ nonisolated final class FileSystem: Sendable {
     
     // MARK: - Testing Only
 #if DEBUG
-    func testTrashMap(for root: VaultDirectory) throws -> [String: TrashEntry] { try loadTrashMap(for: root.rootURL) }
-    func saveTestTrashMap(_ map: [String: TrashEntry], for root: VaultDirectory) throws { try saveTrashMap(map, for: root.rootURL) }
-    func testMapping(in directory: VaultDirectory) throws -> [String: VaultMapping] { try loadMapping(from: directory.diskURL) }
+    func testTrashMap(for root: LegacyVaultDirectory) throws -> [String: TrashEntry] { try loadTrashMap(for: root.rootURL) }
+    func saveTestTrashMap(_ map: [String: TrashEntry], for root: LegacyVaultDirectory) throws { try saveTrashMap(map, for: root.rootURL) }
+    func testMapping(in directory: LegacyVaultDirectory) throws -> [String: VaultMapping] { try loadMapping(from: directory.diskURL) }
     typealias TrashEntryForTesting = TrashEntry
 #endif
 }
@@ -1158,7 +1158,7 @@ extension FileSystem {
     /// Re-saves encrypted every plaintext folder index under `directory` (older builds wrote them
     /// when the key was wiped mid-migration). Throws `CryptoError.noKeyLoaded` without the key.
     /// Damaged indexes are left alone; the hidden `.trash` folder is not visited.
-    func encryptPlaintextIndexes(in directory: VaultDirectory) throws {
+    func encryptPlaintextIndexes(in directory: LegacyVaultDirectory) throws {
         guard CryptoService.shared.isKeyLoaded else { throw CryptoError.noKeyLoaded }
         let mapURL = directory.diskURL.appendingPathComponent(mappingFileName)
         if FileManager.default.fileExists(atPath: mapURL.path) {
@@ -1172,7 +1172,7 @@ extension FileSystem {
             at: directory.diskURL, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles
         ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
         for subdir in subdirs {
-            try encryptPlaintextIndexes(in: VaultDirectory(name: subdir.lastPathComponent, diskURL: subdir,
+            try encryptPlaintextIndexes(in: LegacyVaultDirectory(name: subdir.lastPathComponent, diskURL: subdir,
                                                            rootURL: directory.rootURL))
         }
     }

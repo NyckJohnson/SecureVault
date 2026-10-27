@@ -1,5 +1,5 @@
 //
-//  TextEditorViewController.swift
+//  LegacyTextEditorViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
@@ -7,10 +7,10 @@
 
 import UIKit
 
-final class TextEditorViewController: UIViewController, ErrorPresenting {
+final class LegacyTextEditorViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
-    private let item: VaultItem
+    private let item: LegacyVaultItem
     private var textView: UITextView!
     private var toolbar: UIToolbar!
     private var saveTimer: Timer?
@@ -19,7 +19,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
     private var didFailToLoad = false
 
     // MARK: - Init
-    init(item: VaultItem) {
+    init(item: LegacyVaultItem) {
         self.item = item
         super.init(nibName: nil, bundle: nil)
     }
@@ -260,7 +260,7 @@ final class TextEditorViewController: UIViewController, ErrorPresenting {
 }
 
 // MARK: - UITextViewDelegate
-extension TextEditorViewController: UITextViewDelegate {
+extension LegacyTextEditorViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in

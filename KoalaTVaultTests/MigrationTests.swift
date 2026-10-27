@@ -10,7 +10,7 @@ final class MigrationViewControllerTests: VaultTestCase {
         super.tearDown()
     }
 
-    private func presentAndWait(_ sut: MigrationViewController, timeout: TimeInterval = 10) -> Bool {
+    private func presentAndWait(_ sut: LegacyMigrationViewController, timeout: TimeInterval = 10) -> Bool {
         let window = UIWindow()
         window.rootViewController = UIViewController()
         window.makeKeyAndVisible()
@@ -30,7 +30,7 @@ final class MigrationViewControllerTests: VaultTestCase {
 
         let done = expectation(description: "complete")
         var result: Bool?
-        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+        let sut = LegacyMigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
             result = completedFully
             done.fulfill()
         }
@@ -50,7 +50,7 @@ final class MigrationViewControllerTests: VaultTestCase {
 
         let done = expectation(description: "complete")
         var result: Bool?
-        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+        let sut = LegacyMigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
             result = completedFully
             done.fulfill()
         }
@@ -72,7 +72,7 @@ final class MigrationViewControllerTests: VaultTestCase {
 
         let done = expectation(description: "complete")
         var result: Bool?
-        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+        let sut = LegacyMigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
             result = completedFully
             done.fulfill()
         }
@@ -93,7 +93,7 @@ final class MigrationViewControllerTests: VaultTestCase {
         try "content".write(to: url, atomically: true, encoding: .utf8)
         CryptoService.shared.wipeKey()  // key gone before migration ever starts
 
-        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { _ in
+        let sut = LegacyMigrationViewController(type: .encrypt, directory: testDirectory) { _ in
             XCTFail("should not complete while paused")
         }
         _ = presentAndWait(sut)
@@ -110,7 +110,7 @@ final class MigrationViewControllerTests: VaultTestCase {
         CryptoService.shared.wipeKey()  // start already keyless, so it pauses immediately
 
         let done = expectation(description: "complete")
-        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+        let sut = LegacyMigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
             XCTAssertTrue(completedFully)
             done.fulfill()
         }
@@ -133,7 +133,7 @@ final class MigrationViewControllerTests: VaultTestCase {
         let done = expectation(description: "complete once")
         done.assertForOverFulfill = true
         var results: [Bool] = []
-        let sut = MigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
+        let sut = LegacyMigrationViewController(type: .encrypt, directory: testDirectory) { completedFully in
             results.append(completedFully)
             done.fulfill()
         }

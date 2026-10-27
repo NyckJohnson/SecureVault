@@ -162,15 +162,15 @@ final class SortTests: VaultTestCase {
     }
 
     func testAllSortOptionsAvailable() {
-        XCTAssertEqual(SortOption.allCases.count, 3)
-        XCTAssertTrue(SortOption.allCases.contains(.name))
-        XCTAssertTrue(SortOption.allCases.contains(.type))
-        XCTAssertTrue(SortOption.allCases.contains(.dateModified))
+        XCTAssertEqual(LegacySortOption.allCases.count, 3)
+        XCTAssertTrue(LegacySortOption.allCases.contains(.name))
+        XCTAssertTrue(LegacySortOption.allCases.contains(.type))
+        XCTAssertTrue(LegacySortOption.allCases.contains(.dateModified))
     }
 
     func testSortOptionDisplayNames() {
-        XCTAssertEqual(SortOption.name.displayName, "Name")
-        XCTAssertEqual(SortOption.type.displayName, "Type")
-        XCTAssertEqual(SortOption.dateModified.displayName, "Date Modified")
+        XCTAssertEqual(LegacySortOption.name.displayName, "Name")
+        XCTAssertEqual(LegacySortOption.type.displayName, "Type")
+        XCTAssertEqual(LegacySortOption.dateModified.displayName, "Date Modified")
     }
 }

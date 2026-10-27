@@ -42,7 +42,7 @@ nonisolated final class ThumbnailService: Sendable {
     /// Returns a cached thumbnail immediately, or generates one in the background.
     /// `completion` is always called on the main actor.
     @MainActor
-    func thumbnail(for item: VaultItem, size: CGSize, completion: @escaping Completion) -> QLThumbnailGenerator.Request? {
+    func thumbnail(for item: LegacyVaultItem, size: CGSize, completion: @escaping Completion) -> QLThumbnailGenerator.Request? {
         cancelledIDs.withLock { _ = $0.remove(item.id) }
 
         if let cached = cachedImage(for: item.id) {
@@ -62,7 +62,7 @@ nonisolated final class ThumbnailService: Sendable {
 
     /// Skips decryption for an item whose thumbnail is no longer needed
     /// (e.g. its cell scrolled off screen). The completion will not be called.
-    func cancelThumbnail(for item: VaultItem) {
+    func cancelThumbnail(for item: LegacyVaultItem) {
         cancelledIDs.withLock { _ = $0.insert(item.id) }
     }
 
@@ -70,7 +70,7 @@ nonisolated final class ThumbnailService: Sendable {
         cache.removeAllObjects()
     }
 
-    func clearCache(for item: VaultItem) {
+    func clearCache(for item: LegacyVaultItem) {
         cache.removeObject(forKey: cacheKey(for: item.id))
     }
 
@@ -94,13 +94,13 @@ nonisolated final class ThumbnailService: Sendable {
 
     // MARK: - File Thumbnail
     private func fileThumbnail(
-        for item: VaultItem,
+        for item: LegacyVaultItem,
         size: CGSize,
         scale: CGFloat,
         completion: @escaping Completion
     ) -> QLThumbnailGenerator.Request? {
         let ext = (item.name as NSString).pathExtension.lowercased()
-        if item.isEncrypted, FileKind(extension: ext) == .video {
+        if item.isEncrypted, LegacyFileKind(extension: ext) == .video {
             videoThumbnail(for: item, size: size, scale: scale, completion: completion)
             return nil
         }
@@ -135,7 +135,7 @@ nonisolated final class ThumbnailService: Sendable {
     }
 
     private func generateThumbnail(
-        for item: VaultItem,
+        for item: LegacyVaultItem,
         at url: URL,
         size: CGSize,
         scale: CGFloat,
@@ -159,7 +159,7 @@ nonisolated final class ThumbnailService: Sendable {
 
     // MARK: - Video Thumbnail
     private func videoThumbnail(
-        for item: VaultItem,
+        for item: LegacyVaultItem,
         size: CGSize,
         scale: CGFloat,
         completion: @escaping Completion
@@ -213,13 +213,13 @@ nonisolated final class ThumbnailService: Sendable {
 
     // MARK: - Folder Thumbnail
     private func folderThumbnail(
-        for item: VaultItem,
+        for item: LegacyVaultItem,
         size: CGSize,
         scale: CGFloat,
         completion: @escaping Completion
     ) {
         thumbnailQueue.async { [self] in
-            let directory = VaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
+            let directory = LegacyVaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
             let contents = (try? FileSystem.shared.contents(of: directory)) ?? []
 
             guard let mediaItem = contents.first(where: Self.isMedia) else {
@@ -244,9 +244,9 @@ nonisolated final class ThumbnailService: Sendable {
         }
     }
 
-    private static func isMedia(_ item: VaultItem) -> Bool {
+    private static func isMedia(_ item: LegacyVaultItem) -> Bool {
         guard !item.isDirectory else { return false }
-        let kind = FileKind(extension: (item.name as NSString).pathExtension.lowercased())
+        let kind = LegacyFileKind(extension: (item.name as NSString).pathExtension.lowercased())
         return kind == .image || kind == .video
     }
 

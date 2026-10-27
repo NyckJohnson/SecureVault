@@ -45,7 +45,7 @@ final class AuthService {
     nonisolated private var keychain: any KeychainAccess { LegacyStorage.current.keychain }
 
     // MARK: - Lock Mode
-    var lockMode: LockMode {
+    var lockMode: LegacyLockMode {
         get { PreferencesService.shared.lockMode }
         set { PreferencesService.shared.lockMode = newValue }
     }
@@ -215,8 +215,8 @@ final class AuthService {
 
     // MARK: - Migration Completion
     func finalizeMigration(
-        type: MigrationViewController.MigrationType,
-        targetLockMode: LockMode?,
+        type: LegacyMigrationViewController.MigrationType,
+        targetLockMode: LegacyLockMode?,
         completedFully: Bool
     ) {
         guard completedFully else { return }
@@ -387,7 +387,7 @@ final class AuthService {
             topVC = presented
         }
         // topVC is the lock screen itself — dismiss it specifically, not its presenter's
-        // whole chain, so an in-progress MigrationViewController underneath survives.
+        // whole chain, so an in-progress LegacyMigrationViewController underneath survives.
         let dismisser = topVC.presentingViewController ?? root
         dismisser.dismiss(animated: true) {
             self.hidePrivacyScreen(in: window)
@@ -434,11 +434,11 @@ final class AuthService {
             topVC = presented
         }
 
-        guard !(topVC is LockScreenViewController) else {
+        guard !(topVC is LegacyLockScreenViewController) else {
             hidePrivacyScreen(in: window)
             return
         }
-        let lock = LockScreenViewController()
+        let lock = LegacyLockScreenViewController()
         lock.modalPresentationStyle = .fullScreen
         topVC.present(lock, animated: false) { [weak self] in
             self?.hidePrivacyScreen(in: window)
@@ -447,11 +447,11 @@ final class AuthService {
 
     // MARK: - File Browser Reload
     private func reloadFileBrowser(in window: UIWindow?) {
-        // Assumes root is always UINavigationController with FileBrowserViewController as the first VC.
+        // Assumes root is always UINavigationController with LegacyFileBrowserViewController as the first VC.
         // Update this if the root view controller hierarchy ever changes (e.g. tab bar added).
         if let nav = window?.rootViewController as? UINavigationController,
             let browser = nav.viewControllers.first
-                as? FileBrowserViewController
+                as? LegacyFileBrowserViewController
         {
             browser.reloadAfterAuth()
         }

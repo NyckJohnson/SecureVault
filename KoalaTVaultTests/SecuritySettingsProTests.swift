@@ -13,11 +13,11 @@ final class SecuritySettingsProTests: XCTestCase {
 
     /// Hosts the SUT in a real window so UIKit's presentation machinery
     /// populates `presentedViewController`.
-    private func makeHostedSUT() throws -> SecuritySettingsViewController {
+    private func makeHostedSUT() throws -> LegacySecuritySettingsViewController {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.first as? UIWindowScene
         )
-        let sut = SecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController()
         let window = UIWindow(windowScene: scene)
         window.rootViewController = sut
         window.makeKeyAndVisible()
@@ -37,7 +37,7 @@ final class SecuritySettingsProTests: XCTestCase {
     // MARK: - Cell content
     func testProCellShowsUpgradeWhenLocked() {
         EntitlementService.testForcedUnlocked = false
-        let sut = SecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController()
         sut.loadViewIfNeeded()
 
         let cell = sut.tableView(sut.testTableView, cellForRowAt: IndexPath(row: 0, section: 0))
@@ -48,7 +48,7 @@ final class SecuritySettingsProTests: XCTestCase {
 
     func testProCellShowsUnlockedStateWhenUnlocked() {
         EntitlementService.testForcedUnlocked = true
-        let sut = SecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController()
         sut.loadViewIfNeeded()
 
         let cell = sut.tableView(sut.testTableView, cellForRowAt: IndexPath(row: 0, section: 0))
@@ -64,7 +64,7 @@ final class SecuritySettingsProTests: XCTestCase {
 
         sut.tableView(sut.testTableView, didSelectRowAt: IndexPath(row: 0, section: 0))
 
-        XCTAssertTrue(sut.presentedViewController is PaywallViewController)
+        XCTAssertTrue(sut.presentedViewController is LegacyPaywallViewController)
     }
 
     func testTappingUpgradeRowDoesNothingWhenAlreadyUnlocked() throws {

@@ -1,12 +1,12 @@
 //
-//  PaywallViewController.swift
+//  LegacyPaywallViewController.swift
 //  KoalaTVault
 //
 
 import UIKit
 import StoreKit
 
-final class PaywallViewController: UIViewController, ErrorPresenting {
+final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
 
     /// Called after a successful purchase or restore, before dismissal.
     var onUnlock: (() -> Void)?

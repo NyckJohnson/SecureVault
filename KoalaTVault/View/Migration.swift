@@ -1,5 +1,5 @@
 //
-//  MigrationViewController.swift
+//  LegacyMigrationViewController.swift
 //  KoalaTVault
 //
 //  Created by Nicholas Johnson on 7/12/26.
@@ -8,7 +8,7 @@
 import os
 import UIKit
 
-final class MigrationViewController: UIViewController, ErrorPresenting {
+final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
 
     nonisolated enum MigrationType: String {
         case encrypt
@@ -22,14 +22,14 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     private let progressBar   = UIProgressView(progressViewStyle: .default)
     private let statusLabel   = UILabel()
 
-    private var filesToMigrate: [(item: VaultItem, directory: VaultDirectory)] = []
+    private var filesToMigrate: [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] = []
     // swiftlint:disable:next large_tuple
-    private var failedFiles: [(item: VaultItem, directory: VaultDirectory, error: Error)] = []
+    private var failedFiles: [(item: LegacyVaultItem, directory: LegacyVaultDirectory, error: Error)] = []
     private var currentIndex      = 0
     private var isPaused          = false
-    private let targetLockMode: LockMode?
+    private let targetLockMode: LegacyLockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    private let directory: VaultDirectory
+    private let directory: LegacyVaultDirectory
     private var migrationTask: Task<Void, Never>?
     /// True while a `runMigration` loop is executing; at most one loop runs per screen.
     private var isLoopRunning = false
@@ -50,8 +50,8 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
 
     init(
         type: MigrationType,
-        directory: VaultDirectory = .root,
-        targetLockMode: LockMode? = nil,
+        directory: LegacyVaultDirectory = .root,
+        targetLockMode: LegacyLockMode? = nil,
         onComplete: @escaping (_ completedFully: Bool) -> Void
     ) {
         self.type = type
@@ -245,7 +245,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     }
 
     @concurrent
-    private nonisolated static func encryptIndexes(in directory: VaultDirectory) async throws {
+    private nonisolated static func encryptIndexes(in directory: LegacyVaultDirectory) async throws {
         try FileSystem.shared.encryptPlaintextIndexes(in: directory)
     }
 
@@ -307,7 +307,7 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     }
 
     @concurrent
-    private nonisolated static func removeIndexes(in directory: VaultDirectory) async throws {
+    private nonisolated static func removeIndexes(in directory: LegacyVaultDirectory) async throws {
         try FileSystem.shared.migrateVaultToDecrypted(in: directory) { _ in }
     }
 
@@ -329,13 +329,13 @@ final class MigrationViewController: UIViewController, ErrorPresenting {
     @concurrent
     private nonisolated static func loadFiles(
         toEncrypted: Bool,
-        in directory: VaultDirectory
-    ) async throws -> [(item: VaultItem, directory: VaultDirectory)] {
+        in directory: LegacyVaultDirectory
+    ) async throws -> [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] {
         try FileSystem.shared.filesToMigrate(toEncrypted: toEncrypted, in: directory)
     }
 
     @concurrent
-    private nonisolated static func migrate(_ item: VaultItem, in directory: VaultDirectory, encrypt: Bool) async throws {
+    private nonisolated static func migrate(_ item: LegacyVaultItem, in directory: LegacyVaultDirectory, encrypt: Bool) async throws {
         if encrypt {
             try FileSystem.shared.migrateFileToEncrypted(item, in: directory)
         } else {
