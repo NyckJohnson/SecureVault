@@ -146,16 +146,16 @@ struct KeychainStore: KeychainAccessing {
     }
     // coverage-exempt-end
 
-    // coverage-exempt-begin: hardware-bound; map(laCode:) is tested directly
     /// Maps a failed biometric-prompted read to its typed error.
     ///
     /// The Keychain reports some LocalAuthentication outcomes with the `LAError` code as the
     /// status, and others only as `errSecAuthFailed`; for the latter the device's biometric
     /// state is checked (without prompting) to tell lockout, enrollment and passcode apart.
-    private static func biometricError(for status: OSStatus) -> VaultCryptoError {
+    static func biometricError(for status: OSStatus) -> VaultCryptoError {
         // -4 is both `LAError.systemCancel` and `errSecUnimplemented`; only the latter is meant here.
         if status != errSecUnimplemented, let mapped = map(laCode: Int(status)) { return mapped }
         if status == errSecUserCanceled { return .biometricCancelled }
+        // coverage-exempt-begin: needs device biometric state (LAContext().canEvaluatePolicy)
         if status == errSecAuthFailed || status == errSecInteractionNotAllowed {
             var policyError: NSError?
             let policy = LAPolicy.deviceOwnerAuthenticationWithBiometrics
@@ -164,9 +164,9 @@ struct KeychainStore: KeychainAccessing {
                 if let mapped = map(laCode: policyError.code) { return mapped }
             }
         }
+        // coverage-exempt-end
         return .keychain(status)
     }
-    // coverage-exempt-end
 
     /// Maps a LocalAuthentication error code to its typed error, or `nil` for codes with no
     /// dedicated case (cancel-like codes all become `.biometricCancelled`).

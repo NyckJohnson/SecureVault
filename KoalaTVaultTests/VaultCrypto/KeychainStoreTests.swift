@@ -116,4 +116,19 @@ import Testing
     func laCodeMapping(code: Int, error: VaultCryptoError?) {
         #expect(KeychainStore.map(laCode: code) == error)
     }
+
+    static let statusMappings: [(status: OSStatus, error: VaultCryptoError)] = [
+        (-2, .biometricCancelled),
+        (-8, .biometryLockedOut),
+        (-7, .biometryNotEnrolled),
+        (-5, .passcodeNotSet),
+        (errSecUserCanceled, .biometricCancelled),
+        (errSecUnimplemented, .keychain(errSecUnimplemented)),
+        (errSecParam, .keychain(errSecParam))
+    ]
+
+    @Test("A Keychain status maps to the matching VaultCryptoError", arguments: statusMappings)
+    func biometricErrorMapping(status: OSStatus, error: VaultCryptoError) {
+        #expect(KeychainStore.biometricError(for: status) == error)
+    }
 }
