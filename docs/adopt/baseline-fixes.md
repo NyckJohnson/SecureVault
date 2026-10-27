@@ -48,3 +48,5 @@ Row 4 also covers "a non-limit error alerts under the open picker".
 
 Found by the human on a device: rows 20-22. The legacy UI tests (marked obsolete in the memo) are deleted now that the
 journey tests replace them (human, 2026-10-26).
+
+Device re-check (2026-10-27): rows 20-25 confirmed on the device; the memo describes the app (human). Two notes queued as features: smoother-lock-screen-dismissal, graceful-unsupported-files-in-the-viewer.

@@ -560,7 +560,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-26T11:28:47-07:00",
+  "updatedAt": "2026-10-27T10:37:21-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -641,6 +641,30 @@
       "stage": null,
       "brief": "docs/features/vault-size-in-settings.md",
       "addedAt": "2026-10-24T13:09:44-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "smoother-lock-screen-dismissal",
+      "title": "Smoother lock screen dismissal",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/smoother-lock-screen-dismissal.md",
+      "addedAt": "2026-10-27T10:37:21-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "graceful-unsupported-files-in-the-viewer",
+      "title": "Graceful unsupported files in the viewer",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/graceful-unsupported-files-in-the-viewer.md",
+      "addedAt": "2026-10-27T10:37:21-07:00",
       "startedAt": null,
       "finishedAt": null,
       "checkpoints": {},
