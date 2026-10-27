@@ -98,7 +98,9 @@ import Testing
         let last = sealed.count - 1
         sealed[last] ^= 0x01
         #expect(throws: VaultCryptoError.decryptionFailed) { try cipher.decrypt(sealed, contexts: ["ctx"]) }
-        #expect(throws: VaultCryptoError.decryptionFailed) { try cipher.decrypt(Data(repeating: 1, count: 10), contexts: ["ctx"]) }
+        #expect(throws: VaultCryptoError.decryptionFailed) {
+            try cipher.decrypt(Data(repeating: 1, count: 10), contexts: ["ctx"])
+        }
         #expect(throws: VaultCryptoError.decryptionFailed) { try cipher.decrypt(Data(), contexts: ["ctx"]) }
     }
 
@@ -121,7 +123,8 @@ import Testing
 
     // MARK: encryptFile / decryptFile
 
-    @Test("Files round-trip at the chunk boundaries", arguments: [0, 1, 1000, 1_048_575, 1_048_576, 1_048_577, 2_621_440])
+    @Test(
+        "Files round-trip at the chunk boundaries", arguments: [0, 1, 1000, 1_048_575, 1_048_576, 1_048_577, 2_621_440])
     func fileRoundTrip(size: Int) throws {
         try withDirectory { directory in
             let cipher = makeCipher()
@@ -208,8 +211,9 @@ import Testing
     }
 
     /// Named corruptions of a valid three-chunk file (chunk size 1000, 2500 bytes).
-    private enum Corruption: String, CaseIterable, CustomTestStringConvertible {
-        case wrongMagic, flippedChunkSizeLow, flippedChunkSizeMid, flippedChunkSizeHigh, flippedSizeByte, flippedSizeHighByte
+    enum Corruption: String, CaseIterable, CustomTestStringConvertible {
+        case wrongMagic, flippedChunkSizeLow, flippedChunkSizeMid, flippedChunkSizeHigh, flippedSizeByte,
+            flippedSizeHighByte
         case flippedFileIDFirst, flippedFileIDLast, swappedChunks, foreignChunk, droppedLastChunk, droppedAllChunks
         case truncatedMidChunk, truncatedMidPrefix, truncatedMidHeader, trailingByte, trailingChunkLikeBytes
         case sizeLargerThanBody, sizeSmallerThanBody, flippedCiphertextByte, flippedTagByte, otherKey
@@ -220,24 +224,9 @@ import Testing
             var data = file
             let records = SVC5Builder.records(of: file)
             let header = SVC5Builder.slice(file, 0, 32)
-            let foreign = try SVC5Builder.make(
-                plaintext: SVC5Builder.pattern(2500, seed: 99), chunkSize: 1000, fileID: Data(repeating: 0x77, count: 16))
+            if applyHeaderFlip(&data) { return data }
+            if let rebuilt = restructured(file, header: header, records: records) { return rebuilt }
             switch self {
-            case .wrongMagic: data[0] = UInt8(ascii: "X")
-            case .flippedChunkSizeLow: data[4] ^= 0x01
-            case .flippedChunkSizeMid: data[6] ^= 0x01
-            case .flippedChunkSizeHigh: data[7] ^= 0x01
-            case .flippedSizeByte: data[8] ^= 0x01
-            case .flippedSizeHighByte: data[15] ^= 0x01
-            case .flippedFileIDFirst: data[16] ^= 0x01
-            case .flippedFileIDLast: data[31] ^= 0x01
-            case .swappedChunks: data = header + records[1] + records[0] + records[2]
-            case .foreignChunk: data = header + records[0] + SVC5Builder.records(of: foreign)[1] + records[2]
-            case .droppedLastChunk: data = header + records[0] + records[1]
-            case .droppedAllChunks: data = header
-            case .truncatedMidChunk: data = Data(file.dropLast(10))
-            case .truncatedMidPrefix: data = header + records[0] + records[1] + records[2].prefix(2)
-            case .truncatedMidHeader: data = Data(file.prefix(20))
             case .trailingByte: data.append(0x00)
             case .trailingChunkLikeBytes: data.append(records[0])
             case .sizeLargerThanBody: data.replaceSubrange(8..<16, with: SVC5Builder.littleEndian64(2501))
@@ -248,12 +237,51 @@ import Testing
                 data = try SVC5Builder.make(
                     plaintext: SVC5Builder.pattern(2500), chunkSize: 1000,
                     master: SymmetricKey(data: Data(repeating: 0x99, count: 32)))
+            default: break
             }
             return data
         }
+
+        /// Corruptions that flip one header byte; returns whether this case was one of them.
+        private func applyHeaderFlip(_ data: inout Data) -> Bool {
+            switch self {
+            case .wrongMagic: data[0] = UInt8(ascii: "X")
+            case .flippedChunkSizeLow: data[4] ^= 0x01
+            case .flippedChunkSizeMid: data[6] ^= 0x01
+            case .flippedChunkSizeHigh: data[7] ^= 0x01
+            case .flippedSizeByte: data[8] ^= 0x01
+            case .flippedSizeHighByte: data[15] ^= 0x01
+            case .flippedFileIDFirst: data[16] ^= 0x01
+            case .flippedFileIDLast: data[31] ^= 0x01
+            default: return false
+            }
+            return true
+        }
+
+        /// Corruptions that reassemble, drop or cut records; nil for the other cases.
+        private func restructured(_ file: Data, header: Data, records: [Data]) -> Data? {
+            switch self {
+            case .swappedChunks: return header + records[1] + records[0] + records[2]
+            case .foreignChunk:
+                guard
+                    let foreign = try? SVC5Builder.make(
+                        plaintext: SVC5Builder.pattern(2500, seed: 99), chunkSize: 1000,
+                        fileID: Data(repeating: 0x77, count: 16))
+                else { return nil }
+                return header + records[0] + SVC5Builder.records(of: foreign)[1] + records[2]
+            case .droppedLastChunk: return header + records[0] + records[1]
+            case .droppedAllChunks: return header
+            case .truncatedMidChunk: return Data(file.dropLast(10))
+            case .truncatedMidPrefix: return header + records[0] + records[1] + records[2].prefix(2)
+            case .truncatedMidHeader: return Data(file.prefix(20))
+            default: return nil
+            }
+        }
     }
 
-    @Test("A corrupted file fails decryptFile with decryptionFailed and leaves the destination untouched", arguments: Corruption.allCases)
+    @Test(
+        "A corrupted file fails decryptFile with decryptionFailed and leaves the destination untouched",
+        arguments: Corruption.allCases)
     func corruptedFileFailsAndKeepsDestination(corruption: Corruption) throws {
         try withDirectory { directory in
             let valid = try SVC5Builder.make(plaintext: SVC5Builder.pattern(2500), chunkSize: 1000)
@@ -262,7 +290,9 @@ import Testing
             try corruption.apply(to: valid).write(to: source)
             let existing = Data("existing destination".utf8)
             try existing.write(to: destination)
-            #expect(throws: VaultCryptoError.decryptionFailed) { try makeCipher().decryptFile(at: source, to: destination) }
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptFile(at: source, to: destination)
+            }
             #expect(try Data(contentsOf: destination) == existing)
             #expect(try listing(directory) == ["output", "sealed"])
         }
@@ -276,7 +306,9 @@ import Testing
             let source = directory.appendingPathComponent("sealed")
             try file.write(to: source)
             let destination = directory.appendingPathComponent("output")
-            #expect(throws: VaultCryptoError.decryptionFailed) { try makeCipher().decryptFile(at: source, to: destination) }
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptFile(at: source, to: destination)
+            }
             #expect(try listing(directory) == ["sealed"])
         }
     }
@@ -346,7 +378,8 @@ import Testing
         }
     }
 
-    @Test("streamInfo rejects chunk sizes of 0 and above 16 MiB", arguments: [0, 16_777_217, 100_000_000, 4_294_967_295])
+    @Test(
+        "streamInfo rejects chunk sizes of 0 and above 16 MiB", arguments: [0, 16_777_217, 100_000_000, 4_294_967_295])
     func streamInfoRejectsChunkSizeOutOfRange(chunkSize: Int) throws {
         try withDirectory { directory in
             let url = directory.appendingPathComponent("file")
@@ -403,7 +436,9 @@ import Testing
 
     // MARK: decryptChunk
 
-    private func builtFile(in directory: URL, plain: Data, chunkSize: Int = 1000) throws -> (url: URL, info: StreamInfo) {
+    private typealias Built = (url: URL, info: StreamInfo)
+
+    private func builtFile(in directory: URL, plain: Data, chunkSize: Int = 1000) throws -> Built {
         let url = directory.appendingPathComponent("sealed")
         try SVC5Builder.make(plaintext: plain, chunkSize: chunkSize).write(to: url)
         return (url, StreamInfo(totalSize: plain.count, chunkSize: chunkSize))
@@ -449,11 +484,15 @@ import Testing
         }
     }
 
-    @Test("decryptChunk with an index out of range fails with decryptionFailed", arguments: [-1, 3, 4, 1_000_000, Int.max])
+    @Test(
+        "decryptChunk with an index out of range fails with decryptionFailed",
+        arguments: [-1, 3, 4, 1_000_000, Int.max])
     func decryptChunkOutOfRange(index: Int) throws {
         try withDirectory { directory in
             let (url, info) = try builtFile(in: directory, plain: SVC5Builder.pattern(2500))
-            #expect(throws: VaultCryptoError.decryptionFailed) { try makeCipher().decryptChunk(index, of: url, info: info) }
+            #expect(throws: VaultCryptoError.decryptionFailed) {
+                try makeCipher().decryptChunk(index, of: url, info: info)
+            }
         }
     }
 
