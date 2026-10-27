@@ -18,25 +18,25 @@ final class ScriptedKeychain: KeychainAccessing {
     let state = OSAllocatedUnfairLock(initialState: State())
 
     func read(account: String, prompt: String?) throws -> Data? {
-        try state.withLock { s in
-            s.log.append("read:\(account):\(prompt ?? "nil")")
-            if let e = s.failReads[account] { throw e }
-            return s.items[account]
+        try state.withLock { current in
+            current.log.append("read:\(account):\(prompt ?? "nil")")
+            if let failure = current.failReads[account] { throw failure }
+            return current.items[account]
         }
     }
     func write(_ data: Data, account: String, accessibility: KeychainAccessibility) throws {
-        try state.withLock { s in
-            s.log.append("write:\(account)")
-            if let e = s.failWrites[account] { throw e }
-            s.items[account] = data
-            s.accessibility[account] = accessibility
+        try state.withLock { current in
+            current.log.append("write:\(account)")
+            if let failure = current.failWrites[account] { throw failure }
+            current.items[account] = data
+            current.accessibility[account] = accessibility
         }
     }
     func delete(account: String) throws {
-        try state.withLock { s in
-            s.log.append("delete:\(account)")
-            if let e = s.failDeletes[account] { throw e }
-            s.items[account] = nil
+        try state.withLock { current in
+            current.log.append("delete:\(account)")
+            if let failure = current.failDeletes[account] { throw failure }
+            current.items[account] = nil
         }
     }
 }
@@ -47,12 +47,12 @@ final class ScriptedKeychain: KeychainAccessing {
     static let legacy = "com.KoalaTVault.password"
 
     private func keyData(_ store: LiveMasterKeyStore) throws -> Data {
-        try store.withKey { k in k.withUnsafeBytes { Data($0) } }
+        try store.withKey { key in key.withUnsafeBytes { Data($0) } }
     }
 
-    private func created(password: String = "pw", keychain: ScriptedKeychain = ScriptedKeychain())
-        throws -> (LiveMasterKeyStore, ScriptedKeychain)
-    {
+    private func created(
+        password: String = "pw", keychain: ScriptedKeychain = ScriptedKeychain()
+    ) throws -> (LiveMasterKeyStore, ScriptedKeychain) {
         let store = LiveMasterKeyStore(keychain: keychain)
         try store.createMasterKey(password: password)
         return (store, keychain)
@@ -62,47 +62,47 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Creating a master key stores a blob and loads a 32-byte key")
     func createStoresAndLoads() throws {
-        let (store, kc) = try created()
+        let (store, keychain) = try created()
         #expect(store.isKeyLoaded)
         #expect(try keyData(store).count == 32)
-        #expect(kc.state.withLock { $0.items[Self.blob] } != nil)
-        #expect(kc.state.withLock { $0.accessibility[Self.blob] } == .whenUnlocked)
+        #expect(keychain.state.withLock { $0.items[Self.blob] } != nil)
+        #expect(keychain.state.withLock { $0.accessibility[Self.blob] } == .whenUnlocked)
         #expect(try store.hasMasterKeyBlob())
     }
 
     @Test("Created keys are random")
     func createdKeysDiffer() throws {
-        let (a, _) = try created()
-        let (b, _) = try created()
-        #expect(try keyData(a) != keyData(b))
+        let (first, _) = try created()
+        let (second, _) = try created()
+        #expect(try keyData(first) != keyData(second))
     }
 
     @Test("Creating when a blob exists throws masterKeyAlreadyExists and writes nothing")
     func createWhenBlobExists() throws {
-        let (_, kc) = try created()
-        let before = kc.state.withLock { $0.items }
-        kc.state.withLock { $0.log = [] }
-        let other = LiveMasterKeyStore(keychain: kc)
+        let (_, keychain) = try created()
+        let before = keychain.state.withLock { $0.items }
+        keychain.state.withLock { $0.log = [] }
+        let other = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.masterKeyAlreadyExists) { try other.createMasterKey(password: "x") }
-        #expect(kc.state.withLock { $0.items } == before)
-        #expect(!kc.state.withLock { $0.log }.contains { $0.hasPrefix("write:") })
+        #expect(keychain.state.withLock { $0.items } == before)
+        #expect(!keychain.state.withLock { $0.log }.contains { $0.hasPrefix("write:") })
         #expect(!other.isKeyLoaded)
     }
 
     @Test("Creating with an empty password throws emptyPassword")
     func createEmptyPassword() {
-        let kc = ScriptedKeychain()
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.emptyPassword) { try store.createMasterKey(password: "") }
-        #expect(kc.state.withLock { $0.items }.isEmpty)
+        #expect(keychain.state.withLock { $0.items }.isEmpty)
         #expect(!store.isKeyLoaded)
     }
 
     @Test("A failing Keychain write throws keychain(status) and loads no key")
     func createWriteFails() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failWrites[Self.blob] = .keychain(-25299) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failWrites[Self.blob] = .keychain(-25299) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.keychain(-25299)) { try store.createMasterKey(password: "pw") }
         #expect(!store.isKeyLoaded)
     }
@@ -111,20 +111,20 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Unlocking with the right password loads the same key in a new store")
     func unlockRightPassword() throws {
-        let (a, kc) = try created(password: "hunter2")
-        let b = LiveMasterKeyStore(keychain: kc)
-        #expect(!b.isKeyLoaded)
-        try b.unlock(password: "hunter2")
-        #expect(b.isKeyLoaded)
-        #expect(try keyData(a) == keyData(b))
+        let (first, keychain) = try created(password: "hunter2")
+        let second = LiveMasterKeyStore(keychain: keychain)
+        #expect(!second.isKeyLoaded)
+        try second.unlock(password: "hunter2")
+        #expect(second.isKeyLoaded)
+        #expect(try keyData(first) == keyData(second))
     }
 
     @Test("Unlocking with a wrong password throws wrongPassword and loads nothing")
     func unlockWrongPassword() throws {
-        let (_, kc) = try created(password: "right")
-        let b = LiveMasterKeyStore(keychain: kc)
-        #expect(throws: VaultCryptoError.wrongPassword) { try b.unlock(password: "wrong") }
-        #expect(!b.isKeyLoaded)
+        let (_, keychain) = try created(password: "right")
+        let second = LiveMasterKeyStore(keychain: keychain)
+        #expect(throws: VaultCryptoError.wrongPassword) { try second.unlock(password: "wrong") }
+        #expect(!second.isKeyLoaded)
     }
 
     @Test("A wrong password leaves an already loaded key unchanged")
@@ -137,16 +137,16 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Unlocking replaces a previously loaded key")
     func unlockReplacesLoadedKey() throws {
-        let (a, kc) = try created(password: "one")
-        let stored = try keyData(a)
+        let (first, keychain) = try created(password: "one")
+        let stored = try keyData(first)
         // A store holding a different key, over the same keychain, unlocks to the stored key.
-        let c = LiveMasterKeyStore(keychain: ScriptedKeychain())
-        try c.createMasterKey(password: "other")
-        #expect(try keyData(c) != stored)
-        let d = LiveMasterKeyStore(keychain: kc)
-        try d.unlock(password: "one")
-        try d.unlock(password: "one")
-        #expect(try keyData(d) == stored)
+        let other = LiveMasterKeyStore(keychain: ScriptedKeychain())
+        try other.createMasterKey(password: "other")
+        #expect(try keyData(other) != stored)
+        let third = LiveMasterKeyStore(keychain: keychain)
+        try third.unlock(password: "one")
+        try third.unlock(password: "one")
+        #expect(try keyData(third) == stored)
     }
 
     @Test("Unlocking with no blob throws noMasterKeyBlob")
@@ -158,28 +158,28 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Unlocking deletes the legacy password item")
     func unlockDeletesLegacyItem() throws {
-        let (_, kc) = try created()
-        kc.state.withLock { $0.items[Self.legacy] = Data([1]) }
-        let b = LiveMasterKeyStore(keychain: kc)
-        try b.unlock(password: "pw")
-        #expect(kc.state.withLock { $0.items[Self.legacy] } == nil)
-        #expect(kc.state.withLock { $0.log }.contains("delete:\(Self.legacy)"))
+        let (_, keychain) = try created()
+        keychain.state.withLock { $0.items[Self.legacy] = Data([1]) }
+        let second = LiveMasterKeyStore(keychain: keychain)
+        try second.unlock(password: "pw")
+        #expect(keychain.state.withLock { $0.items[Self.legacy] } == nil)
+        #expect(keychain.state.withLock { $0.log }.contains("delete:\(Self.legacy)"))
     }
 
     @Test("Errors deleting the legacy password item are ignored")
     func unlockIgnoresLegacyDeleteError() throws {
-        let (_, kc) = try created()
-        kc.state.withLock { $0.failDeletes[Self.legacy] = .keychain(-1) }
-        let b = LiveMasterKeyStore(keychain: kc)
-        try b.unlock(password: "pw")
-        #expect(b.isKeyLoaded)
+        let (_, keychain) = try created()
+        keychain.state.withLock { $0.failDeletes[Self.legacy] = .keychain(-1) }
+        let second = LiveMasterKeyStore(keychain: keychain)
+        try second.unlock(password: "pw")
+        #expect(second.isKeyLoaded)
     }
 
     @Test("A Keychain read error during unlock surfaces as keychain(status)")
     func unlockReadError() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failReads[Self.blob] = .keychain(-25308) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failReads[Self.blob] = .keychain(-25308) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.keychain(-25308)) { try store.unlock(password: "pw") }
     }
 
@@ -187,16 +187,16 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Rewrapping keeps the key, changes the salt and swaps the password")
     func rewrapChangesPassword() throws {
-        let (store, kc) = try created(password: "old")
+        let (store, keychain) = try created(password: "old")
         let key = try keyData(store)
-        let oldBlob = try #require(kc.state.withLock { $0.items[Self.blob] })
+        let oldBlob = try #require(keychain.state.withLock { $0.items[Self.blob] })
         try store.rewrap(newPassword: "new")
-        let newBlob = try #require(kc.state.withLock { $0.items[Self.blob] })
+        let newBlob = try #require(keychain.state.withLock { $0.items[Self.blob] })
         #expect(newBlob[5..<37] != oldBlob[5..<37])
         #expect(newBlob.count == oldBlob.count)
         #expect(try keyData(store) == key)
 
-        let fresh = LiveMasterKeyStore(keychain: kc)
+        let fresh = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.wrongPassword) { try fresh.unlock(password: "old") }
         try fresh.unlock(password: "new")
         #expect(try keyData(fresh) == key)
@@ -204,20 +204,20 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Rewrapping with no key loaded throws noKeyLoaded")
     func rewrapNoKey() {
-        let kc = ScriptedKeychain()
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.noKeyLoaded) { try store.rewrap(newPassword: "x") }
-        #expect(kc.state.withLock { $0.items }.isEmpty)
+        #expect(keychain.state.withLock { $0.items }.isEmpty)
     }
 
     @Test("A failed rewrap write leaves the old blob intact")
     func rewrapWriteFails() throws {
-        let (store, kc) = try created(password: "old")
-        let old = kc.state.withLock { $0.items[Self.blob] }
-        kc.state.withLock { $0.failWrites[Self.blob] = .keychain(-25299) }
+        let (store, keychain) = try created(password: "old")
+        let old = keychain.state.withLock { $0.items[Self.blob] }
+        keychain.state.withLock { $0.failWrites[Self.blob] = .keychain(-25299) }
         #expect(throws: VaultCryptoError.keychain(-25299)) { try store.rewrap(newPassword: "new") }
-        #expect(kc.state.withLock { $0.items[Self.blob] } == old)
-        let fresh = LiveMasterKeyStore(keychain: kc)
+        #expect(keychain.state.withLock { $0.items[Self.blob] } == old)
+        let fresh = LiveMasterKeyStore(keychain: keychain)
         try fresh.unlock(password: "old")
     }
 
@@ -233,9 +233,9 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("hasMasterKeyBlob surfaces Keychain errors")
     func hasBlobError() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failReads[Self.blob] = .keychain(-25308) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failReads[Self.blob] = .keychain(-25308) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.keychain(-25308)) { try store.hasMasterKeyBlob() }
     }
 
@@ -253,9 +253,9 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("A Keychain failure deleting the blob surfaces as keychain(status)")
     func deleteBlobError() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failDeletes[Self.blob] = .keychain(-25308) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failDeletes[Self.blob] = .keychain(-25308) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.keychain(-25308)) { try store.deleteMasterKeyBlob() }
     }
 
@@ -263,61 +263,61 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("Storing the biometric key writes the raw 32-byte key with biometry accessibility")
     func storeBiometric() throws {
-        let (store, kc) = try created()
+        let (store, keychain) = try created()
         try store.storeBiometricKey()
-        let item = try #require(kc.state.withLock { $0.items[Self.bio] })
+        let item = try #require(keychain.state.withLock { $0.items[Self.bio] })
         #expect(item == (try keyData(store)))
         #expect(item.count == 32)
-        #expect(kc.state.withLock { $0.accessibility[Self.bio] } == .biometryCurrentSetThisDeviceOnly)
+        #expect(keychain.state.withLock { $0.accessibility[Self.bio] } == .biometryCurrentSetThisDeviceOnly)
     }
 
     @Test("Storing the biometric key with no key loaded throws noKeyLoaded")
     func storeBiometricNoKey() {
-        let kc = ScriptedKeychain()
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.noKeyLoaded) { try store.storeBiometricKey() }
-        #expect(kc.state.withLock { $0.items }.isEmpty)
+        #expect(keychain.state.withLock { $0.items }.isEmpty)
     }
 
     @Test("Storing the biometric key replaces an old item")
     func storeBiometricReplaces() throws {
-        let (store, kc) = try created()
-        kc.state.withLock { $0.items[Self.bio] = Data([0xAA]) }
+        let (store, keychain) = try created()
+        keychain.state.withLock { $0.items[Self.bio] = Data([0xAA]) }
         try store.storeBiometricKey()
-        #expect(kc.state.withLock { $0.items[Self.bio] } == (try keyData(store)))
+        #expect(keychain.state.withLock { $0.items[Self.bio] } == (try keyData(store)))
     }
 
     @Test("The new biometric item is written before any old one is removed")
     func storeBiometricWritesBeforeDelete() throws {
-        let (store, kc) = try created()
-        kc.state.withLock { $0.log = [] }
+        let (store, keychain) = try created()
+        keychain.state.withLock { $0.log = [] }
         try store.storeBiometricKey()
-        let log = kc.state.withLock { $0.log }
+        let log = keychain.state.withLock { $0.log }
         let writeIndex = log.firstIndex(of: "write:\(Self.bio)")
         let deleteIndex = log.firstIndex(of: "delete:\(Self.bio)")
         #expect(writeIndex != nil)
-        if let w = writeIndex, let d = deleteIndex { #expect(w < d) }
+        if let writePos = writeIndex, let deletePos = deleteIndex { #expect(writePos < deletePos) }
     }
 
     @Test("A failing biometric write leaves the old item and surfaces the error")
     func storeBiometricWriteFails() throws {
-        let (store, kc) = try created()
-        kc.state.withLock {
+        let (store, keychain) = try created()
+        keychain.state.withLock {
             $0.items[Self.bio] = Data([0xAA])
             $0.failWrites[Self.bio] = .keychain(-25299)
         }
         #expect(throws: VaultCryptoError.keychain(-25299)) { try store.storeBiometricKey() }
-        #expect(kc.state.withLock { $0.items[Self.bio] } == Data([0xAA]))
+        #expect(keychain.state.withLock { $0.items[Self.bio] } == Data([0xAA]))
     }
 
     @Test("Unlocking with the biometric key loads it and passes the prompt")
     func unlockBiometric() throws {
-        let (a, kc) = try created()
-        try a.storeBiometricKey()
-        let b = LiveMasterKeyStore(keychain: kc)
-        try b.unlockWithBiometricKey(prompt: "Unlock please")
-        #expect(try keyData(b) == keyData(a))
-        #expect(kc.state.withLock { $0.log }.contains("read:\(Self.bio):Unlock please"))
+        let (first, keychain) = try created()
+        try first.storeBiometricKey()
+        let second = LiveMasterKeyStore(keychain: keychain)
+        try second.unlockWithBiometricKey(prompt: "Unlock please")
+        #expect(try keyData(second) == keyData(first))
+        #expect(keychain.state.withLock { $0.log }.contains("read:\(Self.bio):Unlock please"))
     }
 
     @Test("A missing biometric item throws biometricItemMissing")
@@ -329,49 +329,50 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("A biometric item that is not 32 bytes throws invalidKeyData", arguments: [0, 16, 31, 33])
     func unlockBiometricWrongLength(length: Int) {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.items[Self.bio] = Data(repeating: 1, count: length) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.items[Self.bio] = Data(repeating: 1, count: length) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.invalidKeyData) { try store.unlockWithBiometricKey(prompt: "p") }
         #expect(!store.isKeyLoaded)
     }
 
+    static let biometricErrors: [VaultCryptoError] =
+        [.biometricCancelled, .biometryLockedOut, .biometryNotEnrolled]
+        + [.passcodeNotSet, .biometricItemMissing, .keychain(-50)]
+
     @Test(
         "Biometric errors from the Keychain are reported as the matching VaultCryptoError",
-        arguments: [
-            VaultCryptoError.biometricCancelled, .biometryLockedOut, .biometryNotEnrolled,
-            .passcodeNotSet, .biometricItemMissing, .keychain(-50),
-        ])
+        arguments: Self.biometricErrors)
     func unlockBiometricErrors(thrown: VaultCryptoError) {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failReads[Self.bio] = thrown }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failReads[Self.bio] = thrown }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: thrown) { try store.unlockWithBiometricKey(prompt: "p") }
         #expect(!store.isKeyLoaded)
     }
 
     @Test("A raw user-cancel status (errSecUserCanceled) maps to biometricCancelled")
     func userCancelStatusMaps() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failReads[Self.bio] = .keychain(-128) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failReads[Self.bio] = .keychain(-128) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.biometricCancelled) { try store.unlockWithBiometricKey(prompt: "p") }
     }
 
     @Test("A raw item-not-found status maps to biometricItemMissing")
     func itemNotFoundStatusMaps() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failReads[Self.bio] = .keychain(-25300) }
-        let store = LiveMasterKeyStore(keychain: kc)
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failReads[Self.bio] = .keychain(-25300) }
+        let store = LiveMasterKeyStore(keychain: keychain)
         #expect(throws: VaultCryptoError.biometricItemMissing) { try store.unlockWithBiometricKey(prompt: "p") }
     }
 
     @Test("Deleting the biometric key removes it")
     func deleteBiometric() throws {
-        let (store, kc) = try created()
+        let (store, keychain) = try created()
         try store.storeBiometricKey()
         try store.deleteBiometricKey()
-        #expect(kc.state.withLock { $0.items[Self.bio] } == nil)
+        #expect(keychain.state.withLock { $0.items[Self.bio] } == nil)
     }
 
     @Test("Deleting an absent biometric key succeeds")
@@ -381,10 +382,10 @@ final class ScriptedKeychain: KeychainAccessing {
 
     @Test("A Keychain failure deleting the biometric key surfaces as keychain(status)")
     func deleteBiometricError() {
-        let kc = ScriptedKeychain()
-        kc.state.withLock { $0.failDeletes[Self.bio] = .keychain(-25308) }
+        let keychain = ScriptedKeychain()
+        keychain.state.withLock { $0.failDeletes[Self.bio] = .keychain(-25308) }
         #expect(throws: VaultCryptoError.keychain(-25308)) {
-            try LiveMasterKeyStore(keychain: kc).deleteBiometricKey()
+            try LiveMasterKeyStore(keychain: keychain).deleteBiometricKey()
         }
     }
 

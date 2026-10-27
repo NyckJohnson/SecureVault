@@ -11,11 +11,11 @@ import Testing
     static let blobAccount = "com.KoalaTVault.masterKeyBlob"
 
     static func pbkdf2(_ password: String, salt: Data, iterations: Int) -> SymmetricKey {
-        let pw = Array(password.precomposedStringWithCanonicalMapping.utf8)
+        let passBytes = Array(password.precomposedStringWithCanonicalMapping.utf8)
         var out = [UInt8](repeating: 0, count: 32)
         let saltBytes = [UInt8](salt)
         _ = CCKeyDerivationPBKDF(
-            CCPBKDFAlgorithm(kCCPBKDF2), pw.map { Int8(bitPattern: $0) }, pw.count,
+            CCPBKDFAlgorithm(kCCPBKDF2), passBytes.map { Int8(bitPattern: $0) }, passBytes.count,
             saltBytes, saltBytes.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
             UInt32(iterations), &out, 32)
         return SymmetricKey(data: out)
@@ -35,7 +35,7 @@ import Testing
     }
 
     private func unlockedKey(_ store: LiveMasterKeyStore) throws -> Data {
-        try store.withKey { k in k.withUnsafeBytes { Data($0) } }
+        try store.withKey { key in key.withUnsafeBytes { Data($0) } }
     }
 
     @Test("A created blob follows the v1 layout with 600,000 iterations and a 97-byte total length")
@@ -46,7 +46,9 @@ import Testing
         let blob = try #require(keychain.items[Self.blobAccount])
         #expect(blob.count == 37 + 12 + 32 + 16)
         #expect(blob[0] == 1)
-        let iterations = blob[1..<5].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << (8 * UInt32($1.offset)) }
+        let iterations = blob[1..<5].enumerated().reduce(UInt32(0)) {
+            $0 | UInt32($1.element) << (8 * UInt32($1.offset))
+        }
         #expect(iterations == 600_000)
     }
 
@@ -67,13 +69,13 @@ import Testing
 
     @Test("Two created blobs use different salts")
     func saltsDiffer() throws {
-        let k1 = MockKeychainAccessing()
-        let k2 = MockKeychainAccessing()
-        try LiveMasterKeyStore(keychain: k1).createMasterKey(password: "pw")
-        try LiveMasterKeyStore(keychain: k2).createMasterKey(password: "pw")
-        let b1 = try #require(k1.items[Self.blobAccount])
-        let b2 = try #require(k2.items[Self.blobAccount])
-        #expect(b1[5..<37] != b2[5..<37])
+        let keychainOne = MockKeychainAccessing()
+        let keychainTwo = MockKeychainAccessing()
+        try LiveMasterKeyStore(keychain: keychainOne).createMasterKey(password: "pw")
+        try LiveMasterKeyStore(keychain: keychainTwo).createMasterKey(password: "pw")
+        let blobOne = try #require(keychainOne.items[Self.blobAccount])
+        let blobTwo = try #require(keychainTwo.items[Self.blobAccount])
+        #expect(blobOne[5..<37] != blobTwo[5..<37])
     }
 
     @Test("A hand-built v1 blob unlocks with the right password")
@@ -139,20 +141,20 @@ import Testing
         let decomposed = "e\u{0301}"
         let key = Data(repeating: 5, count: 32)
         let blob = try Self.makeBlob(key: key, password: composed)
-        let k = MockKeychainAccessing(items: [Self.blobAccount: blob])
-        let a = LiveMasterKeyStore(keychain: k)
-        try a.unlock(password: composed)
-        let b = LiveMasterKeyStore(keychain: k)
-        try b.unlock(password: decomposed)
-        #expect(try unlockedKey(a) == key)
-        #expect(try unlockedKey(b) == key)
+        let keychain = MockKeychainAccessing(items: [Self.blobAccount: blob])
+        let composedStore = LiveMasterKeyStore(keychain: keychain)
+        try composedStore.unlock(password: composed)
+        let decomposedStore = LiveMasterKeyStore(keychain: keychain)
+        try decomposedStore.unlock(password: decomposed)
+        #expect(try unlockedKey(composedStore) == key)
+        #expect(try unlockedKey(decomposedStore) == key)
     }
 
     @Test("A password created in decomposed form unlocks in composed form")
     func nfcNormalisationOnCreate() throws {
-        let k = MockKeychainAccessing()
-        try LiveMasterKeyStore(keychain: k).createMasterKey(password: "e\u{0301}")
-        let other = LiveMasterKeyStore(keychain: k)
+        let keychain = MockKeychainAccessing()
+        try LiveMasterKeyStore(keychain: keychain).createMasterKey(password: "e\u{0301}")
+        let other = LiveMasterKeyStore(keychain: keychain)
         try other.unlock(password: "\u{00E9}")
         #expect(other.isKeyLoaded)
     }
