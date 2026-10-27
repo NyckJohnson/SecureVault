@@ -105,7 +105,7 @@ enum SVC5Format {
     /// - Throws: `VaultCryptoError.encryptionFailed` if sealing fails.
     static func sealRecord(_ chunk: Data, key: SymmetricKey, aad: Data) throws -> Data {
         guard let combined = try? AES.GCM.seal(chunk, using: key, authenticating: aad).combined else {
-            throw VaultCryptoError.encryptionFailed // coverage-exempt: AES-GCM seal with a valid key and nonce does not fail
+            throw VaultCryptoError.encryptionFailed  // coverage-exempt: seal cannot fail
         }
         return littleEndian(UInt32(combined.count)) + combined
     }

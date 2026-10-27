@@ -117,15 +117,17 @@ import Testing
         #expect(KeychainStore.map(laCode: code) == error)
     }
 
-    static let statusMappings: [(status: OSStatus, error: VaultCryptoError)] = [
-        (-2, .biometricCancelled),
-        (-8, .biometryLockedOut),
-        (-7, .biometryNotEnrolled),
-        (-5, .passcodeNotSet),
-        (errSecUserCanceled, .biometricCancelled),
-        (errSecUnimplemented, .keychain(errSecUnimplemented)),
-        (errSecParam, .keychain(errSecParam))
-    ]
+    static let statusMappings: [(status: OSStatus, error: VaultCryptoError)] = {
+        var rows: [(status: OSStatus, error: VaultCryptoError)] = []
+        rows.append((-2, .biometricCancelled))
+        rows.append((-8, .biometryLockedOut))
+        rows.append((-7, .biometryNotEnrolled))
+        rows.append((-5, .passcodeNotSet))
+        rows.append((errSecUserCanceled, .biometricCancelled))
+        rows.append((errSecUnimplemented, .keychain(errSecUnimplemented)))
+        rows.append((errSecParam, .keychain(errSecParam)))
+        return rows
+    }()
 
     @Test("A Keychain status maps to the matching VaultCryptoError", arguments: statusMappings)
     func biometricErrorMapping(status: OSStatus, error: VaultCryptoError) {

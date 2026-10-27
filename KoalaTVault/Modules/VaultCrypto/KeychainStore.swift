@@ -40,10 +40,10 @@ struct KeychainStore: KeychainAccessing {
         case errSecItemNotFound:
             return nil
         default:
-            // coverage-exempt-begin: a failing SecItemCopyMatching can't be provoked on the simulator
+            // coverage-exempt-begin: SecItemCopyMatching failure
             if prompt != nil { throw Self.biometricError(for: status) }
             throw VaultCryptoError.keychain(status)
-            // coverage-exempt-end
+        // coverage-exempt-end
         }
     }
 
@@ -52,7 +52,7 @@ struct KeychainStore: KeychainAccessing {
         case .whenUnlocked:
             try writeUpdatingInPlace(data, account: account)
         case .biometryCurrentSetThisDeviceOnly:
-            try writeBiometric(data, account: account) // coverage-exempt: needs passcode and biometrics
+            try writeBiometric(data, account: account)  // coverage-exempt: needs biometrics
         }
     }
 
@@ -63,7 +63,7 @@ struct KeychainStore: KeychainAccessing {
         }
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw VaultCryptoError.keychain(status) // coverage-exempt: SecItemDelete failure can't be provoked
+            throw VaultCryptoError.keychain(status)  // coverage-exempt: SecItem failure
         }
     }
 
@@ -91,7 +91,7 @@ struct KeychainStore: KeychainAccessing {
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess else { throw VaultCryptoError.keychain(addStatus) }
         default:
-            throw VaultCryptoError.keychain(updateStatus) // coverage-exempt: SecItemUpdate failure can't be provoked
+            throw VaultCryptoError.keychain(updateStatus)  // coverage-exempt: SecItem failure
         }
     }
 

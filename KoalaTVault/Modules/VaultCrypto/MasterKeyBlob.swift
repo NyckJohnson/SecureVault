@@ -39,7 +39,7 @@ enum MasterKeyBlob {
         do {
             sealed = try AES.GCM.seal(keyData, using: wrappingKey, authenticating: header)
         } catch {
-            throw VaultCryptoError.encryptionFailed // coverage-exempt: AES-GCM seal of a 32-byte key does not fail
+            throw VaultCryptoError.encryptionFailed  // coverage-exempt: seal cannot fail
         }
         guard let combined = sealed.combined else { throw VaultCryptoError.encryptionFailed }
         return header + combined
@@ -73,7 +73,7 @@ enum MasterKeyBlob {
         } catch CryptoKitError.authenticationFailure {
             throw VaultCryptoError.wrongPassword
         } catch {
-            throw VaultCryptoError.corruptBlob // coverage-exempt: validated box and 32-byte key only fail authentication
+            throw VaultCryptoError.corruptBlob  // coverage-exempt: only auth failure
         }
         defer { zero(&keyData) }
         guard keyData.count == keySize else { throw VaultCryptoError.corruptBlob }
