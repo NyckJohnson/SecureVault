@@ -289,6 +289,23 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(fixture.cached)
     }
 
+    @Test("An instance built with only defaults unlocks from a verified entitlement and caches it")
+    @available(iOS 17.0, *)
+    func defaultInitUnlocksFromEntitlement() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let unlock = StoreKitProUnlock(defaults: fixture.defaults)
+        await unlock.refresh()  // settle the refresh that runs at start
+        try await fixture.buyExternally()
+        _ = await waitUntil {
+            await unlock.refresh()
+            return unlock.isUnlocked
+        }
+        #expect(unlock.isUnlocked)
+        #expect(unlock.isUnlockedNow)
+        #expect(fixture.cached)
+    }
+
     @Test("Refresh with no entitlement leaves it locked and the cache false")
     @available(iOS 17.0, *)
     func refreshLocked() async throws {
