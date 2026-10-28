@@ -458,6 +458,7 @@ extension matching ignores case.
       func migrateToEncrypted(_ item: VaultItem) async throws
       func migrateToDecrypted(_ item: VaultItem) async throws
       func finishDecryption() async throws
+      func finishEncryption() async throws
       func hasUnencryptedFiles() async throws -> Bool
       func keyMatchesVault() async -> Bool
       func sweepOrphans() async
@@ -493,6 +494,7 @@ extension matching ignores case.
   - migrateToEncrypted: plaintext file → encrypted `<UUID>`, indexed, plaintext removed (in that order); if an encrypted entry with the same original name already holds identical content, only the plaintext is removed; different content → kept as a new " 1" item. Trash items are re-encrypted in place and their entry updated. Interrupt-safe at every step: a rerun finds a plaintext file whose identical encrypted copy is already indexed and only removes the plaintext; an incomplete encrypted copy is dropped with its entry; a trash item's real form is read from the file's SVC5 header (not the entry's flag), so a conversion killed between the map update and the file replace is corrected on the next itemsToMigrate / migrate / finishDecryption and any leftover hidden `.migrating` staging file is finished or removed. A plaintext file is skipped as already migrated only if it really is an SVC5 file.
   - migrateToDecrypted: encrypted file → plaintext with its original name (" 1" on conflict), entry removed, encrypted file removed (in that order); decrypt failure leaves the encrypted file and its entry. A rerun after an interrupted decrypt (matching plaintext already there) finishes without a duplicate. Trash items are decrypted in place by the same header rule.
   - finishDecryption: any encrypted file left (judged by its SVC5 header, trash included) → `.stillEncrypted(count:)`; otherwise every `.vault_map` is deleted and `.trash_map` is rewritten as plaintext, so the vault lists with no key afterwards.
+  - finishEncryption: the last step of an encrypt migration; in encrypted mode with the key, every `.vault_map` under the root that is still plaintext JSON is rewritten encrypted (".vault_map" context) with the same entries, and a plaintext `.trash/.trash_map` likewise (".trash_map"); indexes that are already encrypted or are unreadable are left byte-for-byte as they are; no key → `.locked` before anything is written; plaintext mode → no change.
   - hasUnencryptedFiles: true if any plaintext file is under the root or in the trash.
   - keyMatchesVault: true when the loaded key decrypts the root index, or when there is no encrypted index to check; false otherwise.
   - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list and that carry an SVC5 header (a plaintext file with such a name is kept); folders with no index, an unreadable index, and the trash are never swept.
@@ -935,3 +937,4 @@ extension matching ignores case.
 - 2026-10-28: purgeExpiredTrash with an unreadable trash index throws without writing (spec kept); the legacy test that expected it to stay quiet is dropped; callers catch and ignore the error — VaultStore legacy-test scan — decided by the human
 - 2026-10-28: Valid names are kept exactly as given, long names and names with spaces and symbols included; the legacy cases carry over as tests — VaultStore legacy-test scan — decided by the human
 - 2026-10-28: VaultItem keeps synthesized (all-field) equality; callers that track items across reloads (the browser's multi-select) hold `VaultItem.ID`s, not items — VaultStore legacy-test scan — decided by the human
+- 2026-10-28: VaultStoring gains `finishEncryption()` (approved contract change): the encrypt migration ends by re-encrypting plaintext indexes left by older builds, as the legacy app did, so no index naming encrypted files stays readable — VaultStore switch-over — approved by the human
