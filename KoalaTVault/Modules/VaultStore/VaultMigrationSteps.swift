@@ -2,12 +2,18 @@ import Foundation
 
 /// The per-file steps of a lock migration, and the checks around it.
 ///
-/// Every step is safe to interrupt at any instant and to run again: at each point either the source or a
-/// verified, indexed copy exists, and a rerun finishes the work (a leftover is removed only after a
-/// byte-for-byte match). Steps run without suspending, so each is one serialized step on the actor.
+/// Every step can be interrupted and run again without losing content. For files in folders, at each point
+/// either the source or a verified, indexed copy exists, and a rerun finishes the work (a leftover plaintext
+/// is removed only after a byte-for-byte match; an incomplete copy is dropped with its entry).
 ///
 /// The trash is migrated too: trash items are converted in place and keep their trash id; folders in the
-/// trash are walked like any other folder.
+/// trash are walked like any other folder. A kill between a trash item's map update and its file replace
+/// leaves the entry's flag disagreeing with the file. That is harmless because a file's real form is always
+/// read from its SVC5 header (`fileForm(at:)`), never from an index or trash-entry flag alone: listings,
+/// migration steps and `finishDecryption` use the real form and correct the entry, and the next step on that
+/// item removes its leftover hidden `.<id>.migrating` staging file and converts it from the untouched original.
+///
+/// Steps run without suspending, so each is one serialized step on the actor.
 extension LiveVaultStore {
     // MARK: - Counting and listing
 
@@ -34,10 +40,14 @@ extension LiveVaultStore {
 
     func itemsToMigrate(toEncrypted: Bool) throws -> [VaultItem] {
         let mode = try beginOperation()
-        let map = try trashMap.read(mode: mode)
+        let map = try correctedTrashMap(trashMap.read(mode: mode))
         var result: [VaultItem] = []
         try forEachListing(trash: map, mode: mode) { _, items in
-            result += items.filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
+            for item in items where !item.isDirectory {
+                let form = try realForm(of: item)
+                guard form != .orphan, (form == .encrypted) != toEncrypted else { continue }
+                result.append(Self.item(item, isEncrypted: form == .encrypted))
+            }
         }
         result += trashItems(map: map).filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
         return result
@@ -62,6 +72,76 @@ extension LiveVaultStore {
         }
     }
 
+    /// What a listed file really is for a migration.
+    private enum MigrationForm {
+        case encrypted, plaintext
+        /// An unindexed SVC5 file: an orphan, never migrated (the sweep removes it).
+        case orphan
+    }
+
+    /// A listed file's real form, judged by its header where that is conclusive: an indexed file that isn't an
+    /// SVC5 file is plaintext; an unindexed SVC5 file is an orphan.
+    private func realForm(of item: VaultItem) throws -> MigrationForm {
+        let form = try fileForm(at: item.diskURL)
+        if item.isEncrypted { return form == .plaintext ? .plaintext : .encrypted }
+        return form == .encrypted ? .orphan : .plaintext
+    }
+
+    private static func item(_ item: VaultItem, isEncrypted: Bool) -> VaultItem {
+        guard item.isEncrypted != isEncrypted else { return item }
+        return VaultItem(
+            id: item.id, name: item.name, isDirectory: item.isDirectory, dateModified: item.dateModified,
+            fileSize: item.fileSize, deletedAt: item.deletedAt, diskURL: item.diskURL, rootURL: item.rootURL,
+            isEncrypted: isEncrypted)
+    }
+
+    /// `map` with each trash file's `isEncrypted` set from the file's real form where its header is conclusive.
+    /// - Throws: `.locked` without the key, `.io` when a trash file can't be read.
+    func correctedTrashMap(_ map: [String: VaultTrashEntry]) throws -> [String: VaultTrashEntry] {
+        var result = map
+        for (trashName, entry) in map where VaultTrashMap.isItemName(trashName) {
+            let url = trashMap.folderURL.appendingPathComponent(trashName)
+            guard Self.isRegularFile(url) else { continue }
+            switch try fileForm(at: url) {
+            case .encrypted where !entry.isEncrypted: result[trashName]?.isEncrypted = true
+            case .plaintext where entry.isEncrypted: result[trashName]?.isEncrypted = false
+            default: break
+            }
+        }
+        return result
+    }
+
+    /// What a file's header says it is.
+    enum FileForm {
+        /// An SVC5 file: the header parses and the file is longer than the plaintext it records.
+        case encrypted
+        /// Not an SVC5 file (no valid header, or empty).
+        case plaintext
+        /// The header can't tell (the cipher reads it but the sizes don't settle it).
+        case undetermined
+    }
+
+    /// The real form of the file at `url`, from its SVC5 header.
+    /// - Throws: `.locked` without the key; `.io` / `.notFound` when the file can't be read at all, so
+    ///   "couldn't check" is never taken for "plaintext".
+    func fileForm(at url: URL) throws -> FileForm {
+        let info: StreamInfo
+        do {
+            info = try cipher.streamInfo(of: url)
+        } catch VaultCryptoError.noKeyLoaded {
+            throw VaultStoreError.locked
+        } catch {
+            do {
+                try Self.readFirstByte(of: url)
+            } catch {
+                throw VaultStoreError.from(error)
+            }
+            return .plaintext
+        }
+        // An encrypted file always carries a header on top of its plaintext's length.
+        return try fileSize(of: url) > info.totalSize ? .encrypted : .undetermined
+    }
+
     // MARK: - Encrypt
 
     /// Encrypt → verify (byte for byte) → index entry saved encrypted → read back → verify again → plaintext
@@ -82,16 +162,22 @@ extension LiveVaultStore {
         let folder = item.diskURL.deletingLastPathComponent()
         let plainName = item.diskURL.lastPathComponent
         var entries = try index.read(in: folder, mode: sealed)
-        // Listed in the index: already an encrypted file.
-        if entries[plainName] != nil { return }
+        if entries[plainName] != nil {
+            // Listed in the index: already encrypted, unless the file isn't an SVC5 file (an entry naming a
+            // plaintext file, which is encrypted like any other under the entry's name).
+            guard try fileForm(at: item.diskURL) == .plaintext else { return }
+            entries.removeValue(forKey: plainName)
+        }
         // Entries without their file name nothing; they are dropped with the next write.
         entries = entries.filter { exists($0.key, in: folder) }
-        for (diskName, entry) in entries where entry.originalName == item.name {
-            let copy = folder.appendingPathComponent(diskName)
-            if Self.isRegularFile(copy), try encryptedFile(at: copy, matches: item.diskURL) {
-                try removeFile(item.diskURL)
-                return
+        var incomplete: [URL] = []
+        if try hasIdenticalCopy(of: item, in: folder, entries: &entries, incomplete: &incomplete) {
+            if !incomplete.isEmpty {
+                try index.write(entries, in: folder, mode: sealed)
+                try incomplete.forEach(removeFile)
             }
+            try removeFile(item.diskURL)
+            return
         }
         let plaintextSize = try fileSize(of: item.diskURL)
         let taken = try takenNames(in: folder, entries: entries, excluding: plainName)
@@ -120,18 +206,39 @@ extension LiveVaultStore {
             removeLeftover(destination)
             throw Self.copyMismatch(item)
         }
+        // Their entries went with the index write above.
+        try incomplete.forEach(removeFile)
         try removeFile(item.diskURL)
+    }
+
+    /// Whether an entry with the item's name already holds its exact content (an earlier run that stopped before
+    /// removing the plaintext). Same-name copies that are incomplete are removed from `entries` and added to
+    /// `incomplete`: an interrupted run's unusable copy, dropped with its entry (the plaintext holds the content).
+    private func hasIdenticalCopy(
+        of item: VaultItem, in folder: URL, entries: inout [String: VaultIndexEntry], incomplete: inout [URL]
+    ) throws -> Bool {
+        for (diskName, entry) in entries where entry.originalName == item.name {
+            let copy = folder.appendingPathComponent(diskName)
+            guard Self.isRegularFile(copy) else { continue }
+            guard try isCompleteEncryptedCopy(at: copy) else {
+                entries.removeValue(forKey: diskName)
+                incomplete.append(copy)
+                continue
+            }
+            if try encryptedFile(at: copy, matches: item.diskURL) { return true }
+        }
+        return false
     }
 
     /// Encrypts a plaintext trash item in place: the copy is staged next to it and verified, the entry is
     /// marked encrypted, then the copy replaces the file (the entry is restored if that fails).
     private func encryptTrashItem(_ item: VaultItem, mode: VaultOperationMode) throws {
-        let map = try trashMap.read(mode: mode)
         let trashName = item.diskURL.lastPathComponent
-        guard VaultTrashMap.isItemName(trashName), var entry = map[trashName] else { throw VaultStoreError.notFound }
-        guard !entry.isEncrypted, FileManager.default.fileExists(atPath: item.diskURL.path) else { return }
-        let staging = trashMap.folderURL.appendingPathComponent(".\(trashName).migrating")
-        removeLeftover(staging)
+        guard
+            let prepared = try prepareTrashConversion(trashName, at: item.diskURL, mode: mode, toEncrypted: true),
+            var entry = prepared.map[trashName]
+        else { return }
+        let (map, staging) = (prepared.map, prepared.staging)
         do {
             try cipher.encryptFile(at: item.diskURL, to: staging)
             guard try encryptedFile(at: staging, matches: item.diskURL) else { throw Self.copyMismatch(item) }
@@ -203,12 +310,12 @@ extension LiveVaultStore {
     /// Decrypts an encrypted trash item in place: the plaintext is staged next to it, the entry is marked
     /// plaintext, then the plaintext replaces the file (the entry is restored if that fails).
     private func decryptTrashItem(_ item: VaultItem, mode: VaultOperationMode) throws {
-        let map = try trashMap.read(mode: mode)
         let trashName = item.diskURL.lastPathComponent
-        guard VaultTrashMap.isItemName(trashName), var entry = map[trashName] else { throw VaultStoreError.notFound }
-        guard entry.isEncrypted, FileManager.default.fileExists(atPath: item.diskURL.path) else { return }
-        let staging = trashMap.folderURL.appendingPathComponent(".\(trashName).migrating")
-        removeLeftover(staging)
+        guard
+            let prepared = try prepareTrashConversion(trashName, at: item.diskURL, mode: mode, toEncrypted: false),
+            var entry = prepared.map[trashName]
+        else { return }
+        let (map, staging) = (prepared.map, prepared.staging)
         do {
             try cipher.decryptFile(at: item.diskURL, to: staging)
         } catch {
@@ -218,6 +325,36 @@ extension LiveVaultStore {
         entry.isEncrypted = false
         try replaceTrashFile(trashName, with: staging, entry: entry, map: map, mode: mode)
     }
+
+    /// Readies the conversion of trash item `trashName`: removes a leftover staging file (an interrupted run's;
+    /// the original is untouched until the final replace, so it is redone from the original), reads the
+    /// item's real form, and saves a corrected entry when the item is already in the wanted form.
+    /// - Returns: the corrected map and the staging URL, or nil when there is nothing to convert.
+    /// - Throws: `.notFound` for an unknown trash item.
+    private func prepareTrashConversion(
+        _ trashName: String, at url: URL, mode: VaultOperationMode, toEncrypted: Bool
+    ) throws -> (map: [String: VaultTrashEntry], staging: URL)? {
+        let stored = try trashMap.read(mode: mode)
+        guard VaultTrashMap.isItemName(trashName), let storedEntry = stored[trashName] else {
+            throw VaultStoreError.notFound
+        }
+        let staging = Self.stagingURL(for: trashName, in: trashMap.folderURL)
+        if FileManager.default.fileExists(atPath: staging.path) { try removeFile(staging) }
+        guard Self.isRegularFile(url) else { return nil }
+        let map = try correctedTrashMap(stored)
+        guard let entry = map[trashName], entry.isEncrypted != toEncrypted else {
+            if map[trashName] != storedEntry { try trashMap.write(map, mode: mode) }
+            return nil
+        }
+        return (map, staging)
+    }
+
+    /// The hidden staging file for converting trash item `trashName`.
+    private static func stagingURL(for trashName: String, in trashFolder: URL) -> URL {
+        trashFolder.appendingPathComponent(".\(trashName)\(stagingSuffix)")
+    }
+
+    private static let stagingSuffix = ".migrating"
 
     /// Saves `entry` for `trashName`, then moves `staging` over the trash file. On failure the staged file is
     /// removed and the map put back, so the trash item stays as it was.
@@ -247,15 +384,23 @@ extension LiveVaultStore {
 
     func finishDecryption() throws {
         let mode = try beginOperation()
-        let map = try trashMap.read(mode: mode)
+        // Judged by each file's header, so an entry's wrong flag neither hides nor invents an encrypted file.
+        let map = try correctedTrashMap(trashMap.read(mode: mode))
         var folders: [VaultDirectory] = []
         var remaining = 0
         try forEachListing(trash: map, mode: mode) { folder, items in
             folders.append(folder)
-            remaining += items.filter { $0.isEncrypted && !$0.isDirectory }.count
+            for item in items where !item.isDirectory {
+                if try realForm(of: item) == .encrypted { remaining += 1 }
+            }
         }
         remaining += trashItems(map: map).filter { $0.isEncrypted && !$0.isDirectory }.count
         guard remaining == 0 else { throw VaultStoreError.stillEncrypted(count: remaining) }
+        // Staging files of interrupted trash conversions: their originals are intact and now plaintext.
+        let trashNames = (try? FileManager.default.contentsOfDirectory(atPath: trashMap.folderURL.path)) ?? []
+        for name in trashNames where name.hasPrefix(".") && name.hasSuffix(Self.stagingSuffix) {
+            try removeFile(trashMap.folderURL.appendingPathComponent(name))
+        }
         if trashMap.exists {
             try trashMap.write(map, mode: VaultOperationMode(isEncrypted: false, keyLoaded: mode.keyLoaded))
         }
@@ -335,6 +480,13 @@ extension LiveVaultStore {
         }
     }
 
+    /// Whether `url` is a complete encrypted file: its header reads and its last chunk authenticates.
+    /// - Throws: `.locked` without the key.
+    private func isCompleteEncryptedCopy(at url: URL) throws -> Bool {
+        guard let info = try streamInfo(of: url) else { return false }
+        return try isCompleteEncryptedCopy(at: url, plaintextSize: info.totalSize)
+    }
+
     /// The file's stream header, or nil when it isn't a readable encrypted file.
     /// - Throws: `.locked` without the key.
     private func streamInfo(of url: URL) throws -> StreamInfo? {
@@ -382,7 +534,7 @@ extension LiveVaultStore {
         _ = try handle.read(upToCount: 1)
     }
 
-    private static func isRegularFile(_ url: URL) -> Bool {
+    static func isRegularFile(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
     }
 

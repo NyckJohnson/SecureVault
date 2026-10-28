@@ -1,7 +1,8 @@
 import Foundation
 
 /// Deletes encrypted files no index lists: copies left by a process kill between encrypting a file and
-/// saving its index entry.
+/// saving its index entry. Only files that really are SVC5 files (judged by their header) are deleted; a
+/// plaintext or empty file with a UUID name is kept.
 ///
 /// Runs only in encrypted mode with the key loaded, and deletes only in folders whose index exists and reads:
 /// a folder with no index holds plaintext files, and with an unreadable index orphans can't be told from live
@@ -28,7 +29,8 @@ extension LiveVaultStore {
                 guard let entries else { continue }
                 let name = url.lastPathComponent
                 guard entries[name] == nil,
-                    name.range(of: Self.orphanNamePattern, options: [.regularExpression, .caseInsensitive]) != nil
+                    name.range(of: Self.orphanNamePattern, options: [.regularExpression, .caseInsensitive]) != nil,
+                    (try? fileForm(at: url)) == .encrypted
                 else { continue }
                 // Best-effort: an orphan that can't be removed now is removed by the next sweep.
                 try? FileManager.default.removeItem(at: url)

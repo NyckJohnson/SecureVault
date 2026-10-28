@@ -171,7 +171,7 @@ extension LiveVaultStore {
 
     func trashContents() throws -> [VaultItem] {
         let mode = try beginOperation()
-        return try trashItems(map: trashMap.read(mode: mode))
+        return try trashItems(map: correctedTrashMap(trashMap.read(mode: mode)))
     }
 
     /// The trash items for `map`, newest first; entries whose file is missing are left out.
@@ -202,7 +202,8 @@ extension LiveVaultStore {
 
     func restore(_ trashed: VaultItem) throws -> VaultItem {
         let mode = try beginOperation()
-        var map = try trashMap.read(mode: mode)
+        // Re-indexed or not by the file's real form, not only the entry's flag.
+        var map = try correctedTrashMap(trashMap.read(mode: mode))
         let trashName = trashed.diskURL.lastPathComponent
         guard isTrashItem(trashed), VaultTrashMap.isItemName(trashName), let entry = map[trashName]
         else { throw VaultStoreError.notFound }
