@@ -59,7 +59,8 @@ private struct SeamError: Error {}
 /// Holds the instance and the older refresh task a seam needs to reach.
 @MainActor
 private final class RefreshHolder {
-    var unlock: StoreKitProUnlock?
+    /// Weak: the instance's purchase seam holds this holder, so a strong reference would be a cycle.
+    weak var unlock: StoreKitProUnlock?
     var staleRefresh: Task<Void, Never>?
 }
 
@@ -92,10 +93,11 @@ private final class Fixture {
     /// previous test's cleanup cannot reach this one.
     static func make() async throws -> Fixture {
         let fixture = try Fixture()
-        _ = await waitUntil {
+        let settled = await waitUntil {
             guard await Transaction.latest(for: ProUnlock.productID) == nil else { return false }
             return await unfinishedTransactionIDs().isEmpty
         }
+        try #require(settled, "StoreKit did not settle after the reset")
         // A short grace period for stray updates still in flight.
         try? await Task.sleep(nanoseconds: 100_000_000)
         return fixture
@@ -165,26 +167,14 @@ private final class Fixture {
         return try #require(latest)
     }
 
-    /// Like `boughtTransaction()`, but returns a transaction StoreKit still reports as unfinished. Update
-    /// listeners of earlier tests' instances may still be draining and finish a fresh transaction first; each
-    /// one does so at most once, so buying again (bounded) gets past them.
+    /// Like `boughtTransaction()`, but also requires StoreKit to report the transaction as unfinished
+    /// (nothing but the code under test may finish it), failing loudly if a stray listener got there first.
     func boughtUnfinishedTransaction() async throws -> VerificationResult<Transaction> {
-        for _ in 0..<40 {
-            let verification = try await boughtTransaction()
-            let id = verification.unsafePayloadValue.id
-            for _ in 0..<20 {
-                if await unfinishedTransactionIDs().contains(id) {
-                    // Still unfinished after a pause: no draining listener is about to finish it.
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                    if await unfinishedTransactionIDs().contains(id) { return verification }
-                    break
-                }
-                try? await Task.sleep(nanoseconds: 50_000_000)
-            }
-            session.clearTransactions()
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        throw SeamError()
+        let verification = try await boughtTransaction()
+        let id = verification.unsafePayloadValue.id
+        let unfinished = await waitUntil { await unfinishedTransactionIDs().contains(id) }
+        try #require(unfinished, "the bought transaction was not unfinished: a stray listener finished it")
+        return verification
     }
 
     var cached: Bool { defaults.bool(forKey: cacheKey) }
