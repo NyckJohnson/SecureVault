@@ -569,3 +569,44 @@ struct RestoreAttack: Sendable, CustomTestStringConvertible {
         #expect(stillTrashed.map(\.id) == [trashed.id])
     }
 }
+
+@Suite struct VaultTrashUnreadableFileTests {
+    private func setPermissions(_ mode: Int, of url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+    }
+
+    @Test(
+        "One unreadable trash file doesn't stop listing or restoring the others; migration steps stay strict",
+        arguments: [LockMode.none, .password])
+    func unreadableTrashFile(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode, headerAware: true)
+        defer { vault.cleanUp() }
+        let broken = try await vault.add("broken.txt", "broken content")
+        let fine = try await vault.add("fine.txt", "fine content")
+        try await vault.store.moveToTrash(broken)
+        try await vault.store.moveToTrash(fine)
+        let before = try await vault.store.trashContents()
+        let brokenItem = try #require(before.first { $0.name == "broken.txt" })
+        let fineItem = try #require(before.first { $0.name == "fine.txt" })
+        let storedFlag = mode != .none
+        try setPermissions(0o000, of: brokenItem.diskURL)
+        defer { try? setPermissions(0o644, of: brokenItem.diskURL) }
+
+        let listed = try await vault.store.trashContents()
+        #expect(Set(listed.map(\.name)) == ["broken.txt", "fine.txt"])
+        #expect(listed.first { $0.name == "broken.txt" }?.isEncrypted == storedFlag)
+        #expect(listed.first { $0.name == "fine.txt" }?.isEncrypted == storedFlag)
+
+        let restored = try await vault.store.restore(fineItem)
+        #expect(restored.name == "fine.txt")
+        #expect(try await vault.openedContent(restored) == "fine content")
+        #expect(try await vault.store.trashContents().map(\.name) == ["broken.txt"])
+
+        let toEncrypt = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: true) }
+        let toDecrypt = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: false) }
+        let finish = await caught { try await vault.store.finishDecryption() }
+        #expect(toEncrypt != nil)
+        #expect(toDecrypt != nil)
+        #expect(finish != nil)
+    }
+}
