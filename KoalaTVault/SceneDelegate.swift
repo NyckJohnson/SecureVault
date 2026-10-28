@@ -90,13 +90,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     private func handleVaultUnlocked() {
         Task {
-            await purgeExpiredTrashIfUnlocked()
             // After unlock, so the key is loaded and the folder indexes can be read.
-            // A no-op without the key (no-lock mode). A migration in progress has copies not
-            // indexed yet; the sweep runs after it finishes instead (on a later unlock).
-            if LegacyStorage.current.preferences.pendingMigration == nil {
-                await vaultStore.sweepOrphans()
-            }
+            await PostUnlockMaintenance.run(
+                vaultStore: vaultStore, preferences: dependencies.preferences, now: Date())
             presentPendingMigration()
         }
     }

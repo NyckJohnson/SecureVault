@@ -223,20 +223,36 @@ extension LiveVaultStore {
     }
 
     /// Whether an entry with the item's name already holds its exact content (an earlier run that stopped before
-    /// removing the plaintext). Same-name copies that are incomplete are removed from `entries` and added to
-    /// `incomplete`: an interrupted run's unusable copy, dropped with its entry (the plaintext holds the content).
+    /// removing the plaintext): a complete copy whose header records the plaintext's size and whose content
+    /// matches byte for byte. Same-name copies that are unusable are removed from `entries` and added to
+    /// `incomplete`, to be dropped with their entries (the plaintext holds the content):
+    /// - an incomplete copy (its last chunk doesn't authenticate), an interrupted run's leftover;
+    /// - a copy that holds the plaintext's content but whose header records a different size, so it would
+    ///   open as something else.
+    ///
+    /// A complete copy of different content (whatever its size) is a different file and is kept.
     private func hasIdenticalCopy(
         of item: VaultItem, in folder: URL, entries: inout [String: VaultIndexEntry], incomplete: inout [URL]
     ) throws -> Bool {
+        let plaintextSize = try fileSize(of: item.diskURL)
         for (diskName, entry) in entries where entry.originalName == item.name {
             let copy = folder.appendingPathComponent(diskName)
             guard Self.isRegularFile(copy) else { continue }
-            guard try isCompleteEncryptedCopy(at: copy) else {
+            guard try isCompleteEncryptedCopy(at: copy), let info = try streamInfo(of: copy) else {
                 entries.removeValue(forKey: diskName)
                 incomplete.append(copy)
                 continue
             }
-            if try encryptedFile(at: copy, matches: item.diskURL) { return true }
+            if info.totalSize == plaintextSize {
+                if try encryptedFile(at: copy, matches: item.diskURL) { return true }
+                continue
+            }
+            // The header's size is wrong for this content: read the copy as a plaintext-sized file.
+            let asPlaintextSize = StreamInfo(totalSize: plaintextSize, chunkSize: info.chunkSize)
+            if try encryptedFile(at: copy, matches: item.diskURL, info: asPlaintextSize) {
+                entries.removeValue(forKey: diskName)
+                incomplete.append(copy)
+            }
         }
         return false
     }
@@ -484,7 +500,8 @@ extension LiveVaultStore {
     /// `plainURL`. A damaged or different copy gives false.
     /// - Throws: `.locked` without the key, or the read error of either file, so "couldn't check" is never
     ///   taken for "different".
-    private func encryptedFile(at url: URL, matches plainURL: URL) throws -> Bool {
+    /// - Parameter info: the stream layout to read `url` with; its own header's when nil.
+    private func encryptedFile(at url: URL, matches plainURL: URL, info layout: StreamInfo? = nil) throws -> Bool {
         let plain: FileHandle
         do {
             // Opened first so an unreadable file throws instead of counting as different.
@@ -494,7 +511,7 @@ extension LiveVaultStore {
             throw VaultStoreError.from(error)
         }
         defer { try? plain.close() }
-        guard let info = try streamInfo(of: url), info.totalSize == (try fileSize(of: plainURL)) else {
+        guard let info = try layout ?? streamInfo(of: url), info.totalSize == (try fileSize(of: plainURL)) else {
             return false
         }
         for chunk in 0..<Self.chunkCount(info) {

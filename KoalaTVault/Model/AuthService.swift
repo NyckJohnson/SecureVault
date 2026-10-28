@@ -300,8 +300,16 @@ final class AuthService {
         guard hasAuthenticated, lockMode != .none else { return }
         isLocked = true
         keyStore.wipeKey()
-        vaultStore?.removeAllTemporaryFiles()
-        thumbnails?.clearCache()
+        if let vaultStore {
+            vaultStore.removeAllTemporaryFiles()
+        } else {
+            assertionFailure("AuthService: attach(vaultStore:thumbnails:) wasn't called; temporary files not removed")
+        }
+        if let thumbnails {
+            thumbnails.clearCache()
+        } else {
+            assertionFailure("AuthService: attach(vaultStore:thumbnails:) wasn't called; thumbnail cache not cleared")
+        }
     }
 
     func handleForeground(in window: UIWindow?) {
