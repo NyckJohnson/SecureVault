@@ -91,3 +91,86 @@ Pass A summary:
 - missed (low value): 200-character names and names with spaces/symbols through addFile, rename and listing.
 - contradicts: the old test expects purge with an unreadable trash map not to throw; the spec says it throws without writing.
 - not-in-spec: none. Import-owned cases (same file imported twice is deduplicated; folder and nested-folder import) are obsolete here; Import's spec must carry them.
+
+## Pass B: TrashTests, SortTests, CopyTests, ConflictResolutionTests, VaultDirectoryTests, VaultItemTests, FileKindTests
+
+SM = VaultStoreModelsTests. VT also holds the suites `VaultTrashRestoreSafetyTests` and `VaultTrashUnreadableFileTests`.
+
+| Legacy file | Legacy case | Class | Notes |
+|---|---|---|---|
+| TrashTests | testMoveToTrashRemovesFromSource | covered | VT "moveToTrash moves a file into .trash/<uuid> and records an entry" (both modes) |
+| TrashTests | testMoveToTrashAppearsInTrash | covered | VT "trashContents is one flat list with original names, deletedAt, trash ids and kinds" |
+| TrashTests | testMoveMultipleFilesToTrash | covered | VT trashContents flat list; VT "Concurrent moveToTrash calls never lose a trash entry" |
+| TrashTests | testTrashPreservesFileName | covered | VT trashContents flat list (original names) |
+| TrashTests | testRestoreFromTrashAppearsInBrowser | covered | VT "restore puts the item back in its original folder with its content" |
+| TrashTests | testRestoreFromTrashRemovesFromTrash | covered | same VT test |
+| TrashTests | testRestorePreservesContent | covered | same VT test |
+| TrashTests | testPermanentlyDeleteRemovesFromTrash | covered | VT "deletePermanently removes the file and its entry" |
+| TrashTests | testPermanentlyDeleteRemovesFromDisk | covered | same VT test |
+| TrashTests | testEmptyTrashClearsAllItems | covered | VT "emptyTrash removes everything in .trash and its index" |
+| TrashTests | testCleanupExpiredDoesNotRemoveRecentItems | covered | VT purgeExpiredTrash 30-day test |
+| TrashTests | testEncryptedFileMoveToTrash | covered | VT moveToTrash with `.password`; VT encrypted entry removal test |
+| TrashTests | testEncryptedFileRestoreFromTrash | covered | VT restore with `.password`; VT "restore of an encrypted item re-indexes it in the original folder" |
+| TrashTests | testPlaintextTrashMapIsReadWithKeyLoadedAndNextSaveEncryptsIt | missed (second half) | The read half is covered by VT "A plaintext trash map is read once a lock is on". Missed: in encrypted mode with a plaintext `.trash_map`, the next trash write (e.g. moveToTrash) rewrites the map encrypted and keeps the earlier entry. |
+| TrashTests | testMoveToTrashThrowsAndLeavesItemWhenTrashMapIsUnreadable | covered | VT "moveToTrash with an unreadable trash index throws indexUnreadable and leaves the item and map" |
+| TrashTests | testRestoreRejectsEntryWithDotDotFolderOutsideVaultRoot | covered | VT restore safety ("relative path through ..", "nested path through ..") |
+| TrashTests | testRestoreRejectsEntryWithAbsoluteFolderOutsideVaultRoot | covered | VT restore safety ("absolute path outside the root") |
+| TrashTests | testRestoreRejectsEntryWhoseDiskNameContainsSlash | covered | VT restore safety ("disk name with a slash") |
+| SortTests | testFoldersAlwaysBeforeFiles | covered | LS "Name ascending is case-insensitive with folders first" |
+| SortTests | testSortByNameAscending | covered | same LS test |
+| SortTests | testSortByNameDescending | covered | LS "Name descending reverses the order within folders and files, folders still first" |
+| SortTests | testSortByTypeGroupsExtensions | covered | LS "Type ascending orders by extension, then by name" |
+| SortTests | testSortByTypeDescending | covered | LS "Type descending orders by extension in reverse, folders still first" |
+| SortTests | testSortByDateModifiedAscending | covered | LS "Date modified ascending and descending, folders first in both" |
+| SortTests | testSortByDateModifiedDescending | covered | same LS test |
+| SortTests | testSortOptionPersists | obsolete | Preferences |
+| SortTests | testSortDirectionPersists | obsolete | Preferences |
+| SortTests | testAllSortOptionsAvailable | obsolete | `SortOption` belongs to Preferences |
+| SortTests | testSortOptionDisplayNames | obsolete | `SortOption.displayName` belongs to Preferences |
+| CopyTests | testCopyFileCreatesDuplicate | covered | FO "Copying a plaintext file adds a numbered copy and keeps the original" |
+| CopyTests | testCopyFileKeepsOriginal | covered | same FO test |
+| CopyTests | testCopyFileResolvesNameConflict | covered | same FO test; VN copy numbering |
+| CopyTests | testCopyFilePreservesContent | covered | FO plaintext and encrypted copy tests |
+| CopyTests | testCopyFileToSubfolder | covered | FO "Copying into another folder without a conflict keeps the name" |
+| CopyTests | testCopySameFileTwiceIncrementsCorrectly | covered | VN "Copying numbers the copy ' 1', then ' 2'" |
+| CopyTests | testCopyEncryptedFile | covered | FO "An encrypted copy stays encrypted, has its own file and entry…" |
+| CopyTests | testCopyEncryptedFilePreservesContent | covered | same FO test |
+| CopyTests | testCopyEncryptedFileResolvesNameConflict | covered | FO encrypted copy; VN copy numbering |
+| ConflictResolutionTests | testImportSameFileTwiceDoesNotDuplicate | obsolete | Import's duplicate check |
+| ConflictResolutionTests | testImportDifferentFileWithSameNameCreatesConflict | covered | VN "A conflicting file gets the number before the extension" |
+| ConflictResolutionTests | testImportSameFileThreeTimesStillDoesNotDuplicate | obsolete | Import's duplicate check |
+| ConflictResolutionTests | testSameFileNoExtensionDoesNotDuplicate | obsolete | Import's duplicate check |
+| ConflictResolutionTests | testDifferentFileNoExtensionCreatesConflict | covered | VN no-extension conflict test |
+| ConflictResolutionTests | testCreateFolderConflict | covered | VN folder conflict test |
+| ConflictResolutionTests | testCreateMultipleFolderConflicts | covered | same VN test |
+| ConflictResolutionTests | testEncryptedImportSameFileTwiceDoesNotDuplicate | obsolete | Import's duplicate check |
+| ConflictResolutionTests | testEncryptedImportDifferentFileWithSameNameCreatesConflict | covered | VN "In encrypted mode conflicts are resolved on the display name…" |
+| ConflictResolutionTests | testFilesWithDifferentExtensionsDontConflict | covered | VN "A name that is free keeps its original form even if numbered siblings exist" (weak) |
+| VaultDirectoryTests | testRootDirectoryExists | covered | LS "The root directory is named KoalaTVault and points at the injected vault folder" |
+| VaultDirectoryTests | testRootDirectoryIsDirectory | obsolete | Legacy singleton created the folder; root is injected now |
+| VaultDirectoryTests | testRootDirectoryNameIsKoalaTVault | covered | LS root test |
+| VaultDirectoryTests | testRootDirectoryIsConsistent | obsolete | Legacy singleton static |
+| VaultDirectoryTests | testCustomDirectoryStoresName | covered | SM "A folder item converts to a directory with its name, disk URL and root URL" |
+| VaultDirectoryTests | testCustomDirectoryStoresDiskURL | covered | same SM test |
+| VaultItemTests | testItemsWithSameIDAreEqual | not-in-spec | Legacy equality uses only `id`. The new `VaultItem` has synthesized (all-field) equality. |
+| VaultItemTests | testItemsWithSameIDHaveSameHash | not-in-spec | Same, for hashing |
+| VaultItemTests | testItemsWithDifferentIDsAreNotEqual, testItemCanBeStoredInSet, testDuplicateItemNotAddedToSet, testItemCanBeUsedAsDictionaryKey | obsolete | Conformance only |
+| VaultItemTests | testIsDirectoryFalseByDefault, testIsDirectoryTrue, testIsEncryptedFalseByDefault, testIsEncryptedTrue, testNameIsStoredCorrectly | obsolete | Memberwise storage on the legacy type |
+| VaultItemTests | testNameIsMutable | covered | SM "Renaming an item changes its kind" |
+| FileKindTests | all extension cases | covered | SM "Each listed extension maps to its kind" |
+| FileKindTests | testUnknownExtensionIsOther, testBinIsOther, testHtmlIsOther | covered | SM "An unknown extension is other" |
+| FileKindTests | testEmptyExtensionIsOther | covered | SM "An empty extension is other" |
+| FileKindTests | six case-insensitivity cases | covered | SM upper-case and mixed-case tests |
+
+Pass A's open item is **missed**. VI tests only list an index sealed with "" or a folder-relative context; no test writes to one afterwards.
+
+## All cases needing action
+
+- missed: rename with an unreadable index → `.indexUnreadable`, index bytes unchanged (pass A).
+- missed: move into a folder with an unreadable index → `.indexUnreadable`, destination index unchanged, item stays in its source (pass A).
+- missed: addFile into a folder whose index is sealed with "" or a folder-relative context keeps the old entries; the index is rewritten with ".vault_map" (pass A).
+- missed: in encrypted mode with a plaintext `.trash_map`, the next trash write rewrites it encrypted and keeps the earlier entry (pass B).
+- missed (low value): 200-character names and names with spaces/symbols through addFile, rename and listing (pass A).
+- contradicts: purgeExpiredTrash with an unreadable trash index; the old test expects no throw, the spec says it throws without writing (pass A).
+- not-in-spec: legacy `VaultItem` equality and hash by `id` only; the new type compares all fields (pass B). The legacy browser keeps `selectedItems` as a set of items and checks `contains(item)` across reloads.
+- for Import's spec: duplicate detection on import (same file twice, also without extension and encrypted), folder and nested-folder import.
