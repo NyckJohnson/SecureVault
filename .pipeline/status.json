@@ -75,7 +75,7 @@
             "View/FileBrowser.swift",
             "View/SecuritySettings.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T18:55:11-07:00",
+  "updatedAt": "2026-10-27T18:55:42-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
