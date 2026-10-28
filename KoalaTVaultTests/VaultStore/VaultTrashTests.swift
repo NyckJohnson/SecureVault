@@ -193,6 +193,23 @@ import Testing
         #expect(trashed.map(\.name) == ["old.txt"])
     }
 
+    @Test("A plaintext trash map is rewritten encrypted by the next trash write, keeping the earlier entry")
+    func plaintextTrashMapResealedOnNextWrite() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none)
+        defer { vault.cleanUp() }
+        let old = try await vault.add("old.txt", "old")
+        try await vault.store.moveToTrash(old)
+        #expect(vault.trashMapIsPlaintextJSON())
+        vault.prefs.lockMode = .password
+        let fresh = try await vault.add("fresh.txt", "fresh")
+        try await vault.store.moveToTrash(fresh)
+        #expect(!vault.trashMapIsPlaintextJSON())
+        #expect(vault.trashMapContext() == ".trash_map")
+        #expect(vault.trashEntries()?.count == 2)
+        let trashed = try await vault.store.trashContents()
+        #expect(trashed.map(\.name).sorted() == ["fresh.txt", "old.txt"])
+    }
+
     // MARK: - restore
 
     @Test("restore puts the item back in its original folder with its content", arguments: [LockMode.none, .password])

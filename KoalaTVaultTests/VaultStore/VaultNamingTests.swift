@@ -241,4 +241,54 @@ import Testing
         #expect(try vault.diskNames() == ["Docs"])
         #expect(try await vault.names() == ["Docs"])
     }
+
+    // MARK: - Names kept exactly as given
+
+    private static let longName = String(repeating: "a", count: 196)
+    private static let symbolName = "file with spaces & symbols!"
+    private static let kept = [longName + "aaaa", symbolName + ".rtf", longName + ".rtf", symbolName + ".txt"]
+
+    @Test(
+        "addFile keeps long and symbol names exactly and lists them", arguments: Self.kept,
+        [LockMode.none, .password])
+    func addFileKeepsName(name: String, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let item = try await vault.add(name, "data")
+        #expect(item.name == name)
+        #expect(try await vault.names() == [name])
+        #expect(try await vault.openedContent(item) == "data")
+    }
+
+    @Test("rename keeps long and symbol names exactly", arguments: Self.kept, [LockMode.none, .password])
+    func renameKeepsName(name: String, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let item = try await vault.add("plain.txt", "data")
+        let renamed = try await vault.store.rename(item, to: name)
+        #expect(renamed.name == name)
+        #expect(try await vault.names() == [name])
+        #expect(try await vault.openedContent(renamed) == "data")
+    }
+
+    @Test("createFolder keeps long and symbol names exactly", arguments: Self.kept, [LockMode.none, .password])
+    func createFolderKeepsName(name: String, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let folder = try await vault.store.createFolder(named: name, in: vault.root)
+        #expect(folder.name == name)
+        #expect(folder.isDirectory)
+        #expect(try await vault.names() == [name])
+        #expect(try vault.diskNames().contains(name))
+    }
+
+    @Test("createDocument keeps long and symbol names exactly", arguments: Self.kept, [LockMode.none, .password])
+    func createDocumentKeepsName(name: String, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let expected = name.hasSuffix(".rtf") ? name : name + ".rtf"
+        let item = try await vault.store.createDocument(named: name, in: vault.root)
+        #expect(item.name == expected)
+        #expect(try await vault.names() == [expected])
+    }
 }

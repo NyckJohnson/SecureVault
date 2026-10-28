@@ -259,4 +259,54 @@ import Testing
         #expect(try await vault.list(docs).count == 20)
         #expect(try await vault.list().filter { !$0.isDirectory }.isEmpty)
     }
+
+    // MARK: - Legacy cases (unreadable folder indexes, fallback contexts)
+
+    @Test("Renaming an item in a folder whose index is unreadable throws indexUnreadable and leaves the index")
+    func renameWithUnreadableIndex() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let item = try await vault.add("a.txt", "data", to: docs)
+        let garbage = Data([9, 8, 7, 6])
+        try vault.writeRawIndex(garbage, in: docs)
+        let error = await caught { _ = try await vault.store.rename(item, to: "b.txt") }
+        #expect(isIndexUnreadable(error))
+        #expect(vault.rawIndex(in: docs) == garbage)
+    }
+
+    @Test("Moving into a folder whose index is unreadable throws indexUnreadable and the item stays in its source")
+    func moveIntoUnreadableIndexFolder() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let item = try await vault.add("a.txt", "data")
+        let garbage = Data([9, 8, 7, 6])
+        try vault.writeRawIndex(garbage, in: docs)
+        let error = await caught { try await vault.store.move(item, to: docs) }
+        #expect(isIndexUnreadable(error))
+        #expect(vault.rawIndex(in: docs) == garbage)
+        #expect(try vault.diskNames(in: docs) == [".vault_map"])
+        let inRoot = try await vault.store.findItem(named: "a.txt", in: vault.root)
+        #expect(inRoot?.id == item.id)
+        #expect(vault.indexEntries()?[item.id] == "a.txt")
+    }
+
+    @Test(
+        "addFile into a folder whose index uses a fallback context keeps the old entries and reseals with .vault_map",
+        arguments: ["Docs", ""])
+    func addFileResealsFallbackContextIndex(context: String) async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        try vault.diskFile(uuidA, "old", in: docs)
+        try vault.writeIndex([uuidA: "Old.txt"], in: docs, context: context)
+        let added = try await vault.add("New.txt", "new", to: docs)
+        #expect(try await vault.names(docs) == ["New.txt", "Old.txt"])
+        #expect(vault.indexContext(in: docs) == ".vault_map")
+        let addedDiskName = (added.id as NSString).lastPathComponent
+        let expectedEntries = [uuidA: "Old.txt", addedDiskName: "New.txt"]
+        #expect(vault.indexEntries(in: docs) == expectedEntries)
+        #expect(try await vault.openedContent(added) == "new")
+    }
 }
