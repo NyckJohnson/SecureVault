@@ -33,12 +33,15 @@ private final class Collector {
 
 /// A StoreKit test session, a throwaway UserDefaults suite, and a factory for the unit under test.
 @MainActor
+@available(iOS 17.0, *)
 private final class Fixture {
     let session: SKTestSession
     let suiteName = "StoreKitProUnlockTests-\(UUID().uuidString)"
     let defaults: UserDefaults
 
-    init() throws {
+    static func make() async throws -> Fixture { try Fixture() }
+
+    private init() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -105,8 +108,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     // MARK: Start
 
     @Test("Starts unlocked from the cached value before any refresh")
-    func startsFromCachedUnlocked() throws {
-        let fixture = try Fixture()
+    @available(iOS 17.0, *)
+    func startsFromCachedUnlocked() async throws {
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         fixture.defaults.set(true, forKey: cacheKey)
         let unlock = fixture.makeUnlock()
@@ -115,8 +119,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Starts locked when nothing is cached")
-    func startsLockedWithoutCache() throws {
-        let fixture = try Fixture()
+    @available(iOS 17.0, *)
+    func startsLockedWithoutCache() async throws {
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         #expect(unlock.isUnlocked == false)
@@ -124,8 +129,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A refresh after starting from a stale unlocked cache sets both values from StoreKit")
+    @available(iOS 17.0, *)
     func refreshCorrectsStaleCache() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         fixture.defaults.set(true, forKey: cacheKey)
         let unlock = fixture.makeUnlock()
@@ -136,8 +142,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A refresh after starting from a stale locked cache unlocks when StoreKit has the purchase")
+    @available(iOS 17.0, *)
     func refreshCorrectsStaleLockedCache() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         try await fixture.buyExternally()
         let unlock = fixture.makeUnlock()
@@ -149,8 +156,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     // MARK: Refresh
 
     @Test("Refresh with a verified entitlement unlocks and caches it")
+    @available(iOS 17.0, *)
     func refreshUnlocks() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         try await fixture.buyExternally()
@@ -161,8 +169,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Refresh with no entitlement leaves it locked and the cache false")
+    @available(iOS 17.0, *)
     func refreshLocked() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         await unlock.refresh()
@@ -172,8 +181,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Refresh after a revocation locks again and the cache follows")
+    @available(iOS 17.0, *)
     func refreshAfterRevocation() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         try await fixture.buyExternally()
@@ -184,15 +194,20 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         let purchase = try #require(transactions.first { $0.productIdentifier == ProUnlock.productID })
         try fixture.session.refundTransaction(identifier: purchase.identifier)
 
-        await unlock.refresh()
+        // The refund reaches StoreKit's entitlements asynchronously; refresh until it shows.
+        _ = await waitUntil {
+            await unlock.refresh()
+            return unlock.isUnlocked == false
+        }
         #expect(unlock.isUnlocked == false)
         #expect(unlock.isUnlockedNow == false)
         #expect(fixture.cached == false)
     }
 
     @Test("Refresh treats an unverified entitlement as not unlocked")
+    @available(iOS 17.0, *)
     func refreshIgnoresUnverifiedEntitlement() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         try await fixture.buyExternally()
         let unlock = fixture.makeUnlock(transform: makeUnverified)
@@ -202,8 +217,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Refresh for an unknown product id stays locked")
+    @available(iOS 17.0, *)
     func refreshOtherProductStaysLocked() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         try await fixture.buyExternally()
         let unlock = fixture.makeUnlock(productID: "nej.KoalaTVault.nothing")
@@ -212,8 +228,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Each change reaches unlockedUpdates once, in order, and an unchanged refresh adds nothing")
+    @available(iOS 17.0, *)
     func updatesDeliverEachChangeOnce() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         let collector = Collector(unlock.unlockedUpdates())
@@ -237,8 +254,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Every observer of unlockedUpdates gets the change")
+    @available(iOS 17.0, *)
     func updatesReachEveryObserver() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         let first = Collector(unlock.unlockedUpdates())
@@ -252,16 +270,18 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     // MARK: Display price
 
     @Test("displayPrice returns the product's formatted price")
+    @available(iOS 17.0, *)
     func displayPriceReturnsPrice() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         #expect(await unlock.displayPrice() == "$19.99")
     }
 
     @Test("displayPrice is nil when the product does not exist")
+    @available(iOS 17.0, *)
     func displayPriceNilWithoutProduct() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(productID: "nej.KoalaTVault.nothing")
         #expect(await unlock.displayPrice() == nil)
@@ -270,8 +290,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     // MARK: Purchase
 
     @Test("A verified purchase unlocks, returns .unlocked, caches, and finishes the transaction")
+    @available(iOS 17.0, *)
     func purchaseUnlocks() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         let outcome = try await unlock.purchase(confirmIn: nil)
@@ -283,8 +304,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A purchase notifies unlockedUpdates observers once")
+    @available(iOS 17.0, *)
     func purchaseNotifiesObservers() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         let collector = Collector(unlock.unlockedUpdates())
@@ -296,8 +318,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A purchase that needs approval returns .pending and stays locked")
+    @available(iOS 17.0, *)
     func purchasePending() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         fixture.session.askToBuyEnabled = true
         let unlock = fixture.makeUnlock()
@@ -309,8 +332,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("An unverified purchase throws verificationFailed, stays locked, and leaves the transaction unfinished")
+    @available(iOS 17.0, *)
     func purchaseUnverified() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(transform: makeUnverified)
         await #expect(throws: ProUnlockError.verificationFailed) {
@@ -322,8 +346,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Purchasing an unknown product throws productUnavailable")
+    @available(iOS 17.0, *)
     func purchaseProductUnavailable() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(productID: "nej.KoalaTVault.nothing")
         await #expect(throws: ProUnlockError.productUnavailable) {
@@ -333,8 +358,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A purchase StoreKit fails throws purchaseFailed and stays locked")
+    @available(iOS 17.0, *)
     func purchaseFailed() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         fixture.session.failTransactionsEnabled = true
         let unlock = fixture.makeUnlock()
@@ -348,8 +374,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     // MARK: Restore
 
     @Test("Restore returns true and unlocks when the App Store has the purchase")
+    @available(iOS 17.0, *)
     func restoreFindsPurchase() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         try await fixture.buyExternally()
         let unlock = fixture.makeUnlock()
@@ -360,8 +387,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Restore returns false and stays locked when there is no purchase")
+    @available(iOS 17.0, *)
     func restoreFindsNothing() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         #expect(try await unlock.restore() == false)
@@ -370,8 +398,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("Restore with a stale unlocked cache and no purchase returns false")
+    @available(iOS 17.0, *)
     func restoreCorrectsStaleCache() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         fixture.defaults.set(true, forKey: cacheKey)
         let unlock = fixture.makeUnlock()
@@ -383,8 +412,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     // MARK: Transaction updates
 
     @Test("A purchase made outside the instance unlocks it live and notifies observers")
+    @available(iOS 17.0, *)
     func externalPurchaseUnlocksLive() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         let collector = Collector(unlock.unlockedUpdates())
@@ -399,8 +429,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A verified update's transaction is finished")
+    @available(iOS 17.0, *)
     func externalPurchaseIsFinished() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         try await fixture.buyExternally()
@@ -409,8 +440,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("An unverified update is ignored: it neither unlocks nor finishes the transaction")
+    @available(iOS 17.0, *)
     func unverifiedUpdateIgnored() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(transform: makeUnverified)
         try await fixture.buyExternally()
@@ -422,8 +454,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     }
 
     @Test("A revocation arriving as an update locks the instance live")
+    @available(iOS 17.0, *)
     func externalRevocationLocksLive() async throws {
-        let fixture = try Fixture()
+        let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock()
         try await fixture.buyExternally()
