@@ -229,7 +229,10 @@ extension VaultStoreFixture {
     static func newDiskName() -> String { UUID().uuidString }
 
     var trashURL: URL { rootURL.appendingPathComponent(".trash", isDirectory: true) }
-    var trashMapURL: URL { rootURL.appendingPathComponent(".trash_map") }
+    /// The trash index lives inside the trash folder, as the legacy app writes it.
+    var trashMapURL: URL { trashURL.appendingPathComponent(".trash_map") }
+    /// Where the trash index must never be written.
+    var rootTrashMapURL: URL { rootURL.appendingPathComponent(".trash_map") }
 
     /// Names of every entry in `.trash`, or empty when it doesn't exist.
     func trashDiskNames() -> [String] {

@@ -26,6 +26,9 @@ import Testing
         let names = vault.trashDiskNames().filter { $0 != ".trash_map" }
         #expect(names.count == 1)
         #expect(UUID(uuidString: names.first ?? "") != nil)
+        #expect(FileManager.default.fileExists(atPath: vault.rootURL.appendingPathComponent(".trash/.trash_map").path))
+        #expect(!FileManager.default.fileExists(atPath: vault.rootTrashMapURL.path))
+        #expect(vault.trashDiskNames().contains(".trash_map"))
         let entries = try #require(vault.trashEntries())
         #expect(entries.count == 1)
         let entry = try #require(entries.values.first)
@@ -59,6 +62,7 @@ import Testing
         try await vault.store.moveToTrash(item)
         #expect(vault.trashMapIsPlaintextJSON())
         #expect(vault.trashEntries()?.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: vault.rootTrashMapURL.path))
     }
 
     @Test("moveToTrash removes an encrypted file's entry from its folder index")
@@ -153,6 +157,8 @@ import Testing
 
         let trashed = try await vault.store.trashContents()
         #expect(Set(trashed.map(\.name)) == ["photo.jpg", "note.txt"])
+        #expect(trashed.count == 2)
+        #expect(!trashed.contains { $0.name == ".trash_map" || $0.id == ".trash/.trash_map" })
         for item in trashed {
             #expect(item.id.hasPrefix(".trash/"))
             #expect(UUID(uuidString: (item.id as NSString).lastPathComponent) != nil)

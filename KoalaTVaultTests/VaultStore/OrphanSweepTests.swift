@@ -30,6 +30,7 @@ import Testing
         let docs = try vault.folder("Docs")
         let inner = try vault.folder("Inner", in: docs)
         try await vault.add("a.txt")
+        try await vault.add("d.txt", to: docs)
         try await vault.add("b.txt", to: inner)
         let orphans = [vault.root, docs, inner].map { directory -> URL in
             directory.diskURL.appendingPathComponent(VaultStoreFixture.newDiskName())
@@ -38,6 +39,7 @@ import Testing
         await vault.store.sweepOrphans()
         #expect(orphans.allSatisfy { !exists($0) })
         #expect(try await vault.names() == ["Docs", "a.txt"])
+        #expect(try await vault.names(docs) == ["Inner", "d.txt"])
         #expect(try await vault.names(inner) == ["b.txt"])
     }
 
