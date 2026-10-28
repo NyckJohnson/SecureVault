@@ -25,7 +25,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
     }
 
     func testEncryptedFolderExportsAsDecryptedCopyWithRealNamesAndNesting() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let folder = try FileSystem.shared.createFolder(named: "Trip", in: testDirectory)
         let inner = try FileSystem.shared.createFolder(named: "Day1", in: folder)
         try FileSystem.shared.importItems(from: [try makeSource("a.txt", "alpha secret")], to: folder)
@@ -43,7 +43,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
     }
 
     func testEncryptedFolderExportContainsNoIndexFileOrUUIDNames() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let folder = try FileSystem.shared.createFolder(named: "Docs", in: testDirectory)
         try FileSystem.shared.importItems(from: [try makeSource("x.txt", "x content")], to: folder)
         let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Docs" })
@@ -57,7 +57,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
     }
 
     func testEncryptedFolderExportFileIsNotCiphertext() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let folder = try FileSystem.shared.createFolder(named: "Docs", in: testDirectory)
         try FileSystem.shared.importItems(from: [try makeSource("x.txt", "plain marker text")], to: folder)
         let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Docs" })
@@ -68,7 +68,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
     }
 
     func testEncryptedFolderNeedsDecryptedCopy() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let folder = try FileSystem.shared.createFolder(named: "Docs", in: testDirectory)
         try FileSystem.shared.importItems(from: [try makeSource("x.txt", "x")], to: folder)
         let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Docs" })
@@ -76,7 +76,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
     }
 
     func testEncryptedFolderHoldingIndexOnlyInASubfolderNeedsDecryptedCopy() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let outer = try FileSystem.shared.createFolder(named: "Outer", in: testDirectory)
         let inner = try FileSystem.shared.createFolder(named: "Inner", in: outer)
         try FileSystem.shared.importItems(from: [try makeSource("x.txt", "x")], to: inner)
@@ -102,7 +102,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
     }
 
     func testEncryptedFileNeedsDecryptedCopy() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         try FileSystem.shared.importItems(from: [try makeSource("e.txt", "e")], to: testDirectory)
         let item = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first)
         XCTAssertTrue(FileSystem.shared.needsDecryptedCopy(item))
@@ -131,7 +131,7 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testMigratingAFileEncryptsItAndRemovesThePlaintext() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let url = try write("a.txt", "alpha")
         let entry = try XCTUnwrap(try plaintextItems().first)
 
@@ -146,13 +146,13 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testMigratingWithoutKeyThrowsKeepsPlaintextAndWritesNoPlaintextIndex() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let url = try write("a.txt", "alpha")
         let entry = try XCTUnwrap(try plaintextItems().first)
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
 
         XCTAssertThrowsError(try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)) { error in
-            XCTAssertEqual(error as? CryptoError, .noKeyLoaded)
+            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
         }
 
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "alpha")
@@ -162,12 +162,12 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testMigrationWithKeyWipedLeavesNoReadablePlaintextIndexAfterPartialFolder() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         _ = try write("a.txt", "alpha")
         _ = try write("b.txt", "beta")
         let entries = try plaintextItems()
         try FileSystem.shared.migrateFileToEncrypted(entries[0].item, in: entries[0].directory)
-        CryptoService.shared.wipeKey()  // device locks mid-folder
+        TestCrypto.keyStore.wipeKey()  // device locks mid-folder
         XCTAssertThrowsError(try FileSystem.shared.migrateFileToEncrypted(entries[1].item, in: entries[1].directory))
 
         let data = try Data(contentsOf: mapURL)
@@ -176,17 +176,17 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testResumeAfterKeyWipeFinishesTheFolder() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         _ = try write("a.txt", "alpha")
         _ = try write("b.txt", "beta")
         _ = try write("c.txt", "gamma")
         let first = try plaintextItems()
         try FileSystem.shared.migrateFileToEncrypted(first[0].item, in: first[0].directory)
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         for entry in first.dropFirst() {
             XCTAssertThrowsError(try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory))
         }
-        try CryptoService.shared.unwrapMasterKey(with: "pw")
+        try TestCrypto.keyStore.unlock(password: "pw")
 
         for entry in try plaintextItems() {
             try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
@@ -201,7 +201,7 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testLegacyPlaintextIndexIsRecoveredAndReEncrypted() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         // An older build left a plaintext index next to its encrypted copy.
         _ = try write("a.txt", "alpha")
         let entry = try XCTUnwrap(try plaintextItems().first)
@@ -224,7 +224,7 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testEncryptPlaintextIndexesRecursesIntoSubfolders() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let sub = try FileSystem.shared.createFolder(named: "Sub", in: testDirectory)
         let subMap = sub.diskURL.appendingPathComponent(".vault_map")
         let plain = try JSONEncoder().encode(["X": VaultMapping(originalName: "x.txt")])
@@ -236,15 +236,15 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testEncryptPlaintextIndexesWithoutKeyThrowsNoKeyLoaded() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
-        CryptoService.shared.wipeKey()
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
+        TestCrypto.keyStore.wipeKey()
         XCTAssertThrowsError(try FileSystem.shared.encryptPlaintextIndexes(in: testDirectory)) { error in
-            XCTAssertEqual(error as? CryptoError, .noKeyLoaded)
+            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
         }
     }
 
     func testRerunDeletesLeftoverPlaintextWhenEncryptedCopyMatchesByteForByte() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         _ = try write("a.txt", "same content")
         let entry = try XCTUnwrap(try plaintextItems().first)
         try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
@@ -260,7 +260,7 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testRerunKeepsDifferingSameNamePlaintextAndEncryptsItUnderAFreeName() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         _ = try write("a.txt", "original")
         let entry = try XCTUnwrap(try plaintextItems().first)
         try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
@@ -283,7 +283,7 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testRerunKeepsSameSizeDifferentPlaintextInsteadOfDeletingIt() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         _ = try write("a.txt", "AAAAAAAA")
         let entry = try XCTUnwrap(try plaintextItems().first)
         try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
@@ -301,44 +301,44 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
     }
 
     func testIsCompleteEncryptedCopyRejectsTruncatedCopyAndWrongSize() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let source = try write("a.txt", "0123456789")
         let copy = testDirectory.diskURL.appendingPathComponent("copy.bin")
-        try CryptoService.shared.encryptFile(at: source, to: copy)
+        try TestCrypto.cipher.encryptFile(at: source, to: copy)
 
-        XCTAssertTrue(CryptoService.shared.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
-        XCTAssertFalse(CryptoService.shared.isCompleteEncryptedCopy(at: copy, plaintextSize: 9))
+        XCTAssertTrue(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
+        XCTAssertFalse(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 9))
         let truncated = try Data(contentsOf: copy).dropLast(3)
         try Data(truncated).write(to: copy)
-        XCTAssertFalse(CryptoService.shared.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
+        XCTAssertFalse(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
     }
 
     func testIsCompleteEncryptedCopyIsFalseWithoutKey() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let source = try write("a.txt", "0123456789")
         let copy = testDirectory.diskURL.appendingPathComponent("copy.bin")
-        try CryptoService.shared.encryptFile(at: source, to: copy)
-        CryptoService.shared.wipeKey()
-        XCTAssertFalse(CryptoService.shared.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
+        try TestCrypto.cipher.encryptFile(at: source, to: copy)
+        TestCrypto.keyStore.wipeKey()
+        XCTAssertFalse(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
     }
 
     func testEncryptedFileComparisonMatchesDiffersAndThrowsWithoutKey() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let source = try write("a.txt", "0123456789")
         let other = try write("b.txt", "0123456780")
         let copy = testDirectory.diskURL.appendingPathComponent("copy.bin")
-        try CryptoService.shared.encryptFile(at: source, to: copy)
+        try TestCrypto.cipher.encryptFile(at: source, to: copy)
 
-        XCTAssertTrue(try CryptoService.shared.encryptedFile(at: copy, hasSameContentAs: source))
-        XCTAssertFalse(try CryptoService.shared.encryptedFile(at: copy, hasSameContentAs: other))
-        CryptoService.shared.wipeKey()
-        XCTAssertThrowsError(try CryptoService.shared.encryptedFile(at: copy, hasSameContentAs: source)) { error in
-            XCTAssertEqual(error as? CryptoError, .noKeyLoaded)
+        XCTAssertTrue(try TestCrypto.copyChecker.encryptedFile(at: copy, hasSameContentAs: source))
+        XCTAssertFalse(try TestCrypto.copyChecker.encryptedFile(at: copy, hasSameContentAs: other))
+        TestCrypto.keyStore.wipeKey()
+        XCTAssertThrowsError(try TestCrypto.copyChecker.encryptedFile(at: copy, hasSameContentAs: source)) { error in
+            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
         }
     }
 
     func testOrphanSweepDoesNothingWhileAMigrationIsPending() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "pw")
+        try TestCrypto.keyStore.createMasterKey(password: "pw")
         // An indexed encrypted file makes the folder an indexed one; the stray file is unindexed.
         let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).txt")
         try "x".write(to: source, atomically: true, encoding: .utf8)
@@ -375,7 +375,7 @@ final class PendingEncryptionLaunchTests: XCTestCase {
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         PreferencesService.shared.pendingMigrationType = nil
         PreferencesService.shared.pendingMigrationTargetLockMode = nil
     }
@@ -400,7 +400,7 @@ final class PendingEncryptionLaunchTests: XCTestCase {
 
     func testPendingEncryptWithAPasswordAsksForItEvenWhenLockModeWasNeverSaved() throws {
         try AuthService.shared.createPassword("password123")
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         AuthService.shared.lockMode = .none
         PreferencesService.shared.pendingMigrationType = .encrypt
         PreferencesService.shared.pendingMigrationTargetLockMode = .password

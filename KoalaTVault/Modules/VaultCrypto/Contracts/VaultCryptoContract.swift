@@ -1,14 +1,36 @@
 import CryptoKit
 import Foundation
 
-// coverage-exempt-file: declarations only
-
 /// Errors thrown by the master-key store and the file cipher.
 enum VaultCryptoError: Error, Equatable, Sendable {
     case noKeyLoaded, noMasterKeyBlob, masterKeyAlreadyExists, wrongPassword, emptyPassword
     case corruptBlob, invalidKeyData, encryptionFailed, decryptionFailed
     case biometricItemMissing, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet
     case keychain(OSStatus)
+}
+
+/// User-facing text for each error, shown in alerts through `localizedDescription`.
+extension VaultCryptoError: LocalizedError {
+    /// The error's user-facing description; `.keychain` includes the status number.
+    var errorDescription: String? {
+        switch self {
+        case .noKeyLoaded: "No encryption key is loaded."
+        case .noMasterKeyBlob: "No password has been set up."
+        case .masterKeyAlreadyExists: "A master key already exists."
+        case .wrongPassword: "Incorrect password."
+        case .emptyPassword: "Password cannot be empty."
+        case .corruptBlob: "The stored password data is damaged."
+        case .invalidKeyData: "The stored key is invalid."
+        case .encryptionFailed: "Encryption failed."
+        case .decryptionFailed: "Decryption failed. The data may be damaged."
+        case .biometricItemMissing: "Face ID key not found. Use your password."
+        case .biometricCancelled: "Authentication was cancelled."
+        case .biometryLockedOut: "Too many attempts. Use your password."
+        case .biometryNotEnrolled: "Face ID is not set up."
+        case .passcodeNotSet: "Set a device passcode to use Face ID."
+        case .keychain(let status): "Couldn't access secure storage (error \(status))."
+        }
+    }
 }
 
 /// When a Keychain item can be read.

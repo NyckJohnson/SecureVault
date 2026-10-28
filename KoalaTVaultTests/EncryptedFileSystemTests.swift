@@ -4,7 +4,7 @@ import XCTest
 final class EncryptedFileSystemTests: VaultTestCase {
 
     override func setUp() {
-        try? CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try? TestCrypto.keyStore.createMasterKey(password: "testpassword")
         super.setUp()
     }
 
@@ -166,7 +166,7 @@ final class EncryptedFileSystemTests: VaultTestCase {
 
         try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
         let item = try FileSystem.shared.contents(of: testDirectory).first!
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         XCTAssertThrowsError(try FileSystem.shared.open(item))
     }
 
@@ -200,8 +200,8 @@ final class EncryptedFileSystemTests: VaultTestCase {
     }
 
     func testCreateDocumentWithoutLockNeverTruncatesExistingDocument() throws {
-        CryptoService.shared.wipeKey()
-        try? CryptoService.shared.wipeMasterKeyBlob()
+        TestCrypto.keyStore.wipeKey()
+        try? TestCrypto.keyStore.deleteMasterKeyBlob()
         let existing = testDirectory.diskURL.appendingPathComponent("notes.rtf")
         try "precious".write(to: existing, atomically: true, encoding: .utf8)
 

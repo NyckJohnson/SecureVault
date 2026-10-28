@@ -29,6 +29,7 @@
 - `VaultCryptoError: case corruptBlob, invalidKeyData, encryptionFailed, decryptionFailed`
 - `VaultCryptoError: case keychain(OSStatus)`
 - `VaultCryptoError: case noKeyLoaded, noMasterKeyBlob, masterKeyAlreadyExists, wrongPassword, emptyPassword`
+- `VaultCryptoError: var errorDescription: String?`
 - `enum KeychainAccessibility: Sendable`
 - `enum VaultCryptoError: Error, Equatable, Sendable`
 - `protocol FileCipher: Sendable`

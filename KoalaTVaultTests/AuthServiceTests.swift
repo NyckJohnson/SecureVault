@@ -17,7 +17,7 @@ final class AuthServiceTests: XCTestCase {
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
     }
 
     override func tearDown() async throws {
@@ -26,7 +26,7 @@ final class AuthServiceTests: XCTestCase {
         AuthService.shared.hasAuthenticated = false
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
     }
 
     // MARK: - Password
@@ -56,7 +56,7 @@ final class AuthServiceTests: XCTestCase {
     func testVerifyPasswordLoadsEncryptionKey() throws {
         try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
     }
 
     // MARK: - Change Password
@@ -79,7 +79,7 @@ final class AuthServiceTests: XCTestCase {
     func testVerifyWithNoPasswordSetThrowsNoMasterKeyBlob() throws {
         try AuthService.shared.removePassword()
         XCTAssertThrowsError(try AuthService.shared.verifyPassword("anything")) { error in
-            XCTAssertEqual(error as? CryptoError, .noMasterKeyBlob)
+            XCTAssertEqual(error as? VaultCryptoError, .noMasterKeyBlob)
         }
     }
 
@@ -88,13 +88,13 @@ final class AuthServiceTests: XCTestCase {
         try AuthService.shared.createPassword("password123")
         try AuthService.shared.verifyPassword("password123")
         let secret = "vault contents".data(using: .utf8)!
-        let encrypted = try CryptoService.shared.encrypt(data: secret, authenticating: ".vault_map")
+        let encrypted = try TestCrypto.cipher.encrypt(secret, context: ".vault_map")
 
         try AuthService.shared.changePassword(to: "newpassword456")
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         try AuthService.shared.verifyPassword("newpassword456")
 
-        XCTAssertEqual(try CryptoService.shared.decrypt(data: encrypted, authenticating: ".vault_map"), secret)
+        XCTAssertEqual(try TestCrypto.cipher.decrypt(encrypted, contexts: [".vault_map"]), secret)
     }
 
     // MARK: - Resign Active
@@ -107,7 +107,7 @@ final class AuthServiceTests: XCTestCase {
         AuthService.shared.handleWillResignActive(in: nil)
 
         XCTAssertFalse(AuthService.shared.isLocked)
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
     }
 
     // MARK: - Lock State
@@ -155,9 +155,9 @@ final class AuthServiceTests: XCTestCase {
         try AuthService.shared.verifyPassword("password123")
         AuthService.shared.hasAuthenticated = true
         AuthService.shared.lockMode = .password
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
         AuthService.shared.handleDidEnterBackground(in: nil)
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
     }
 }
 
@@ -276,14 +276,14 @@ final class MigrationFinalizationTests: XCTestCase {
         try await super.setUp()
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
     }
 
     override func tearDown() async throws {
         try await super.tearDown()
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
     }
 
     func testFinalizeEncryptSetsTargetLockModeOnSuccess() {
@@ -305,7 +305,7 @@ final class MigrationFinalizationTests: XCTestCase {
 
         XCTAssertEqual(AuthService.shared.lockMode, .none)
         XCTAssertFalse(AuthService.shared.hasPassword())
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
     }
 
     func testFinalizeDecryptKeepsStateOnFailure() throws {
@@ -316,6 +316,6 @@ final class MigrationFinalizationTests: XCTestCase {
 
         XCTAssertEqual(AuthService.shared.lockMode, .password)
         XCTAssertTrue(AuthService.shared.hasPassword())
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
     }
 }

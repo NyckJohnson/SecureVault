@@ -8,7 +8,6 @@
 import Foundation
 @preconcurrency import LocalAuthentication
 import os
-import Security
 import UIKit
 
 enum AuthError: Error {
@@ -36,13 +35,14 @@ final class AuthService {
     private init() {}
 
     // MARK: - Keys
-    // Legacy account key — kept only to clean up any plaintext password stored by older builds.
-    nonisolated private let legacyPasswordKeychainKey = "com.KoalaTVault.password"
-    nonisolated private let biometricMasterKeyAccount = "com.KoalaTVault.biometricMasterKey"
-    nonisolated private let biometricKeychainService  = "com.KoalaTVault"
     private let privacyScreenTag = 999
     nonisolated private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
-    nonisolated private var keychain: any KeychainAccess { LegacyStorage.current.keychain }
+    /// The master key store built once by the composition root (`AppDependencies`).
+    nonisolated private var keyStore: any MasterKeyStoring { LegacyStorage.current.masterKeyStore }
+    /// The reason shown with the biometric prompt.
+    nonisolated private static let biometricPrompt = "Unlock your vault"
+    /// The first bytes of an SVC5 vault file.
+    nonisolated private static let encryptedFileMagic = Data("SVC5".utf8)
 
     // MARK: - Lock Mode
     var lockMode: LegacyLockMode {
@@ -65,19 +65,19 @@ final class AuthService {
         _ password: String,
         vaultRootURL: URL = LegacyStorage.current.vaultRootURL
     ) throws -> Bool {
-        if try CryptoService.shared.hasMasterKeyBlob() {
+        if try keyStore.hasMasterKeyBlob() {
             if vaultHoldsEncryptedData(at: vaultRootURL) {
                 do {
-                    try CryptoService.shared.unwrapMasterKey(with: password)
-                } catch CryptoError.wrongPassword {
+                    try keyStore.unlock(password: password)
+                } catch VaultCryptoError.wrongPassword {
                     throw AuthError.existingPasswordRequired
                 }
                 return false
             }
-            try CryptoService.shared.wipeMasterKeyBlob()
+            try keyStore.deleteMasterKeyBlob()
             removeBiometricSecret()
         }
-        try CryptoService.shared.createMasterKey(wrappedBy: password)
+        try keyStore.createMasterKey(password: password)
         // Caller is responsible for calling enableBiometrics() afterwards if lockMode is .passwordAndBiometrics.
         return true
     }
@@ -91,12 +91,12 @@ final class AuthService {
         removeBiometricSecret()
         if createdNewKey {
             do {
-                try CryptoService.shared.wipeMasterKeyBlob()
+                try keyStore.deleteMasterKeyBlob()
             } catch {
                 logger.error("Rolling back the vault key failed: \(error.localizedDescription, privacy: .public)")
             }
         }
-        CryptoService.shared.wipeKey()
+        keyStore.wipeKey()
     }
 
     /// Whether anything under `rootURL` was encrypted with a vault key: a `.vault_map` index, a
@@ -123,94 +123,78 @@ final class AuthService {
                 if name == ".trash", (try? fileManager.contentsOfDirectory(atPath: url.path))?.isEmpty != true {
                     return true
                 }
-            } else if CryptoService.shared.mayBeEncryptedFile(at: url) {
+            } else if mayBeEncryptedFile(at: url) {
                 return true
             }
         }
         return unreadable
     }
 
+    /// Whether the file at `url` may be an encrypted vault file: it starts with the encrypted
+    /// format's magic bytes. Errs on the safe side: a file that can't be read counts as encrypted.
+    nonisolated private func mayBeEncryptedFile(at url: URL) -> Bool {
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var prefix = Data()
+            while prefix.count < Self.encryptedFileMagic.count {
+                guard let chunk = try handle.read(upToCount: Self.encryptedFileMagic.count - prefix.count),
+                      !chunk.isEmpty else { break }
+                prefix.append(chunk)
+            }
+            return prefix == Self.encryptedFileMagic
+        } catch {
+            return true
+        }
+    }
+
     nonisolated func changePassword(to newPassword: String) throws {
-        // rewrapMasterKey keeps the same key in memory; the biometric item (raw key bytes) stays valid.
-        try CryptoService.shared.rewrapMasterKey(with: newPassword)
+        // rewrap keeps the same key in memory; the biometric item (raw key bytes) stays valid.
+        try keyStore.rewrap(newPassword: newPassword)
     }
 
     nonisolated func verifyPassword(_ password: String) throws {
+        // A successful unlock also deletes the legacy plaintext password item.
         do {
-            try CryptoService.shared.unwrapMasterKey(with: password)
-        } catch CryptoError.wrongPassword {
+            try keyStore.unlock(password: password)
+        } catch VaultCryptoError.wrongPassword {
             throw AuthError.wrongPassword
         }
-        deleteLegacyPasswordItem()
     }
 
     func hasPassword() -> Bool {
-        (try? CryptoService.shared.hasMasterKeyBlob()) ?? true
+        (try? keyStore.hasMasterKeyBlob()) ?? true
     }
 
     func removePassword() throws {
-        try CryptoService.shared.wipeMasterKeyBlob()
+        try keyStore.deleteMasterKeyBlob()
         removeBiometricSecret()
-        deleteLegacyPasswordItem()
     }
 
     // MARK: - Biometric Secret Storage
 
     /// Stores the currently loaded master key in the Keychain protected by biometrics.
     /// Only call when lockMode is .passwordAndBiometrics and the master key is loaded.
+    /// Throws `VaultCryptoError.noKeyLoaded` without the key, or `AuthError.keychainError`.
     nonisolated func enableBiometrics() throws {
-        var keyData = try CryptoService.shared.exportMasterKeyData()
-        defer { keyData.withUnsafeMutableBytes { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) } }
-        try storeBiometricMasterKey(keyData)
-    }
-
-    /// Removes the biometrically-protected master key from the Keychain.
-    nonisolated func removeBiometricSecret() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: biometricKeychainService,
-            kSecAttrAccount as String: biometricMasterKeyAccount
-        ]
-        keychain.delete(matching: query)
-    }
-
-    /// Stores raw master key bytes in the Keychain, accessible only after biometric auth on this device.
-    /// Access control prevents migration via backup and invalidates the item if biometrics change.
-    nonisolated private func storeBiometricMasterKey(_ keyData: Data) throws {
-        guard let access = SecAccessControlCreateWithFlags(
-            nil,
-            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
-            .biometryCurrentSet,
-            nil
-        ) else {
+        do {
+            try keyStore.storeBiometricKey()
+        } catch VaultCryptoError.noKeyLoaded {
+            throw VaultCryptoError.noKeyLoaded
+        } catch {
+            logger.error("Storing the biometric key failed: \(error.localizedDescription, privacy: .public)")
             throw AuthError.keychainError
         }
-        // Access control attributes cannot be updated via SecItemUpdate, so delete-then-add.
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: biometricKeychainService,
-            kSecAttrAccount as String: biometricMasterKeyAccount
-        ]
-        keychain.delete(matching: deleteQuery)
-
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: biometricKeychainService,
-            kSecAttrAccount as String: biometricMasterKeyAccount,
-            kSecValueData as String: keyData,
-            kSecAttrAccessControl as String: access
-        ]
-        let status = keychain.add(addQuery)
-        guard status == errSecSuccess else { throw AuthError.keychainError }
     }
 
-    /// Removes any plaintext password stored by older app versions.
-    nonisolated private func deleteLegacyPasswordItem() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: legacyPasswordKeychainKey
-        ]
-        keychain.delete(matching: query)
+    /// Removes the biometrically-protected master key from the Keychain. A failure is logged;
+    /// the item is replaced the next time biometrics are enabled.
+    nonisolated func removeBiometricSecret() {
+        do {
+            try keyStore.deleteBiometricKey()
+        } catch {
+            logger.error("Removing the biometric key failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Migration Completion
@@ -233,7 +217,7 @@ final class AuthService {
                 // inconsistency should be investigated.
                 logger.error("removePassword failed during decrypt migration: \(error.localizedDescription, privacy: .public)")
             }
-            CryptoService.shared.wipeKey()
+            keyStore.wipeKey()
         }
     }
 
@@ -262,33 +246,16 @@ final class AuthService {
     func authenticateWithBiometrics(
         completion: @escaping @MainActor @Sendable (Bool, Error?) -> Void
     ) {
-        // Use a fresh, non-pre-evaluated context. This makes SecItemCopyMatching the
-        // sole authentication gate — the Secure Enclave enforces it at hardware level,
-        // unlike evaluatePolicy whose result can be faked on a jailbroken device.
-        let context = LAContext()
-
-        DispatchQueue.global(qos: .userInitiated).async { [biometricKeychainService, biometricMasterKeyAccount, keychain] in
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: biometricKeychainService,
-                kSecAttrAccount as String: biometricMasterKeyAccount,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-                kSecUseAuthenticationContext as String: context
-            ]
-            let (status, result) = keychain.copyMatching(query)
-
-            guard status == errSecSuccess, let keyData = result as? Data else {
-                DispatchQueue.main.async {
-                    // nil signals user-initiated dismissal so the lock screen shows no error.
-                    completion(false, status == errSecUserCanceled ? nil : AuthError.keychainError)
-                }
-                return
-            }
-
+        // The Keychain read (in the key store) is the sole authentication gate — the Secure
+        // Enclave enforces it at hardware level, unlike evaluatePolicy whose result can be faked
+        // on a jailbroken device.
+        DispatchQueue.global(qos: .userInitiated).async { [keyStore] in
             do {
-                try CryptoService.shared.loadMasterKey(from: keyData)
+                try keyStore.unlockWithBiometricKey(prompt: Self.biometricPrompt)
                 DispatchQueue.main.async { completion(true, nil) }
+            } catch VaultCryptoError.biometricCancelled {
+                // nil signals user-initiated dismissal so the lock screen shows no error.
+                DispatchQueue.main.async { completion(false, nil) }
             } catch {
                 DispatchQueue.main.async { completion(false, AuthError.keychainError) }
             }
@@ -319,7 +286,7 @@ final class AuthService {
     func handleDidEnterBackground(in window: UIWindow?) {
         guard hasAuthenticated, lockMode != .none else { return }
         isLocked = true
-        CryptoService.shared.wipeKey()
+        keyStore.wipeKey()
         FileSystem.shared.cleanupTempFiles()
         ThumbnailService.shared.clearCache()
     }
@@ -364,7 +331,7 @@ final class AuthService {
         guard PreferencesService.shared.pendingMigrationType == .encrypt else { return }
         let blobExists: Bool
         do {
-            blobExists = try CryptoService.shared.hasMasterKeyBlob()
+            blobExists = try keyStore.hasMasterKeyBlob()
         } catch {
             // Keychain unreadable right now: keep everything and ask for the password as usual.
             logger.error("Keychain read failed at launch: \(error.localizedDescription, privacy: .public)")

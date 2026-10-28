@@ -10,117 +10,27 @@
 
 import Foundation
 import os
-import Security
 import UIKit
 
-// MARK: - Keychain access seam
+// MARK: - In-memory Keychain
 
-/// The Keychain operations the app performs, so they can be routed to the real
-/// Keychain or to an in-memory store. Each method mirrors the `SecItem*` function
-/// of the same name and returns its `OSStatus`.
-nonisolated protocol KeychainAccess: Sendable {
-    /// Mirrors `SecItemAdd`. Returns `errSecDuplicateItem` if a matching item exists.
-    func add(_ attributes: [String: Any]) -> OSStatus
-    /// Mirrors `SecItemUpdate`. Returns `errSecItemNotFound` if nothing matches.
-    func update(matching query: [String: Any], with attributes: [String: Any]) -> OSStatus
-    /// Mirrors `SecItemCopyMatching`; `result` is the returned value (e.g. `Data`) on success.
-    func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?)
-    /// Mirrors `SecItemDelete`. Returns `errSecItemNotFound` if nothing matches.
-    @discardableResult
-    func delete(matching query: [String: Any]) -> OSStatus
-}
-
-/// The real Keychain.
-nonisolated struct SystemKeychain: KeychainAccess {
-    func add(_ attributes: [String: Any]) -> OSStatus {
-        SecItemAdd(attributes as CFDictionary, nil)
-    }
-
-    func update(matching query: [String: Any], with attributes: [String: Any]) -> OSStatus {
-        SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-    }
-
-    func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        return (status, result)
-    }
-
-    @discardableResult
-    func delete(matching query: [String: Any]) -> OSStatus {
-        SecItemDelete(query as CFDictionary)
-    }
-}
-
-/// An in-memory stand-in for the Keychain used in `-uiTesting` mode. Items are
-/// generic passwords identified by service and account; a query matches every item
-/// whose service and account equal the query's (an attribute the query omits matches
-/// anything), like the real Keychain. Access-control and authentication-context
-/// attributes are ignored, so biometric reads succeed without a prompt.
-nonisolated final class InMemoryKeychain: KeychainAccess {
-    private struct Item: Sendable {
-        var service: String?
-        var account: String?
-        var data: Data
-    }
-
-    private let items = OSAllocatedUnfairLock<[Item]>(initialState: [])
+/// An in-memory stand-in for the Keychain used in `-uiTesting` mode: one item per account.
+/// Accessibility is ignored, so biometric reads succeed without a prompt.
+nonisolated final class InMemoryKeychain: KeychainAccessing {
+    private let items = OSAllocatedUnfairLock<[String: Data]>(initialState: [:])
 
     init() {}
 
-    func add(_ attributes: [String: Any]) -> OSStatus {
-        guard let data = attributes[kSecValueData as String] as? Data else { return errSecParam }
-        let service = attributes[kSecAttrService as String] as? String
-        let account = attributes[kSecAttrAccount as String] as? String
-        return items.withLock { items in
-            if items.contains(where: { $0.service == service && $0.account == account }) {
-                return errSecDuplicateItem
-            }
-            items.append(Item(service: service, account: account, data: data))
-            return errSecSuccess
-        }
+    func read(account: String, prompt: String?) throws -> Data? {
+        items.withLock { $0[account] }
     }
 
-    func update(matching query: [String: Any], with attributes: [String: Any]) -> OSStatus {
-        let newData = attributes[kSecValueData as String] as? Data
-        let key = Self.key(of: query)
-        return items.withLock { items in
-            var found = false
-            for index in items.indices where Self.matches(items[index], key) {
-                found = true
-                if let newData { items[index].data = newData }
-            }
-            return found ? errSecSuccess : errSecItemNotFound
-        }
+    func write(_ data: Data, account: String, accessibility: KeychainAccessibility) throws {
+        items.withLock { $0[account] = data }
     }
 
-    func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
-        let key = Self.key(of: query)
-        let match = items.withLock { items in items.first(where: { Self.matches($0, key) }) }
-        guard let match else { return (errSecItemNotFound, nil) }
-        let wantsData = (query[kSecReturnData as String] as? Bool) ?? false
-        return (errSecSuccess, wantsData ? match.data as NSData : nil)
-    }
-
-    @discardableResult
-    func delete(matching query: [String: Any]) -> OSStatus {
-        let key = Self.key(of: query)
-        return items.withLock { items in
-            let before = items.count
-            items.removeAll { Self.matches($0, key) }
-            return items.count < before ? errSecSuccess : errSecItemNotFound
-        }
-    }
-
-    /// The service and account a query names; `nil` matches any value.
-    private static func key(of query: [String: Any]) -> (service: String?, account: String?) {
-        (query[kSecAttrService as String] as? String, query[kSecAttrAccount as String] as? String)
-    }
-
-    private static func matches(_ item: Item, _ key: (service: String?, account: String?)) -> Bool {
-        if let service = key.service, item.service != service { return false }
-        if let account = key.account, item.account != account { return false }
-        return true
+    func delete(account: String) throws {
+        items.withLock { $0[account] = nil }
     }
 }
 
@@ -163,11 +73,18 @@ nonisolated struct UITestSettings: Sendable, Equatable {
 nonisolated struct LegacyStorage: Sendable {
     /// The launch argument that selects the clean, isolated test state.
     static let uiTestingArgument = "-uiTesting"
+    /// The Keychain service of the vault's items (the legacy password item is matched without it).
+    static let keychainService = "com.KoalaTVault"
 
     /// The vault root (Documents normally; a fresh temporary folder in `-uiTesting` mode).
     let vaultRootURL: URL
     /// Keychain access (real normally; in memory in `-uiTesting` mode).
-    let keychain: any KeychainAccess
+    let keychain: any KeychainAccessing
+    /// The vault master key store, over `keychain`. Legacy singletons reach it here; new code
+    /// takes it by injection from `AppDependencies`.
+    let masterKeyStore: any MasterKeyStoring
+    /// The file and index cipher, using `masterKeyStore`'s key.
+    let fileCipher: any FileCipher
     /// The UserDefaults suite in `-uiTesting` mode; `nil` means `.standard`.
     /// (A name rather than the instance, because `UserDefaults` is not `Sendable`.)
     let defaultsSuiteName: String?
@@ -190,9 +107,13 @@ nonisolated struct LegacyStorage: Sendable {
         return suite
     }
 
-    init(vaultRootURL: URL, keychain: any KeychainAccess, defaultsSuiteName: String?, uiTestSettings: UITestSettings?) {
+    /// Builds the storage and the one master key store and file cipher over `keychain`.
+    init(vaultRootURL: URL, keychain: any KeychainAccessing, defaultsSuiteName: String?, uiTestSettings: UITestSettings?) {
+        let masterKeyStore = LiveMasterKeyStore(keychain: keychain)
         self.vaultRootURL = vaultRootURL
         self.keychain = keychain
+        self.masterKeyStore = masterKeyStore
+        self.fileCipher = LiveFileCipher(keyStore: masterKeyStore)
         self.defaultsSuiteName = defaultsSuiteName
         self.uiTestSettings = uiTestSettings
     }
@@ -204,7 +125,7 @@ nonisolated struct LegacyStorage: Sendable {
         } else {
             self.init(
                 vaultRootURL: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
-                keychain: SystemKeychain(),
+                keychain: KeychainStore(service: Self.keychainService),
                 defaultsSuiteName: nil,
                 uiTestSettings: nil
             )
@@ -250,6 +171,10 @@ nonisolated struct LegacyStorage: Sendable {
 @MainActor
 final class AppDependencies {
     let storage: LegacyStorage
+    /// The vault master key store (built once, in `storage`).
+    var masterKeyStore: any MasterKeyStoring { storage.masterKeyStore }
+    /// The file and index cipher (built once, in `storage`).
+    var fileCipher: any FileCipher { storage.fileCipher }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
     init(storage: LegacyStorage = .current) {

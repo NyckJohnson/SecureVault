@@ -185,7 +185,7 @@ final class TrashTests: VaultTestCase {
 
     // MARK: - Encrypted Trash
     func testEncryptedFileMoveToTrash() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "secret".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -201,7 +201,7 @@ final class TrashTests: VaultTestCase {
     }
 
     func testEncryptedFileRestoreFromTrash() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "secret content".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -245,7 +245,7 @@ final class TrashTests: VaultTestCase {
         XCTAssertNotNil(try? JSONDecoder().decode([String: FileSystem.TrashEntryForTesting].self,
                                                   from: Data(contentsOf: trashMapURL)))
 
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let listed = try FileSystem.shared.contentsOfTrash(for: testDirectory)
         XCTAssertEqual(listed.map(\.name), ["before-lock.txt"])
 
@@ -260,7 +260,7 @@ final class TrashTests: VaultTestCase {
     }
 
     func testMoveToTrashThrowsAndLeavesItemWhenTrashMapIsUnreadable() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let item = try importPlainFile(named: "keep.txt")
         try Data([0x00, 0xFF, 0x13, 0x37, 0xDE, 0xAD]).write(to: trashMapURL, options: .atomic)
 

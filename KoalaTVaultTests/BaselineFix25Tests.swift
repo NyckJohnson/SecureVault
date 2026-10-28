@@ -29,38 +29,20 @@ final class PasswordSetupRollbackTests: XCTestCase {
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
         AuthService.shared.removeBiometricSecret()
-        CryptoService.shared.wipeKey()
-    }
-
-    private func itemQuery(account: String) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.KoalaTVault",
-            kSecAttrAccount as String: account
-        ]
+        TestCrypto.keyStore.wipeKey()
     }
 
     private func storedBlob() -> Data? {
-        var query = itemQuery(account: "com.KoalaTVault.masterKeyBlob")
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        let (status, result) = LegacyStorage.current.keychain.copyMatching(query)
-        return status == errSecSuccess ? result as? Data : nil
+        try? TestCrypto.keychain.read(account: TestCrypto.blobAccount, prompt: nil)
     }
 
-    /// Puts a plain item where the biometric item lives (no access control, so the test can read it).
-    private func plantBiometricItem() {
-        var attrs = itemQuery(account: "com.KoalaTVault.biometricMasterKey")
-        attrs[kSecValueData as String] = Data([1, 2, 3])
-        LegacyStorage.current.keychain.delete(matching: itemQuery(account: "com.KoalaTVault.biometricMasterKey"))
-        XCTAssertEqual(LegacyStorage.current.keychain.add(attrs), errSecSuccess)
+    /// Puts a plain item where the biometric item lives.
+    private func plantBiometricItem() throws {
+        try TestCrypto.keychain.write(Data([1, 2, 3]), account: TestCrypto.biometricAccount, accessibility: .whenUnlocked)
     }
 
     private func biometricItemExists() -> Bool {
-        var query = itemQuery(account: "com.KoalaTVault.biometricMasterKey")
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        return LegacyStorage.current.keychain.copyMatching(query).status == errSecSuccess
+        ((try? TestCrypto.keychain.read(account: TestCrypto.biometricAccount, prompt: nil)) ?? nil) != nil
     }
 
     private func addEncryptedFile() throws {
@@ -78,12 +60,12 @@ final class PasswordSetupRollbackTests: XCTestCase {
     func testCreatePasswordWithNoBlobReportsANewKey() throws {
         let created = try AuthService.shared.createPassword("password123", vaultRootURL: vaultRoot)
         XCTAssertTrue(created)
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
     }
 
     func testCreatePasswordReplacingAStaleBlobInAnEmptyVaultReportsANewKey() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "old-password")
-        CryptoService.shared.wipeKey()
+        try TestCrypto.keyStore.createMasterKey(password: "old-password")
+        TestCrypto.keyStore.wipeKey()
         let oldBlob = storedBlob()
 
         let created = try AuthService.shared.createPassword("new-password", vaultRootURL: vaultRoot)
@@ -93,23 +75,23 @@ final class PasswordSetupRollbackTests: XCTestCase {
     }
 
     func testCreatePasswordReusingTheBlobOfAnEncryptedVaultReportsNoNewKey() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "old-password")
+        try TestCrypto.keyStore.createMasterKey(password: "old-password")
         try addEncryptedFile()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         let oldBlob = storedBlob()
 
         let created = try AuthService.shared.createPassword("old-password", vaultRootURL: vaultRoot)
 
         XCTAssertFalse(created)
         XCTAssertEqual(storedBlob(), oldBlob)
-        XCTAssertTrue(CryptoService.shared.isKeyLoaded)
+        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
     }
 
     // MARK: - rollBackPasswordSetup
 
     func testRollbackOfANewKeyRemovesBlobAndBiometricItemAndWipesKeyButKeepsLockMode() throws {
         let created = try AuthService.shared.createPassword("password123", vaultRootURL: vaultRoot)
-        plantBiometricItem()
+        try plantBiometricItem()
         AuthService.shared.lockMode = .password
 
         AuthService.shared.rollBackPasswordSetup(createdNewKey: created)
@@ -117,7 +99,7 @@ final class PasswordSetupRollbackTests: XCTestCase {
         XCTAssertNil(storedBlob())
         XCTAssertFalse(AuthService.shared.hasPassword())
         XCTAssertFalse(biometricItemExists())
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
         XCTAssertEqual(AuthService.shared.lockMode, .password, "lock mode is not touched")
     }
 
@@ -132,18 +114,18 @@ final class PasswordSetupRollbackTests: XCTestCase {
     }
 
     func testRollbackOfAKeptKeyKeepsTheBlobSoTheOldPasswordStillUnlocksIt() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "old-password")
+        try TestCrypto.keyStore.createMasterKey(password: "old-password")
         try addEncryptedFile()
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         let oldBlob = try XCTUnwrap(storedBlob())
         let created = try AuthService.shared.createPassword("old-password", vaultRootURL: vaultRoot)
-        plantBiometricItem()
+        try plantBiometricItem()
 
         AuthService.shared.rollBackPasswordSetup(createdNewKey: created)
 
         XCTAssertEqual(storedBlob(), oldBlob)
         XCTAssertFalse(biometricItemExists())
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
         XCTAssertNoThrow(try AuthService.shared.verifyPassword("old-password"))
     }
 
@@ -151,15 +133,15 @@ final class PasswordSetupRollbackTests: XCTestCase {
         AuthService.shared.rollBackPasswordSetup(createdNewKey: true)
         AuthService.shared.rollBackPasswordSetup(createdNewKey: false)
         XCTAssertNil(storedBlob())
-        XCTAssertFalse(CryptoService.shared.isKeyLoaded)
+        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
     }
 
     // MARK: - enableBiometrics without a key
 
     func testEnableBiometricsWithNoKeyLoadedThrowsNoKeyLoaded() {
-        CryptoService.shared.wipeKey()
+        TestCrypto.keyStore.wipeKey()
         XCTAssertThrowsError(try AuthService.shared.enableBiometrics()) { error in
-            XCTAssertEqual(error as? CryptoError, .noKeyLoaded)
+            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
         }
         XCTAssertFalse(biometricItemExists())
     }

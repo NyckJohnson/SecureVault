@@ -12,3 +12,5 @@ managed block above.
   test-writer brief lists that file and its spec bullet in READ and ACCEPTANCE. Coverage triage may never
   classify their lines `exempt`, and the reviewer checks that every branch has an asserting test, not just
   coverage. Never add a `coverage-exempt` marker to these files.
+- `VaultCrypto/Contracts/VaultCryptoContract.swift` also holds real code (`VaultCryptoError.errorDescription`,
+  added in VaultCrypto's switch-over unit). Same rules: tested, never `coverage-exempt`.

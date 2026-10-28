@@ -159,7 +159,7 @@ final class EdgeCaseTests: VaultTestCase {
     }
 
     func testWriteEncryptedFile() throws {
-        try CryptoService.shared.createMasterKey(wrappedBy: "testpassword")
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("test.txt")
         try "original".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

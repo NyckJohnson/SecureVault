@@ -16,8 +16,7 @@ class VaultTestCase: XCTestCase {
     var testDirectory: LegacyVaultDirectory!
 
     override func tearDown() {
-        CryptoService.shared.wipeKey()
-        try? CryptoService.shared.wipeMasterKeyBlob()
+        TestCrypto.reset()
         try? FileManager.default.removeItem(at: testDirectory.diskURL)
         FileSystem.shared.cleanupTempFiles()
         super.tearDown()
@@ -25,6 +24,7 @@ class VaultTestCase: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        TestCrypto.requireInMemoryKeychain()
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)

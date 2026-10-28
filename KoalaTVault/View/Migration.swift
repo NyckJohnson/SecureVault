@@ -142,7 +142,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     /// Work needs the key (wiped when the app backgrounds under a lock) and readable files
     /// (data protection closes them while the device is locked).
     private var canMigrate: Bool {
-        CryptoService.shared.isKeyLoaded && UIApplication.shared.isProtectedDataAvailable
+        LegacyStorage.current.masterKeyStore.isKeyLoaded && UIApplication.shared.isProtectedDataAvailable
     }
 
     /// Scans for files (once per run or Retry), then migrates them one at a time. Pauses
@@ -217,7 +217,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     /// True when a file's failure came from an interruption (backgrounding, device lock, key
     /// wipe) rather than from the file.
     private func wasInterrupted(by error: Error, since interruptionsBefore: Int) -> Bool {
-        interruptions != interruptionsBefore || !canMigrate || (error as? CryptoError) == .noKeyLoaded
+        interruptions != interruptionsBefore || !canMigrate || (error as? VaultCryptoError) == .noKeyLoaded
     }
 
     private func showProgress() {
@@ -286,7 +286,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     /// so the vault lists once the key is removed. Returns false when the run stopped here
     /// (paused for a key wipe, or the failure alert is shown); the caller must then not finish.
     private func finishDecryption() async -> Bool {
-        guard CryptoService.shared.isKeyLoaded else {
+        guard LegacyStorage.current.masterKeyStore.isKeyLoaded else {
             pauseMigration()
             return false
         }
@@ -295,7 +295,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
             decryptCleanupFailed = false
             return true
         } catch {
-            if !CryptoService.shared.isKeyLoaded {
+            if !LegacyStorage.current.masterKeyStore.isKeyLoaded {
                 // The key was wiped mid-cleanup; unlocking resumes it.
                 pauseMigration()
             } else {
