@@ -601,6 +601,45 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(unlock.isUnlocked == false)
     }
 
+    @Test("A purchase the user cancels (StoreKitError.userCancelled thrown) returns .cancelled and changes nothing")
+    @available(iOS 17.0, *)
+    func purchaseThrownUserCancelled() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let seam = PurchaseSeam(.failure(StoreKitError.userCancelled))
+        let unlock = fixture.makeUnlock(purchase: seam)
+        await unlock.refresh()  // settle the refresh that runs at start
+        let collector = Collector(unlock.unlockedUpdates())
+        defer { collector.stop() }
+        let outcome = try await unlock.purchase(confirmIn: nil)
+        #expect(outcome == .cancelled)
+        #expect(seam.callCount == 1)
+        #expect(unlock.isUnlocked == false)
+        #expect(unlock.isUnlockedNow == false)
+        #expect(fixture.cached == false)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(collector.values.isEmpty)
+    }
+
+    @Test("A product that fails to load throws purchaseFailed without starting a purchase")
+    @available(iOS 17.0, *)
+    func purchaseProductLoadFails() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let seam = PurchaseSeam(.success(.pending))
+        let unlock = fixture.makeUnlock(purchase: seam)
+        await unlock.refresh()  // settle the refresh that runs at start
+        try await fixture.session.setSimulatedError(.generic(.unknown), forAPI: .loadProducts)
+        await #expect(throws: ProUnlockError.purchaseFailed) {
+            _ = try await unlock.purchase(confirmIn: nil)
+        }
+        // Clear the simulated error (cleanup cannot await).
+        try await fixture.session.setSimulatedError(nil, forAPI: .loadProducts)
+        #expect(seam.callCount == 0)
+        #expect(unlock.isUnlocked == false)
+        #expect(fixture.cached == false)
+    }
+
     @Test("A purchase that throws another error throws purchaseFailed and stays locked")
     @available(iOS 17.0, *)
     func purchaseFailed() async throws {
