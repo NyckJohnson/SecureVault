@@ -371,6 +371,8 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         defer { fixture.cleanup() }
         let verification = try await fixture.boughtTransaction()
         let id = verification.unsafePayloadValue.id
+        // Nothing but the purchase can finish it: it starts out unfinished.
+        #expect(await waitUntil { await unfinishedTransactionIDs().contains(id) })
         let seam = PurchaseSeam(.success(.success(verification)))
         let unlock = fixture.makeUnlock(purchase: seam)
         let outcome = try await unlock.purchase(confirmIn: nil)
@@ -508,6 +510,8 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(unlock.isUnlocked == false)
         #expect(unlock.isUnlockedNow == false)
         #expect(fixture.cached == false)
+        // An unverified purchase is never finished.
+        #expect(await unfinishedTransactionIDs().contains(verification.unsafePayloadValue.id))
     }
 
     @Test("Purchasing an unknown product throws productUnavailable without starting a purchase")
@@ -615,8 +619,10 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     @Test("An unverified update is ignored: it does not unlock")
     @available(iOS 17.0, *)
     func unverifiedUpdateIgnored() async throws {
-        // Whether the transaction stays unfinished is not asserted: the host app's legacy entitlement
-        // listener also receives updates and may finish them, so that outcome is not reliable.
+        // Whether an update is finished (verified) or left unfinished (unverified) is not asserted:
+        // SKTestSession's `buyProduct` transaction stays in `Transaction.unfinished` even when a plain
+        // `Transaction.updates` listener finishes it, so the check could not tell either outcome apart.
+        // The finish/no-finish rules are asserted through the purchase path instead.
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(transform: makeUnverified)

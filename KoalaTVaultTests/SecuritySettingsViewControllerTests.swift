@@ -14,12 +14,11 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
     override func tearDown() async throws {
         try await super.tearDown()
         AuthService.shared.lockMode = .none
-        EntitlementService.testForcedUnlocked = nil
     }
 
     func testReEncryptRowHiddenWhenUnlocked() {
         AuthService.shared.lockMode = .none
-        let sut = LegacySecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking())
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(true)
 
@@ -28,7 +27,7 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
 
     func testReEncryptRowHiddenWhenNoUnencryptedFiles() {
         AuthService.shared.lockMode = .password
-        let sut = LegacySecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking())
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(false)
 
@@ -37,7 +36,7 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
 
     func testReEncryptRowShownWhenLockedWithUnencryptedFiles() {
         AuthService.shared.lockMode = .password
-        let sut = LegacySecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking())
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(true)
 

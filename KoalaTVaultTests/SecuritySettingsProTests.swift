@@ -13,11 +13,11 @@ final class SecuritySettingsProTests: XCTestCase {
 
     /// Hosts the SUT in a real window so UIKit's presentation machinery
     /// populates `presentedViewController`.
-    private func makeHostedSUT() throws -> LegacySecuritySettingsViewController {
+    private func makeHostedSUT(isUnlocked: Bool) throws -> LegacySecuritySettingsViewController {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.first as? UIWindowScene
         )
-        let sut = LegacySecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking(isUnlocked: isUnlocked))
         let window = UIWindow(windowScene: scene)
         window.rootViewController = sut
         window.makeKeyAndVisible()
@@ -30,14 +30,12 @@ final class SecuritySettingsProTests: XCTestCase {
         window?.isHidden = true
         window = nil
         AuthService.shared.lockMode = .none
-        EntitlementService.testForcedUnlocked = nil
         try await super.tearDown()
     }
 
     // MARK: - Cell content
     func testProCellShowsUpgradeWhenLocked() {
-        EntitlementService.testForcedUnlocked = false
-        let sut = LegacySecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking(isUnlocked: false))
         sut.loadViewIfNeeded()
 
         let cell = sut.tableView(sut.testTableView, cellForRowAt: IndexPath(row: 0, section: 0))
@@ -47,8 +45,7 @@ final class SecuritySettingsProTests: XCTestCase {
     }
 
     func testProCellShowsUnlockedStateWhenUnlocked() {
-        EntitlementService.testForcedUnlocked = true
-        let sut = LegacySecuritySettingsViewController()
+        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking(isUnlocked: true))
         sut.loadViewIfNeeded()
 
         let cell = sut.tableView(sut.testTableView, cellForRowAt: IndexPath(row: 0, section: 0))
@@ -59,8 +56,7 @@ final class SecuritySettingsProTests: XCTestCase {
 
     // MARK: - Tap behavior
     func testTappingUpgradeRowPresentsPaywallWhenLocked() throws {
-        EntitlementService.testForcedUnlocked = false
-        let sut = try makeHostedSUT()
+        let sut = try makeHostedSUT(isUnlocked: false)
 
         sut.tableView(sut.testTableView, didSelectRowAt: IndexPath(row: 0, section: 0))
 
@@ -68,8 +64,7 @@ final class SecuritySettingsProTests: XCTestCase {
     }
 
     func testTappingUpgradeRowDoesNothingWhenAlreadyUnlocked() throws {
-        EntitlementService.testForcedUnlocked = true
-        let sut = try makeHostedSUT()
+        let sut = try makeHostedSUT(isUnlocked: true)
 
         sut.tableView(sut.testTableView, didSelectRowAt: IndexPath(row: 0, section: 0))
 
