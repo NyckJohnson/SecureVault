@@ -237,7 +237,11 @@ extension LiveVaultStore {
         of item: VaultItem, in folder: URL, entries: inout [String: VaultIndexEntry], incomplete: inout [URL]
     ) throws -> Bool {
         let plaintextSize = try fileSize(of: item.diskURL)
-        for (diskName, entry) in entries where entry.originalName == item.name {
+        // Every same-name entry is examined (in disk-name order, so runs are repeatable) before answering:
+        // stopping at the first identical copy would leave an unusable copy visited later in the index.
+        var found = false
+        let sameName = entries.filter { $0.value.originalName == item.name }.keys.sorted()
+        for diskName in sameName {
             let copy = folder.appendingPathComponent(diskName)
             guard Self.isRegularFile(copy) else { continue }
             guard try isCompleteEncryptedCopy(at: copy), let info = try streamInfo(of: copy) else {
@@ -246,7 +250,8 @@ extension LiveVaultStore {
                 continue
             }
             if info.totalSize == plaintextSize {
-                if try encryptedFile(at: copy, matches: item.diskURL) { return true }
+                // A further complete copy is kept as it is, as before; only the first match needs comparing.
+                if !found, try encryptedFile(at: copy, matches: item.diskURL) { found = true }
                 continue
             }
             // The header's size is wrong for this content: read the copy as a plaintext-sized file.
@@ -256,7 +261,7 @@ extension LiveVaultStore {
                 incomplete.append(copy)
             }
         }
-        return false
+        return found
     }
 
     /// Encrypts a plaintext trash item in place: the copy is staged next to it and verified, the entry is
