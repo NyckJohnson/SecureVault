@@ -104,7 +104,7 @@
             "View/PaywallViewController.swift"
           ],
           "state": "code",
-          "attempts": 1,
+          "attempts": 2,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-28T02:25:04-07:00",
+  "updatedAt": "2026-10-28T03:07:59-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
