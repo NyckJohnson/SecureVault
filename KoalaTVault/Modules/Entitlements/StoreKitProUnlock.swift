@@ -100,6 +100,9 @@ final class StoreKitProUnlock: ProUnlocking {
             }
             await transaction.finish()
             setUnlocked(true)
+            // Queue a refresh behind any already in flight, so an older refresh that read the entitlements
+            // before this purchase can't leave the entitlement re-locked: the ordered queue has the last word.
+            await refresh()
             return .unlocked
         case .userCancelled:
             return .cancelled
