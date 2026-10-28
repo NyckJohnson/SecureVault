@@ -19,9 +19,9 @@ final class StoreKitProUnlock: ProUnlocking {
     private let unlockedNow: OSAllocatedUnfairLock<Bool>
     private var observers: [UUID: AsyncStream<Bool>.Continuation] = [:]
     private var updatesListener: Task<Void, Never>?
-    /// Bumped by each `refresh()`; only the latest refresh may apply its result, so an older one that
-    /// finishes late can't overwrite a newer answer.
-    private var refreshGeneration = 0
+    /// The most recently started refresh. Each refresh waits for the one before it, so refreshes apply
+    /// in the order they started: an older one can't finish late and overwrite a newer answer.
+    private var lastRefresh: Task<Void, Never>?
 
     private(set) var isUnlocked: Bool
 
@@ -43,6 +43,7 @@ final class StoreKitProUnlock: ProUnlocking {
         isUnlocked = cached
         unlockedNow = OSAllocatedUnfairLock(initialState: cached)
         updatesListener = listenForTransactionUpdates()
+        Task { [weak self] in await self?.refresh() }
     }
 
     deinit {
@@ -105,17 +106,23 @@ final class StoreKitProUnlock: ProUnlocking {
     }
 
     func refresh() async {
-        refreshGeneration += 1
-        let generation = refreshGeneration
-        var found = false
+        let previous = lastRefresh
+        let current = Task {
+            await previous?.value
+            setUnlocked(await hasVerifiedEntitlement())
+        }
+        lastRefresh = current
+        await current.value
+    }
+
+    /// Whether `Transaction.currentEntitlements` holds a verified transaction for the product.
+    private func hasVerifiedEntitlement() async -> Bool {
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = verificationTransform(result), transaction.productID == productID {
-                found = true
-                break
+                return true
             }
         }
-        guard generation == refreshGeneration else { return }
-        setUnlocked(found)
+        return false
     }
 
     func unlockedUpdates() -> AsyncStream<Bool> {
