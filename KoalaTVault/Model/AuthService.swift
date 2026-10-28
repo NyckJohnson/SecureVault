@@ -34,6 +34,17 @@ final class AuthService {
     static let shared = AuthService()
     private init() {}
 
+    /// The app's vault store and thumbnail cache, handed over by the composition root at launch.
+    private var vaultStore: (any VaultStoring)?
+    private var thumbnails: ThumbnailService?
+
+    /// Called once by `AppDependencies` at launch: the store whose temporary files, and the cache whose
+    /// thumbnails, are cleared when the app locks in the background.
+    func attach(vaultStore: any VaultStoring, thumbnails: ThumbnailService) {
+        self.vaultStore = vaultStore
+        self.thumbnails = thumbnails
+    }
+
     // MARK: - Keys
     private let privacyScreenTag = 999
     nonisolated private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
@@ -289,8 +300,8 @@ final class AuthService {
         guard hasAuthenticated, lockMode != .none else { return }
         isLocked = true
         keyStore.wipeKey()
-        FileSystem.shared.cleanupTempFiles()
-        ThumbnailService.shared.clearCache()
+        vaultStore?.removeAllTemporaryFiles()
+        thumbnails?.clearCache()
     }
 
     func handleForeground(in window: UIWindow?) {

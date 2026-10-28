@@ -10,7 +10,8 @@ import AVKit
 import QuickLook
 
 final class LegacyFilePageViewController: UIViewController {
-    let item: LegacyVaultItem
+    let item: VaultItem
+    private let vaultStore: any VaultStoring
     private weak var viewer: LegacyFileViewerViewController?
     private var playerLayer: AVPlayerLayer?
     /// This page's own player. The pager loads neighbour pages before they show, so the page hands it to the
@@ -23,9 +24,11 @@ final class LegacyFilePageViewController: UIViewController {
     private var playerItemStatusObservation: NSKeyValueObservation?  // invalidated when released
     private var errorLabel: UILabel?
     
-    init(item: LegacyVaultItem, viewer: LegacyFileViewerViewController) {
+    /// - Parameter vaultStore: the app's vault store, which opens (decrypts) the item.
+    init(item: VaultItem, viewer: LegacyFileViewerViewController, vaultStore: any VaultStoring) {
         self.item = item
         self.viewer = viewer
+        self.vaultStore = vaultStore
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -36,7 +39,7 @@ final class LegacyFilePageViewController: UIViewController {
         view.backgroundColor = .black
         view.accessibilityIdentifier = "filePage.\(item.name)"
         let ext = (item.name as NSString).pathExtension.lowercased()
-        switch LegacyFileKind(extension: ext) {
+        switch item.kind {
         case .image:
             setupImageView()
         case .video:
@@ -91,12 +94,23 @@ final class LegacyFilePageViewController: UIViewController {
         errorLabel = label
     }
     
+    /// The item's plaintext URL from the store (decrypted off the main actor), or nil on any failure.
+    private func openItem() async -> URL? {
+        try? await vaultStore.open(item)
+    }
+
     private func setupImageView() {
-        guard let url = try? FileSystem.shared.open(item),
-              let image = UIImage(contentsOfFile: url.path) else {
-            showErrorLabel()
-            return
+        Task {
+            guard let url = await openItem(),
+                  let image = UIImage(contentsOfFile: url.path) else {
+                showErrorLabel()
+                return
+            }
+            installImageView(image)
         }
+    }
+
+    private func installImageView(_ image: UIImage) {
         let scrollView = UIScrollView()
             scrollView.delegate         = self
             scrollView.minimumZoomScale = 1.0
@@ -148,11 +162,13 @@ final class LegacyFilePageViewController: UIViewController {
         guard item.isEncrypted,
               let delegate = VaultResourceLoaderDelegate(encryptedURL: item.diskURL, fileExtension: ext) else {
             // Not encrypted (or streaming setup failed) — play directly.
-            guard let url = try? FileSystem.shared.open(item) else {
-                showErrorLabel()
-                return
+            Task {
+                guard let url = await openItem() else {
+                    showErrorLabel()
+                    return
+                }
+                installVideoPlayer(url: url)
             }
-            installVideoPlayer(url: url)
             return
         }
 
@@ -200,18 +216,24 @@ final class LegacyFilePageViewController: UIViewController {
     }
     
     private func openInTextEditor() {
-        let editor = LegacyTextEditorViewController(item: item)
+        let editor = LegacyTextEditorViewController(item: item, vaultStore: vaultStore)
         let nav = UINavigationController(rootViewController: editor)
         nav.modalPresentationStyle = .fullScreen
         present(nav, animated: true)
     }
     
     private func setupQuickLook() {
-        previewURL = try? FileSystem.shared.open(item)
-        guard previewURL != nil else {
-            showErrorLabel()
-            return
+        Task {
+            previewURL = await openItem()
+            guard previewURL != nil else {
+                showErrorLabel()
+                return
+            }
+            installQuickLook()
         }
+    }
+
+    private func installQuickLook() {
         let qlController = QLPreviewController()
         qlController.dataSource = self
         addChild(qlController)

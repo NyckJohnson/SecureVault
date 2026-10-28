@@ -8,8 +8,17 @@
 import UIKit
 
 final class LegacyRecentlyDeletedViewController: UIViewController, ErrorPresenting {
-    private var items: [LegacyVaultItem] = []
+    private let vaultStore: any VaultStoring
+    private var items: [VaultItem] = []
     private var tableView: UITableView!
+
+    /// - Parameter vaultStore: the app's vault store, which holds the trash.
+    init(vaultStore: any VaultStoring) {
+        self.vaultStore = vaultStore
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -42,15 +51,20 @@ final class LegacyRecentlyDeletedViewController: UIViewController, ErrorPresenti
     }
 
     private func loadItems() {
-        do {
-            items = try FileSystem.shared.contentsOfTrash(for: .root)
-        } catch {
-            items = []
-            showError(error)
+        Task {
+            do {
+                // Most recently deleted first.
+                items = try await vaultStore.trashContents().sorted {
+                    ($0.deletedAt ?? $0.dateModified) > ($1.deletedAt ?? $1.dateModified)
+                }
+            } catch {
+                items = []
+                showError(error)
+            }
+            tableView.reloadData()
+            tableView.backgroundView = items.isEmpty ? emptyStateLabel() : nil
+            navigationItem.rightBarButtonItem?.isEnabled = !items.isEmpty
         }
-        tableView.reloadData()
-        tableView.backgroundView = items.isEmpty ? emptyStateLabel() : nil
-        navigationItem.rightBarButtonItem?.isEnabled = !items.isEmpty
     }
 
     private func emptyStateLabel() -> UILabel {
@@ -72,11 +86,10 @@ final class LegacyRecentlyDeletedViewController: UIViewController, ErrorPresenti
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Empty Trash", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            do {
-                try FileSystem.shared.emptyTrash(for: .root)
+            Task {
+                // Best-effort by contract: it removes everything it can.
+                await self.vaultStore.emptyTrash()
                 self.loadItems()
-            } catch {
-                self.showError(error)
             }
         })
         present(alert, animated: true)
@@ -112,21 +125,25 @@ extension LegacyRecentlyDeletedViewController: UITableViewDelegate {
         let alert = UIAlertController(title: item.name, message: nil, preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Restore", style: .default) { [weak self] _ in
             guard let self else { return }
-            do {
-                try FileSystem.shared.restoreFromTrash(item)
-                self.loadItems()
-                NotificationCenter.default.post(name: .fileRestored, object: nil)
-            } catch {
-                self.showError(error)
+            Task {
+                do {
+                    _ = try await self.vaultStore.restore(item)
+                    self.loadItems()
+                    NotificationCenter.default.post(name: .fileRestored, object: nil)
+                } catch {
+                    self.showError(error)
+                }
             }
         })
         alert.addAction(UIAlertAction(title: "Delete Permanently", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            do {
-                try FileSystem.shared.permanentlyDelete(item)
-                self.loadItems()
-            } catch {
-                self.showError(error)
+            Task {
+                do {
+                    try await self.vaultStore.deletePermanently(item)
+                    self.loadItems()
+                } catch {
+                    self.showError(error)
+                }
             }
         })
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))

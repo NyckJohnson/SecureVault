@@ -11,6 +11,18 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     private var vaultUnlockObserver: NSObjectProtocol?
 
+    /// The composition root, built once by `AppDelegate`.
+    private var dependencies: AppDependencies {
+        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else {
+            // Unreachable: AppDelegate is the app's `@main` delegate.
+            fatalError("SceneDelegate: the application delegate is not AppDelegate")
+        }
+        return appDelegate.dependencies
+    }
+
+    /// The app's one vault store.
+    private var vaultStore: any VaultStoring { dependencies.vaultStore }
+
     // MARK: - UIWindowSceneDelegate
     
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
@@ -18,7 +30,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         setupVaultUnlockObserver()
 
-        let root = LegacyFileBrowserViewController(directory: .root)
+        let root = LegacyFileBrowserViewController(directory: vaultStore.root, services: dependencies.browserServices)
         let nav = UINavigationController(rootViewController: root)
         nav.navigationBar.prefersLargeTitles = true
         let window = UIWindow(windowScene: windowScene)
@@ -34,7 +46,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             AuthService.shared.handleInitialLaunch(in: window)
         }
 
-        FileSystem.shared.cleanupTempFiles()
+        vaultStore.removeAllTemporaryFiles()
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
@@ -45,7 +57,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // No-lock mode never posts vaultUnlocked on a return from background, so purge here.
         // `hasAuthenticated` is still false on a cold launch, where vaultUnlocked already purged.
         guard AuthService.shared.lockMode == .none, AuthService.shared.hasAuthenticated else { return }
-        purgeExpiredTrashIfUnlocked()
+        Task { await purgeExpiredTrashIfUnlocked() }
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
@@ -77,10 +89,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     private func handleVaultUnlocked() {
-        purgeExpiredTrashIfUnlocked()
-        // After unlock, so the key is loaded and the folder indexes can be read.
-        // A no-op without the key (no-lock mode).
-        FileSystem.shared.sweepOrphanedEncryptedFiles(in: .root)
+        Task {
+            await purgeExpiredTrashIfUnlocked()
+            // After unlock, so the key is loaded and the folder indexes can be read.
+            // A no-op without the key (no-lock mode). A migration in progress has copies not
+            // indexed yet; the sweep runs after it finishes instead (on a later unlock).
+            if LegacyStorage.current.preferences.pendingMigration == nil {
+                await vaultStore.sweepOrphans()
+            }
+            presentPendingMigration()
+        }
+    }
+
+    /// Presents the Migration screen for a pending migration, unless one is already showing.
+    private func presentPendingMigration() {
         guard let pending = LegacyStorage.current.preferences.pendingMigration,
               let root = window?.rootViewController else { return }
         var topVC = root
@@ -91,17 +113,19 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard !(topVC is LegacyMigrationViewController) else { return }
         let type = pending.kind
         let targetLockMode = pending.targetLockMode
-        let migration = LegacyMigrationViewController(type: type, targetLockMode: targetLockMode) { completedFully in
+        let migration = LegacyMigrationViewController(
+            type: type, vaultStore: vaultStore, targetLockMode: targetLockMode
+        ) { completedFully in
             AuthService.shared.finalizeMigration(type: type, targetLockMode: targetLockMode, completedFully: completedFully)
         }
         topVC.present(migration, animated: true)
     }
 
     /// Removes trash items older than 30 days. Only with no lock, or with the key loaded:
-    /// while locked the encrypted trash map can't be read, and a legacy plaintext one would
-    /// be rewritten as plaintext. Runs on the main thread, like the orphan sweep.
-    private func purgeExpiredTrashIfUnlocked() {
+    /// while locked the encrypted trash map can't be read. A failure (e.g. an unreadable trash
+    /// map, which is never overwritten) is ignored: the purge runs again after the next unlock.
+    private func purgeExpiredTrashIfUnlocked() async {
         guard AuthService.shared.lockMode == .none || LegacyStorage.current.masterKeyStore.isKeyLoaded else { return }
-        FileSystem.shared.cleanupExpiredTrashItems(for: .root)
+        _ = try? await vaultStore.purgeExpiredTrash(now: Date())
     }
 }

@@ -18,8 +18,16 @@ import os
 nonisolated final class ThumbnailService: Sendable {
     typealias Completion = @MainActor @Sendable (UIImage?) -> Void
 
-    static let shared = ThumbnailService()
-    private init() {}
+    private let vaultStore: any VaultStoring
+    private let preferences: any PreferencesStoring
+
+    /// - Parameters:
+    ///   - vaultStore: the app's vault store (decrypts files and lists folders for thumbnails).
+    ///   - preferences: the app's settings (a folder's thumbnail shows its first image or video in sort order).
+    init(vaultStore: any VaultStoring, preferences: any PreferencesStoring) {
+        self.vaultStore = vaultStore
+        self.preferences = preferences
+    }
 
     private enum FolderIconLayout {
         static let symbolPointSizeRatio: CGFloat = 0.8
@@ -33,7 +41,7 @@ nonisolated final class ThumbnailService: Sendable {
 
     /// `NSCache` is documented as thread-safe but not yet marked `Sendable` in the SDK.
     nonisolated(unsafe) private let cache = NSCache<NSString, UIImage>()
-    private let cancelledIDs = OSAllocatedUnfairLock(initialState: Set<UUID>())
+    private let cancelledIDs = OSAllocatedUnfairLock(initialState: Set<VaultItem.ID>())
     private let decryptionSemaphore = DispatchSemaphore(value: 2)
     private let thumbnailQueue = DispatchQueue(label: "com.KoalaTVault.thumbnails", attributes: .concurrent)
 
@@ -42,10 +50,10 @@ nonisolated final class ThumbnailService: Sendable {
     /// Returns a cached thumbnail immediately, or generates one in the background.
     /// `completion` is always called on the main actor.
     @MainActor
-    func thumbnail(for item: LegacyVaultItem, size: CGSize, completion: @escaping Completion) -> QLThumbnailGenerator.Request? {
+    func thumbnail(for item: VaultItem, size: CGSize, completion: @escaping Completion) -> QLThumbnailGenerator.Request? {
         cancelledIDs.withLock { _ = $0.remove(item.id) }
 
-        if let cached = cachedImage(for: item.id) {
+        if let cached = cachedImage(for: item) {
             completion(cached)
             return nil
         }
@@ -62,7 +70,7 @@ nonisolated final class ThumbnailService: Sendable {
 
     /// Skips decryption for an item whose thumbnail is no longer needed
     /// (e.g. its cell scrolled off screen). The completion will not be called.
-    func cancelThumbnail(for item: LegacyVaultItem) {
+    func cancelThumbnail(for item: VaultItem) {
         cancelledIDs.withLock { _ = $0.insert(item.id) }
     }
 
@@ -70,37 +78,38 @@ nonisolated final class ThumbnailService: Sendable {
         cache.removeAllObjects()
     }
 
-    func clearCache(for item: LegacyVaultItem) {
-        cache.removeObject(forKey: cacheKey(for: item.id))
+    func clearCache(for item: VaultItem) {
+        cache.removeObject(forKey: cacheKey(for: item))
     }
 
     // MARK: - Cache Helpers
-    private func cacheKey(for id: UUID) -> NSString {
-        id.uuidString as NSString
+    /// Item ids are stable paths, so the key also holds the modification date and size: a file replaced
+    /// at the same path (or a folder whose contents changed) never shows the old thumbnail.
+    private func cacheKey(for item: VaultItem) -> NSString {
+        "\(item.id)|\(item.dateModified.timeIntervalSinceReferenceDate)|\(item.fileSize ?? -1)" as NSString
     }
 
-    private func cachedImage(for id: UUID) -> UIImage? {
-        cache.object(forKey: cacheKey(for: id))
+    private func cachedImage(for item: VaultItem) -> UIImage? {
+        cache.object(forKey: cacheKey(for: item))
     }
 
-    private func store(_ image: UIImage, for id: UUID) {
-        cache.setObject(image, forKey: cacheKey(for: id))
+    private func store(_ image: UIImage, for item: VaultItem) {
+        cache.setObject(image, forKey: cacheKey(for: item))
     }
 
     /// Returns `true` (and clears the flag) if the item was cancelled.
-    private func consumeCancellation(for id: UUID) -> Bool {
+    private func consumeCancellation(for id: VaultItem.ID) -> Bool {
         cancelledIDs.withLock { $0.remove(id) != nil }
     }
 
     // MARK: - File Thumbnail
     private func fileThumbnail(
-        for item: LegacyVaultItem,
+        for item: VaultItem,
         size: CGSize,
         scale: CGFloat,
         completion: @escaping Completion
     ) -> QLThumbnailGenerator.Request? {
-        let ext = (item.name as NSString).pathExtension.lowercased()
-        if item.isEncrypted, LegacyFileKind(extension: ext) == .video {
+        if item.isEncrypted, item.kind == .video {
             videoThumbnail(for: item, size: size, scale: scale, completion: completion)
             return nil
         }
@@ -113,29 +122,36 @@ nonisolated final class ThumbnailService: Sendable {
         }
 
         thumbnailQueue.async { [self] in
+            // At most two decryptions at a time; released when the decrypt below has finished.
             decryptionSemaphore.wait()
-            defer { decryptionSemaphore.signal() }
 
-            if consumeCancellation(for: item.id) { return }
+            if consumeCancellation(for: item.id) {
+                decryptionSemaphore.signal()
+                return
+            }
 
-            if let cached = cachedImage(for: item.id) {
+            if let cached = cachedImage(for: item) {
+                decryptionSemaphore.signal()
                 DispatchQueue.main.async { completion(cached) }
                 return
             }
-            guard let url = try? FileSystem.shared.open(item) else {
-                DispatchQueue.main.async { completion(nil) }
-                return
+            Task.detached { [self] in
+                defer { decryptionSemaphore.signal() }
+                guard let url = try? await vaultStore.open(item) else {
+                    DispatchQueue.main.async { completion(nil) }
+                    return
+                }
+                _ = generateThumbnail(
+                    for: item, at: url, size: size, scale: scale,
+                    deleteWhenDone: true, completion: completion
+                )
             }
-            _ = generateThumbnail(
-                for: item, at: url, size: size, scale: scale,
-                deleteWhenDone: true, completion: completion
-            )
         }
         return nil
     }
 
     private func generateThumbnail(
-        for item: LegacyVaultItem,
+        for item: VaultItem,
         at url: URL,
         size: CGSize,
         scale: CGFloat,
@@ -149,9 +165,9 @@ nonisolated final class ThumbnailService: Sendable {
             representationTypes: .thumbnail
         )
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [self] thumbnail, _ in
-            if deleteWhenDone { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            if deleteWhenDone { vaultStore.removeTemporary(url.deletingLastPathComponent()) }
             let image = thumbnail?.uiImage
-            if let image { store(image, for: item.id) }
+            if let image { store(image, for: item) }
             DispatchQueue.main.async { completion(image) }
         }
         return request
@@ -159,7 +175,7 @@ nonisolated final class ThumbnailService: Sendable {
 
     // MARK: - Video Thumbnail
     private func videoThumbnail(
-        for item: LegacyVaultItem,
+        for item: VaultItem,
         size: CGSize,
         scale: CGFloat,
         completion: @escaping Completion
@@ -203,7 +219,7 @@ nonisolated final class ThumbnailService: Sendable {
                             return
                         }
                         let image = UIImage(cgImage: cgImage)
-                        store(image, for: item.id)
+                        store(image, for: item)
                         DispatchQueue.main.async { completion(image) }
                     }
                 }
@@ -213,41 +229,58 @@ nonisolated final class ThumbnailService: Sendable {
 
     // MARK: - Folder Thumbnail
     private func folderThumbnail(
-        for item: LegacyVaultItem,
+        for item: VaultItem,
         size: CGSize,
         scale: CGFloat,
         completion: @escaping Completion
     ) {
-        thumbnailQueue.async { [self] in
-            let directory = LegacyVaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
-            let contents = (try? FileSystem.shared.contents(of: directory)) ?? []
-
-            guard let mediaItem = contents.first(where: Self.isMedia) else {
-                let folderIcon = renderFolderImage(targetSize: size, scale: scale)
-                if let folderIcon { store(folderIcon, for: item.id) }
-                DispatchQueue.main.async { completion(folderIcon) }
-                return
+        let option = preferences.sortOption
+        let direction = preferences.sortDirection
+        Task.detached { [self] in
+            let contents: [VaultItem]
+            if let directory = item.asDirectory {
+                contents = (try? await vaultStore.contents(of: directory, sortedBy: option, direction)) ?? []
+            } else {
+                contents = []
             }
-
-            _ = fileThumbnail(for: mediaItem, size: size, scale: scale) { [self] thumbnail in
-                guard let thumbnail else {
-                    completion(nil)
-                    return
-                }
-                // Compose off the main thread, then deliver back on main.
-                thumbnailQueue.async { [self] in
-                    let composed = composeFolderIcon(thumbnail: thumbnail, targetSize: size, scale: scale)
-                    store(composed, for: item.id)
-                    DispatchQueue.main.async { completion(composed) }
-                }
+            thumbnailQueue.async { [self] in
+                composeFolderThumbnail(for: item, contents: contents, size: size, scale: scale, completion: completion)
             }
         }
     }
 
-    private static func isMedia(_ item: LegacyVaultItem) -> Bool {
+    /// The folder icon with the first image or video of `contents` inside, or the plain icon.
+    private func composeFolderThumbnail(
+        for item: VaultItem,
+        contents: [VaultItem],
+        size: CGSize,
+        scale: CGFloat,
+        completion: @escaping Completion
+    ) {
+        guard let mediaItem = contents.first(where: Self.isMedia) else {
+            let folderIcon = renderFolderImage(targetSize: size, scale: scale)
+            if let folderIcon { store(folderIcon, for: item) }
+            DispatchQueue.main.async { completion(folderIcon) }
+            return
+        }
+
+        _ = fileThumbnail(for: mediaItem, size: size, scale: scale) { [self] thumbnail in
+            guard let thumbnail else {
+                completion(nil)
+                return
+            }
+            // Compose off the main thread, then deliver back on main.
+            thumbnailQueue.async { [self] in
+                let composed = composeFolderIcon(thumbnail: thumbnail, targetSize: size, scale: scale)
+                store(composed, for: item)
+                DispatchQueue.main.async { completion(composed) }
+            }
+        }
+    }
+
+    private static func isMedia(_ item: VaultItem) -> Bool {
         guard !item.isDirectory else { return false }
-        let kind = LegacyFileKind(extension: (item.name as NSString).pathExtension.lowercased())
-        return kind == .image || kind == .video
+        return item.kind == .image || item.kind == .video
     }
 
     // MARK: - Folder Icon Composition

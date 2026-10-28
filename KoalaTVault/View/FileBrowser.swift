@@ -10,19 +10,34 @@ import UIKit
 final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
-    private let directory: LegacyVaultDirectory
-    private var items: [LegacyVaultItem] = []
+    private let directory: VaultDirectory
+    private let services: LegacyBrowserServices
+    private var vaultStore: any VaultStoring { services.vaultStore }
+    private var items: [VaultItem] = []
     private var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<Int, LegacyVaultItem>!
-    private var itemPendingMove: LegacyVaultItem?
+    private var dataSource: UICollectionViewDiffableDataSource<Int, VaultItem>!
+    private var itemPendingMove: VaultItem?
     private var pendingAction: (() -> Void)?
     private var isSelectMode = false
-    private var selectedItems: Set<LegacyVaultItem> = []
-    private var itemsPendingBulkAction: [LegacyVaultItem]?
+    /// The multi-select, by item id: ids stay equal across listings, so the selection survives a reload
+    /// (items whose content or date changed are new values but keep their id).
+    private var selectedItemIDs: Set<VaultItem.ID> = []
+    private var itemsPendingBulkAction: [VaultItem]?
+    /// Bumped by each `loadContents`; a listing that finishes after a newer one started is dropped.
+    private var loadGeneration = 0
+
+    /// The selected items of the current listing, in listing order.
+    private var selectedItems: [VaultItem] {
+        items.filter { selectedItemIDs.contains($0.id) }
+    }
 
     // MARK: - Init
-    init(directory: LegacyVaultDirectory) {
+    /// - Parameters:
+    ///   - directory: the folder this screen lists.
+    ///   - services: the vault store and the other services, from the composition root.
+    init(directory: VaultDirectory, services: LegacyBrowserServices) {
         self.directory = directory
+        self.services = services
         super.init(nibName: nil, bundle: nil)
         self.title = directory.name
     }
@@ -50,7 +65,6 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
 
 #if DEBUG
         print("Temp files: \(tempFiles.count), total size: \(totalSize / 1024 / 1024)MB")
-        FileSystem.shared.diagnoseDiskState()
 #endif
     }
 
@@ -69,7 +83,7 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
                 image: UIImage(systemName: "doc.on.doc"), style: .plain, target: self, action: #selector(bulkCopy))
 
             navigationItem.leftBarButtonItem = cancel
-            navigationItem.title = selectedItems.isEmpty ? "Select Items" : "\(selectedItems.count) Selected"
+            navigationItem.title = selectedItemIDs.isEmpty ? "Select Items" : "\(selectedItemIDs.count) Selected"
             navigationItem.rightBarButtonItems = [deleteButton, moveButton, exportButton, copyButton]
 
             // for ui tests
@@ -80,7 +94,7 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
             copyButton.accessibilityIdentifier   = "browser.bulkCopyButton"
         } else {
             // Left side
-            if directory.diskURL == LegacyVaultDirectory.root.diskURL {
+            if directory.diskURL == vaultStore.root.diskURL {
                 let settingsButton = UIBarButtonItem(
                     image: UIImage(systemName: "gear"), style: .plain, target: self, action: #selector(openSettings))
                 navigationItem.leftBarButtonItem = settingsButton
@@ -157,28 +171,42 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
             guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LegacyFileCell.reuseID, for: indexPath) as? LegacyFileCell else {
                 fatalError("FileCell not registered for reuse ID \(LegacyFileCell.reuseID)")
             }
-            cell.configure(with: item, gridMode: true)
-            cell.accessibilityIdentifier = "browser.cell.\(item.name)"
             if let self {
-                cell.setSelected(selectedItems.contains(item), inSelectMode: isSelectMode)
+                cell.configure(with: item, gridMode: true, thumbnails: services.thumbnails)
+                cell.setSelected(selectedItemIDs.contains(item.id), inSelectMode: isSelectMode)
             }
+            cell.accessibilityIdentifier = "browser.cell.\(item.name)"
             return cell
         }
     }
 
     private func loadContents() {
-        do {
-            items = try FileSystem.shared.contents(of: directory)
-            applySnapshot()
-        } catch {
-            // Suppress errors before auth — the lock screen handles the locked state.
-            guard AuthService.shared.hasAuthenticated else { return }
-            showError(error)
+        loadGeneration += 1
+        let generation = loadGeneration
+        let option = services.preferences.sortOption
+        let direction = services.preferences.sortDirection
+        let directory = directory
+        let vaultStore = vaultStore
+        Task { [weak self] in
+            do {
+                let listed = try await vaultStore.contents(of: directory, sortedBy: option, direction)
+                guard let self, generation == self.loadGeneration else { return }
+                self.items = listed
+                // Keep the selection of items still listed; ids are stable across listings.
+                self.selectedItemIDs.formIntersection(listed.map(\.id))
+                if self.isSelectMode { self.setupNavigationBar() }
+                self.applySnapshot()
+            } catch {
+                guard let self, generation == self.loadGeneration else { return }
+                // Suppress errors before auth — the lock screen handles the locked state.
+                guard AuthService.shared.hasAuthenticated else { return }
+                self.showError(error)
+            }
         }
     }
 
     private func applySnapshot() {
-        var snapshot = NSDiffableDataSourceSnapshot<Int, LegacyVaultItem>()
+        var snapshot = NSDiffableDataSourceSnapshot<Int, VaultItem>()
         snapshot.appendSections([0])
         snapshot.appendItems(items)
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -197,7 +225,7 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Actions
     @objc private func openSettings() {
-        let settings = LegacySecuritySettingsViewController()
+        let settings = LegacySecuritySettingsViewController(vaultStore: vaultStore)
         let nav = UINavigationController(rootViewController: settings)
         nav.modalPresentationStyle = .formSheet
         present(nav, animated: true)
@@ -212,11 +240,13 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self] _ in
             guard let self, let name = alert.textFields?.first?.text, !name.isEmpty else { return }
-            do {
-                _ = try FileSystem.shared.createFolder(named: name, in: self.directory)
-                self.loadContents()
-            } catch {
-                self.showError(error)
+            Task {
+                do {
+                    _ = try await self.vaultStore.createFolder(named: name, in: self.directory)
+                    self.loadContents()
+                } catch {
+                    self.showError(error)
+                }
             }
         })
         present(alert, animated: true)
@@ -233,18 +263,20 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
             guard let self,
                   let name = alert.textFields?.first?.text,
                   !name.isEmpty else { return }
-            let vaultItem: LegacyVaultItem
-            do {
-                vaultItem = try FileSystem.shared.createDocument(named: name, in: self.directory)
-            } catch {
-                self.showError(error)
-                return
-            }
-            let editor = LegacyTextEditorViewController(item: vaultItem)
-            let nav = UINavigationController(rootViewController: editor)
-            nav.modalPresentationStyle = .fullScreen
-            self.present(nav, animated: true) {
-                self.loadContents()
+            Task {
+                let vaultItem: VaultItem
+                do {
+                    vaultItem = try await self.vaultStore.createDocument(named: name, in: self.directory)
+                } catch {
+                    self.showError(error)
+                    return
+                }
+                let editor = LegacyTextEditorViewController(item: vaultItem, vaultStore: self.vaultStore)
+                let nav = UINavigationController(rootViewController: editor)
+                nav.modalPresentationStyle = .fullScreen
+                self.present(nav, animated: true) {
+                    self.loadContents()
+                }
             }
         })
         present(alert, animated: true)
@@ -253,37 +285,40 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
     // MARK: - Select Mode
     @objc private func enterSelectMode() {
         isSelectMode = true
-        selectedItems = []
+        selectedItemIDs = []
         setupNavigationBar()
         collectionView.reloadData()
     }
 
     @objc private func exitSelectMode() {
         isSelectMode = false
-        selectedItems = []
+        selectedItemIDs = []
         setupNavigationBar()
         collectionView.reloadData()
     }
 
     // MARK: - Bulk Actions
     @objc private func bulkDelete() {
-        guard !selectedItems.isEmpty else { return }
-        let alert = UIAlertController(title: "Delete \(selectedItems.count) items?", message: nil, preferredStyle: .alert)
+        guard !selectedItemIDs.isEmpty else { return }
+        let alert = UIAlertController(title: "Delete \(selectedItemIDs.count) items?", message: nil, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            for item in self.selectedItems {
-                try? FileSystem.shared.delete(item)
+            let itemsToDelete = self.selectedItems
+            Task {
+                for item in itemsToDelete {
+                    try? await self.vaultStore.moveToTrash(item)
+                }
+                self.exitSelectMode()
+                self.loadContents()
             }
-            self.exitSelectMode()
-            self.loadContents()
         })
         present(alert, animated: true)
     }
 
     @objc private func bulkMove() {
-        guard !selectedItems.isEmpty else { return }
-        let itemsToMove = Array(selectedItems)
+        guard !selectedItemIDs.isEmpty else { return }
+        let itemsToMove = selectedItems
         itemPendingMove = nil
         itemsPendingBulkAction = itemsToMove
         guard let firstItem = itemsToMove.first else { return }
@@ -291,17 +326,21 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
     }
 
     @objc private func bulkExport() {
-        guard !selectedItems.isEmpty else { return }
-        ExportService.shared.exportMultiple(Array(selectedItems), from: self, barButtonItem: navigationItem.rightBarButtonItems?.first)
+        guard !selectedItemIDs.isEmpty else { return }
+        services.exportService.exportMultiple(selectedItems, from: self, barButtonItem: navigationItem.rightBarButtonItems?.first)
     }
 
     @objc private func bulkCopy() {
-        guard !selectedItems.isEmpty else { return }
-        for item in selectedItems {
-            try? FileSystem.shared.copy(item, to: directory)
+        guard !selectedItemIDs.isEmpty else { return }
+        let itemsToCopy = selectedItems
+        let directory = directory
+        Task {
+            for item in itemsToCopy {
+                _ = try? await vaultStore.copy(item, to: directory)
+            }
+            exitSelectMode()
+            loadContents()
         }
-        exitSelectMode()
-        loadContents()
     }
 
     // MARK: - Helpers
@@ -309,8 +348,10 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
         loadContents()
     }
 
-    private func presentFolderPicker(for item: LegacyVaultItem) {
-        let picker = LegacyFolderPickerViewController(rootDirectory: LegacyVaultDirectory.root, currentDirectory: LegacyVaultDirectory.root)
+    private func presentFolderPicker(for item: VaultItem) {
+        let picker = LegacyFolderPickerViewController(
+            rootDirectory: vaultStore.root, currentDirectory: vaultStore.root,
+            vaultStore: vaultStore, preferences: services.preferences)
         picker.delegate = self
         let nav = UINavigationController(rootViewController: picker)
         nav.modalPresentationStyle = .formSheet
@@ -322,7 +363,7 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
     @objc private func promptSort() {
         let sheet = UIAlertController(title: "Sort By", message: nil, preferredStyle: .actionSheet)
 
-        let preferences = LegacyStorage.current.preferences
+        let preferences = services.preferences
         for option in SortOption.allCases {
             let isCurrent = preferences.sortOption == option
             let direction = preferences.sortDirection
@@ -358,7 +399,7 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
         return label
     }
 
-    private func promptRename(item: LegacyVaultItem) {
+    private func promptRename(item: VaultItem) {
         let alert = UIAlertController(title: "Rename", message: nil, preferredStyle: .alert)
         alert.addTextField {
             $0.text = item.name
@@ -367,17 +408,19 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak self] _ in
             guard let self, let name = alert.textFields?.first?.text, !name.isEmpty else { return }
-            do {
-                try FileSystem.shared.rename(item, to: name)
-                self.loadContents()
-            } catch {
-                self.showError(error)
+            Task {
+                do {
+                    _ = try await self.vaultStore.rename(item, to: name)
+                    self.loadContents()
+                } catch {
+                    self.showError(error)
+                }
             }
         })
         present(alert, animated: true)
     }
 
-    private func confirmDelete(item: LegacyVaultItem) {
+    private func confirmDelete(item: VaultItem) {
         let alert = UIAlertController(
             title: "Delete \"\(item.name)\"?",
             message: item.isDirectory ? "This will delete the folder and all its contents." : nil,
@@ -386,11 +429,13 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            do {
-                try FileSystem.shared.delete(item)
-                self.loadContents()
-            } catch {
-                self.showError(error)
+            Task {
+                do {
+                    try await self.vaultStore.moveToTrash(item)
+                    self.loadContents()
+                } catch {
+                    self.showError(error)
+                }
             }
         })
         present(alert, animated: true)
@@ -398,7 +443,7 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Import
     @objc private func promptImport() {
-        ImportService.shared.promptImport(
+        services.importService.promptImport(
             into: directory, from: self, barButtonItem: navigationItem.rightBarButtonItems?.last
         ) { [weak self] in
             self?.loadContents()
@@ -413,33 +458,34 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
         let item = items[indexPath.item]
 
         if isSelectMode {
-            if selectedItems.contains(item) {
-                selectedItems.remove(item)
+            if selectedItemIDs.contains(item.id) {
+                selectedItemIDs.remove(item.id)
             } else {
-                selectedItems.insert(item)
+                selectedItemIDs.insert(item.id)
             }
             setupNavigationBar()
             if let cell = collectionView.cellForItem(at: indexPath) as? LegacyFileCell {
-                cell.setSelected(selectedItems.contains(item), inSelectMode: true)
+                cell.setSelected(selectedItemIDs.contains(item.id), inSelectMode: true)
             }
             return
         }
 
-        if item.isDirectory {
-            let subDir = LegacyVaultDirectory(name: item.name, diskURL: item.diskURL, rootURL: item.rootURL)
-            let browser = LegacyFileBrowserViewController(directory: subDir)
+        if let subDir = item.asDirectory {
+            let browser = LegacyFileBrowserViewController(directory: subDir, services: services)
             navigationController?.pushViewController(browser, animated: true)
         } else {
             let ext = (item.name as NSString).pathExtension.lowercased()
             if ext == "rtf" {
-                let editor = LegacyTextEditorViewController(item: item)
+                let editor = LegacyTextEditorViewController(item: item, vaultStore: vaultStore)
                 let nav = UINavigationController(rootViewController: editor)
                 nav.modalPresentationStyle = .fullScreen
                 present(nav, animated: true)
             } else {
                 let nonDirectories = items.filter { !$0.isDirectory }
                 let startIndex = nonDirectories.firstIndex(where: { $0.id == item.id }) ?? 0
-                let viewer = LegacyFileViewerViewController(items: nonDirectories, startingAt: startIndex)
+                let viewer = LegacyFileViewerViewController(
+                    items: nonDirectories, startingAt: startIndex,
+                    vaultStore: vaultStore, exportService: services.exportService)
                 present(viewer, animated: true)
             }
         }
@@ -470,7 +516,7 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
             ) { [weak self] _ in
                 guard let self else { return }
                 let cell = collectionView.cellForItem(at: indexPath)
-                ExportService.shared.export(item, from: self, sourceView: cell)
+                self.services.exportService.export(item, from: self, sourceView: cell)
             }
             let move = UIAction(
                 title: "Move", image: UIImage(systemName: "folder"),
@@ -486,11 +532,13 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
                 identifier: UIAction.Identifier("browser.contextMenu.copy")
             ) { [weak self] _ in
                 guard let self else { return }
-                do {
-                    try FileSystem.shared.copy(item, to: self.directory)
-                    self.loadContents()
-                } catch {
-                    self.showError(error)
+                Task {
+                    do {
+                        _ = try await self.vaultStore.copy(item, to: self.directory)
+                        self.loadContents()
+                    } catch {
+                        self.showError(error)
+                    }
                 }
             }
             return UIMenu(title: item.name, children: [export, move, copy, rename, delete])
@@ -515,35 +563,41 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
 
 // MARK: - FolderPickerDelegate
 extension LegacyFileBrowserViewController: FolderPickerDelegate {
-    func folderPicker(_ picker: LegacyFolderPickerViewController, didSelectFolder directory: LegacyVaultDirectory) {
+    func folderPicker(_ picker: LegacyFolderPickerViewController, didSelectFolder directory: VaultDirectory) {
+        let vaultStore = vaultStore
         if let items = itemsPendingBulkAction {
-            var errors: [Error] = []
-            for item in items {
-                do {
-                    try FileSystem.shared.move(item, to: directory)
-                } catch {
-                    errors.append(error)
+            itemsPendingBulkAction = nil
+            Task {
+                var errors: [Error] = []
+                for item in items {
+                    do {
+                        try await vaultStore.move(item, to: directory)
+                    } catch {
+                        errors.append(error)
+                    }
+                }
+                exitSelectMode()
+                loadContents()
+                // Bulk results report how many failed, with the first error.
+                if let firstError = errors.first {
+                    showError("\(errors.count) of \(items.count) failed. \(legacyErrorMessage(for: firstError))")
                 }
             }
-            itemsPendingBulkAction = nil
-            exitSelectMode()
-            loadContents()
-            // Bulk results report how many failed, with the first error.
-            if let firstError = errors.first {
-                showError("\(errors.count) of \(items.count) failed. \(firstError.localizedDescription)")
-            }
-            return
         } else if let item = itemPendingMove {
             itemPendingMove = nil
-            do {
-                try FileSystem.shared.move(item, to: directory)
-            } catch {
+            Task {
+                do {
+                    try await vaultStore.move(item, to: directory)
+                } catch {
+                    loadContents()
+                    showError(error)
+                    return
+                }
                 loadContents()
-                showError(error)
-                return
             }
+        } else {
+            loadContents()
         }
-        loadContents()
     }
 
     func folderPickerDidCancel(_ picker: LegacyFolderPickerViewController) {
@@ -582,8 +636,8 @@ extension LegacyFileBrowserViewController: UICollectionViewDragDelegate {
     // such drags stay inside the app (move onto a folder); export goes through ExportService.
     func collectionView(_ collectionView: UICollectionView, dragSessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool {
         session.items.contains { dragItem in
-            guard let item = dragItem.localObject as? LegacyVaultItem else { return true }
-            return FileSystem.shared.needsDecryptedCopy(item)
+            guard let item = dragItem.localObject as? VaultItem else { return true }
+            return services.exportService.needsDecryptedCopy(item)
         }
     }
 }
@@ -609,15 +663,16 @@ extension LegacyFileBrowserViewController: UICollectionViewDropDelegate {
     func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
         guard let destinationIndexPath = coordinator.destinationIndexPath else { return }
         for item in coordinator.items {
-            guard let draggedItem = item.dragItem.localObject as? LegacyVaultItem else { continue }
+            guard let draggedItem = item.dragItem.localObject as? VaultItem else { continue }
             let destinationItem = items[destinationIndexPath.item]
-            if destinationItem.isDirectory {
-                let destDir = LegacyVaultDirectory(name: destinationItem.name, diskURL: destinationItem.diskURL, rootURL: destinationItem.rootURL)
-                do {
-                    try FileSystem.shared.move(draggedItem, to: destDir)
-                    loadContents()
-                } catch {
-                    showError(error)
+            if let destDir = destinationItem.asDirectory {
+                Task {
+                    do {
+                        try await vaultStore.move(draggedItem, to: destDir)
+                        loadContents()
+                    } catch {
+                        showError(error)
+                    }
                 }
             }
             coordinator.drop(item.dragItem, toItemAt: destinationIndexPath)

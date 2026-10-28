@@ -5,7 +5,6 @@
 //  Created by Nicholas Johnson on 7/12/26.
 //
 
-import os
 import UIKit
 
 final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
@@ -20,14 +19,13 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     private let progressBar   = UIProgressView(progressViewStyle: .default)
     private let statusLabel   = UILabel()
 
-    private var filesToMigrate: [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] = []
-    // swiftlint:disable:next large_tuple
-    private var failedFiles: [(item: LegacyVaultItem, directory: LegacyVaultDirectory, error: Error)] = []
+    private var filesToMigrate: [VaultItem] = []
+    private var failedFiles: [(item: VaultItem, error: Error)] = []
     private var currentIndex      = 0
     private var isPaused          = false
     private let targetLockMode: LockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    private let directory: LegacyVaultDirectory
+    private let vaultStore: any VaultStoring
     private var migrationTask: Task<Void, Never>?
     /// True while a `runMigration` loop is executing; at most one loop runs per screen.
     private var isLoopRunning = false
@@ -44,16 +42,19 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     /// failing is reported instead of looping.
     private var transientRetries = 0
     private static let maxTransientRetries = 2
-    private let logger = Logger(subsystem: "com.KoalaTVault", category: "Migration")
 
+    /// - Parameters:
+    ///   - type: encrypt or decrypt the whole vault (trash included).
+    ///   - vaultStore: the app's vault store, which runs each step.
+    ///   - targetLockMode: the lock mode once an encryption completes (nil keeps a saved one).
     init(
         type: MigrationType,
-        directory: LegacyVaultDirectory = .root,
+        vaultStore: any VaultStoring,
         targetLockMode: LockMode? = nil,
         onComplete: @escaping (_ completedFully: Bool) -> Void
     ) {
         self.type = type
-        self.directory = directory
+        self.vaultStore = vaultStore
         self.targetLockMode = targetLockMode
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
@@ -157,10 +158,10 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
                 pauseMigration()
                 return
             }
-            let (item, itemDirectory) = filesToMigrate[currentIndex]
+            let item = filesToMigrate[currentIndex]
             let interruptionsBefore = interruptions
             do {
-                try await Self.migrate(item, in: itemDirectory, encrypt: type == .encrypt)
+                try await Self.migrate(item, with: vaultStore, encrypt: type == .encrypt)
             } catch {
                 if wasInterrupted(by: error, since: interruptionsBefore) {
                     // Each file's migration is safe to rerun from any point, so run it again.
@@ -173,14 +174,11 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
                         continue
                     }
                 }
-                failedFiles.append((item: item, directory: itemDirectory, error: error))
+                failedFiles.append((item: item, error: error))
             }
             transientRetries = 0
             currentIndex += 1
             showProgress()
-        }
-        if type == .encrypt {
-            guard await secureLeftoverIndexes() else { return }
         }
         if type == .decrypt && failedFiles.isEmpty {
             guard await finishDecryption() else { return }
@@ -197,7 +195,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
             return false
         }
         do {
-            filesToMigrate = try await Self.loadFiles(toEncrypted: type == .encrypt, in: directory)
+            filesToMigrate = try await vaultStore.itemsToMigrate(toEncrypted: type == .encrypt)
         } catch {
             if canMigrate {
                 presentLoadFailure(error)
@@ -215,7 +213,8 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     /// True when a file's failure came from an interruption (backgrounding, device lock, key
     /// wipe) rather than from the file.
     private func wasInterrupted(by error: Error, since interruptionsBefore: Int) -> Bool {
-        interruptions != interruptionsBefore || !canMigrate || (error as? VaultCryptoError) == .noKeyLoaded
+        interruptions != interruptionsBefore || !canMigrate
+            || (error as? VaultStoreError) == .locked || (error as? VaultCryptoError) == .noKeyLoaded
     }
 
     private func showProgress() {
@@ -223,28 +222,6 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         let progress = Double(currentIndex) / Double(filesToMigrate.count)
         progressBar.setProgress(Float(progress), animated: true)
         statusLabel.text = "\(Int(progress * 100))% complete"
-    }
-
-    /// Last step of an encrypt migration: re-saves encrypted any folder index an older build
-    /// left in plaintext. Returns false when it paused (key wiped); a failure with the key loaded
-    /// is logged and doesn't stop the migration: every file is safe, and the next save of that
-    /// folder's index encrypts it.
-    private func secureLeftoverIndexes() async -> Bool {
-        do {
-            try await Self.encryptIndexes(in: directory)
-        } catch {
-            guard canMigrate else {
-                pauseMigration()
-                return false
-            }
-            logger.error("Re-encrypting folder indexes failed: \(error.localizedDescription, privacy: .public)")
-        }
-        return true
-    }
-
-    @concurrent
-    private nonisolated static func encryptIndexes(in directory: LegacyVaultDirectory) async throws {
-        try FileSystem.shared.encryptPlaintextIndexes(in: directory)
     }
 
     /// `UITEST_MIGRATION_FILE_DELAY`: waits before each file so a UI test can background mid-run.
@@ -260,7 +237,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         statusLabel.text = "Couldn't prepare the files"
         let alert = UIAlertController(
             title: "Couldn't Prepare Files",
-            message: error.localizedDescription,
+            message: legacyErrorMessage(for: error),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
@@ -279,17 +256,18 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         }
     }
 
-    /// Last step of a decrypt migration, run while the key is still loaded: decrypts any
-    /// encrypted file that appeared since the scan and deletes every folder's `.vault_map`,
-    /// so the vault lists once the key is removed. Returns false when the run stopped here
-    /// (paused for a key wipe, or the failure alert is shown); the caller must then not finish.
+    /// Last step of a decrypt migration, run while the key is still loaded: deletes every folder's
+    /// index (and rewrites the trash map as plaintext), so the vault lists once the key is removed.
+    /// Files still encrypted (e.g. added since the scan) fail it with `.stillEncrypted`; Retry scans
+    /// again and decrypts them. Returns false when the run stopped here (paused for a key wipe, or
+    /// the failure alert is shown); the caller must then not finish.
     private func finishDecryption() async -> Bool {
         guard LegacyStorage.current.masterKeyStore.isKeyLoaded else {
             pauseMigration()
             return false
         }
         do {
-            try await Self.removeIndexes(in: directory)
+            try await vaultStore.finishDecryption()
             decryptCleanupFailed = false
             return true
         } catch {
@@ -304,15 +282,10 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         }
     }
 
-    @concurrent
-    private nonisolated static func removeIndexes(in directory: LegacyVaultDirectory) async throws {
-        try FileSystem.shared.migrateVaultToDecrypted(in: directory) { _ in }
-    }
-
     private func presentCleanupFailure(_ error: Error) {
         let alert = UIAlertController(
             title: "Some Files Failed",
-            message: error.localizedDescription,
+            message: legacyErrorMessage(for: error),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
@@ -324,20 +297,11 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         present(alert, animated: true)
     }
 
-    @concurrent
-    private nonisolated static func loadFiles(
-        toEncrypted: Bool,
-        in directory: LegacyVaultDirectory
-    ) async throws -> [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] {
-        try FileSystem.shared.filesToMigrate(toEncrypted: toEncrypted, in: directory)
-    }
-
-    @concurrent
-    private nonisolated static func migrate(_ item: LegacyVaultItem, in directory: LegacyVaultDirectory, encrypt: Bool) async throws {
+    private static func migrate(_ item: VaultItem, with vaultStore: any VaultStoring, encrypt: Bool) async throws {
         if encrypt {
-            try FileSystem.shared.migrateFileToEncrypted(item, in: directory)
+            try await vaultStore.migrateToEncrypted(item)
         } else {
-            try FileSystem.shared.migrateFileToDecrypted(item, in: directory)
+            try await vaultStore.migrateToDecrypted(item)
         }
     }
 

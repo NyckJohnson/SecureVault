@@ -85,7 +85,8 @@ final class LegacyFileCell: UICollectionViewCell {
         */
     }
     
-    func configure(with item: LegacyVaultItem, gridMode: Bool) {
+    /// Shows `item`; its thumbnail comes from `thumbnails` (the app's one thumbnail service).
+    func configure(with item: VaultItem, gridMode: Bool, thumbnails: ThumbnailService) {
         let config = UIImage.SymbolConfiguration(pointSize: 50, weight: .regular)
         let icon = FileIconProvider.icon(for: item)
         
@@ -101,7 +102,7 @@ final class LegacyFileCell: UICollectionViewCell {
         detailLabel.accessibilityIdentifier = "browser.cell.\(item.name).sizeLabel"
         checkmark.accessibilityIdentifier   = "browser.cell.\(item.name).checkmark"
 
-        thumbnailRequest = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 40, height: 40)) { [weak self] image in
+        thumbnailRequest = thumbnails.thumbnail(for: item, size: CGSize(width: 40, height: 40)) { [weak self] image in
             guard let self, let image else { return }
             self.iconView.image = image
             self.iconView.contentMode = .scaleAspectFit
