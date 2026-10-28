@@ -482,7 +482,7 @@ extension matching ignores case.
   - copy: new item in the target with " 1", " 2" names; encrypted copies stay encrypted and decrypt to the same content; a folder into itself or a descendant → `.moveIntoItself`, nothing copied.
   - rename: encrypted → index only; plaintext → disk rename; conflict → " 1"; a name that differs from the item's own only in letter case is not a conflict (renamed in place, both modes); empty, containing "/", or starting with "." → `.invalidName`.
   - moveToTrash: moves into `.trash/<newUUID>` and records a TrashEntry (relative original folder, deletedAt now, encryption state, original names) in one serialized step; a failure leaves the item where it was; folders keep `isDirectory` true.
-  - trashContents: one flat list of trash items with `deletedAt`; unreadable trash index → `.indexUnreadable`.
+  - trashContents: one flat list of trash items with `deletedAt`; unreadable trash index → `.indexUnreadable`; a trash file whose header can't be read is still listed with its stored flag (listing and restore never fail because of one unreadable file; migration steps stay strict).
   - restore: back to the original folder (recreated if missing; older absolute paths re-based onto the current root; a target outside the root, through `..`, a hidden folder or a symlink, or a bad disk name → `.io`, nothing moved, entry kept); name conflict → " 1"; encrypted items re-indexed; unknown trash item → `.notFound`.
   - deletePermanently: removes the file and its entry; unknown → `.notFound`.
   - emptyTrash: removes everything in `.trash` and its index, best-effort.
@@ -929,3 +929,5 @@ extension matching ignores case.
 - 2026-10-28: VaultStore unit 1 closed with the case-only rename question open (see Known issues); dot-named imports are Import's to handle, not `addFile`'s — decided by the human
 - 2026-10-28: The trash index stays at `.trash/.trash_map`, as the legacy app writes it (tests had assumed the vault root); no on-disk move, so older builds still read the trash — VaultStore unit 2 — decided by the human
 - 2026-10-28: VaultStore migration steps judge a file's form by its SVC5 header, not by index or trash-entry flags, so an interrupted trash-item conversion is repaired on rerun; the orphan sweep deletes only unlisted files that carry an SVC5 header — VaultStore unit 2 review (data-safety blocker), within the approved interrupt-safety rule
+- 2026-10-28: An unindexed encrypted file (orphan) is ignored by Remove Lock and not counted by finishDecryption, as in the legacy app; it is normally a duplicate left by an interrupted step, and the sweep removes it after unlock — decided by the human
+- 2026-10-28: VaultStore unit 2 gets a fourth attempt for one regression (an unreadable trash file made Recently Deleted fail) — approved by the human
