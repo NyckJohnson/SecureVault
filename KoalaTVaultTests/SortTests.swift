@@ -5,13 +5,13 @@ final class SortTests: VaultTestCase {
 
     override func setUp() {
         super.setUp()
-        PreferencesService.shared.sortOption = .name
-        PreferencesService.shared.sortDirection = .ascending
+        LegacyStorage.current.preferences.sortOption = .name
+        LegacyStorage.current.preferences.sortDirection = .ascending
     }
 
     override func tearDown() {
-        PreferencesService.shared.sortOption = .name
-        PreferencesService.shared.sortDirection = .ascending
+        LegacyStorage.current.preferences.sortOption = .name
+        LegacyStorage.current.preferences.sortDirection = .ascending
         super.tearDown()
     }
 
@@ -46,8 +46,8 @@ final class SortTests: VaultTestCase {
             try? FileManager.default.removeItem(at: urlC)
         }
 
-        PreferencesService.shared.sortOption = .name
-        PreferencesService.shared.sortDirection = .ascending
+        LegacyStorage.current.preferences.sortOption = .name
+        LegacyStorage.current.preferences.sortDirection = .ascending
         try FileSystem.shared.importItems(from: [urlB, urlA, urlC], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -66,8 +66,8 @@ final class SortTests: VaultTestCase {
             try? FileManager.default.removeItem(at: urlC)
         }
 
-        PreferencesService.shared.sortOption = .name
-        PreferencesService.shared.sortDirection = .descending
+        LegacyStorage.current.preferences.sortOption = .name
+        LegacyStorage.current.preferences.sortDirection = .descending
         try FileSystem.shared.importItems(from: [urlB, urlA, urlC], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -87,8 +87,8 @@ final class SortTests: VaultTestCase {
             try? FileManager.default.removeItem(at: urlJpg2)
         }
 
-        PreferencesService.shared.sortOption = .type
-        PreferencesService.shared.sortDirection = .ascending
+        LegacyStorage.current.preferences.sortOption = .type
+        LegacyStorage.current.preferences.sortDirection = .ascending
         try FileSystem.shared.importItems(from: [urlJpg, urlTxt, urlJpg2], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -106,8 +106,8 @@ final class SortTests: VaultTestCase {
             try? FileManager.default.removeItem(at: urlTxt)
         }
 
-        PreferencesService.shared.sortOption = .type
-        PreferencesService.shared.sortDirection = .descending
+        LegacyStorage.current.preferences.sortOption = .type
+        LegacyStorage.current.preferences.sortDirection = .descending
         try FileSystem.shared.importItems(from: [urlJpg, urlTxt], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -125,8 +125,8 @@ final class SortTests: VaultTestCase {
             try? FileManager.default.removeItem(at: url2)
         }
 
-        PreferencesService.shared.sortOption = .dateModified
-        PreferencesService.shared.sortDirection = .ascending
+        LegacyStorage.current.preferences.sortOption = .dateModified
+        LegacyStorage.current.preferences.sortDirection = .ascending
         try FileSystem.shared.importItems(from: [url2, url1], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -142,8 +142,8 @@ final class SortTests: VaultTestCase {
             try? FileManager.default.removeItem(at: url2)
         }
 
-        PreferencesService.shared.sortOption = .dateModified
-        PreferencesService.shared.sortDirection = .descending
+        LegacyStorage.current.preferences.sortOption = .dateModified
+        LegacyStorage.current.preferences.sortDirection = .descending
         try FileSystem.shared.importItems(from: [url1, url2], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
@@ -152,25 +152,25 @@ final class SortTests: VaultTestCase {
 
     // MARK: - Sort Preferences
     func testSortOptionPersists() {
-        PreferencesService.shared.sortOption = .dateModified
-        XCTAssertEqual(PreferencesService.shared.sortOption, .dateModified)
+        LegacyStorage.current.preferences.sortOption = .dateModified
+        XCTAssertEqual(LegacyStorage.current.preferences.sortOption, .dateModified)
     }
 
     func testSortDirectionPersists() {
-        PreferencesService.shared.sortDirection = .descending
-        XCTAssertEqual(PreferencesService.shared.sortDirection, .descending)
+        LegacyStorage.current.preferences.sortDirection = .descending
+        XCTAssertEqual(LegacyStorage.current.preferences.sortDirection, .descending)
     }
 
     func testAllSortOptionsAvailable() {
-        XCTAssertEqual(LegacySortOption.allCases.count, 3)
-        XCTAssertTrue(LegacySortOption.allCases.contains(.name))
-        XCTAssertTrue(LegacySortOption.allCases.contains(.type))
-        XCTAssertTrue(LegacySortOption.allCases.contains(.dateModified))
+        XCTAssertEqual(SortOption.allCases.count, 3)
+        XCTAssertTrue(SortOption.allCases.contains(.name))
+        XCTAssertTrue(SortOption.allCases.contains(.type))
+        XCTAssertTrue(SortOption.allCases.contains(.dateModified))
     }
 
     func testSortOptionDisplayNames() {
-        XCTAssertEqual(LegacySortOption.name.displayName, "Name")
-        XCTAssertEqual(LegacySortOption.type.displayName, "Type")
-        XCTAssertEqual(LegacySortOption.dateModified.displayName, "Date Modified")
+        XCTAssertEqual(SortOption.name.displayName, "Name")
+        XCTAssertEqual(SortOption.type.displayName, "Type")
+        XCTAssertEqual(SortOption.dateModified.displayName, "Date Modified")
     }
 }

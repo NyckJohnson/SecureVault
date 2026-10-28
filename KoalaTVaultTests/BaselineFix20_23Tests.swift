@@ -113,8 +113,7 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
 final class EncryptMigrationSafetyTests: VaultTestCase {
 
     override func tearDown() {
-        PreferencesService.shared.pendingMigrationType = nil
-        PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        LegacyStorage.current.preferences.pendingMigration = nil
         super.tearDown()
     }
 
@@ -346,11 +345,11 @@ final class EncryptMigrationSafetyTests: VaultTestCase {
         try FileSystem.shared.importItems(from: [source], to: testDirectory)
         let stray = try write(UUID().uuidString, "unindexed copy awaiting its index entry")
 
-        PreferencesService.shared.pendingMigrationType = .encrypt
+        LegacyStorage.current.preferences.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: nil)
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
         XCTAssertTrue(FileManager.default.fileExists(atPath: stray.path), "kept while a migration is pending")
 
-        PreferencesService.shared.pendingMigrationType = nil
+        LegacyStorage.current.preferences.pendingMigration = nil
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
         XCTAssertFalse(FileManager.default.fileExists(atPath: stray.path), "swept once nothing is pending")
     }
@@ -376,13 +375,11 @@ final class PendingEncryptionLaunchTests: XCTestCase {
         AuthService.shared.lockMode = .none
         try? AuthService.shared.removePassword()
         TestCrypto.keyStore.wipeKey()
-        PreferencesService.shared.pendingMigrationType = nil
-        PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        LegacyStorage.current.preferences.pendingMigration = nil
     }
 
     func testPendingEncryptWithoutAPasswordIsDroppedAndLaunchStaysUnlocked() throws {
-        PreferencesService.shared.pendingMigrationType = .encrypt
-        PreferencesService.shared.pendingMigrationTargetLockMode = .password
+        LegacyStorage.current.preferences.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
 
         var unlocked = false
         let token = NotificationCenter.default.addObserver(
@@ -391,8 +388,7 @@ final class PendingEncryptionLaunchTests: XCTestCase {
 
         AuthService.shared.handleInitialLaunch(in: nil)
 
-        XCTAssertNil(PreferencesService.shared.pendingMigrationType)
-        XCTAssertNil(PreferencesService.shared.pendingMigrationTargetLockMode)
+        XCTAssertNil(LegacyStorage.current.preferences.pendingMigration)
         XCTAssertEqual(AuthService.shared.lockMode, .none)
         XCTAssertFalse(AuthService.shared.isLocked)
         XCTAssertTrue(unlocked)
@@ -402,13 +398,12 @@ final class PendingEncryptionLaunchTests: XCTestCase {
         try AuthService.shared.createPassword("password123")
         TestCrypto.keyStore.wipeKey()
         AuthService.shared.lockMode = .none
-        PreferencesService.shared.pendingMigrationType = .encrypt
-        PreferencesService.shared.pendingMigrationTargetLockMode = .password
+        LegacyStorage.current.preferences.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
 
         AuthService.shared.handleInitialLaunch(in: nil)
 
         XCTAssertTrue(AuthService.shared.isLocked)
-        XCTAssertEqual(PreferencesService.shared.pendingMigrationType, .encrypt, "pending encrypt is kept")
+        XCTAssertEqual(LegacyStorage.current.preferences.pendingMigration?.kind, .encrypt, "pending encrypt is kept")
     }
 
     func testNoPendingMigrationAndNoLockLaunchesUnlocked() throws {

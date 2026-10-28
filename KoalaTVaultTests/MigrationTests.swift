@@ -5,8 +5,7 @@ final class MigrationViewControllerTests: VaultTestCase {
 
     override func tearDown() {
         FileSystem.testForcedMigrationFailureFileName = nil
-        PreferencesService.shared.pendingMigrationType = nil
-        PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        LegacyStorage.current.preferences.pendingMigration = nil
         super.tearDown()
     }
 

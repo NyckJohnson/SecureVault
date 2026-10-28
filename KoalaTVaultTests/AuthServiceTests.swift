@@ -255,15 +255,15 @@ final class AuthServiceForegroundTests: XCTestCase {
 
     // MARK: - lockMode delegation
 
-    func testLockModeGetterReflectsPreferencesService() {
-        PreferencesService.shared.lockMode = .passwordAndBiometrics
+    func testLockModeGetterReflectsPreferences() {
+        LegacyStorage.current.preferences.lockMode = .passwordAndBiometrics
         XCTAssertEqual(AuthService.shared.lockMode, .passwordAndBiometrics)
-        PreferencesService.shared.lockMode = .none
+        LegacyStorage.current.preferences.lockMode = .none
     }
 
-    func testLockModeSetterUpdatesPreferencesService() {
+    func testLockModeSetterUpdatesPreferences() {
         AuthService.shared.lockMode = .password
-        XCTAssertEqual(PreferencesService.shared.lockMode, .password)
+        XCTAssertEqual(LegacyStorage.current.preferences.lockMode, .password)
         AuthService.shared.lockMode = .none
     }
 }
