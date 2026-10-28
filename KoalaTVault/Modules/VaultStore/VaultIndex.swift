@@ -116,7 +116,7 @@ struct VaultIndex: Sendable {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         if path == rootPath { return "" }
         if path.hasPrefix(rootPath + "/") { return String(path.dropFirst(rootPath.count + 1)) }
-        return url.lastPathComponent
+        return url.lastPathComponent  // coverage-exempt: defensive; folders always come from the vault root
     }
 
     private func label(for folder: URL) -> String {
