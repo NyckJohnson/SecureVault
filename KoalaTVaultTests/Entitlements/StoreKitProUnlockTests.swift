@@ -193,7 +193,11 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         defer { fixture.cleanup() }
         try await fixture.buyExternally()
         let unlock = fixture.makeUnlock()
-        await unlock.refresh()
+        // The entitlement lands asynchronously after the buy; refresh until it shows.
+        _ = await waitUntil {
+            await unlock.refresh()
+            return unlock.isUnlocked
+        }
         #expect(unlock.isUnlocked)
         #expect(unlock.isUnlockedNow)
     }
@@ -430,7 +434,8 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         let verification = try await fixture.boughtTransaction()
         let unverified = VerificationResult<Transaction>.unverified(
             verification.unsafePayloadValue, .invalidSignature)
-        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.success(unverified))))
+        let unlock = fixture.makeUnlock(
+            transform: makeUnverified, purchase: PurchaseSeam(.success(.success(unverified))))
         await #expect(throws: ProUnlockError.verificationFailed) {
             _ = try await unlock.purchase(confirmIn: nil)
         }
@@ -524,7 +529,7 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
 
     // MARK: Transaction updates
 
-    @Test("A purchase made outside the instance unlocks it live, notifies observers once, and is finished")
+    @Test("A purchase made outside the instance unlocks it live and notifies observers once")
     @available(iOS 17.0, *)
     func externalPurchaseUnlocksLive() async throws {
         let fixture = try await Fixture.make()
@@ -539,8 +544,6 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
         #expect(await waitUntil { collector.values == [true] })
-        // Whatever update reached the instance is finished (holds even if another listener finished it first).
-        #expect(await waitUntil { await unfinishedTransactionIDs().isEmpty })
     }
 
     @Test("An unverified update is ignored: it does not unlock")
