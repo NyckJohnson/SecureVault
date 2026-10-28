@@ -45,14 +45,8 @@ final class PasswordSetupRollbackTests: XCTestCase {
         ((try? TestCrypto.keychain.read(account: TestCrypto.biometricAccount, prompt: nil)) ?? nil) != nil
     }
 
-    private func addEncryptedFile() throws {
-        let sourceDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: sourceDir) }
-        let source = sourceDir.appendingPathComponent("secret.txt")
-        try "secret".write(to: source, atomically: true, encoding: .utf8)
-        let root = LegacyVaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
-        try FileSystem.shared.importItems(from: [source], to: root)
+    private func addEncryptedFile() async throws {
+        try await LegacyVaultHarness.addEncryptedFile(to: vaultRoot)
     }
 
     // MARK: - createPassword return value
@@ -74,9 +68,9 @@ final class PasswordSetupRollbackTests: XCTestCase {
         XCTAssertNotEqual(storedBlob(), oldBlob)
     }
 
-    func testCreatePasswordReusingTheBlobOfAnEncryptedVaultReportsNoNewKey() throws {
+    func testCreatePasswordReusingTheBlobOfAnEncryptedVaultReportsNoNewKey() async throws {
         try TestCrypto.keyStore.createMasterKey(password: "old-password")
-        try addEncryptedFile()
+        try await addEncryptedFile()
         TestCrypto.keyStore.wipeKey()
         let oldBlob = storedBlob()
 
@@ -113,9 +107,9 @@ final class PasswordSetupRollbackTests: XCTestCase {
         XCTAssertNil(storedBlob())
     }
 
-    func testRollbackOfAKeptKeyKeepsTheBlobSoTheOldPasswordStillUnlocksIt() throws {
+    func testRollbackOfAKeptKeyKeepsTheBlobSoTheOldPasswordStillUnlocksIt() async throws {
         try TestCrypto.keyStore.createMasterKey(password: "old-password")
-        try addEncryptedFile()
+        try await addEncryptedFile()
         TestCrypto.keyStore.wipeKey()
         let oldBlob = try XCTUnwrap(storedBlob())
         let created = try AuthService.shared.createPassword("old-password", vaultRootURL: vaultRoot)

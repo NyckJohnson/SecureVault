@@ -128,18 +128,23 @@ final class VaultResourceLoaderDelegateTests: XCTestCase {
 final class ThumbnailServiceTests: XCTestCase {
 
     private var tempURLs: [URL] = []
+    private var harness: LegacyVaultHarness!
+    private var thumbnails: ThumbnailService!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         try TestCrypto.keyStore.createMasterKey(password: "test-password")
+        harness = try LegacyVaultHarness(lockMode: .password)
+        thumbnails = ThumbnailService(vaultStore: harness.store, preferences: harness.preferences)
     }
 
-    override func tearDownWithError() throws {
-        TestCrypto.keyStore.wipeKey()
-        try? TestCrypto.keyStore.deleteMasterKeyBlob()
-        ThumbnailService.shared.clearCache()
+    override func tearDown() async throws {
+        thumbnails.clearCache()
+        thumbnails = nil
+        harness.cleanUp()
+        harness = nil
         tempURLs.forEach { try? FileManager.default.removeItem(at: $0) }
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     // MARK: - Helpers
@@ -156,36 +161,32 @@ final class ThumbnailServiceTests: XCTestCase {
         return data
     }
 
-    private func makeEncryptedVaultItem(name: String, data: Data) throws -> LegacyVaultItem {
-        let src = tempURL()
-        let enc = tempURL()
-        try data.write(to: src)
-        try TestCrypto.cipher.encryptFile(at: src, to: enc)
-        return LegacyVaultItem(
-            id: UUID(),
-            name: name,
-            isDirectory: false,
-            dateModified: Date(),
-            fileSize: data.count,
-            deletedAt: nil,
-            diskURL: enc,
-            rootURL: enc.deletingLastPathComponent(),
-            isEncrypted: true
-        )
+    /// A real encrypted item, added through the store in encrypted mode.
+    private func makeEncryptedVaultItem(name: String, data: Data) async throws -> VaultItem {
+        let src = harness.base.appendingPathComponent("Sources/\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+        let file = src.appendingPathComponent(name)
+        try data.write(to: file)
+        return try await harness.store.addFile(from: file, named: name, to: harness.root)
     }
 
-    private func makeCorruptVaultItem(name: String) throws -> LegacyVaultItem {
-        let url = tempURL()
-        try Data("not a valid SVC5 file".utf8).write(to: url)
-        return LegacyVaultItem(
-            id: UUID(),
+    /// An item that claims to be encrypted but whose file is not a valid SVC5 file.
+    private func makeCorruptVaultItem(name: String, content: Data = Data("not a valid SVC5 file".utf8)) throws -> VaultItem {
+        let url = harness.rootURL.appendingPathComponent(UUID().uuidString)
+        try content.write(to: url)
+        return corruptItem(name: name, url: url, size: content.count)
+    }
+
+    private func corruptItem(name: String, url: URL, size: Int) -> VaultItem {
+        VaultItem(
+            id: url.path,
             name: name,
             isDirectory: false,
             dateModified: Date(),
-            fileSize: 21,
+            fileSize: size,
             deletedAt: nil,
             diskURL: url,
-            rootURL: url.deletingLastPathComponent(),
+            rootURL: harness.rootURL,
             isEncrypted: true
         )
     }
@@ -201,12 +202,12 @@ final class ThumbnailServiceTests: XCTestCase {
     // MARK: - Cache management
 
     func testClearAllCacheDoesNotCrash() {
-        ThumbnailService.shared.clearCache()
+        thumbnails.clearCache()
     }
 
     func testClearCacheForSpecificItemDoesNotCrash() {
-        let item = LegacyVaultItem(
-            id: UUID(),
+        let item = VaultItem(
+            id: "photo.jpg",
             name: "photo.jpg",
             isDirectory: false,
             dateModified: Date(),
@@ -216,16 +217,16 @@ final class ThumbnailServiceTests: XCTestCase {
             rootURL: URL(fileURLWithPath: "/tmp"),
             isEncrypted: false
         )
-        ThumbnailService.shared.clearCache(for: item)
+        thumbnails.clearCache(for: item)
     }
 
     // MARK: - Corrupt file → nil completion
 
     func testCorruptNonVideoEncryptedFileDeliversNilCompletion() throws {
-        // FileSystem.open throws (bad SVC5 magic) → guard-else path calls completion(nil)
+        // VaultStoring.open throws (bad SVC5 magic) → guard-else path calls completion(nil)
         let item = try makeCorruptVaultItem(name: "document.pdf")
         let exp = expectation(description: "completion(nil)")
-        _ = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { image in
+        _ = thumbnails.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { image in
             XCTAssertNil(image)
             exp.fulfill()
         }
@@ -237,7 +238,7 @@ final class ThumbnailServiceTests: XCTestCase {
         // videoThumbnail's guard-else path calls completion(nil)
         let item = try makeCorruptVaultItem(name: "clip.mp4")
         let exp = expectation(description: "completion(nil) for corrupt video")
-        _ = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { image in
+        _ = thumbnails.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { image in
             XCTAssertNil(image)
             exp.fulfill()
         }
@@ -246,21 +247,11 @@ final class ThumbnailServiceTests: XCTestCase {
 
     func testTruncatedEncryptedFileDeliversNilCompletion() throws {
         // Four SVC5 magic bytes followed by junk — decryptFile will throw, open returns nil
-        let url = tempURL()
+        let url = harness.rootURL.appendingPathComponent(UUID().uuidString)
         try Data([0x53, 0x56, 0x43, 0x35, 0xAB, 0xCD, 0xEF, 0x01]).write(to: url)
-        let item = LegacyVaultItem(
-            id: UUID(),
-            name: "notes.pdf",
-            isDirectory: false,
-            dateModified: Date(),
-            fileSize: 8,
-            deletedAt: nil,
-            diskURL: url,
-            rootURL: url.deletingLastPathComponent(),
-            isEncrypted: true
-        )
+        let item = corruptItem(name: "notes.pdf", url: url, size: 8)
         let exp = expectation(description: "completion(nil) for truncated file")
-        _ = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { image in
+        _ = thumbnails.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { image in
             XCTAssertNil(image)
             exp.fulfill()
         }
@@ -269,40 +260,40 @@ final class ThumbnailServiceTests: XCTestCase {
 
     // MARK: - Cancellation
 
-    func testCancellingThumbnailBeforeDecryptionPreventsCompletion() throws {
+    func testCancellingThumbnailBeforeDecryptionPreventsCompletion() async throws {
         // Encrypt a real PNG so that QL *would* deliver a non-nil image if not cancelled.
         // The inverted expectation fails if completion is called at all (nil or not).
-        let item = try makeEncryptedVaultItem(name: "photo.png", data: makeTinyPNG())
+        let item = try await makeEncryptedVaultItem(name: "photo.png", data: makeTinyPNG())
 
         let unexpectedCall = expectation(description: "completion must NOT be called after cancel")
         unexpectedCall.isInverted = true
 
-        _ = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { _ in
+        _ = thumbnails.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { _ in
             unexpectedCall.fulfill()
         }
         // Cancel on the same synchronous call stack so the flag is set before the
         // background block's consumeCancellation() check runs.
-        ThumbnailService.shared.cancelThumbnail(for: item)
+        thumbnails.cancelThumbnail(for: item)
 
-        wait(for: [unexpectedCall], timeout: 1.0)
+        await fulfillment(of: [unexpectedCall], timeout: 1.0)
     }
 
     // MARK: - Cache hit
 
-    func testSecondThumbnailRequestForSameItemUsesCache() throws {
+    func testSecondThumbnailRequestForSameItemUsesCache() async throws {
         // Generate a real thumbnail first so the cache is populated, then verify the
         // second request completes synchronously (the returned QLRequest is nil).
-        let item = try makeEncryptedVaultItem(name: "photo.png", data: makeTinyPNG())
+        let item = try await makeEncryptedVaultItem(name: "photo.png", data: makeTinyPNG())
 
         let firstDone = expectation(description: "first thumbnail")
-        _ = ThumbnailService.shared.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { _ in
+        _ = thumbnails.thumbnail(for: item, size: CGSize(width: 60, height: 60)) { _ in
             firstDone.fulfill()
         }
-        wait(for: [firstDone], timeout: 10)
+        await fulfillment(of: [firstDone], timeout: 10)
 
         // Cache hit: completion fires synchronously; returned request must be nil
         var secondImage: UIImage?
-        let request = ThumbnailService.shared.thumbnail(
+        let request = thumbnails.thumbnail(
             for: item, size: CGSize(width: 60, height: 60)
         ) { image in
             secondImage = image
@@ -326,13 +317,14 @@ final class ThumbnailServiceTests: XCTestCase {
 // exercised naturally by the nil-player tests below, since an AVPlayer() with no
 // item has an indefinite current-item duration.
 
+@MainActor
 final class FileViewerViewControllerTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeItem(name: String = "test.mp4") -> LegacyVaultItem {
-        LegacyVaultItem(
-            id: UUID(),
+    private func makeItem(name: String = "test.mp4") -> VaultItem {
+        VaultItem(
+            id: name,
             name: name,
             isDirectory: false,
             dateModified: Date(),
@@ -344,23 +336,32 @@ final class FileViewerViewControllerTests: XCTestCase {
         )
     }
 
+    /// A viewer over a mock vault store.
+    private func makeViewer() -> LegacyFileViewerViewController {
+        let store = MockVaultStoring()
+        let transfers = FileSystem(store: store, proUnlock: MockProUnlocking(isUnlocked: true))
+        return LegacyFileViewerViewController(
+            items: [makeItem()], startingAt: 0, vaultStore: store,
+            exportService: ExportService(fileSystem: transfers, vaultStore: store))
+    }
+
     // MARK: - Nil-player guard coverage
     // These directly cover the "seek past end", "seek before start", and
     // "controls called with no media" scenarios.
 
     func testTogglePlayPauseWithNilPlayerDoesNotCrash() {
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         XCTAssertNil(vc.player)
         vc.togglePlayPause()
     }
 
     func testSkipBackWithNilPlayerDoesNotCrash() {
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.skipBack()
     }
 
     func testSkipForwardWithNilPlayerDoesNotCrash() {
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.skipForward()
     }
 
@@ -369,7 +370,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     func testSkipForwardRepeatedlyNearEndDoesNotCrash() {
         // AVPlayer with no item: currentTime() == .zero, seek() is a no-op.
         // Simulates user hammering skip-forward past the end of a file.
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.player = AVPlayer()
         vc.skipForward()
         vc.skipForward()
@@ -379,7 +380,7 @@ final class FileViewerViewControllerTests: XCTestCase {
 
     func testSkipBackRepeatedlyPastStartDoesNotCrash() {
         // CMTimeSubtract from zero yields negative CMTime; AVPlayer clamps to zero.
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.player = AVPlayer()
         vc.skipBack()
         vc.skipBack()
@@ -390,7 +391,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     // MARK: - Player observer lifecycle
 
     func testAssigningAndClearingPlayerDoesNotCrash() {
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.player = AVPlayer()
         vc.player = nil
     }
@@ -398,7 +399,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     func testReplacingPlayerCleansUpPreviousObserverWithoutCrash() {
         // Replacing the player triggers removeTimeObserver on the old player and
         // addTimeObserver on the new one; must not double-remove or leak.
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         let playerA = AVPlayer()
         let playerB = AVPlayer()
         vc.player = playerA
@@ -407,7 +408,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     }
 
     func testTogglePlayPauseWithRealPlayerDoesNotCrash() {
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.player = AVPlayer()
         vc.togglePlayPause() // player.play() → updates button, starts timer
         vc.togglePlayPause() // player.pause() → updates button, cancels timer
@@ -417,7 +418,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     // MARK: - updatePlayPauseButton
 
     func testUpdatePlayPauseButtonDoesNotCrash() {
-        let vc = LegacyFileViewerViewController(items: [makeItem()], startingAt: 0)
+        let vc = makeViewer()
         vc.updatePlayPauseButton(isPlaying: true)
         vc.updatePlayPauseButton(isPlaying: false)
     }

@@ -17,7 +17,7 @@ final class SecuritySettingsProTests: XCTestCase {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.first as? UIWindowScene
         )
-        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking(isUnlocked: isUnlocked))
+        let sut = LegacySecuritySettingsViewController(vaultStore: MockVaultStoring(), proUnlock: MockProUnlocking(isUnlocked: isUnlocked))
         let window = UIWindow(windowScene: scene)
         window.rootViewController = sut
         window.makeKeyAndVisible()
@@ -35,7 +35,7 @@ final class SecuritySettingsProTests: XCTestCase {
 
     // MARK: - Cell content
     func testProCellShowsUpgradeWhenLocked() {
-        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking(isUnlocked: false))
+        let sut = LegacySecuritySettingsViewController(vaultStore: MockVaultStoring(), proUnlock: MockProUnlocking(isUnlocked: false))
         sut.loadViewIfNeeded()
 
         let cell = sut.tableView(sut.testTableView, cellForRowAt: IndexPath(row: 0, section: 0))
@@ -45,7 +45,7 @@ final class SecuritySettingsProTests: XCTestCase {
     }
 
     func testProCellShowsUnlockedStateWhenUnlocked() {
-        let sut = LegacySecuritySettingsViewController(proUnlock: MockProUnlocking(isUnlocked: true))
+        let sut = LegacySecuritySettingsViewController(vaultStore: MockVaultStoring(), proUnlock: MockProUnlocking(isUnlocked: true))
         sut.loadViewIfNeeded()
 
         let cell = sut.tableView(sut.testTableView, cellForRowAt: IndexPath(row: 0, section: 0))

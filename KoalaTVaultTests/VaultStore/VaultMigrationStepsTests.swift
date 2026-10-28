@@ -362,9 +362,9 @@ import Testing
     // MARK: - finishEncryption
 
     /// Writes a plaintext index with one entry per name and the matching plain disk files.
-    private func plaintextFolder(_ vault: VaultStoreFixture, in directory: VaultDirectory?, names: [String]) throws
-        -> [String: String]
-    {
+    private func plaintextFolder(
+        _ vault: VaultStoreFixture, in directory: VaultDirectory?, names: [String]
+    ) throws -> [String: String] {
         var entries: [String: String] = [:]
         for name in names {
             let diskName = VaultStoreFixture.newDiskName()

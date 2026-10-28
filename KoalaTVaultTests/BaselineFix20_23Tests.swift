@@ -4,14 +4,34 @@ import XCTest
 // Regression tests for adoption baseline fixes 20 and 23 (docs/adopt/baseline-fixes.md).
 
 // MARK: - Fix 20: folders export from an encrypted vault as decrypted copies
-final class FolderExportDecryptedCopyTests: VaultTestCase {
+@MainActor
+final class FolderExportDecryptedCopyTests: XCTestCase {
 
-    private func makeSource(_ name: String, _ content: String) throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(name)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        return url
+    private var harness: LegacyVaultHarness!
+    private var transfers: FileSystem!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        harness = try LegacyVaultHarness()
+        transfers = harness.transfers(proUnlock: MockProUnlocking(isUnlocked: true))
+    }
+
+    override func tearDown() async throws {
+        harness.cleanUp()
+        harness = nil
+        transfers = nil
+        try await super.tearDown()
+    }
+
+    /// Turns the lock on: a key exists and the store is in encrypted mode.
+    private func lockVault() throws {
+        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
+        harness.preferences.lockMode = .password
+    }
+
+    private func item(named name: String, in directory: VaultDirectory? = nil) async throws -> VaultItem {
+        let found = try await harness.items(in: directory).first { $0.name == name }
+        return try XCTUnwrap(found)
     }
 
     private func allRelativePaths(under root: URL) -> [String] {
@@ -24,15 +44,15 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
         return result.sorted()
     }
 
-    func testEncryptedFolderExportsAsDecryptedCopyWithRealNamesAndNesting() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
-        let folder = try FileSystem.shared.createFolder(named: "Trip", in: testDirectory)
-        let inner = try FileSystem.shared.createFolder(named: "Day1", in: folder)
-        try FileSystem.shared.importItems(from: [try makeSource("a.txt", "alpha secret")], to: folder)
-        try FileSystem.shared.importItems(from: [try makeSource("b.txt", "beta secret")], to: inner)
+    func testEncryptedFolderExportsAsDecryptedCopyWithRealNamesAndNesting() async throws {
+        try lockVault()
+        let folder = try await harness.folder("Trip")
+        let inner = try await harness.folder("Day1", in: folder)
+        try await transfers.importItems(from: [try harness.source("a.txt", "alpha secret")], to: folder)
+        try await transfers.importItems(from: [try harness.source("b.txt", "beta secret")], to: inner)
 
-        let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Trip" })
-        let urls = try FileSystem.shared.prepareForExport([folderItem])
+        let folderItem = try await item(named: "Trip")
+        let urls = try await transfers.prepareForExport([folderItem]).urls
 
         XCTAssertEqual(urls.count, 1)
         let exported = urls[0]
@@ -42,13 +62,15 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
         XCTAssertEqual(allRelativePaths(under: exported), ["Day1", "Day1/b.txt", "a.txt"])
     }
 
-    func testEncryptedFolderExportContainsNoIndexFileOrUUIDNames() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
-        let folder = try FileSystem.shared.createFolder(named: "Docs", in: testDirectory)
-        try FileSystem.shared.importItems(from: [try makeSource("x.txt", "x content")], to: folder)
-        let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Docs" })
+    func testEncryptedFolderExportContainsNoIndexFileOrUUIDNames() async throws {
+        try lockVault()
+        let folder = try await harness.folder("Docs")
+        try await transfers.importItems(from: [try harness.source("x.txt", "x content")], to: folder)
+        let folderItem = try await item(named: "Docs")
 
-        let exported = try XCTUnwrap(try FileSystem.shared.prepareForExport([folderItem]).first)
+        let exportedValue = try await transfers.prepareForExport([folderItem]).urls.first
+
+        let exported = try XCTUnwrap(exportedValue)
 
         for path in allRelativePaths(under: exported) {
             XCTAssertFalse(path.contains(".vault_map"), "index leaked: \(path)")
@@ -56,302 +78,281 @@ final class FolderExportDecryptedCopyTests: VaultTestCase {
         }
     }
 
-    func testEncryptedFolderExportFileIsNotCiphertext() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
-        let folder = try FileSystem.shared.createFolder(named: "Docs", in: testDirectory)
-        try FileSystem.shared.importItems(from: [try makeSource("x.txt", "plain marker text")], to: folder)
-        let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Docs" })
+    func testEncryptedFolderExportFileIsNotCiphertext() async throws {
+        try lockVault()
+        let folder = try await harness.folder("Docs")
+        try await transfers.importItems(from: [try harness.source("x.txt", "plain marker text")], to: folder)
+        let folderItem = try await item(named: "Docs")
 
-        let exported = try XCTUnwrap(try FileSystem.shared.prepareForExport([folderItem]).first)
+        let exportedValue = try await transfers.prepareForExport([folderItem]).urls.first
+
+        let exported = try XCTUnwrap(exportedValue)
         let data = try Data(contentsOf: exported.appendingPathComponent("x.txt"))
         XCTAssertEqual(data, Data("plain marker text".utf8))
     }
 
-    func testEncryptedFolderNeedsDecryptedCopy() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
-        let folder = try FileSystem.shared.createFolder(named: "Docs", in: testDirectory)
-        try FileSystem.shared.importItems(from: [try makeSource("x.txt", "x")], to: folder)
-        let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Docs" })
-        XCTAssertTrue(FileSystem.shared.needsDecryptedCopy(folderItem))
+    func testEncryptedFolderNeedsDecryptedCopy() async throws {
+        try lockVault()
+        let folder = try await harness.folder("Docs")
+        try await transfers.importItems(from: [try harness.source("x.txt", "x")], to: folder)
+        let folderItem = try await item(named: "Docs")
+        XCTAssertTrue(transfers.needsDecryptedCopy(folderItem))
     }
 
-    func testEncryptedFolderHoldingIndexOnlyInASubfolderNeedsDecryptedCopy() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
-        let outer = try FileSystem.shared.createFolder(named: "Outer", in: testDirectory)
-        let inner = try FileSystem.shared.createFolder(named: "Inner", in: outer)
-        try FileSystem.shared.importItems(from: [try makeSource("x.txt", "x")], to: inner)
-        let outerItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Outer" })
-        XCTAssertTrue(FileSystem.shared.needsDecryptedCopy(outerItem))
+    func testEncryptedFolderHoldingIndexOnlyInASubfolderNeedsDecryptedCopy() async throws {
+        try lockVault()
+        let outer = try await harness.folder("Outer")
+        let inner = try await harness.folder("Inner", in: outer)
+        try await transfers.importItems(from: [try harness.source("x.txt", "x")], to: inner)
+        let outerItem = try await item(named: "Outer")
+        XCTAssertTrue(transfers.needsDecryptedCopy(outerItem))
     }
 
-    func testNoLockFolderExportStillWorksAsPlainFolder() throws {
-        let folder = try FileSystem.shared.createFolder(named: "Plain", in: testDirectory)
-        try FileSystem.shared.importItems(from: [try makeSource("p.txt", "plain")], to: folder)
-        let folderItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first { $0.name == "Plain" })
+    func testNoLockFolderExportStillWorksAsPlainFolder() async throws {
+        let folder = try await harness.folder("Plain")
+        try await transfers.importItems(from: [try harness.source("p.txt", "plain")], to: folder)
+        let folderItem = try await item(named: "Plain")
 
-        XCTAssertFalse(FileSystem.shared.needsDecryptedCopy(folderItem))
-        let exported = try XCTUnwrap(try FileSystem.shared.prepareForExport([folderItem]).first)
+        XCTAssertFalse(transfers.needsDecryptedCopy(folderItem))
+        let exportedValue = try await transfers.prepareForExport([folderItem]).urls.first
+        let exported = try XCTUnwrap(exportedValue)
         XCTAssertEqual(try String(contentsOf: exported.appendingPathComponent("p.txt"), encoding: .utf8), "plain")
     }
 
-    func testPlaintextFileDoesNotNeedDecryptedCopy() throws {
-        let url = testDirectory.diskURL.appendingPathComponent("p.txt")
-        try "plain".write(to: url, atomically: true, encoding: .utf8)
-        let item = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first)
-        XCTAssertFalse(FileSystem.shared.needsDecryptedCopy(item))
+    func testPlaintextFileDoesNotNeedDecryptedCopy() async throws {
+        try harness.diskFile("p.txt", "plain")
+        let listed = try await harness.items().first
+        let item = try XCTUnwrap(listed)
+        XCTAssertFalse(transfers.needsDecryptedCopy(item))
     }
 
-    func testEncryptedFileNeedsDecryptedCopy() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "testpassword")
-        try FileSystem.shared.importItems(from: [try makeSource("e.txt", "e")], to: testDirectory)
-        let item = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first)
-        XCTAssertTrue(FileSystem.shared.needsDecryptedCopy(item))
+    func testEncryptedFileNeedsDecryptedCopy() async throws {
+        try lockVault()
+        try await transfers.importItems(from: [try harness.source("e.txt", "e")], to: harness.root)
+        let listed = try await harness.items().first
+        let item = try XCTUnwrap(listed)
+        XCTAssertTrue(transfers.needsDecryptedCopy(item))
     }
 }
 
 // MARK: - Fix 23: the encrypt migration survives the key being wiped; a stuck vault recovers
-final class EncryptMigrationSafetyTests: VaultTestCase {
+// (The store-level steps are VaultStore's migration steps; these run them against the real key store and cipher.)
+final class EncryptMigrationSafetyTests: XCTestCase {
 
-    override func tearDown() {
+    private var harness: LegacyVaultHarness!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        harness = try LegacyVaultHarness()
+    }
+
+    override func tearDown() async throws {
+        harness.cleanUp()
+        harness = nil
         LegacyStorage.current.preferences.pendingMigration = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
-    private var mapURL: URL { testDirectory.diskURL.appendingPathComponent(".vault_map") }
+    private var store: LiveVaultStore { harness.store }
+    private var mapURL: URL { harness.rootURL.appendingPathComponent(".vault_map") }
 
-    private func write(_ name: String, _ content: String, in dir: URL? = nil) throws -> URL {
-        let url = (dir ?? testDirectory.diskURL).appendingPathComponent(name)
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        return url
-    }
-
-    private func plaintextItems() throws -> [(item: LegacyVaultItem, directory: LegacyVaultDirectory)] {
-        try FileSystem.shared.filesToMigrate(toEncrypted: true, in: testDirectory)
-    }
-
-    func testMigratingAFileEncryptsItAndRemovesThePlaintext() throws {
+    /// Adds a lock: a key exists and the store is in encrypted mode (the encrypt migration's starting point).
+    private func lockVault() throws {
         try TestCrypto.keyStore.createMasterKey(password: "pw")
-        let url = try write("a.txt", "alpha")
-        let entry = try XCTUnwrap(try plaintextItems().first)
+        harness.preferences.lockMode = .password
+    }
 
-        try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
+    private func write(_ name: String, _ content: String) throws -> URL {
+        try harness.diskFile(name, content)
+    }
+
+    private func plaintextItems() async throws -> [VaultItem] {
+        try await store.itemsToMigrate(toEncrypted: true)
+    }
+
+    func testMigratingAFileEncryptsItAndRemovesThePlaintext() async throws {
+        try lockVault()
+        let url = try write("a.txt", "alpha")
+        let entryValue = try await plaintextItems().first
+        let entry = try XCTUnwrap(entryValue)
+
+        try await store.migrateToEncrypted(entry)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
-        let items = try FileSystem.shared.contents(of: testDirectory)
+        let items = try await harness.items()
         XCTAssertEqual(items.map(\.name), ["a.txt"])
         XCTAssertTrue(items[0].isEncrypted)
-        let opened = try FileSystem.shared.open(items[0])
-        XCTAssertEqual(try String(contentsOf: opened, encoding: .utf8), "alpha")
+        let opened = try await harness.content(of: items[0])
+        XCTAssertEqual(opened, "alpha")
     }
 
-    func testMigratingWithoutKeyThrowsKeepsPlaintextAndWritesNoPlaintextIndex() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testMigratingWithoutKeyThrowsKeepsPlaintextAndWritesNoPlaintextIndex() async throws {
+        try lockVault()
         let url = try write("a.txt", "alpha")
-        let entry = try XCTUnwrap(try plaintextItems().first)
+        let entryValue = try await plaintextItems().first
+        let entry = try XCTUnwrap(entryValue)
         TestCrypto.keyStore.wipeKey()
 
-        XCTAssertThrowsError(try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)) { error in
-            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
+        do {
+            try await store.migrateToEncrypted(entry)
+            XCTFail("expected migrateToEncrypted to throw")
+        } catch {
+            XCTAssertEqual(error as? VaultStoreError, .locked)
         }
 
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "alpha")
         XCTAssertFalse(FileManager.default.fileExists(atPath: mapURL.path), "no index of any kind written")
-        let others = try FileManager.default.contentsOfDirectory(atPath: testDirectory.diskURL.path)
+        let others = try FileManager.default.contentsOfDirectory(atPath: harness.rootURL.path)
         XCTAssertEqual(others, ["a.txt"], "no stray encrypted copy left")
     }
 
-    func testMigrationWithKeyWipedLeavesNoReadablePlaintextIndexAfterPartialFolder() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testMigrationWithKeyWipedLeavesNoReadablePlaintextIndexAfterPartialFolder() async throws {
+        try lockVault()
         _ = try write("a.txt", "alpha")
         _ = try write("b.txt", "beta")
-        let entries = try plaintextItems()
-        try FileSystem.shared.migrateFileToEncrypted(entries[0].item, in: entries[0].directory)
+        let entries = try await plaintextItems()
+        try await store.migrateToEncrypted(entries[0])
         TestCrypto.keyStore.wipeKey()  // device locks mid-folder
-        XCTAssertThrowsError(try FileSystem.shared.migrateFileToEncrypted(entries[1].item, in: entries[1].directory))
+        do {
+            try await store.migrateToEncrypted(entries[1])
+            XCTFail("expected migrateToEncrypted to throw")
+        } catch {}
 
         let data = try Data(contentsOf: mapURL)
-        XCTAssertNil(try? JSONDecoder().decode([String: VaultMapping].self, from: data),
-                     "the index on disk is never plaintext JSON")
+        XCTAssertFalse(LegacyVaultHarness.isPlaintextJSON(data), "the index on disk is never plaintext JSON")
     }
 
-    func testResumeAfterKeyWipeFinishesTheFolder() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testResumeAfterKeyWipeFinishesTheFolder() async throws {
+        try lockVault()
         _ = try write("a.txt", "alpha")
         _ = try write("b.txt", "beta")
         _ = try write("c.txt", "gamma")
-        let first = try plaintextItems()
-        try FileSystem.shared.migrateFileToEncrypted(first[0].item, in: first[0].directory)
+        let first = try await plaintextItems()
+        try await store.migrateToEncrypted(first[0])
         TestCrypto.keyStore.wipeKey()
         for entry in first.dropFirst() {
-            XCTAssertThrowsError(try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory))
+            do {
+                try await store.migrateToEncrypted(entry)
+                XCTFail("expected migrateToEncrypted to throw")
+            } catch {}
         }
         try TestCrypto.keyStore.unlock(password: "pw")
 
-        for entry in try plaintextItems() {
-            try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
+        for entry in try await plaintextItems() {
+            try await store.migrateToEncrypted(entry)
         }
 
-        XCTAssertTrue(try plaintextItems().isEmpty)
-        let items = try FileSystem.shared.contents(of: testDirectory)
+        let remaining = try await plaintextItems()
+        XCTAssertTrue(remaining.isEmpty)
+        let items = try await harness.items()
         XCTAssertEqual(Set(items.map(\.name)), ["a.txt", "b.txt", "c.txt"])
         XCTAssertTrue(items.allSatisfy(\.isEncrypted))
-        let onDisk = try FileManager.default.contentsOfDirectory(atPath: testDirectory.diskURL.path)
+        let onDisk = try FileManager.default.contentsOfDirectory(atPath: harness.rootURL.path)
         XCTAssertFalse(onDisk.contains("a.txt") || onDisk.contains("b.txt") || onDisk.contains("c.txt"))
     }
 
-    func testLegacyPlaintextIndexIsRecoveredAndReEncrypted() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testLegacyPlaintextIndexIsRecoveredAndReEncrypted() async throws {
+        try lockVault()
         // An older build left a plaintext index next to its encrypted copy.
         _ = try write("a.txt", "alpha")
-        let entry = try XCTUnwrap(try plaintextItems().first)
-        try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
-        let encryptedItem = try XCTUnwrap(try FileSystem.shared.contents(of: testDirectory).first)
+        let entryValue = try await plaintextItems().first
+        let entry = try XCTUnwrap(entryValue)
+        try await store.migrateToEncrypted(entry)
+        let encryptedItemValue = try await harness.items().first
+        let encryptedItem = try XCTUnwrap(encryptedItemValue)
         let uuid = encryptedItem.diskURL.lastPathComponent
-        let plaintextIndex = try JSONEncoder().encode([uuid: VaultMapping(originalName: "a.txt")])
+        let plaintextIndex = try JSONSerialization.data(withJSONObject: [uuid: ["originalName": "a.txt"]])
         try plaintextIndex.write(to: mapURL, options: .atomic)
 
         // The plaintext index still lists the file.
-        let items = try FileSystem.shared.contents(of: testDirectory)
+        let items = try await harness.items()
         XCTAssertEqual(items.map(\.name), ["a.txt"])
         XCTAssertTrue(items[0].isEncrypted)
 
-        try FileSystem.shared.encryptPlaintextIndexes(in: testDirectory)
+        try await store.finishEncryption()
 
-        let data = try Data(contentsOf: mapURL)
-        XCTAssertNil(try? JSONDecoder().decode([String: VaultMapping].self, from: data), "index is no longer plaintext")
-        XCTAssertEqual(try FileSystem.shared.contents(of: testDirectory).map(\.name), ["a.txt"])
+        XCTAssertFalse(LegacyVaultHarness.isPlaintextJSON(try Data(contentsOf: mapURL)), "index is no longer plaintext")
+        let names = try await harness.items().map(\.name)
+        XCTAssertEqual(names, ["a.txt"])
     }
 
-    func testEncryptPlaintextIndexesRecursesIntoSubfolders() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
-        let sub = try FileSystem.shared.createFolder(named: "Sub", in: testDirectory)
+    func testFinishEncryptionRecursesIntoSubfolders() async throws {
+        try lockVault()
+        let sub = try await harness.folder("Sub")
         let subMap = sub.diskURL.appendingPathComponent(".vault_map")
-        let plain = try JSONEncoder().encode(["X": VaultMapping(originalName: "x.txt")])
+        let plain = try JSONSerialization.data(withJSONObject: ["X": ["originalName": "x.txt"]])
         try plain.write(to: subMap)
 
-        try FileSystem.shared.encryptPlaintextIndexes(in: testDirectory)
+        try await store.finishEncryption()
 
-        XCTAssertNil(try? JSONDecoder().decode([String: VaultMapping].self, from: Data(contentsOf: subMap)))
+        XCTAssertFalse(LegacyVaultHarness.isPlaintextJSON(try Data(contentsOf: subMap)))
     }
 
-    func testEncryptPlaintextIndexesWithoutKeyThrowsNoKeyLoaded() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testFinishEncryptionWithoutKeyThrowsLocked() async throws {
+        try lockVault()
         TestCrypto.keyStore.wipeKey()
-        XCTAssertThrowsError(try FileSystem.shared.encryptPlaintextIndexes(in: testDirectory)) { error in
-            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
+        do {
+            try await store.finishEncryption()
+            XCTFail("expected finishEncryption to throw")
+        } catch {
+            XCTAssertEqual(error as? VaultStoreError, .locked)
         }
     }
 
-    func testRerunDeletesLeftoverPlaintextWhenEncryptedCopyMatchesByteForByte() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testRerunDeletesLeftoverPlaintextWhenEncryptedCopyMatchesByteForByte() async throws {
+        try lockVault()
         _ = try write("a.txt", "same content")
-        let entry = try XCTUnwrap(try plaintextItems().first)
-        try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
+        let entryValue = try await plaintextItems().first
+        let entry = try XCTUnwrap(entryValue)
+        try await store.migrateToEncrypted(entry)
         // A crash before the delete left the plaintext behind.
         let leftover = try write("a.txt", "same content")
-        let rerun = try XCTUnwrap(try plaintextItems().first)
+        let rerunValue = try await plaintextItems().first
+        let rerun = try XCTUnwrap(rerunValue)
 
-        try FileSystem.shared.migrateFileToEncrypted(rerun.item, in: rerun.directory)
+        try await store.migrateToEncrypted(rerun)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
-        let items = try FileSystem.shared.contents(of: testDirectory)
+        let items = try await harness.items()
         XCTAssertEqual(items.map(\.name), ["a.txt"], "no duplicate was made")
     }
 
-    func testRerunKeepsDifferingSameNamePlaintextAndEncryptsItUnderAFreeName() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testRerunKeepsDifferingSameNamePlaintextAndEncryptsItUnderAFreeName() async throws {
+        try lockVault()
         _ = try write("a.txt", "original")
-        let entry = try XCTUnwrap(try plaintextItems().first)
-        try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
-        let different = try write("a.txt", "something else entirely")
-        let rerun = try XCTUnwrap(try plaintextItems().first)
+        let entryValue = try await plaintextItems().first
+        let entry = try XCTUnwrap(entryValue)
+        try await store.migrateToEncrypted(entry)
+        _ = try write("a.txt", "something else entirely")
+        let rerunValue = try await plaintextItems().first
+        let rerun = try XCTUnwrap(rerunValue)
 
-        try FileSystem.shared.migrateFileToEncrypted(rerun.item, in: rerun.directory)
+        try await store.migrateToEncrypted(rerun)
 
         // Never silently dropped: both contents survive, under different visible names.
-        XCTAssertFalse(FileManager.default.fileExists(atPath: different.path) && (try? String(contentsOf: different, encoding: .utf8)) == "original")
-        let items = try FileSystem.shared.contents(of: testDirectory)
+        let items = try await harness.items()
         XCTAssertEqual(items.count, 2)
         XCTAssertEqual(Set(items.map(\.name)).count, 2)
         var contents: Set<String> = []
-        for item in items {
-            let url = item.isEncrypted ? try FileSystem.shared.open(item) : item.diskURL
-            contents.insert(try String(contentsOf: url, encoding: .utf8))
-        }
+        for item in items { contents.insert(try await harness.content(of: item)) }
         XCTAssertEqual(contents, ["original", "something else entirely"])
     }
 
-    func testRerunKeepsSameSizeDifferentPlaintextInsteadOfDeletingIt() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
+    func testRerunKeepsSameSizeDifferentPlaintextInsteadOfDeletingIt() async throws {
+        try lockVault()
         _ = try write("a.txt", "AAAAAAAA")
-        let entry = try XCTUnwrap(try plaintextItems().first)
-        try FileSystem.shared.migrateFileToEncrypted(entry.item, in: entry.directory)
+        let entryValue = try await plaintextItems().first
+        let entry = try XCTUnwrap(entryValue)
+        try await store.migrateToEncrypted(entry)
         _ = try write("a.txt", "BBBBBBBB")  // same length, different bytes
-        let rerun = try XCTUnwrap(try plaintextItems().first)
+        let rerunValue = try await plaintextItems().first
+        let rerun = try XCTUnwrap(rerunValue)
 
-        try FileSystem.shared.migrateFileToEncrypted(rerun.item, in: rerun.directory)
+        try await store.migrateToEncrypted(rerun)
 
         var contents: Set<String> = []
-        for item in try FileSystem.shared.contents(of: testDirectory) {
-            let url = item.isEncrypted ? try FileSystem.shared.open(item) : item.diskURL
-            contents.insert(try String(contentsOf: url, encoding: .utf8))
-        }
+        for item in try await harness.items() { contents.insert(try await harness.content(of: item)) }
         XCTAssertEqual(contents, ["AAAAAAAA", "BBBBBBBB"])
-    }
-
-    func testIsCompleteEncryptedCopyRejectsTruncatedCopyAndWrongSize() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
-        let source = try write("a.txt", "0123456789")
-        let copy = testDirectory.diskURL.appendingPathComponent("copy.bin")
-        try TestCrypto.cipher.encryptFile(at: source, to: copy)
-
-        XCTAssertTrue(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
-        XCTAssertFalse(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 9))
-        let truncated = try Data(contentsOf: copy).dropLast(3)
-        try Data(truncated).write(to: copy)
-        XCTAssertFalse(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
-    }
-
-    func testIsCompleteEncryptedCopyIsFalseWithoutKey() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
-        let source = try write("a.txt", "0123456789")
-        let copy = testDirectory.diskURL.appendingPathComponent("copy.bin")
-        try TestCrypto.cipher.encryptFile(at: source, to: copy)
-        TestCrypto.keyStore.wipeKey()
-        XCTAssertFalse(TestCrypto.copyChecker.isCompleteEncryptedCopy(at: copy, plaintextSize: 10))
-    }
-
-    func testEncryptedFileComparisonMatchesDiffersAndThrowsWithoutKey() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
-        let source = try write("a.txt", "0123456789")
-        let other = try write("b.txt", "0123456780")
-        let copy = testDirectory.diskURL.appendingPathComponent("copy.bin")
-        try TestCrypto.cipher.encryptFile(at: source, to: copy)
-
-        XCTAssertTrue(try TestCrypto.copyChecker.encryptedFile(at: copy, hasSameContentAs: source))
-        XCTAssertFalse(try TestCrypto.copyChecker.encryptedFile(at: copy, hasSameContentAs: other))
-        TestCrypto.keyStore.wipeKey()
-        XCTAssertThrowsError(try TestCrypto.copyChecker.encryptedFile(at: copy, hasSameContentAs: source)) { error in
-            XCTAssertEqual(error as? VaultCryptoError, .noKeyLoaded)
-        }
-    }
-
-    func testOrphanSweepDoesNothingWhileAMigrationIsPending() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
-        // An indexed encrypted file makes the folder an indexed one; the stray file is unindexed.
-        let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).txt")
-        try "x".write(to: source, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: source) }
-        try FileSystem.shared.importItems(from: [source], to: testDirectory)
-        let stray = try write(UUID().uuidString, "unindexed copy awaiting its index entry")
-
-        LegacyStorage.current.preferences.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: nil)
-        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: stray.path), "kept while a migration is pending")
-
-        LegacyStorage.current.preferences.pendingMigration = nil
-        FileSystem.shared.sweepOrphanedEncryptedFiles(in: testDirectory)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: stray.path), "swept once nothing is pending")
     }
 }
 
