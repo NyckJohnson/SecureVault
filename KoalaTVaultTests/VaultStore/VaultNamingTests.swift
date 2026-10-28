@@ -176,4 +176,69 @@ import Testing
         #expect(try vault.diskNames() == before)
         #expect(try await vault.names() == ["keep.txt"])
     }
+
+    // MARK: - Dot names and case-only renames
+
+    @Test("createFolder rejects a name starting with a dot", arguments: [".trash", ".hidden"])
+    func createFolderDotName(name: String) async throws {
+        let vault = try VaultStoreFixture(lockMode: .none, keyLoaded: false)
+        defer { vault.cleanUp() }
+        let error = await caught { _ = try await vault.store.createFolder(named: name, in: vault.root) }
+        #expect(error as? VaultStoreError == .invalidName)
+        #expect(try vault.diskNames().isEmpty)
+    }
+
+    @Test(
+        "createDocument rejects a name starting with a dot",
+        arguments: [".trash", ".hidden"], [LockMode.none, .password])
+    func createDocumentDotName(name: String, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let error = await caught { _ = try await vault.store.createDocument(named: name, in: vault.root) }
+        #expect(error as? VaultStoreError == .invalidName)
+        #expect(try vault.diskNames().isEmpty)
+    }
+
+    @Test(
+        "rename rejects a name starting with a dot and leaves the item",
+        arguments: [".trash", ".hidden"], [LockMode.none, .password])
+    func renameDotName(name: String, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let item = try await vault.add("keep.txt", "data")
+        let before = try vault.snapshot()
+        let error = await caught { _ = try await vault.store.rename(item, to: name) }
+        #expect(error as? VaultStoreError == .invalidName)
+        #expect(try vault.snapshot() == before)
+        #expect(try await vault.names() == ["keep.txt"])
+    }
+
+    @Test("A case-only rename renames in place without a number", arguments: [LockMode.none, .password])
+    func caseOnlyRename(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let item = try await vault.add("a.txt", "data")
+        let renamed = try await vault.store.rename(item, to: "A.txt")
+        #expect(renamed.name == "A.txt")
+        #expect(try await vault.names() == ["A.txt"])
+        #expect(try await vault.openedContent(renamed) == "data")
+        if mode == .none {
+            #expect(try vault.diskNames() == ["A.txt"])
+        } else {
+            #expect(vault.indexEntries() == [item.id: "A.txt"])
+            #expect(try vault.diskNames().filter { $0 != ".vault_map" } == [item.id])
+        }
+    }
+
+    @Test("A case-only rename of a plaintext folder renames it in place")
+    func caseOnlyRenameFolder() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none, keyLoaded: false)
+        defer { vault.cleanUp() }
+        let folder = try await vault.store.createFolder(named: "docs", in: vault.root)
+        let renamed = try await vault.store.rename(folder, to: "Docs")
+        #expect(renamed.name == "Docs")
+        #expect(renamed.isDirectory)
+        #expect(try vault.diskNames() == ["Docs"])
+        #expect(try await vault.names() == ["Docs"])
+    }
 }

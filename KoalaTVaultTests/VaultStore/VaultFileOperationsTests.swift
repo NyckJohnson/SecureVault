@@ -272,6 +272,25 @@ import Testing
         #expect([inRoot, inDocs].compactMap { $0 }.count == 1)
     }
 
+    @Test("An encrypted move whose file move fails undoes the target index entry")
+    func encryptedMoveFileFailureUndoesTargetEntry() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let item = try await vault.add("a.txt", "data")
+        // The target index can be written, but the file can't leave the read-only source folder.
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: vault.rootURL.path)
+        let error = await caught { try await vault.store.move(item, to: docs) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: vault.rootURL.path)
+        #expect(error != nil)
+        let inRoot = try await vault.store.findItem(named: "a.txt", in: vault.root)
+        let inDocs = try await vault.store.findItem(named: "a.txt", in: docs)
+        #expect(inRoot?.id == item.id)
+        #expect(inDocs == nil)
+        #expect(vault.indexEntries(in: docs)?[item.id] == nil)
+        #expect(vault.indexEntries()?[item.id] == "a.txt")
+    }
+
     // MARK: - copy
 
     @Test("Copying a plaintext file adds a numbered copy and keeps the original")
@@ -329,6 +348,32 @@ import Testing
         #expect(copy.name == "Secret.txt")
         #expect(vault.indexEntries(in: docs)?.values.sorted() == ["Secret.txt"])
         #expect(vault.indexEntries()?.values.sorted() == ["Secret.txt"])
+    }
+
+    @Test("Copying a folder into itself throws moveIntoItself and copies nothing")
+    func copyFolderIntoItself() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none, keyLoaded: false)
+        defer { vault.cleanUp() }
+        let folder = try await vault.store.createFolder(named: "A", in: vault.root)
+        let folderDir = try #require(folder.asDirectory)
+        try await vault.add("inside.txt", "x", to: folderDir)
+        let before = try vault.snapshot()
+        let error = await caught { _ = try await vault.store.copy(folder, to: folderDir) }
+        #expect(error as? VaultStoreError == .moveIntoItself)
+        #expect(try vault.snapshot() == before)
+    }
+
+    @Test("Copying a folder into a descendant throws moveIntoItself and copies nothing")
+    func copyFolderIntoDescendant() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none, keyLoaded: false)
+        defer { vault.cleanUp() }
+        let outer = try await vault.store.createFolder(named: "A", in: vault.root)
+        let inner = try await vault.store.createFolder(named: "B", in: try #require(outer.asDirectory))
+        let innerDir = try #require(inner.asDirectory)
+        let before = try vault.snapshot()
+        let error = await caught { _ = try await vault.store.copy(outer, to: innerDir) }
+        #expect(error as? VaultStoreError == .moveIntoItself)
+        #expect(try vault.snapshot() == before)
     }
 
     // MARK: - rename
