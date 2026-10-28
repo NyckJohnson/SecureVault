@@ -203,7 +203,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
         present(migration, animated: true)
     }
 
-    private func setLockMode(_ mode: LegacyLockMode) {
+    private func setLockMode(_ mode: LockMode) {
         if mode == .none {
             let alert = UIAlertController(
                 title: "Remove Lock?",
@@ -278,7 +278,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
         tableView.reloadData()
     }
 
-    private func promptSetPassword(for mode: LegacyLockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
+    private func promptSetPassword(for mode: LockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
         let alert = UIAlertController(title: "Set Password", message: nil, preferredStyle: .alert)
         alert.addTextField {
             $0.placeholder = "Password"; $0.isSecureTextEntry = true

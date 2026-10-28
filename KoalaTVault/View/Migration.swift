@@ -10,10 +10,8 @@ import UIKit
 
 final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
 
-    nonisolated enum MigrationType: String {
-        case encrypt
-        case decrypt
-    }
+    /// Encrypt or decrypt; the same type the preferences persist as the pending migration.
+    typealias MigrationType = MigrationKind
 
     private let type: MigrationType
     private let onComplete: (_ completedFully: Bool) -> Void
@@ -27,7 +25,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     private var failedFiles: [(item: LegacyVaultItem, directory: LegacyVaultDirectory, error: Error)] = []
     private var currentIndex      = 0
     private var isPaused          = false
-    private let targetLockMode: LegacyLockMode?
+    private let targetLockMode: LockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private let directory: LegacyVaultDirectory
     private var migrationTask: Task<Void, Never>?
@@ -51,7 +49,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     init(
         type: MigrationType,
         directory: LegacyVaultDirectory = .root,
-        targetLockMode: LegacyLockMode? = nil,
+        targetLockMode: LockMode? = nil,
         onComplete: @escaping (_ completedFully: Bool) -> Void
     ) {
         self.type = type
@@ -131,10 +129,10 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     }
 
     private func startMigration() {
-        PreferencesService.shared.pendingMigrationType = type
-        if let targetLockMode {
-            PreferencesService.shared.pendingMigrationTargetLockMode = targetLockMode
-        }
+        let preferences = LegacyStorage.current.preferences
+        // Keeps an already-saved target when this screen has none (a resume passes it back).
+        let target = targetLockMode ?? preferences.pendingMigration?.targetLockMode
+        preferences.pendingMigration = PendingMigration(kind: type, targetLockMode: target)
         beginBackgroundTask()
         migrationTask = Task { await runMigration() }
     }
@@ -346,8 +344,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     private func finishMigration() {
         let completedFully = failedFiles.isEmpty && !decryptCleanupFailed
         if completedFully {
-            PreferencesService.shared.pendingMigrationType = nil
-            PreferencesService.shared.pendingMigrationTargetLockMode = nil
+            LegacyStorage.current.preferences.pendingMigration = nil
         }
         endBackgroundTask()
         progressBar.setProgress(1.0, animated: true)
@@ -424,7 +421,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "MigrationCompletion") { [weak self] in
             // Expiration handler: time is nearly up. Nothing needs aborting: each file's
             // migration is safe to interrupt, a suspended file is rerun on resume, and
-            // pendingMigrationType (already persisted) drives resume on the next launch.
+            // pendingMigration (already persisted) drives resume on the next launch.
             self?.endBackgroundTask()
         }
     }

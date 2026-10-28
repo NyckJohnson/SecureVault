@@ -343,7 +343,7 @@ extension matching ignores case.
   - Defaults on an empty store: `hasCompletedSetup` false, `lockMode` .none, `sortOption` .name, `sortDirection` .ascending, `pendingMigration` nil.
   - Each property round-trips through the injected UserDefaults under the keys in Data models, with raw values "none"/"password"/"passwordAndBiometrics", "name"/"type"/"dateModified", "ascending"/"descending", "encrypt"/"decrypt".
   - Values written by a store are read by a new store on the same suite (persistence).
-  - Unknown raw values read as the defaults.
+  - Unknown raw values read as the defaults (an unknown `pendingMigrationType` reads as nil; an unknown or missing target of an encrypt migration reads as a nil target).
   - pendingMigration nil removes both keys; a target is stored only for `.encrypt` and ignored for `.decrypt`.
   - displayName: "Name", "Type", "Date Modified". (Contract logic in `Contracts/PreferencesModels.swift`; unit 1 tests it.)
   - Thread-safe: reads and writes from several threads don't crash or tear.

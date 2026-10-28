@@ -949,7 +949,7 @@ nonisolated final class FileSystem: Sendable {
     func sweepOrphanedEncryptedFiles(in directory: LegacyVaultDirectory) {
         guard isEncryptionEnabled else { return }
         // A migration in progress has copies not indexed yet; sweep after it finishes instead.
-        guard PreferencesService.shared.pendingMigrationType == nil else { return }
+        guard LegacyStorage.current.preferences.pendingMigration == nil else { return }
         guard let diskFiles = try? FileManager.default.contentsOfDirectory(
             at: directory.diskURL, includingPropertiesForKeys: [.isDirectoryKey],
             options: .skipsHiddenFiles) else { return }
@@ -1124,8 +1124,8 @@ nonisolated final class FileSystem: Sendable {
     }
 
     private var sortComparator: (LegacyVaultItem, LegacyVaultItem) -> Bool {
-        let option    = PreferencesService.shared.sortOption
-        let ascending = PreferencesService.shared.sortDirection == .ascending
+        let option    = LegacyStorage.current.preferences.sortOption
+        let ascending = LegacyStorage.current.preferences.sortDirection == .ascending
 
         return { lhs, rhs in
             // folders always first

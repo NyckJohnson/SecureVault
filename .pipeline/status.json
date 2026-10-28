@@ -53,15 +53,15 @@
       "name": "Preferences",
       "path": "KoalaTVault/Modules/Preferences",
       "dependsOn": [],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
           "files": [
             "UserDefaultsPreferences.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -75,8 +75,8 @@
             "View/FileBrowser.swift",
             "View/SecuritySettings.swift"
           ],
-          "state": "pending",
-          "attempts": 0,
+          "state": "done",
+          "attempts": 1,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T17:51:18-07:00",
+  "updatedAt": "2026-10-27T18:55:42-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
