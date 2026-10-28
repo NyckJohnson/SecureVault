@@ -35,6 +35,7 @@
 - `VaultStoring: func emptyTrash() async`
 - `VaultStoring: func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem?`
 - `VaultStoring: func finishDecryption() async throws`
+- `VaultStoring: func finishEncryption() async throws`
 - `VaultStoring: func hasUnencryptedFiles() async throws -> Bool`
 - `VaultStoring: func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]`
 - `VaultStoring: func keyMatchesVault() async -> Bool`
