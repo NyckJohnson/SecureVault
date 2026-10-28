@@ -201,7 +201,7 @@ extension matching ignores case.
 - **Plaintext mode** (lock mode none): files keep their names; conflicts get " 1", " 2" before the extension.
 - **Encrypted mode** (lock mode password or password + biometrics): each file is `<UUID>` with no extension; each folder's
   `.vault_map` is JSON `{ "<UUID>": { "originalName": "…" } }`, AES-256-GCM (nonce 12 | ciphertext | tag 16) with the
-  master key and AAD ".vault_map" (reads also accept the folder-relative path and "" as AAD). `.trash_map` likewise with AAD
+  master key and AAD ".vault_map" (reads also accept the folder-relative path and "" as AAD). `.trash/.trash_map` (inside the trash folder, where the legacy app keeps it) likewise with AAD
   ".trash_map" and `{ "<trashUUID>": TrashEntry }`.
 - **SVC5 file**: header 32 bytes = "SVC5" | chunkSize UInt32 LE (1 MiB on write) | plaintext size UInt64 LE | fileID 16
   random bytes; body = per chunk [length UInt32 LE | AES-GCM combined]; per-file key HKDF-SHA256(master key, salt fileID,
@@ -927,3 +927,4 @@ extension matching ignores case.
 - 2026-10-28: The unit-test host gets a second test-plan argument, `-unitTestHost` (UI tests don't get it). With it, AppDependencies installs an inert `ProUnlocking` with no StoreKit listener, so it doesn't race StoreKitProUnlockTests. Purchase errors other than cancel now show "Purchase could not be completed.", not StoreKit's own text (the contract maps them to `.purchaseFailed`). Both from the Entitlements switch-over review; approved by the human.
 - 2026-10-28: VaultStore names: a name starting with "." is `.invalidName` (dot names were hidden from listings and a root ".trash" folder would become the trash); a case-only rename renames in place in both modes (it became " 1"; the legacy app threw); copying a folder into itself or a descendant throws `.moveIntoItself` — VaultStore unit 1 review — approved by the human
 - 2026-10-28: VaultStore unit 1 closed with the case-only rename question open (see Known issues); dot-named imports are Import's to handle, not `addFile`'s — decided by the human
+- 2026-10-28: The trash index stays at `.trash/.trash_map`, as the legacy app writes it (tests had assumed the vault root); no on-disk move, so older builds still read the trash — VaultStore unit 2 — decided by the human
