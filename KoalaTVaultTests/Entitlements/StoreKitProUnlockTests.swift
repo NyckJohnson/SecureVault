@@ -2,6 +2,7 @@ import Foundation
 import StoreKit
 import StoreKitTest
 import Testing
+import UIKit
 
 @testable import KoalaTVault
 
@@ -30,6 +31,28 @@ private final class Collector {
 
     func stop() { task?.cancel() }
 }
+
+/// A purchase seam that returns a canned result (or throws) and records what it was called with.
+@MainActor
+private final class PurchaseSeam {
+    private(set) var productIDs: [String] = []
+    private(set) var scenes: [UIScene?] = []
+    private let outcome: Result<Product.PurchaseResult, Error>
+
+    init(_ outcome: Result<Product.PurchaseResult, Error>) { self.outcome = outcome }
+
+    var callCount: Int { productIDs.count }
+
+    var closure: @MainActor (Product, UIScene?) async throws -> Product.PurchaseResult {
+        { [self] product, scene in
+            productIDs.append(product.id)
+            scenes.append(scene)
+            return try outcome.get()
+        }
+    }
+}
+
+private struct SeamError: Error {}
 
 /// A StoreKit test session, a throwaway UserDefaults suite, and a factory for the unit under test.
 @MainActor
@@ -61,9 +84,31 @@ private final class Fixture {
 
     func makeUnlock(
         productID: String = ProUnlock.productID,
-        transform: @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 }
+        transform: @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 },
+        purchase: PurchaseSeam? = nil,
+        sync: (@MainActor () async throws -> Void)? = nil
     ) -> StoreKitProUnlock {
-        StoreKitProUnlock(defaults: defaults, productID: productID, verificationTransform: transform)
+        switch (purchase, sync) {
+        case (nil, nil):
+            return StoreKitProUnlock(defaults: defaults, productID: productID, verificationTransform: transform)
+        case (let purchase?, nil):
+            return StoreKitProUnlock(
+                defaults: defaults, productID: productID, verificationTransform: transform,
+                purchase: purchase.closure)
+        case (nil, let sync?):
+            return StoreKitProUnlock(
+                defaults: defaults, productID: productID, verificationTransform: transform, sync: sync)
+        case (let purchase?, let sync?):
+            return StoreKitProUnlock(
+                defaults: defaults, productID: productID, verificationTransform: transform,
+                purchase: purchase.closure, sync: sync)
+        }
+    }
+
+    /// Buys the product outside any `StoreKitProUnlock` and returns the resulting real transaction.
+    func boughtTransaction() async throws -> VerificationResult<Transaction> {
+        try await buyExternally()
+        return try #require(await Transaction.latest(for: ProUnlock.productID))
     }
 
     var cached: Bool { defaults.bool(forKey: cacheKey) }
@@ -294,13 +339,18 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func purchaseUnlocks() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let verification = try await fixture.boughtTransaction()
+        let id = verification.unsafePayloadValue.id
+        let seam = PurchaseSeam(.success(.success(verification)))
+        let unlock = fixture.makeUnlock(purchase: seam)
         let outcome = try await unlock.purchase(confirmIn: nil)
         #expect(outcome == .unlocked)
         #expect(unlock.isUnlocked)
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
-        #expect(await unfinishedTransactionIDs().isEmpty)
+        #expect(seam.callCount == 1)
+        #expect(seam.productIDs == [ProUnlock.productID])
+        #expect(await waitUntil { await unfinishedTransactionIDs().contains(id) == false })
     }
 
     @Test("A purchase notifies unlockedUpdates observers once")
@@ -308,7 +358,8 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func purchaseNotifiesObservers() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let verification = try await fixture.boughtTransaction()
+        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.success(verification))))
         let collector = Collector(unlock.unlockedUpdates())
         defer { collector.stop() }
         _ = try await unlock.purchase(confirmIn: nil)
@@ -317,13 +368,53 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(collector.values == [true])
     }
 
+    @Test("The scene given to purchase(confirmIn:) reaches the purchase call; nil stays nil")
+    @available(iOS 17.0, *)
+    func purchasePassesSceneThrough() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let seam = PurchaseSeam(.success(.pending))
+        let unlock = fixture.makeUnlock(purchase: seam)
+        _ = try await unlock.purchase(confirmIn: nil)
+        #expect(seam.scenes.count == 1)
+        #expect(seam.scenes.first.map { $0 == nil } == true)
+    }
+
+    @Test("A user cancel returns .cancelled and changes nothing")
+    @available(iOS 17.0, *)
+    func purchaseCancelled() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.userCancelled)))
+        let collector = Collector(unlock.unlockedUpdates())
+        defer { collector.stop() }
+        let outcome = try await unlock.purchase(confirmIn: nil)
+        #expect(outcome == .cancelled)
+        #expect(unlock.isUnlocked == false)
+        #expect(unlock.isUnlockedNow == false)
+        #expect(fixture.cached == false)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(collector.values.isEmpty)
+    }
+
+    @Test("A cancel while unlocked leaves it unlocked")
+    @available(iOS 17.0, *)
+    func purchaseCancelledKeepsUnlocked() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        fixture.defaults.set(true, forKey: cacheKey)
+        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.userCancelled)))
+        #expect(try await unlock.purchase(confirmIn: nil) == .cancelled)
+        #expect(unlock.isUnlocked)
+        #expect(fixture.cached)
+    }
+
     @Test("A purchase that needs approval returns .pending and stays locked")
     @available(iOS 17.0, *)
     func purchasePending() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        fixture.session.askToBuyEnabled = true
-        let unlock = fixture.makeUnlock()
+        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.pending)))
         let outcome = try await unlock.purchase(confirmIn: nil)
         #expect(outcome == .pending)
         #expect(unlock.isUnlocked == false)
@@ -331,39 +422,43 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(fixture.cached == false)
     }
 
-    @Test("An unverified purchase throws verificationFailed, stays locked, and leaves the transaction unfinished")
+    @Test("An unverified purchase throws verificationFailed and stays locked")
     @available(iOS 17.0, *)
     func purchaseUnverified() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock(transform: makeUnverified)
+        let verification = try await fixture.boughtTransaction()
+        let unverified = VerificationResult<Transaction>.unverified(
+            verification.unsafePayloadValue, .invalidSignature)
+        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.success(unverified))))
         await #expect(throws: ProUnlockError.verificationFailed) {
             _ = try await unlock.purchase(confirmIn: nil)
         }
         #expect(unlock.isUnlocked == false)
+        #expect(unlock.isUnlockedNow == false)
         #expect(fixture.cached == false)
-        #expect(await unfinishedTransactionIDs().isEmpty == false)
     }
 
-    @Test("Purchasing an unknown product throws productUnavailable")
+    @Test("Purchasing an unknown product throws productUnavailable without starting a purchase")
     @available(iOS 17.0, *)
     func purchaseProductUnavailable() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock(productID: "nej.KoalaTVault.nothing")
+        let seam = PurchaseSeam(.success(.pending))
+        let unlock = fixture.makeUnlock(productID: "nej.KoalaTVault.nothing", purchase: seam)
         await #expect(throws: ProUnlockError.productUnavailable) {
             _ = try await unlock.purchase(confirmIn: nil)
         }
+        #expect(seam.callCount == 0)
         #expect(unlock.isUnlocked == false)
     }
 
-    @Test("A purchase StoreKit fails throws purchaseFailed and stays locked")
+    @Test("A purchase that throws another error throws purchaseFailed and stays locked")
     @available(iOS 17.0, *)
     func purchaseFailed() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        fixture.session.failTransactionsEnabled = true
-        let unlock = fixture.makeUnlock()
+        let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.failure(SeamError())))
         await #expect(throws: ProUnlockError.purchaseFailed) {
             _ = try await unlock.purchase(confirmIn: nil)
         }
@@ -409,9 +504,27 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(fixture.cached == false)
     }
 
+    @Test("Restore rethrows the StoreKit cancel error and changes nothing")
+    @available(iOS 17.0, *)
+    func restoreRethrowsCancel() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let unlock = fixture.makeUnlock(sync: { throw StoreKitError.userCancelled })
+        do {
+            _ = try await unlock.restore()
+            Issue.record("restore should have thrown")
+        } catch StoreKitError.userCancelled {
+            // expected
+        } catch {
+            Issue.record("unexpected error \(error)")
+        }
+        #expect(unlock.isUnlocked == false)
+        #expect(fixture.cached == false)
+    }
+
     // MARK: Transaction updates
 
-    @Test("A purchase made outside the instance unlocks it live and notifies observers")
+    @Test("A purchase made outside the instance unlocks it live, notifies observers once, and is finished")
     @available(iOS 17.0, *)
     func externalPurchaseUnlocksLive() async throws {
         let fixture = try await Fixture.make()
@@ -426,31 +539,26 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
         #expect(await waitUntil { collector.values == [true] })
-    }
-
-    @Test("A verified update's transaction is finished")
-    @available(iOS 17.0, *)
-    func externalPurchaseIsFinished() async throws {
-        let fixture = try await Fixture.make()
-        defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
-        try await fixture.buyExternally()
-        #expect(await waitUntil { unlock.isUnlocked })
+        // Whatever update reached the instance is finished (holds even if another listener finished it first).
         #expect(await waitUntil { await unfinishedTransactionIDs().isEmpty })
     }
 
-    @Test("An unverified update is ignored: it neither unlocks nor finishes the transaction")
+    @Test("An unverified update is ignored: it does not unlock")
     @available(iOS 17.0, *)
     func unverifiedUpdateIgnored() async throws {
+        // Whether the transaction stays unfinished is not asserted: the host app's legacy entitlement
+        // listener also receives updates and may finish them, so that outcome is not reliable.
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(transform: makeUnverified)
+        let collector = Collector(unlock.unlockedUpdates())
+        defer { collector.stop() }
         try await fixture.buyExternally()
         try await Task.sleep(nanoseconds: 1_000_000_000)
         #expect(unlock.isUnlocked == false)
         #expect(unlock.isUnlockedNow == false)
         #expect(fixture.cached == false)
-        #expect(await unfinishedTransactionIDs().isEmpty == false)
+        #expect(collector.values.isEmpty)
     }
 
     @Test("A revocation arriving as an update locks the instance live")
