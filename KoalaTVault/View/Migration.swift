@@ -5,6 +5,7 @@
 //  Created by Nicholas Johnson on 7/12/26.
 //
 
+import os
 import UIKit
 
 final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
@@ -42,6 +43,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     /// failing is reported instead of looping.
     private var transientRetries = 0
     private static let maxTransientRetries = 2
+    private let logger = Logger(subsystem: "com.KoalaTVault", category: "Migration")
 
     /// - Parameters:
     ///   - type: encrypt or decrypt the whole vault (trash included).
@@ -180,6 +182,9 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
             currentIndex += 1
             showProgress()
         }
+        if type == .encrypt {
+            guard await secureLeftoverIndexes() else { return }
+        }
         if type == .decrypt && failedFiles.isEmpty {
             guard await finishDecryption() else { return }
         }
@@ -222,6 +227,23 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         let progress = Double(currentIndex) / Double(filesToMigrate.count)
         progressBar.setProgress(Float(progress), animated: true)
         statusLabel.text = "\(Int(progress * 100))% complete"
+    }
+
+    /// Last step of an encrypt migration: re-saves encrypted any folder index an older build
+    /// left in plaintext. Returns false when it paused (key wiped); a failure with the key loaded
+    /// is logged and doesn't stop the migration: every file is safe, and the next save of that
+    /// folder's index encrypts it.
+    private func secureLeftoverIndexes() async -> Bool {
+        do {
+            try await vaultStore.finishEncryption()
+        } catch {
+            guard canMigrate else {
+                pauseMigration()
+                return false
+            }
+            logger.error("Re-encrypting folder indexes failed: \(error.localizedDescription, privacy: .public)")
+        }
+        return true
     }
 
     /// `UITEST_MIGRATION_FILE_DELAY`: waits before each file so a UI test can background mid-run.

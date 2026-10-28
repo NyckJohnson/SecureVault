@@ -421,6 +421,54 @@ extension LiveVaultStore {
         }
     }
 
+    /// Seals every index older builds left as plaintext JSON: each `.vault_map` under the root (and in folders
+    /// in the trash) with ".vault_map", and `.trash/.trash_map` with ".trash_map", keeping their entries.
+    /// Already-encrypted and unreadable indexes are left byte for byte; plaintext mode changes nothing.
+    /// Runs without suspending, so it is one serialized step with every other index write.
+    /// - Throws: `.locked` in encrypted mode without the key (before anything is written); `.io` when a
+    ///   folder can't be listed or an index can't be written.
+    func finishEncryption() throws {
+        let mode = try beginOperation()
+        guard mode.isEncrypted else { return }
+        var pending = [root.diskURL] + (try subfolders(of: trashMap.folderURL))
+        while let folder = pending.popLast() {
+            let url = folder.appendingPathComponent(VaultIndex.fileName)
+            if let entries = Self.plaintextJSON([String: VaultIndexEntry].self, at: url) {
+                try VaultIndex.writeSealedJSON(
+                    entries, to: url, context: VaultIndex.fileName, cipher: cipher, mode: mode)
+            }
+            pending += try subfolders(of: folder)
+        }
+        if let entries = Self.plaintextJSON([String: VaultTrashEntry].self, at: trashMap.url) {
+            try trashMap.write(entries, mode: mode)
+        }
+    }
+
+    /// The value decoded from the file at `url` when it is plaintext JSON of that type; nil when it is
+    /// absent, unreadable, encrypted or anything else.
+    private static func plaintextJSON<T: Decodable>(_ type: T.Type, at url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// The non-hidden folders directly in `folder` (none when `folder` doesn't exist).
+    /// - Throws: `.io` when an existing folder can't be listed.
+    private func subfolders(of folder: URL) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
+        let urls: [URL]
+        do {
+            urls = try FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: .skipsHiddenFiles)
+        } catch {
+            throw VaultStoreError.from(error)
+        }
+        return urls.filter { url in
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            return values?.isDirectory == true && values?.isSymbolicLink != true
+        }
+    }
+
     func keyMatchesVault() -> Bool {
         let url = root.diskURL.appendingPathComponent(VaultIndex.fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return true }

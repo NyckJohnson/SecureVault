@@ -295,6 +295,7 @@ nonisolated struct FailingMigrationVaultStore: VaultStoring {
         try await base.itemsToMigrate(toEncrypted: toEncrypted)
     }
     func finishDecryption() async throws { try await base.finishDecryption() }
+    func finishEncryption() async throws { try await base.finishEncryption() }
     func hasUnencryptedFiles() async throws -> Bool { try await base.hasUnencryptedFiles() }
     func keyMatchesVault() async -> Bool { await base.keyMatchesVault() }
     func sweepOrphans() async { await base.sweepOrphans() }
