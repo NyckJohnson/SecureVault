@@ -30,6 +30,8 @@ private final class Collector {
     }
 
     func stop() { task?.cancel() }
+
+    func reset() { values = [] }
 }
 
 /// A purchase seam that returns a canned result (or throws) and records what it was called with.
@@ -53,6 +55,30 @@ private final class PurchaseSeam {
 }
 
 private struct SeamError: Error {}
+
+/// Holds the instance and the older refresh task a seam needs to reach.
+@MainActor
+private final class RefreshHolder {
+    var unlock: StoreKitProUnlock?
+    var staleRefresh: Task<Void, Never>?
+}
+
+/// Counts how often the verification transform runs (once per entitlement or purchase result checked).
+private final class TransformCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+
+    var transform: @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> {
+        { [self] result in
+            lock.lock()
+            count += 1
+            lock.unlock()
+            return result
+        }
+    }
+}
 
 /// A StoreKit test session, a throwaway UserDefaults suite, and a factory for the unit under test.
 @MainActor
@@ -370,6 +396,46 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(await waitUntil { collector.values == [true] })
         try await Task.sleep(nanoseconds: 500_000_000)
         #expect(collector.values == [true])
+    }
+
+    @Test("A successful purchase ends with a refresh, so an older in-flight refresh cannot leave it locked")
+    @available(iOS 17.0, *)
+    func purchaseEndsWithRefreshAfterEarlierRefresh() async throws {
+        let fixture = try await Fixture.make()
+        defer { fixture.cleanup() }
+        let verification = try await fixture.boughtTransaction()
+        let counter = TransformCounter()
+        // The seam lets an older refresh get under way before the purchase result is returned.
+        let holder = RefreshHolder()
+        let seam: @MainActor (Product, UIScene?) async throws -> Product.PurchaseResult = { _, _ in
+            if let unlock = holder.unlock {
+                holder.staleRefresh = Task { @MainActor in await unlock.refresh() }
+                for _ in 0..<5 { await Task.yield() }
+            }
+            return .success(verification)
+        }
+        let unlock = StoreKitProUnlock(
+            defaults: fixture.defaults, verificationTransform: counter.transform, purchase: seam)
+        holder.unlock = unlock
+        let collector = Collector(unlock.unlockedUpdates())
+        defer { collector.stop() }
+        // Let the refresh that runs at start finish, so the reads below belong to the purchase.
+        #expect(await waitUntil { unlock.isUnlocked })
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let baseline = counter.value
+        collector.reset()
+
+        #expect(try await unlock.purchase(confirmIn: nil) == .unlocked)
+        await holder.staleRefresh?.value
+
+        // A refresh ran after the purchase result was checked: the purchase check is one read, each
+        // refresh of the (single) entitlement is another, and the older refresh is at most one of them.
+        #expect(await waitUntil { counter.value >= baseline + 3 })
+        try await Task.sleep(nanoseconds: 500_000_000)
+        #expect(unlock.isUnlocked)
+        #expect(unlock.isUnlockedNow)
+        #expect(fixture.cached)
+        #expect(collector.values.contains(false) == false)
     }
 
     @Test("The scene given to purchase(confirmIn:) reaches the purchase call; nil stays nil")
