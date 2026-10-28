@@ -61,7 +61,7 @@
             "UserDefaultsPreferences.swift"
           ],
           "state": "tests",
-          "attempts": 0
+          "attempts": 1
         },
         {
           "number": 2,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T17:56:11-07:00",
+  "updatedAt": "2026-10-27T17:59:29-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
