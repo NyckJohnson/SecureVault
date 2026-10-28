@@ -85,7 +85,7 @@
       "name": "Entitlements",
       "path": "KoalaTVault/Modules/Entitlements",
       "dependsOn": [],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T20:33:59-07:00",
+  "updatedAt": "2026-10-27T20:47:24-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
