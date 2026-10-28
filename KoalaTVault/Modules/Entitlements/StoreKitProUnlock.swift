@@ -163,13 +163,16 @@ final class StoreKitProUnlock: ProUnlocking {
 
     /// Finishes each verified update and refreshes; unverified updates are ignored and left unfinished.
     /// Holds `self` weakly so the instance can be released, which cancels the listener.
+    /// Once cancelled or released, the listener stops before finishing anything, so a leftover
+    /// listener never finishes a transaction that a live instance should handle.
     private func listenForTransactionUpdates() -> Task<Void, Never> {
         let transform = verificationTransform
         return Task.detached { [weak self] in
             for await update in Transaction.updates {
                 guard case .verified(let transaction) = transform(update) else { continue }
+                guard !Task.isCancelled, let self else { return }
                 await transaction.finish()
-                await self?.refresh()
+                await self.refresh()
             }
         }
     }
