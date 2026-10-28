@@ -55,8 +55,15 @@ private struct TestSuite {
         #expect(suite.defaults.bool(forKey: "hasCompletedSetup") == false)
     }
 
-    @Test("lockMode round-trips and stores its raw string",
-          arguments: [(LockMode.none, "none"), (.password, "password"), (.passwordAndBiometrics, "passwordAndBiometrics")])
+    static let lockModeRows: [(mode: LockMode, raw: String)] = {
+        var rows: [(mode: LockMode, raw: String)] = []
+        rows.append((LockMode.none, "none"))
+        rows.append((.password, "password"))
+        rows.append((.passwordAndBiometrics, "passwordAndBiometrics"))
+        return rows
+    }()
+
+    @Test("lockMode round-trips and stores its raw string", arguments: lockModeRows)
     func lockModeRoundTrip(mode: LockMode, raw: String) {
         let suite = TestSuite()
         defer { suite.cleanup() }
@@ -66,8 +73,15 @@ private struct TestSuite {
         #expect(suite.defaults.string(forKey: "lockMode") == raw)
     }
 
-    @Test("sortOption round-trips and stores its raw string",
-          arguments: [(SortOption.name, "name"), (.type, "type"), (.dateModified, "dateModified")])
+    static let sortOptionRows: [(option: SortOption, raw: String)] = {
+        var rows: [(option: SortOption, raw: String)] = []
+        rows.append((.name, "name"))
+        rows.append((.type, "type"))
+        rows.append((.dateModified, "dateModified"))
+        return rows
+    }()
+
+    @Test("sortOption round-trips and stores its raw string", arguments: sortOptionRows)
     func sortOptionRoundTrip(option: SortOption, raw: String) {
         let suite = TestSuite()
         defer { suite.cleanup() }
@@ -77,8 +91,14 @@ private struct TestSuite {
         #expect(suite.defaults.string(forKey: "sortOption") == raw)
     }
 
-    @Test("sortDirection round-trips and stores its raw string",
-          arguments: [(SortDirection.ascending, "ascending"), (.descending, "descending")])
+    static let sortDirectionRows: [(direction: SortDirection, raw: String)] = {
+        var rows: [(direction: SortDirection, raw: String)] = []
+        rows.append((.ascending, "ascending"))
+        rows.append((.descending, "descending"))
+        return rows
+    }()
+
+    @Test("sortDirection round-trips and stores its raw string", arguments: sortDirectionRows)
     func sortDirectionRoundTrip(direction: SortDirection, raw: String) {
         let suite = TestSuite()
         defer { suite.cleanup() }
@@ -88,8 +108,7 @@ private struct TestSuite {
         #expect(suite.defaults.string(forKey: "sortDirection") == raw)
     }
 
-    @Test("An encrypt migration with a target stores both keys",
-          arguments: [LockMode.none, .password, .passwordAndBiometrics])
+    @Test("An encrypt migration with a target stores both keys", arguments: LockMode.allCases)
     func encryptMigrationWithTarget(target: LockMode) {
         let suite = TestSuite()
         defer { suite.cleanup() }
@@ -190,11 +209,14 @@ private struct TestSuite {
 
     @Test("Stores on different suites do not share values")
     func suitesAreIsolated() {
-        let a = TestSuite()
-        let b = TestSuite()
-        defer { a.cleanup(); b.cleanup() }
-        a.makeStore().lockMode = .password
-        #expect(b.makeStore().lockMode == .none)
+        let first = TestSuite()
+        let second = TestSuite()
+        defer {
+            first.cleanup()
+            second.cleanup()
+        }
+        first.makeStore().lockMode = .password
+        #expect(second.makeStore().lockMode == .none)
     }
 
     // MARK: Unknown raw values
@@ -272,17 +294,21 @@ private struct TestSuite {
 
     // MARK: Thread safety
 
+    static let concurrentMigrations: [PendingMigration?] = {
+        var rows: [PendingMigration?] = []
+        rows.append(nil)
+        rows.append(PendingMigration(kind: .decrypt, targetLockMode: nil))
+        rows.append(PendingMigration(kind: .encrypt, targetLockMode: .password))
+        rows.append(PendingMigration(kind: .encrypt, targetLockMode: .passwordAndBiometrics))
+        return rows
+    }()
+
     @Test("Concurrent reads and writes from several threads neither crash nor tear")
     func concurrentAccess() {
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
-        let migrations: [PendingMigration?] = [
-            nil,
-            PendingMigration(kind: .decrypt, targetLockMode: nil),
-            PendingMigration(kind: .encrypt, targetLockMode: .password),
-            PendingMigration(kind: .encrypt, targetLockMode: .passwordAndBiometrics),
-        ]
+        let migrations = Self.concurrentMigrations
         let valid = Mutex(true)
         DispatchQueue.concurrentPerform(iterations: 400) { i in
             store.hasCompletedSetup = i.isMultiple(of: 2)

@@ -4,8 +4,15 @@ import Testing
 @testable import KoalaTVault
 
 @Suite struct PreferencesModelsTests {
-    @Test("SortOption display names are the user-facing labels",
-          arguments: [(SortOption.name, "Name"), (.type, "Type"), (.dateModified, "Date Modified")])
+    static let displayNames: [(option: SortOption, label: String)] = {
+        var rows: [(option: SortOption, label: String)] = []
+        rows.append((.name, "Name"))
+        rows.append((.type, "Type"))
+        rows.append((.dateModified, "Date Modified"))
+        return rows
+    }()
+
+    @Test("SortOption display names are the user-facing labels", arguments: displayNames)
     func displayName(option: SortOption, label: String) {
         #expect(option.displayName == label)
     }
@@ -26,19 +33,21 @@ import Testing
 
     @Test("PendingMigration equality and hashing consider kind and target")
     func pendingMigrationEquality() {
-        let a = PendingMigration(kind: .encrypt, targetLockMode: .password)
-        #expect(a == PendingMigration(kind: .encrypt, targetLockMode: .password))
-        #expect(a != PendingMigration(kind: .encrypt, targetLockMode: .none))
-        #expect(a != PendingMigration(kind: .decrypt, targetLockMode: .password))
-        #expect(Set([a, PendingMigration(kind: .encrypt, targetLockMode: .password)]).count == 1)
+        let base = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        #expect(base == PendingMigration(kind: .encrypt, targetLockMode: .password))
+        #expect(base != PendingMigration(kind: .encrypt, targetLockMode: LockMode.none))
+        #expect(base != PendingMigration(kind: .encrypt, targetLockMode: nil))
+        #expect(base != PendingMigration(kind: .decrypt, targetLockMode: .password))
+        #expect(Set([base, PendingMigration(kind: .encrypt, targetLockMode: .password)]).count == 1)
     }
 
     @Test("PendingMigration survives a Codable round trip")
     func pendingMigrationCodable() throws {
-        for migration in [
-            PendingMigration(kind: .encrypt, targetLockMode: .passwordAndBiometrics),
-            PendingMigration(kind: .decrypt, targetLockMode: nil),
-        ] {
+        var migrations: [PendingMigration] = []
+        migrations.append(PendingMigration(kind: .encrypt, targetLockMode: .passwordAndBiometrics))
+        migrations.append(PendingMigration(kind: .encrypt, targetLockMode: LockMode.none))
+        migrations.append(PendingMigration(kind: .decrypt, targetLockMode: nil))
+        for migration in migrations {
             let data = try JSONEncoder().encode(migration)
             #expect(try JSONDecoder().decode(PendingMigration.self, from: data) == migration)
         }
