@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import KoalaTVault
 
@@ -309,7 +310,7 @@ private struct TestSuite {
         defer { suite.cleanup() }
         let store = suite.makeStore()
         let migrations = Self.concurrentMigrations
-        let valid = Mutex(true)
+        let reads = OSAllocatedUnfairLock(initialState: [PendingMigration?]())
         DispatchQueue.concurrentPerform(iterations: 400) { i in
             store.hasCompletedSetup = i.isMultiple(of: 2)
             store.lockMode = LockMode.allCases[i % LockMode.allCases.count]
@@ -321,24 +322,17 @@ private struct TestSuite {
             _ = store.lockMode
             _ = store.sortOption
             _ = store.sortDirection
-            // A read must be one of the values that was written, never a mix (e.g. decrypt with a target).
             let read = store.pendingMigration
-            if let read, read.kind == .decrypt, read.targetLockMode != nil {
-                valid.set(false)
-            }
+            reads.withLock { $0.append(read) }
         }
-        #expect(valid.get())
+        // Every read must be one of the values that was written, never a torn mix
+        // (an encrypt with a missing or stale target is not a member of the table).
+        let observed = reads.withLock { $0 }
+        #expect(observed.count == 400)
+        #expect(observed.allSatisfy { read in migrations.contains { $0 == read } })
+        #expect(!migrations.contains { $0?.kind == .encrypt && $0?.targetLockMode == nil })
         // The store still works after the storm.
         store.lockMode = .password
         #expect(store.lockMode == .password)
     }
-}
-
-/// Minimal lock-protected flag.
-private final class Mutex: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: Bool
-    init(_ value: Bool) { self.value = value }
-    func set(_ newValue: Bool) { lock.lock(); value = newValue; lock.unlock() }
-    func get() -> Bool { lock.lock(); defer { lock.unlock() }; return value }
 }
