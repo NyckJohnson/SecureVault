@@ -12,6 +12,9 @@
     "commandLineArgumentEntries" : [
       {
         "argument" : "-uiTesting"
+      },
+      {
+        "argument" : "-unitTestHost"
       }
     ],
     "threadSanitizerEnabled" : true

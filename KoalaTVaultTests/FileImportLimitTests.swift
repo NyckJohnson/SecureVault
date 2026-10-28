@@ -8,13 +8,20 @@ import XCTest
 
 final class FileImportLimitTests: VaultTestCase {
 
+    private var originalProUnlock: (any ProUnlocking)?
+    private var proUnlock: MockProUnlocking!
+
     override func setUp() {
         super.setUp()
-        EntitlementService.testForcedUnlocked = false
+        originalProUnlock = LegacyStorage.current.proUnlockSlot.installed
+        proUnlock = MainActor.assumeIsolated { MockProUnlocking(isUnlocked: false) }
+        LegacyStorage.current.proUnlockSlot.install(proUnlock)
     }
 
     override func tearDown() {
-        EntitlementService.testForcedUnlocked = nil
+        if let originalProUnlock { LegacyStorage.current.proUnlockSlot.install(originalProUnlock) }
+        proUnlock = nil
+        originalProUnlock = nil
         super.tearDown()
     }
 
@@ -42,26 +49,26 @@ final class FileImportLimitTests: VaultTestCase {
     }
 
     func testCheckImportAllowedThrowsWhenOverLimit() throws {
-        try seedFiles(count: EntitlementService.freeFileLimit, in: testDirectory)
+        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
         XCTAssertThrowsError(try FileSystem.shared.checkImportAllowed(additionalCount: 1, in: testDirectory)) {
             assertFileLimitReached($0)
         }
     }
 
     func testCheckImportAllowedAllowsExactlyUpToLimit() throws {
-        try seedFiles(count: EntitlementService.freeFileLimit - 1, in: testDirectory)
+        try seedFiles(count: ProUnlock.freeFileLimit - 1, in: testDirectory)
         XCTAssertNoThrow(try FileSystem.shared.checkImportAllowed(additionalCount: 1, in: testDirectory))
     }
 
     func testCheckImportAllowedPassesWhenUnlockedRegardlessOfCount() throws {
-        EntitlementService.testForcedUnlocked = true
-        try seedFiles(count: EntitlementService.freeFileLimit, in: testDirectory)
+        MainActor.assumeIsolated { proUnlock.isUnlocked = true }
+        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
         XCTAssertNoThrow(try FileSystem.shared.checkImportAllowed(additionalCount: 50, in: testDirectory))
     }
 
     // MARK: - importItems
     func testImportItemsThrowsAndImportsNothingWhenOverLimit() throws {
-        try seedFiles(count: EntitlementService.freeFileLimit, in: testDirectory)
+        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
 
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("overflow.txt")
         try "overflow".write(to: sourceURL, atomically: true, encoding: .utf8)
@@ -72,13 +79,13 @@ final class FileImportLimitTests: VaultTestCase {
         }
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.count, EntitlementService.freeFileLimit)
+        XCTAssertEqual(contents.count, ProUnlock.freeFileLimit)
         XCTAssertFalse(contents.contains { $0.name == "overflow.txt" })
     }
 
     func testImportItemsSucceedsWhenUnlockedBeyondLimit() throws {
-        EntitlementService.testForcedUnlocked = true
-        try seedFiles(count: EntitlementService.freeFileLimit, in: testDirectory)
+        MainActor.assumeIsolated { proUnlock.isUnlocked = true }
+        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
 
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("overflow.txt")
         try "overflow".write(to: sourceURL, atomically: true, encoding: .utf8)
@@ -87,13 +94,13 @@ final class FileImportLimitTests: VaultTestCase {
         try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
 
         let contents = try FileSystem.shared.contents(of: testDirectory)
-        XCTAssertEqual(contents.count, EntitlementService.freeFileLimit + 1)
+        XCTAssertEqual(contents.count, ProUnlock.freeFileLimit + 1)
         XCTAssertTrue(contents.contains { $0.name == "overflow.txt" })
     }
 
     func testImportItemsCountsAcrossSubfolders() throws {
         let subFolder = try FileSystem.shared.createFolder(named: "Sub", in: testDirectory)
-        try seedFiles(count: EntitlementService.freeFileLimit, in: subFolder)
+        try seedFiles(count: ProUnlock.freeFileLimit, in: subFolder)
 
         let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("overflow.txt")
         try "overflow".write(to: sourceURL, atomically: true, encoding: .utf8)

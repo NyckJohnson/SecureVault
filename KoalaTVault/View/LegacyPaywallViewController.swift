@@ -11,6 +11,8 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
     /// Called after a successful purchase or restore, before dismissal.
     var onUnlock: (() -> Void)?
 
+    private let proUnlock: any ProUnlocking
+
     private let titleLabel = UILabel()
     private let descriptionLabel = UILabel()
     private let priceLabel = UILabel()
@@ -18,6 +20,15 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
     private let restoreButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
+
+    /// - Parameter proUnlock: the "Unlock Pro" entitlement (the app's one, from the composition root,
+    ///   by default).
+    init(proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock) {
+        self.proUnlock = proUnlock
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -34,7 +45,7 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
         titleLabel.textAlignment = .center
         titleLabel.accessibilityIdentifier = "paywall.titleLabel"
 
-        descriptionLabel.text = "Store more than \(EntitlementService.freeFileLimit) files."
+        descriptionLabel.text = "Store more than \(ProUnlock.freeFileLimit) files."
         descriptionLabel.font = .preferredFont(forTextStyle: .body)
         descriptionLabel.textColor = .secondaryLabel
         descriptionLabel.textAlignment = .center
@@ -87,12 +98,7 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
 
     // MARK: - StoreKit
     private func loadProduct() async {
-        do {
-            let products = try await Product.products(for: [EntitlementService.unlockProductID])
-            priceLabel.text = products.first?.displayPrice ?? "Price unavailable"
-        } catch {
-            priceLabel.text = "Price unavailable"
-        }
+        priceLabel.text = await proUnlock.displayPrice() ?? "Price unavailable"
     }
 
     @objc private func unlockTapped() {
@@ -100,12 +106,19 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
         let scene = view.window?.windowScene
         Task {
             do {
-                try await EntitlementService.shared.purchaseUnlock(confirmIn: scene)
+                let outcome = try await proUnlock.purchase(confirmIn: scene)
                 setLoading(false)
-                finishIfUnlocked()
+                switch outcome {
+                case .unlocked:
+                    finishIfUnlocked()
+                case .cancelled:
+                    break
+                case .pending:
+                    showError("Purchase pending approval.")
+                }
             } catch {
                 setLoading(false)
-                showError(error)
+                showError(Self.message(for: error))
             }
         }
     }
@@ -114,9 +127,9 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
         setLoading(true)
         Task {
             do {
-                try await EntitlementService.shared.restorePurchases()
+                let unlocked = try await proUnlock.restore()
                 setLoading(false)
-                if EntitlementService.shared.isUnlocked {
+                if unlocked {
                     finishIfUnlocked()
                 } else {
                     showError("No previous purchase found to restore.")
@@ -135,9 +148,19 @@ final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
     }
 
     private func finishIfUnlocked() {
-        guard EntitlementService.shared.isUnlocked else { return }
+        guard proUnlock.isUnlocked else { return }
         onUnlock?()
         dismiss(animated: true)
+    }
+
+    /// The alert text for a purchase error: the wording the app has always shown for each case.
+    private static func message(for error: Error) -> String {
+        guard let error = error as? ProUnlockError else { return error.localizedDescription }
+        switch error {
+        case .productUnavailable: return "Pro upgrade is currently unavailable."
+        case .verificationFailed: return "Could not verify purchase."
+        case .purchaseFailed:     return "Purchase could not be completed."
+        }
     }
 
     private func setLoading(_ loading: Bool) {

@@ -5,7 +5,9 @@
 //  Composition root. Decides, once per launch, which storage the app uses:
 //  the real Documents vault, Keychain and UserDefaults.standard, or (with the
 //  `-uiTesting` launch argument) a throwaway temporary vault, an in-memory
-//  Keychain and a dedicated UserDefaults suite.
+//  Keychain and a dedicated UserDefaults suite. With `-unitTestHost` as well
+//  (the unit-test host only, set by the test plan), the "Unlock Pro" entitlement
+//  is an inert stand-in that never talks to StoreKit.
 //
 
 import Foundation
@@ -31,6 +33,53 @@ nonisolated final class InMemoryKeychain: KeychainAccessing {
 
     func delete(account: String) throws {
         items.withLock { $0[account] = nil }
+    }
+}
+
+// MARK: - Pro unlock slot
+
+/// Holds the app's one `ProUnlocking`, which `AppDependencies` builds on the main actor at launch and
+/// installs here, so legacy singletons (`FileSystem`, view controllers built by legacy code) can reach it
+/// through `LegacyStorage.current.proUnlock` until each takes it by injection.
+nonisolated final class LegacyProUnlockSlot: Sendable {
+    private let value = OSAllocatedUnfairLock<(any ProUnlocking)?>(initialState: nil)
+
+    init() {}
+
+    /// Installs (or replaces) the entitlement legacy code reads.
+    func install(_ proUnlock: any ProUnlocking) {
+        value.withLock { $0 = proUnlock }
+    }
+
+    /// The installed entitlement, or nil before `AppDependencies` has installed one.
+    var installed: (any ProUnlocking)? { value.withLock { $0 } }
+}
+
+// MARK: - Inert pro unlock (unit-test host)
+
+/// The entitlement installed in the hosted unit-test process (`-unitTestHost`): always locked, makes no
+/// StoreKit calls and starts no `Transaction.updates` listener, so the host app can't finish or observe
+/// transactions that `StoreKitProUnlockTests` drive in the same process. Tests that need an entitlement
+/// inject their own.
+@MainActor
+private final class InertProUnlock: ProUnlocking {
+    var isUnlocked: Bool { false }
+    nonisolated var isUnlockedNow: Bool { false }
+
+    func displayPrice() async -> String? { nil }
+
+    /// Never buys: there is no product in the unit-test host.
+    func purchase(confirmIn scene: UIScene?) async throws -> PurchaseOutcome {
+        throw ProUnlockError.productUnavailable
+    }
+
+    func restore() async throws -> Bool { false }
+
+    func refresh() async {}
+
+    /// The value never changes, so the stream ends at once.
+    func unlockedUpdates() -> AsyncStream<Bool> {
+        AsyncStream { $0.finish() }
     }
 }
 
@@ -73,6 +122,9 @@ nonisolated struct UITestSettings: Sendable, Equatable {
 nonisolated struct LegacyStorage: Sendable {
     /// The launch argument that selects the clean, isolated test state.
     static let uiTestingArgument = "-uiTesting"
+    /// The launch argument the test plan gives the hosted unit-test process only (UI-test launches
+    /// don't pass it): the app then installs an inert entitlement instead of the StoreKit one.
+    static let unitTestHostArgument = "-unitTestHost"
     /// The Keychain service of the vault's items (the legacy password item is matched without it).
     static let keychainService = "com.KoalaTVault"
 
@@ -93,6 +145,8 @@ nonisolated struct LegacyStorage: Sendable {
     let defaultsSuiteName: String?
     /// Non-nil only in `-uiTesting` mode.
     let uiTestSettings: UITestSettings?
+    /// Where `AppDependencies` installs the app's one `ProUnlocking` for legacy code.
+    let proUnlockSlot = LegacyProUnlockSlot()
 
     /// The storage for this process, decided from its launch arguments on first use.
     static let current = LegacyStorage(
@@ -102,6 +156,16 @@ nonisolated struct LegacyStorage: Sendable {
 
     /// Preferences store (`.standard` normally; a cleared dedicated suite in `-uiTesting` mode).
     var defaults: UserDefaults { Self.openDefaults(suiteName: defaultsSuiteName) }
+
+    /// The app's "Unlock Pro" entitlement, built and installed by `AppDependencies` at launch.
+    /// Legacy singletons reach it here; new code takes it by injection from `AppDependencies`.
+    var proUnlock: any ProUnlocking {
+        guard let proUnlock = proUnlockSlot.installed else {
+            // Unreachable: AppDelegate builds AppDependencies (which installs it) before any scene or import.
+            fatalError("LegacyStorage.proUnlock read before AppDependencies installed it")
+        }
+        return proUnlock
+    }
 
     /// `.standard` for a nil `suiteName`, else that suite.
     private static func openDefaults(suiteName: String?) -> UserDefaults {
@@ -185,10 +249,23 @@ final class AppDependencies {
     var fileCipher: any FileCipher { storage.fileCipher }
     /// The app's settings (built once, in `storage`).
     var preferences: any PreferencesStoring { storage.preferences }
+    /// The "Unlock Pro" entitlement, built once at launch over the same UserDefaults as the preferences
+    /// (so its `entitlement.isUnlocked` cache stays where earlier versions kept it). Building it starts the
+    /// transaction-update listener and the launch refresh. In the unit-test host (`-unitTestHost`) it is an
+    /// inert, always-locked stand-in with no StoreKit calls.
+    let proUnlock: any ProUnlocking
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
-    init(storage: LegacyStorage = .current) {
+    init(storage: LegacyStorage = .current, arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.storage = storage
+        let proUnlock: any ProUnlocking
+        if arguments.contains(LegacyStorage.unitTestHostArgument) {
+            proUnlock = InertProUnlock()
+        } else {
+            proUnlock = StoreKitProUnlock(defaults: storage.defaults)
+        }
+        self.proUnlock = proUnlock
+        storage.proUnlockSlot.install(proUnlock)
     }
 
     /// Applies the `-uiTesting` seeds (files, password) to the empty test storage.

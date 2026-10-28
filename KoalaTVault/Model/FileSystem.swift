@@ -148,9 +148,9 @@ nonisolated final class FileSystem: Sendable {
             return count + (url.hasDirectoryPath ? countFiles(in: url) : 1)
         })
 
-        if !EntitlementService.isUnlockedSync {
+        if !LegacyStorage.current.proUnlock.isUnlockedNow {
             let existingCount = countFiles(in: directory.rootURL)
-            guard existingCount + Int(total) <= EntitlementService.freeFileLimit else {
+            guard existingCount + Int(total) <= ProUnlock.freeFileLimit else {
                 throw FileSystemError.fileLimitReached
             }
         }
@@ -250,9 +250,9 @@ nonisolated final class FileSystem: Sendable {
     /// Call before starting a camera-roll import; throws `.fileLimitReached` if the
     /// import would exceed the free tier for this vault.
     func checkImportAllowed(additionalCount: Int, in directory: LegacyVaultDirectory) throws {
-        guard !EntitlementService.isUnlockedSync else { return }
+        guard !LegacyStorage.current.proUnlock.isUnlockedNow else { return }
         let existingCount = countFiles(in: directory.rootURL)
-        guard existingCount + additionalCount <= EntitlementService.freeFileLimit else {
+        guard existingCount + additionalCount <= ProUnlock.freeFileLimit else {
             throw FileSystemError.fileLimitReached
         }
     }

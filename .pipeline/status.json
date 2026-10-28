@@ -85,15 +85,15 @@
       "name": "Entitlements",
       "path": "KoalaTVault/Modules/Entitlements",
       "dependsOn": [],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
           "files": [
             "StoreKitProUnlock.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 3
         },
         {
           "number": 2,
@@ -103,8 +103,8 @@
             "View/SecuritySettings.swift",
             "View/PaywallViewController.swift"
           ],
-          "state": "pending",
-          "attempts": 0,
+          "state": "done",
+          "attempts": 2,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T20:33:59-07:00",
+  "updatedAt": "2026-10-28T03:12:12-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
