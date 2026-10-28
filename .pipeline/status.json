@@ -92,8 +92,8 @@
           "files": [
             "StoreKitProUnlock.swift"
           ],
-          "state": "tests",
-          "attempts": 2
+          "state": "blocked",
+          "attempts": 3
         },
         {
           "number": 2,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T21:29:50-07:00",
+  "updatedAt": "2026-10-27T22:33:52-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
