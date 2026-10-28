@@ -111,7 +111,7 @@ final class StoreKitProUnlock: ProUnlocking {
         case .pending:
             return .pending
         @unknown default:
-            throw ProUnlockError.purchaseFailed // coverage-exempt: @unknown default cannot be constructed in a test
+            throw ProUnlockError.purchaseFailed  // coverage-exempt: @unknown default cannot be constructed in a test
         }
     }
 
