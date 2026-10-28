@@ -505,3 +505,67 @@ import Testing
         #expect(try vault.snapshot() == before)
     }
 }
+
+/// One way an entry can point a restore somewhere it must not go.
+struct RestoreAttack: Sendable, CustomTestStringConvertible {
+    let label: String
+    /// New `originalDirectoryURL`; `{outside}` stands for a folder outside the vault. Nil keeps the entry's own.
+    let directory: String?
+    /// New `originalDiskName`; nil keeps the entry's own.
+    let diskName: String?
+
+    var testDescription: String { label }
+
+    static let all: [RestoreAttack] = [
+        RestoreAttack(label: "absolute path outside the root", directory: "{outside}", diskName: nil),
+        RestoreAttack(label: "relative path through ..", directory: "../Outside", diskName: nil),
+        RestoreAttack(label: "nested path through ..", directory: "Docs/../../Outside", diskName: nil),
+        RestoreAttack(label: "hidden folder", directory: ".hidden", diskName: nil),
+        RestoreAttack(label: "hidden nested folder", directory: "Docs/.secret", diskName: nil),
+        RestoreAttack(label: "trash folder as target", directory: ".trash", diskName: nil),
+        RestoreAttack(label: "symlink pointing outside", directory: "Link", diskName: nil),
+        RestoreAttack(label: "disk name through ..", directory: nil, diskName: "../escape"),
+        RestoreAttack(label: "disk name with a slash", directory: nil, diskName: "sub/escape"),
+        RestoreAttack(label: "empty disk name", directory: nil, diskName: ""),
+        RestoreAttack(label: "disk name ..", directory: nil, diskName: ".."),  // swiftlint:disable:this trailing_comma
+    ]
+}
+
+@Suite struct VaultTrashRestoreSafetyTests {
+    @Test(
+        "restore refuses an unsafe target with io, moves nothing and keeps the trash item and map",
+        arguments: RestoreAttack.all, [LockMode.none, .password])
+    func restoreRefusesUnsafeTarget(attack: RestoreAttack, mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let outside = try vault.outsideFolder()
+        try FileManager.default.createSymbolicLink(
+            at: vault.rootURL.appendingPathComponent("Link"), withDestinationURL: outside)
+        let item = try await vault.add("a.txt", "precious", to: docs)
+        try await vault.store.moveToTrash(item)
+        let trashed = try #require(try await vault.store.trashContents().first)
+        try vault.rewriteTrashEntries { entry in
+            if let directory = attack.directory {
+                entry["originalDirectoryURL"] = directory.replacingOccurrences(of: "{outside}", with: outside.path)
+            }
+            if let diskName = attack.diskName { entry["originalDiskName"] = diskName }
+        }
+        let mapBefore = vault.rawTrashMap()
+        let trashBefore = vault.trashDiskNames()
+        let rootBefore = try vault.diskNames()
+        let docsBefore = try vault.diskNames(in: docs)
+
+        let error = await caught { _ = try await vault.store.restore(trashed) }
+
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(vault.rawTrashMap() == mapBefore)
+        #expect(vault.trashDiskNames() == trashBefore)
+        #expect(FileManager.default.fileExists(atPath: trashed.diskURL.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+        #expect(try vault.diskNames() == rootBefore)
+        #expect(try vault.diskNames(in: docs) == docsBefore)
+        let stillTrashed = try await vault.store.trashContents()
+        #expect(stillTrashed.map(\.id) == [trashed.id])
+    }
+}

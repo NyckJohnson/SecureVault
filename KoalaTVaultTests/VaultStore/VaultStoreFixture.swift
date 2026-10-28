@@ -31,7 +31,12 @@ struct VaultStoreFixture {
     let store: LiveVaultStore
     let root: VaultDirectory
 
-    init(lockMode: LockMode = .none, keyLoaded: Bool = true) throws {
+    /// The cipher the store uses when built `headerAware`; nil for the plain mock.
+    let headerCipher: HeaderAwareTestCipher?
+
+    /// - Parameter headerAware: use a cipher whose files carry an SVC5 header (see `HeaderAwareTestCipher`), so
+    ///   encrypted and plaintext files can be told apart by their header.
+    init(lockMode: LockMode = .none, keyLoaded: Bool = true, headerAware: Bool = false) throws {
         let manager = FileManager.default
         let raw = manager.temporaryDirectory.appendingPathComponent(
             "VaultStoreTests-\(UUID().uuidString)", isDirectory: true)
@@ -46,6 +51,9 @@ struct VaultStoreFixture {
         let keys = MockMasterKeyStoring(password: "pw", keyLoaded: keyLoaded)
         let cipher = MockFileCipher()
         let prefs = MockPreferencesStoring(lockMode: lockMode)
+        let headerCipher = headerAware ? HeaderAwareTestCipher(wrapping: cipher) : nil
+        let storeCipher: any FileCipher
+        if let headerCipher { storeCipher = headerCipher } else { storeCipher = cipher }
         self.base = base
         self.rootURL = rootURL
         self.tempRoot = tempRoot
@@ -53,9 +61,10 @@ struct VaultStoreFixture {
         self.keys = keys
         self.cipher = cipher
         self.prefs = prefs
+        self.headerCipher = headerCipher
         self.root = VaultDirectory(name: "KoalaTVault", diskURL: rootURL, rootURL: rootURL)
         self.store = LiveVaultStore(
-            root: rootURL, keyStore: keys, cipher: cipher, preferences: prefs, temporaryRoot: tempRoot)
+            root: rootURL, keyStore: keys, cipher: storeCipher, preferences: prefs, temporaryRoot: tempRoot)
     }
 
     func cleanUp() {
@@ -318,5 +327,34 @@ extension VaultStoreFixture {
 /// Whether the error is `.indexUnreadable`, whatever folder it names.
 func isIndexUnreadable(_ error: (any Error)?) -> Bool {
     if case .indexUnreadable = error as? VaultStoreError { return true }
+    return false
+}
+
+extension VaultStoreFixture {
+    /// Writes a file in the form an encrypted file has with the header-aware cipher.
+    @discardableResult
+    func diskSealedFile(_ name: String, _ content: String = "x", in directory: VaultDirectory? = nil) throws -> URL {
+        let url = (directory ?? root).diskURL.appendingPathComponent(name)
+        try HeaderAwareTestCipher.sealed(Data(content.utf8)).write(to: url)
+        return url
+    }
+
+    /// Whether the file at `url` is in encrypted (SVC5-header) form.
+    func isSealedOnDisk(_ url: URL) -> Bool {
+        guard let data = try? Data(contentsOf: url) else { return false }
+        return HeaderAwareTestCipher.isSealed(data)
+    }
+
+    /// Plaintext folder outside the vault root.
+    func outsideFolder() throws -> URL {
+        let url = base.appendingPathComponent("Outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
+/// Whether the error is `.io`, whatever its message.
+func isIOError(_ error: (any Error)?) -> Bool {
+    if case .io = error as? VaultStoreError { return true }
     return false
 }

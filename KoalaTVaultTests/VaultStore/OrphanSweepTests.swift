@@ -8,12 +8,12 @@ import Testing
 
     @Test("sweepOrphans deletes extensionless UUID files the index doesn't list and keeps listed ones")
     func sweepDeletesUnlistedUUIDFiles() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
         defer { vault.cleanUp() }
         let docs = try vault.folder("Docs")
         let listed = try await vault.add("keep.txt", "keep", to: docs)
         let orphan = VaultStoreFixture.newDiskName()
-        try vault.diskFile(orphan, "orphan", in: docs)
+        try vault.diskSealedFile(orphan, "orphan", in: docs)
         let indexBefore = vault.rawIndex(in: docs)
         await vault.store.sweepOrphans()
 
@@ -25,7 +25,7 @@ import Testing
 
     @Test("sweepOrphans sweeps the root and nested folders that have a readable index")
     func sweepCoversEveryIndexedFolder() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
         defer { vault.cleanUp() }
         let docs = try vault.folder("Docs")
         let inner = try vault.folder("Inner", in: docs)
@@ -35,7 +35,7 @@ import Testing
         let orphans = [vault.root, docs, inner].map { directory -> URL in
             directory.diskURL.appendingPathComponent(VaultStoreFixture.newDiskName())
         }
-        for url in orphans { try Data("orphan".utf8).write(to: url) }
+        for url in orphans { try HeaderAwareTestCipher.sealed(Data("orphan".utf8)).write(to: url) }
         await vault.store.sweepOrphans()
         #expect(orphans.allSatisfy { !exists($0) })
         #expect(try await vault.names() == ["Docs", "a.txt"])
@@ -131,5 +131,33 @@ import Testing
         defer { vault.cleanUp() }
         await vault.store.sweepOrphans()
         #expect(try vault.diskNames().isEmpty)
+    }
+
+    @Test("sweepOrphans keeps an unlisted UUID-named file that is plaintext and deletes unlisted SVC5 files")
+    func sweepKeepsPlaintextUUIDNamedFiles() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let listed = try await vault.add("listed.txt", "listed", to: docs)
+        let plaintextName = VaultStoreFixture.newDiskName()
+        let sealedName = VaultStoreFixture.newDiskName()
+        try vault.diskFile(plaintextName, "plaintext that must survive", in: docs)
+        try vault.diskSealedFile(sealedName, "orphaned ciphertext", in: docs)
+        await vault.store.sweepOrphans()
+
+        #expect(try vault.content(docs.diskURL.appendingPathComponent(plaintextName)) == "plaintext that must survive")
+        #expect(!exists(docs.diskURL.appendingPathComponent(sealedName)))
+        #expect(exists(listed.diskURL))
+    }
+
+    @Test("sweepOrphans keeps an empty unlisted UUID-named file, which has no SVC5 header")
+    func sweepKeepsEmptyUUIDNamedFile() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        try await vault.add("a.txt")
+        let emptyName = VaultStoreFixture.newDiskName()
+        try vault.diskFile(emptyName, "")
+        await vault.store.sweepOrphans()
+        #expect(exists(vault.rootURL.appendingPathComponent(emptyName)))
     }
 }
