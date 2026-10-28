@@ -88,7 +88,18 @@ private final class Fixture {
     let suiteName = "StoreKitProUnlockTests-\(UUID().uuidString)"
     let defaults: UserDefaults
 
-    static func make() async throws -> Fixture { try Fixture() }
+    /// Makes a fixture and waits until StoreKit has settled after the reset, so late updates from the
+    /// previous test's cleanup cannot reach this one.
+    static func make() async throws -> Fixture {
+        let fixture = try Fixture()
+        _ = await waitUntil {
+            guard await Transaction.latest(for: ProUnlock.productID) == nil else { return false }
+            return await unfinishedTransactionIDs().isEmpty
+        }
+        // A short grace period for stray updates still in flight.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return fixture
+    }
 
     private init() throws {
         let url = URL(fileURLWithPath: #filePath)
@@ -131,10 +142,49 @@ private final class Fixture {
         }
     }
 
-    /// Buys the product outside any `StoreKitProUnlock` and returns the resulting real transaction.
+    /// Makes an instance and waits for the refresh that runs at start to settle (the refresh is serialised
+    /// behind it), so the test body starts from a quiet instance.
+    func makeSettledUnlock(
+        transform: @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 },
+        productID: String = ProUnlock.productID
+    ) async -> StoreKitProUnlock {
+        let unlock = makeUnlock(productID: productID, transform: transform)
+        await unlock.refresh()
+        return unlock
+    }
+
+    /// Buys the product outside any `StoreKitProUnlock` and returns the resulting real transaction,
+    /// waiting (bounded) for StoreKit to report it.
     func boughtTransaction() async throws -> VerificationResult<Transaction> {
         try await buyExternally()
-        return try #require(await Transaction.latest(for: ProUnlock.productID))
+        var latest: VerificationResult<Transaction>?
+        _ = await waitUntil {
+            latest = await Transaction.latest(for: ProUnlock.productID)
+            return latest != nil
+        }
+        return try #require(latest)
+    }
+
+    /// Like `boughtTransaction()`, but returns a transaction StoreKit still reports as unfinished. Update
+    /// listeners of earlier tests' instances may still be draining and finish a fresh transaction first; each
+    /// one does so at most once, so buying again (bounded) gets past them.
+    func boughtUnfinishedTransaction() async throws -> VerificationResult<Transaction> {
+        for _ in 0..<40 {
+            let verification = try await boughtTransaction()
+            let id = verification.unsafePayloadValue.id
+            for _ in 0..<20 {
+                if await unfinishedTransactionIDs().contains(id) {
+                    // Still unfinished after a pause: no draining listener is about to finish it.
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                    if await unfinishedTransactionIDs().contains(id) { return verification }
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            session.clearTransactions()
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        throw SeamError()
     }
 
     var cached: Bool { defaults.bool(forKey: cacheKey) }
@@ -144,6 +194,8 @@ private final class Fixture {
         try await session.buyProduct(identifier: ProUnlock.productID)
     }
 
+    /// Resets StoreKit and the defaults. It cannot await (it runs in `defer`); the next `make()` waits for
+    /// StoreKit to settle before its test starts.
     func cleanup() {
         session.clearTransactions()
         session.resetToDefaultState()
@@ -235,9 +287,13 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func refreshUnlocks() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let unlock = await fixture.makeSettledUnlock()
         try await fixture.buyExternally()
-        await unlock.refresh()
+        // The entitlement lands asynchronously after the buy; refresh until it shows.
+        _ = await waitUntil {
+            await unlock.refresh()
+            return unlock.isUnlocked
+        }
         #expect(unlock.isUnlocked)
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
@@ -260,10 +316,13 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func refreshAfterRevocation() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let unlock = await fixture.makeSettledUnlock()
         try await fixture.buyExternally()
-        await unlock.refresh()
-        #expect(unlock.isUnlocked)
+        #expect(
+            await waitUntil {
+                await unlock.refresh()
+                return unlock.isUnlocked
+            })
 
         let transactions = fixture.session.allTransactions()
         let purchase = try #require(transactions.first { $0.productIdentifier == ProUnlock.productID })
@@ -284,7 +343,7 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func refreshIgnoresUnverifiedEntitlement() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        try await fixture.buyExternally()
+        _ = try await fixture.boughtTransaction()
         let unlock = fixture.makeUnlock(transform: makeUnverified)
         await unlock.refresh()
         #expect(unlock.isUnlocked == false)
@@ -296,7 +355,7 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func refreshOtherProductStaysLocked() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        try await fixture.buyExternally()
+        _ = try await fixture.boughtTransaction()
         let unlock = fixture.makeUnlock(productID: "nej.KoalaTVault.nothing")
         await unlock.refresh()
         #expect(unlock.isUnlocked == false)
@@ -307,20 +366,28 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func updatesDeliverEachChangeOnce() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let unlock = await fixture.makeSettledUnlock()
         let collector = Collector(unlock.unlockedUpdates())
         defer { collector.stop() }
 
         await unlock.refresh()  // still locked: no change
         try await fixture.buyExternally()
-        await unlock.refresh()
+        #expect(
+            await waitUntil {
+                await unlock.refresh()
+                return unlock.isUnlocked
+            })
         await unlock.refresh()  // already unlocked: no change
         #expect(await waitUntil { collector.values == [true] })
 
         let purchase = try #require(
             fixture.session.allTransactions().first { $0.productIdentifier == ProUnlock.productID })
         try fixture.session.refundTransaction(identifier: purchase.identifier)
-        await unlock.refresh()
+        #expect(
+            await waitUntil {
+                await unlock.refresh()
+                return unlock.isUnlocked == false
+            })
         #expect(await waitUntil { collector.values == [true, false] })
 
         // Let any late duplicate arrive before asserting there is none.
@@ -333,12 +400,15 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func updatesReachEveryObserver() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let unlock = await fixture.makeSettledUnlock()
         let first = Collector(unlock.unlockedUpdates())
         let second = Collector(unlock.unlockedUpdates())
         defer { first.stop(); second.stop() }
         try await fixture.buyExternally()
-        await unlock.refresh()
+        _ = await waitUntil {
+            await unlock.refresh()
+            return unlock.isUnlocked
+        }
         #expect(await waitUntil { first.values == [true] && second.values == [true] })
     }
 
@@ -369,10 +439,9 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func purchaseUnlocks() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let verification = try await fixture.boughtTransaction()
-        let id = verification.unsafePayloadValue.id
         // Nothing but the purchase can finish it: it starts out unfinished.
-        #expect(await waitUntil { await unfinishedTransactionIDs().contains(id) })
+        let verification = try await fixture.boughtUnfinishedTransaction()
+        let id = verification.unsafePayloadValue.id
         let seam = PurchaseSeam(.success(.success(verification)))
         let unlock = fixture.makeUnlock(purchase: seam)
         let outcome = try await unlock.purchase(confirmIn: nil)
@@ -422,8 +491,11 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         let collector = Collector(unlock.unlockedUpdates())
         defer { collector.stop() }
         // Let the refresh that runs at start finish, so the reads below belong to the purchase.
-        #expect(await waitUntil { unlock.isUnlocked })
-        try await Task.sleep(nanoseconds: 500_000_000)
+        #expect(
+            await waitUntil {
+                await unlock.refresh()
+                return unlock.isUnlocked
+            })
         let baseline = counter.value
         collector.reset()
 
@@ -433,7 +505,10 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         // A refresh ran after the purchase result was checked: the purchase check is one read, each
         // refresh of the (single) entitlement is another, and the older refresh is at most one of them.
         #expect(await waitUntil { counter.value >= baseline + 3 })
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // No deterministic failure is possible without the post-purchase refresh: the transform is
+        // synchronous, so it cannot hold a stale read open without blocking the actor the purchase runs on.
+        // Hence the read-count check above; this brief grace period lets a late "false" arrive.
+        try await Task.sleep(nanoseconds: 300_000_000)
         #expect(unlock.isUnlocked)
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
@@ -458,6 +533,7 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
         let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.userCancelled)))
+        await unlock.refresh()  // settle the refresh that runs at start
         let collector = Collector(unlock.unlockedUpdates())
         defer { collector.stop() }
         let outcome = try await unlock.purchase(confirmIn: nil)
@@ -474,8 +550,14 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func purchaseCancelledKeepsUnlocked() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        fixture.defaults.set(true, forKey: cacheKey)
+        // Really unlocked (a purchase StoreKit knows about), so no refresh can lock it.
+        try await fixture.buyExternally()
         let unlock = fixture.makeUnlock(purchase: PurchaseSeam(.success(.userCancelled)))
+        #expect(
+            await waitUntil {
+                await unlock.refresh()
+                return unlock.isUnlocked
+            })
         #expect(try await unlock.purchase(confirmIn: nil) == .cancelled)
         #expect(unlock.isUnlocked)
         #expect(fixture.cached)
@@ -499,7 +581,8 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func purchaseUnverified() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let verification = try await fixture.boughtTransaction()
+        let verification = try await fixture.boughtUnfinishedTransaction()
+        let id = verification.unsafePayloadValue.id
         let unverified = VerificationResult<Transaction>.unverified(
             verification.unsafePayloadValue, .invalidSignature)
         let unlock = fixture.makeUnlock(
@@ -510,8 +593,8 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         #expect(unlock.isUnlocked == false)
         #expect(unlock.isUnlockedNow == false)
         #expect(fixture.cached == false)
-        // An unverified purchase is never finished.
-        #expect(await unfinishedTransactionIDs().contains(verification.unsafePayloadValue.id))
+        // An unverified purchase is never finished: it is (and stays) unfinished.
+        #expect(await unfinishedTransactionIDs().contains(id))
     }
 
     @Test("Purchasing an unknown product throws productUnavailable without starting a purchase")
@@ -550,7 +633,12 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         defer { fixture.cleanup() }
         try await fixture.buyExternally()
         let unlock = fixture.makeUnlock()
-        #expect(try await unlock.restore())
+        var restored = false
+        _ = await waitUntil {
+            restored = (try? await unlock.restore()) ?? false
+            return restored
+        }
+        #expect(restored)
         #expect(unlock.isUnlocked)
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
@@ -604,16 +692,18 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func externalPurchaseUnlocksLive() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let unlock = await fixture.makeSettledUnlock()
         let collector = Collector(unlock.unlockedUpdates())
         defer { collector.stop() }
 
-        try await fixture.buyExternally()
+        let id = try await fixture.boughtTransaction().unsafePayloadValue.id
 
         #expect(await waitUntil { unlock.isUnlocked })
         #expect(unlock.isUnlockedNow)
         #expect(fixture.cached)
         #expect(await waitUntil { collector.values == [true] })
+        // The listener finishes a verified update.
+        #expect(await waitUntil { await unfinishedTransactionIDs().contains(id) == false })
     }
 
     @Test("An unverified update is ignored: it does not unlock")
@@ -625,7 +715,7 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         // The finish/no-finish rules are asserted through the purchase path instead.
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock(transform: makeUnverified)
+        let unlock = await fixture.makeSettledUnlock(transform: makeUnverified)
         let collector = Collector(unlock.unlockedUpdates())
         defer { collector.stop() }
         try await fixture.buyExternally()
@@ -641,7 +731,7 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
     func externalRevocationLocksLive() async throws {
         let fixture = try await Fixture.make()
         defer { fixture.cleanup() }
-        let unlock = fixture.makeUnlock()
+        let unlock = await fixture.makeSettledUnlock()
         try await fixture.buyExternally()
         #expect(await waitUntil { unlock.isUnlocked })
 
