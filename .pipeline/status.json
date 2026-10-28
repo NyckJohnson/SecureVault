@@ -103,7 +103,7 @@
             "View/SecuritySettings.swift",
             "View/PaywallViewController.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-27T23:49:29-07:00",
+  "updatedAt": "2026-10-28T00:00:10-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
