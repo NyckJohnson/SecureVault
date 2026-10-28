@@ -96,13 +96,24 @@ extension LiveVaultStore {
     }
 
     /// `map` with each trash file's `isEncrypted` set from the file's real form where its header is conclusive.
-    /// - Throws: `.locked` without the key, `.io` when a trash file can't be read.
-    func correctedTrashMap(_ map: [String: VaultTrashEntry]) throws -> [String: VaultTrashEntry] {
+    ///
+    /// Migration steps pass `strict: true`: a file whose form can't be read stops them. Listing and restore pass
+    /// `strict: false`: such a file keeps its stored flag, so one unreadable trash file never hides the others.
+    /// - Throws: with `strict`, `.locked` without the key, `.io` when a trash file can't be read.
+    func correctedTrashMap(_ map: [String: VaultTrashEntry], strict: Bool = true) throws -> [String: VaultTrashEntry] {
         var result = map
         for (trashName, entry) in map where VaultTrashMap.isItemName(trashName) {
             let url = trashMap.folderURL.appendingPathComponent(trashName)
             guard Self.isRegularFile(url) else { continue }
-            switch try fileForm(at: url) {
+            let form: FileForm
+            do {
+                form = try fileForm(at: url)
+            } catch {
+                guard !strict else { throw error }
+                // Best-effort for listing and restore: the stored flag stands for a file that can't be checked.
+                continue
+            }
+            switch form {
             case .encrypted where !entry.isEncrypted: result[trashName]?.isEncrypted = true
             case .plaintext where entry.isEncrypted: result[trashName]?.isEncrypted = false
             default: break
