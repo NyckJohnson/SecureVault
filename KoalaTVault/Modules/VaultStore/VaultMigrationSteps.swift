@@ -531,7 +531,9 @@ extension LiveVaultStore {
             do {
                 original = try plain.read(upToCount: decrypted.count) ?? Data()
             } catch {
-                throw VaultStoreError.from(error)  // coverage-exempt: read on an open handle can't fail
+                // coverage-exempt-begin: read on an open handle can't fail
+                throw VaultStoreError.from(error)
+                // coverage-exempt-end
             }
             guard original == decrypted else { return false }
         }

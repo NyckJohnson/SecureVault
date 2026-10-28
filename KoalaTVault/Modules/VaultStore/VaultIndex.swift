@@ -86,7 +86,9 @@ struct VaultIndex: Sendable {
         do {
             json = try encoder.encode(value)
         } catch {
-            throw VaultStoreError.io(error.localizedDescription)  // coverage-exempt: JSONEncoder can't fail for these plain Codable types
+            // coverage-exempt-begin: JSONEncoder can't fail for these plain Codable types
+            throw VaultStoreError.io(error.localizedDescription)
+            // coverage-exempt-end
         }
         let data: Data
         if mode.isEncrypted {
@@ -116,7 +118,9 @@ struct VaultIndex: Sendable {
         let path = url.standardizedFileURL.resolvingSymlinksInPath().path
         if path == rootPath { return "" }
         if path.hasPrefix(rootPath + "/") { return String(path.dropFirst(rootPath.count + 1)) }
-        return url.lastPathComponent  // coverage-exempt: defensive; folders always come from the vault root
+        // coverage-exempt-begin: defensive; folders always come from the vault root
+        return url.lastPathComponent
+        // coverage-exempt-end
     }
 
     private func label(for folder: URL) -> String {

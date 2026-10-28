@@ -35,7 +35,9 @@ extension LiveVaultStore {
         do {
             try Data().write(to: empty, options: .completeFileProtection)
         } catch {
-            throw VaultStoreError.from(error)  // coverage-exempt: write into a just-created temp folder can't fail
+            // coverage-exempt-begin: write into a just-created temp folder can't fail
+            throw VaultStoreError.from(error)
+            // coverage-exempt-end
         }
         return try insertFile(from: empty, named: VaultNaming.documentName(for: name), in: directory, mode: mode)
     }
