@@ -95,12 +95,16 @@ import Testing
 
     // MARK: - migrateToEncrypted
 
-    @Test("An incomplete same-name copy is dropped with its entry even when an identical complete copy exists")
-    func incompleteCopyDroppedBesideIdenticalCopy() async throws {
+    @Test(
+        "An incomplete same-name copy is dropped even beside an identical complete copy, in either order",
+        arguments: [true, false])
+    func incompleteCopyDroppedBesideIdenticalCopy(incompleteSortsFirst: Bool) async throws {
         let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
         defer { vault.cleanUp() }
-        let completeName = VaultStoreFixture.newDiskName()
-        let incompleteName = VaultStoreFixture.newDiskName()
+        let lowName = "00000000-0000-0000-0000-000000000001"
+        let highName = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"
+        let completeName = incompleteSortsFirst ? highName : lowName
+        let incompleteName = incompleteSortsFirst ? lowName : highName
         try vault.diskSealedFile(completeName, "full content")
         try HeaderAwareTestCipher.sealed(Data("full content".utf8), truncatedBy: 1)
             .write(to: vault.rootURL.appendingPathComponent(incompleteName))
