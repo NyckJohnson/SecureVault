@@ -6,17 +6,17 @@ import Testing
 @Suite struct VaultStoreModelsTests {
     // MARK: - FileKind(extension:)
 
-    static let extensionTable: [(String, FileKind)] = [
-        ("jpg", .image), ("jpeg", .image), ("png", .image), ("heic", .image), ("gif", .image), ("webp", .image),
-        ("mp4", .video), ("mov", .video), ("m4v", .video),
-        ("mp3", .audio), ("m4a", .audio), ("wav", .audio), ("aac", .audio),
-        ("pdf", .pdf),
-        ("doc", .word), ("docx", .word),
-        ("xls", .spreadsheet), ("xlsx", .spreadsheet),
-        ("ppt", .presentation), ("pptx", .presentation),
-        ("zip", .archive), ("rar", .archive), ("7z", .archive),
-        ("txt", .text), ("rtf", .text), ("md", .text),
-    ]
+    private static let images: [(String, FileKind)] = ["jpg", "jpeg", "png", "heic", "gif", "webp"].map { ($0, .image) }
+    private static let videos: [(String, FileKind)] = ["mp4", "mov", "m4v"].map { ($0, .video) }
+    private static let audios: [(String, FileKind)] = ["mp3", "m4a", "wav", "aac"].map { ($0, .audio) }
+    private static let documents: [(String, FileKind)] = [("pdf", .pdf), ("doc", .word), ("docx", .word)]
+    private static let sheets: [(String, FileKind)] = ["xls", "xlsx"].map { ($0, .spreadsheet) }
+    private static let slides: [(String, FileKind)] = ["ppt", "pptx"].map { ($0, .presentation) }
+    private static let archives: [(String, FileKind)] = ["zip", "rar", "7z"].map { ($0, .archive) }
+    private static let texts: [(String, FileKind)] = ["txt", "rtf", "md"].map { ($0, .text) }
+
+    static let extensionTable: [(String, FileKind)] =
+        images + videos + audios + documents + sheets + slides + archives + texts
 
     @Test("Each listed extension maps to its kind", arguments: extensionTable)
     func extensionMapsToKind(row: (String, FileKind)) {
@@ -30,8 +30,10 @@ import Testing
 
     @Test("Mixed-case extensions map to the same kind", arguments: extensionTable)
     func mixedCaseExtensionMapsToKind(row: (String, FileKind)) {
-        let mixed = row.0.enumerated().map { $0.offset.isMultiple(of: 2) ? $0.element.uppercased() : String($0.element) }
-            .joined()
+        let mixed = row.0.enumerated().map {
+            $0.offset.isMultiple(of: 2) ? $0.element.uppercased() : String($0.element)
+        }
+        .joined()
         #expect(FileKind(extension: mixed) == row.1)
     }
 

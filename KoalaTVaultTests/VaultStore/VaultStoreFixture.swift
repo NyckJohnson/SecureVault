@@ -121,7 +121,7 @@ struct VaultStoreFixture {
     }
 
     func content(_ url: URL) throws -> String {
-        String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        String(bytes: try Data(contentsOf: url), encoding: .utf8) ?? ""
     }
 
     /// Plaintext content of the item as the store opens it.
@@ -209,7 +209,7 @@ struct VaultStoreFixture {
         guard let data = rawIndex(in: directory), data.starts(with: Self.sealedPrefix) else { return nil }
         let rest = data.dropFirst(Self.sealedPrefix.count)
         guard let colon = rest.firstIndex(of: UInt8(ascii: ":")) else { return nil }
-        return String(decoding: rest[rest.startIndex..<colon], as: UTF8.self)
+        return String(bytes: rest[rest.startIndex..<colon], encoding: .utf8)
     }
 }
 
