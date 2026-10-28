@@ -34,9 +34,16 @@ struct VaultStoreFixture {
     /// The cipher the store uses when built `headerAware`; nil for the plain mock.
     let headerCipher: HeaderAwareTestCipher?
 
+    /// The failure-injecting decorator the store uses when built `selective`; nil otherwise.
+    let failing: SelectiveFailingCipher?
+
     /// - Parameter headerAware: use a cipher whose files carry an SVC5 header (see `HeaderAwareTestCipher`), so
     ///   encrypted and plaintext files can be told apart by their header.
-    init(lockMode: LockMode = .none, keyLoaded: Bool = true, headerAware: Bool = false) throws {
+    /// - Parameter selective: wrap the cipher in a `SelectiveFailingCipher` (reachable as `failing`) that can be told
+    ///   to fail single methods.
+    init(
+        lockMode: LockMode = .none, keyLoaded: Bool = true, headerAware: Bool = false, selective: Bool = false
+    ) throws {
         let manager = FileManager.default
         let raw = manager.temporaryDirectory.appendingPathComponent(
             "VaultStoreTests-\(UUID().uuidString)", isDirectory: true)
@@ -52,8 +59,11 @@ struct VaultStoreFixture {
         let cipher = MockFileCipher()
         let prefs = MockPreferencesStoring(lockMode: lockMode)
         let headerCipher = headerAware ? HeaderAwareTestCipher(wrapping: cipher) : nil
+        let innerCipher: any FileCipher
+        if let headerCipher { innerCipher = headerCipher } else { innerCipher = cipher }
+        let failing = selective ? SelectiveFailingCipher(wrapping: innerCipher) : nil
         let storeCipher: any FileCipher
-        if let headerCipher { storeCipher = headerCipher } else { storeCipher = cipher }
+        if let failing { storeCipher = failing } else { storeCipher = innerCipher }
         self.base = base
         self.rootURL = rootURL
         self.tempRoot = tempRoot
@@ -62,6 +72,7 @@ struct VaultStoreFixture {
         self.cipher = cipher
         self.prefs = prefs
         self.headerCipher = headerCipher
+        self.failing = failing
         self.root = VaultDirectory(name: "KoalaTVault", diskURL: rootURL, rootURL: rootURL)
         self.store = LiveVaultStore(
             root: rootURL, keyStore: keys, cipher: storeCipher, preferences: prefs, temporaryRoot: tempRoot)

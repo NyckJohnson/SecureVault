@@ -45,6 +45,16 @@ import Testing
         #expect(item.name == "a 2.txt")
     }
 
+    @Test("A conflict on a name that already ends in a number continues the count, not 'a 1 1.txt'")
+    func numberedNameConflictContinuesCount() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none, keyLoaded: false)
+        defer { vault.cleanUp() }
+        try vault.diskFile("a 1.txt")
+        let item = try await vault.add("a 1.txt")
+        #expect(item.name == "a 2.txt")
+        #expect(try vault.diskNames() == ["a 1.txt", "a 2.txt"])
+    }
+
     @Test("A name that is free keeps its original form even if numbered siblings exist")
     func freeNameKept() async throws {
         let vault = try VaultStoreFixture(lockMode: .none, keyLoaded: false)
