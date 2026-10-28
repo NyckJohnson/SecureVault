@@ -1,0 +1,138 @@
+import Foundation
+
+/// One entry of a folder's `.vault_map`: the original name of an encrypted `<UUID>` file.
+///
+/// Encodes as `{ "originalName": "…" }`, the shape earlier app versions wrote.
+struct VaultIndexEntry: Codable, Sendable, Equatable {
+    let originalName: String
+}
+
+/// How one store operation treats the vault, decided once at its start.
+struct VaultOperationMode: Sendable {
+    /// `lockMode != .none`: new content and indexes are written encrypted.
+    let isEncrypted: Bool
+    /// Whether a master key was loaded when the operation started.
+    let keyLoaded: Bool
+}
+
+/// Reads and writes the per-folder `.vault_map` index (UUID disk name → original name).
+///
+/// Reads accept, in order: plaintext JSON (written by older builds or in plaintext mode), then, when a key
+/// is loaded, ciphertext sealed with ".vault_map", the folder's root-relative path, the legacy
+/// "<folder>/.vault_map" path, or "". An index that exists but reads in none of these ways is
+/// `.indexUnreadable` and callers must never overwrite it.
+struct VaultIndex: Sendable {
+    /// The index file's name in every folder.
+    static let fileName = ".vault_map"
+
+    let cipher: any FileCipher
+    /// The vault root, for the folder-relative decryption contexts and error labels.
+    let rootURL: URL
+    /// The label used for the root folder in `.indexUnreadable`.
+    let rootName: String
+
+    /// The index of `folder`: empty when absent.
+    /// - Throws: `.indexUnreadable(folder:)` when it exists but can't be read or decoded; `.locked` when
+    ///   the key disappeared while an encrypted-mode operation was decrypting it.
+    func read(in folder: URL, mode: VaultOperationMode) throws -> [String: VaultIndexEntry] {
+        let url = folder.appendingPathComponent(Self.fileName)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let unreadable = VaultStoreError.indexUnreadable(folder: label(for: folder))
+        guard let data = try? Data(contentsOf: url) else { throw unreadable }
+        if let plaintext = try? JSONDecoder().decode([String: VaultIndexEntry].self, from: data) {
+            return plaintext
+        }
+        guard mode.keyLoaded else { throw mode.isEncrypted ? VaultStoreError.locked : unreadable }
+        let decrypted: Data
+        do {
+            decrypted = try cipher.decrypt(data, contexts: contexts(for: folder))
+        } catch VaultCryptoError.noKeyLoaded where mode.isEncrypted {
+            throw VaultStoreError.locked
+        } catch {
+            throw unreadable
+        }
+        guard let entries = try? JSONDecoder().decode([String: VaultIndexEntry].self, from: decrypted) else {
+            throw unreadable
+        }
+        return entries
+    }
+
+    /// Writes `entries` as the index of `folder`: encrypted (context ".vault_map") in encrypted mode,
+    /// plaintext JSON otherwise. In plaintext mode an empty index is not created where none exists.
+    /// - Throws: `.locked` when the key is gone in encrypted mode (nothing is written), `.io` otherwise.
+    func write(_ entries: [String: VaultIndexEntry], in folder: URL, mode: VaultOperationMode) throws {
+        let url = folder.appendingPathComponent(Self.fileName)
+        if entries.isEmpty, !mode.isEncrypted, !FileManager.default.fileExists(atPath: url.path) { return }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let json: Data
+        do {
+            json = try encoder.encode(entries)
+        } catch {
+            throw VaultStoreError.io(error.localizedDescription)
+        }
+        let data: Data
+        if mode.isEncrypted {
+            // Never falls back to plaintext: without the key the write is refused.
+            do {
+                data = try cipher.encrypt(json, context: Self.fileName)
+            } catch {
+                throw VaultStoreError.from(error)
+            }
+        } else {
+            data = json
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            throw VaultStoreError.io(error.localizedDescription)
+        }
+    }
+
+    /// The folder's path relative to the vault root ("" for the root itself).
+    func relativePath(of folder: URL) -> String {
+        Self.relativePath(of: folder, root: rootURL)
+    }
+
+    /// The path of `url` relative to `root` ("" for the root, the last component when outside it).
+    static func relativePath(of url: URL, root: URL) -> String {
+        let rootPath = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        if path == rootPath { return "" }
+        if path.hasPrefix(rootPath + "/") { return String(path.dropFirst(rootPath.count + 1)) }
+        return url.lastPathComponent
+    }
+
+    private func label(for folder: URL) -> String {
+        let relative = relativePath(of: folder)
+        return relative.isEmpty ? rootName : relative
+    }
+
+    /// Decryption contexts in the order the spec gives: ".vault_map", the folder-relative path
+    /// (also in the legacy "<folder>/.vault_map" form), then "".
+    private func contexts(for folder: URL) -> [String] {
+        let relative = relativePath(of: folder)
+        var contexts = [Self.fileName]
+        if !relative.isEmpty {
+            contexts.append(relative)
+            contexts.append(relative + "/" + Self.fileName)
+        }
+        contexts.append("")
+        return contexts
+    }
+}
+
+extension VaultStoreError {
+    /// Maps any error from the crypto layer or the file system to a store error.
+    /// `VaultCryptoError.noKeyLoaded` becomes `.locked`; missing files become `.notFound`.
+    static func from(_ error: any Error) -> VaultStoreError {
+        if let storeError = error as? VaultStoreError { return storeError }
+        if let cryptoError = error as? VaultCryptoError {
+            return cryptoError == .noKeyLoaded ? .locked : .io(cryptoError.localizedDescription)
+        }
+        let nsError = error as NSError
+        let missingCodes = [NSFileNoSuchFileError, NSFileReadNoSuchFileError]
+        if nsError.domain == NSCocoaErrorDomain, missingCodes.contains(nsError.code) { return .notFound }
+        return .io(nsError.localizedDescription)
+    }
+}
