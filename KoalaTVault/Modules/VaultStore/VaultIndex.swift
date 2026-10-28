@@ -83,7 +83,7 @@ struct VaultIndex: Sendable {
             data = json
         }
         do {
-            try data.write(to: url, options: .atomic)
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
         } catch {
             throw VaultStoreError.io(error.localizedDescription)
         }

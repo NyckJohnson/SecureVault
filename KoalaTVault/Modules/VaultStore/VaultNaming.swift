@@ -10,6 +10,14 @@ enum VaultNaming {
         guard !name.isEmpty, !name.contains("/") else { throw VaultStoreError.invalidName }
     }
 
+    /// `validate(_:)` plus `.invalidName` for a name starting with "." — for names the user types (new
+    /// folder, new document, rename). Dot names are hidden from listings, and a root ".trash" would
+    /// become the trash.
+    static func validateUserName(_ name: String) throws {
+        try validate(name)
+        guard !name.hasPrefix(".") else { throw VaultStoreError.invalidName }
+    }
+
     /// `name` with ".rtf" added unless it already ends in it (any case).
     static func documentName(for name: String) -> String {
         name.lowercased().hasSuffix("." + documentExtension) ? name : name + "." + documentExtension

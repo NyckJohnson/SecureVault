@@ -9,7 +9,7 @@ extension LiveVaultStore {
     // MARK: - Create
 
     func createFolder(named name: String, in directory: VaultDirectory) throws -> VaultItem {
-        try VaultNaming.validate(name)
+        try VaultNaming.validateUserName(name)
         let mode = try beginOperation()
         let taken = try takenNames(in: directory.diskURL, mode: mode)
         let folderName = VaultNaming.resolvedName(for: name) { candidate in
@@ -26,14 +26,14 @@ extension LiveVaultStore {
     }
 
     func createDocument(named name: String, in directory: VaultDirectory) throws -> VaultItem {
-        try VaultNaming.validate(name)
+        try VaultNaming.validateUserName(name)
         let mode = try beginOperation()
         let staging = try makeTempDirectory()
         // Best-effort cleanup of the empty staged file; the outcome of the add is what's reported.
         defer { try? FileManager.default.removeItem(at: staging) }
         let empty = staging.appendingPathComponent("empty")
         do {
-            try Data().write(to: empty)
+            try Data().write(to: empty, options: .completeFileProtection)
         } catch {
             throw VaultStoreError.from(error)
         }
@@ -123,6 +123,8 @@ extension LiveVaultStore {
 
     /// Target index first, then the file, then the source index: until the file moves the item is listed
     /// only in its source; after, only in the target (a stale source entry for a missing file isn't listed).
+    /// If that last source-index write fails, this throws although the move took effect: the item is
+    /// already listed in the target (and only there), and the stale source entry names no file.
     private func moveEncrypted(
         _ item: VaultItem, diskName: String, from sourceFolder: URL, to directory: VaultDirectory,
         mode: VaultOperationMode
@@ -196,7 +198,7 @@ extension LiveVaultStore {
     // MARK: - Rename
 
     func rename(_ item: VaultItem, to name: String) throws -> VaultItem {
-        try VaultNaming.validate(name)
+        try VaultNaming.validateUserName(name)
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         let folderURL = item.diskURL.deletingLastPathComponent()

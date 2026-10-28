@@ -205,7 +205,7 @@ actor LiveVaultStore: VaultStoring {
         let plaintext = staging.appendingPathComponent("plain")
         let sealed = staging.appendingPathComponent("sealed")
         do {
-            try data.write(to: plaintext)
+            try data.write(to: plaintext, options: .completeFileProtection)
             try cipher.encryptFile(at: plaintext, to: sealed)
             _ = try FileManager.default.replaceItemAt(item.diskURL, withItemAt: sealed)
         } catch {
@@ -224,7 +224,10 @@ actor LiveVaultStore: VaultStoring {
     nonisolated func makeTempDirectory() throws -> URL {
         let url = temporaryRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            // Complete protection on the folder: files created in it, such as the plaintext the cipher
+            // decrypts for `open`, inherit it.
+            try FileManager.default.createDirectory(
+                at: url, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
         } catch {
             throw VaultStoreError.from(error)
         }
