@@ -42,12 +42,14 @@ final class StoreKitProUnlock: ProUnlocking {
         productID: String = ProUnlock.productID,
         verificationTransform:
             @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 },
+        // coverage-exempt-begin: real StoreKit purchase fails in the hosted unit-test process (AMS 305); journey J9 covers it
         purchase: @escaping @MainActor (Product, UIScene?) async throws -> Product.PurchaseResult = { product, scene in
             if #available(iOS 17.0, *), let scene {
                 return try await product.purchase(confirmIn: scene)
             }
             return try await product.purchase()
         },
+        // coverage-exempt-end
         sync: @escaping @MainActor () async throws -> Void = { try await AppStore.sync() }
     ) {
         self.defaults = defaults
@@ -109,7 +111,7 @@ final class StoreKitProUnlock: ProUnlocking {
         case .pending:
             return .pending
         @unknown default:
-            throw ProUnlockError.purchaseFailed
+            throw ProUnlockError.purchaseFailed // coverage-exempt: @unknown default cannot be constructed in a test
         }
     }
 
