@@ -359,6 +359,164 @@ import Testing
         #expect(try vault.content(vault.rootURL.appendingPathComponent("plain.txt")) == "p")
     }
 
+    // MARK: - finishEncryption
+
+    /// Writes a plaintext index with one entry per name and the matching plain disk files.
+    private func plaintextFolder(_ vault: VaultStoreFixture, in directory: VaultDirectory?, names: [String]) throws
+        -> [String: String]
+    {
+        var entries: [String: String] = [:]
+        for name in names {
+            let diskName = VaultStoreFixture.newDiskName()
+            try vault.diskFile(diskName, "data of \(name)", in: directory)
+            entries[diskName] = name
+        }
+        try vault.writeIndex(entries, in: directory, context: nil)
+        return entries
+    }
+
+    @Test("finishEncryption seals plaintext indexes at the root and in a nested folder, keeping their entries")
+    func finishEncryptionSealsIndexes() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let inner = try vault.folder("Inner", in: docs)
+        let rootEntries = try plaintextFolder(vault, in: nil, names: ["a.txt", "b.txt"])
+        let docsEntries = try plaintextFolder(vault, in: docs, names: ["c.txt"])
+        let innerEntries = try plaintextFolder(vault, in: inner, names: ["d.txt"])
+        #expect(vault.indexIsPlaintextJSON())
+
+        try await vault.store.finishEncryption()
+
+        for (directory, entries) in [(nil, rootEntries), (docs, docsEntries), (inner, innerEntries)] {
+            #expect(vault.indexContext(in: directory) == ".vault_map")
+            #expect(!vault.indexIsPlaintextJSON(in: directory))
+            #expect(vault.indexEntries(in: directory) == entries)
+        }
+        #expect(try await vault.names() == ["Docs", "a.txt", "b.txt"])
+        #expect(try await vault.names(docs) == ["Inner", "c.txt"])
+        #expect(try await vault.names(inner) == ["d.txt"])
+        #expect(try await vault.list().filter { !$0.isDirectory }.allSatisfy(\.isEncrypted))
+    }
+
+    @Test("finishEncryption seals a plaintext .trash_map with the .trash_map context and the same entries")
+    func finishEncryptionSealsTrashMap() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none)
+        defer { vault.cleanUp() }
+        let first = try await vault.add("one.txt", "1")
+        let second = try await vault.add("two.txt", "2")
+        try await vault.store.moveToTrash(first)
+        try await vault.store.moveToTrash(second)
+        vault.prefs.lockMode = .password
+        #expect(vault.trashMapIsPlaintextJSON())
+        let before = try #require(vault.trashEntries())
+        #expect(before.count == 2)
+
+        try await vault.store.finishEncryption()
+
+        #expect(vault.trashMapContext() == ".trash_map")
+        #expect(!vault.trashMapIsPlaintextJSON())
+        let after = try #require(vault.trashEntries())
+        #expect(Set(after.keys) == Set(before.keys))
+        #expect(
+            after.mapValues { $0["originalName"] as? String } == before.mapValues { $0["originalName"] as? String })
+        let trashed = try await vault.store.trashContents()
+        #expect(Set(trashed.map(\.name)) == ["one.txt", "two.txt"])
+    }
+
+    @Test("finishEncryption leaves already-encrypted indexes byte for byte")
+    func finishEncryptionKeepsEncryptedIndexes() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        try vault.writeIndex(["11111111-1111-1111-1111-111111111111": "x.txt"], context: ".vault_map")
+        try vault.writeIndex(["22222222-2222-2222-2222-222222222222": "y.txt"], in: docs, context: ".vault_map")
+        let rootBefore = try #require(vault.rawIndex())
+        let docsBefore = try #require(vault.rawIndex(in: docs))
+        try await vault.store.finishEncryption()
+        #expect(vault.rawIndex() == rootBefore)
+        #expect(vault.rawIndex(in: docs) == docsBefore)
+    }
+
+    @Test("finishEncryption does not fail on an unreadable index, leaves it as is and still seals the others")
+    func finishEncryptionSkipsUnreadableIndex() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let broken = try vault.folder("Broken")
+        let good = try vault.folder("Good")
+        let garbage = Data("this is not an index".utf8)
+        try vault.writeRawIndex(garbage, in: broken)
+        let goodEntries = try plaintextFolder(vault, in: good, names: ["g.txt"])
+        let rootEntries = try plaintextFolder(vault, in: nil, names: ["r.txt"])
+
+        try await vault.store.finishEncryption()
+
+        #expect(vault.rawIndex(in: broken) == garbage)
+        #expect(vault.indexContext(in: good) == ".vault_map")
+        #expect(vault.indexEntries(in: good) == goodEntries)
+        #expect(vault.indexContext() == ".vault_map")
+        #expect(vault.indexEntries() == rootEntries)
+    }
+
+    @Test("finishEncryption leaves an unreadable .trash_map byte for byte without failing")
+    func finishEncryptionSkipsUnreadableTrashMap() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let garbage = Data("not a trash map".utf8)
+        try vault.writeRawTrashMap(garbage)
+        try await vault.store.finishEncryption()
+        #expect(vault.rawTrashMap() == garbage)
+    }
+
+    @Test("finishEncryption on a vault with no indexes succeeds and changes nothing")
+    func finishEncryptionNothingToDo() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try vault.diskFile("plain.txt", "p")
+        let before = try vault.snapshot()
+        try await vault.store.finishEncryption()
+        #expect(try vault.snapshot() == before)
+    }
+
+    @Test(
+        "finishEncryption without a key in encrypted mode throws locked and changes no index",
+        arguments: [LockMode.password, .passwordAndBiometrics])
+    func finishEncryptionLocked(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        _ = try plaintextFolder(vault, in: nil, names: ["a.txt"])
+        _ = try plaintextFolder(vault, in: docs, names: ["b.txt"])
+        try vault.writeRawTrashMap(Data("{}".utf8))
+        vault.keys.wipeKey()
+        let before = try vault.snapshot()
+
+        let error = await caught { try await vault.store.finishEncryption() }
+
+        #expect(error as? VaultStoreError == .locked)
+        #expect(try vault.snapshot() == before)
+        #expect(vault.indexIsPlaintextJSON())
+        #expect(vault.indexIsPlaintextJSON(in: docs))
+    }
+
+    @Test("finishEncryption in plaintext mode changes no index, plaintext or not")
+    func finishEncryptionPlaintextMode() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        _ = try plaintextFolder(vault, in: nil, names: ["a.txt"])
+        try vault.writeIndex(["33333333-3333-3333-3333-333333333333": "e.txt"], in: docs, context: ".vault_map")
+        let item = try await vault.add("t.txt")
+        try await vault.store.moveToTrash(item)
+        let before = try vault.snapshot()
+
+        try await vault.store.finishEncryption()
+
+        #expect(try vault.snapshot() == before)
+        #expect(vault.indexIsPlaintextJSON())
+        #expect(vault.trashMapIsPlaintextJSON())
+    }
+
     // MARK: - hasUnencryptedFiles
 
     @Test("hasUnencryptedFiles is true for a plaintext file under the root", arguments: [LockMode.none, .password])
