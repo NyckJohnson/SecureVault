@@ -424,6 +424,23 @@ import Testing
         #expect(Set(trashed.map(\.name)) == ["one.txt", "two.txt"])
     }
 
+    @Test("finishEncryption seals a plaintext .vault_map inside a trashed folder, keeping its entries")
+    func finishEncryptionSealsTrashedFolderIndex() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let trashedURL = vault.trashURL.appendingPathComponent(VaultStoreFixture.newDiskName(), isDirectory: true)
+        try FileManager.default.createDirectory(at: trashedURL, withIntermediateDirectories: true)
+        let trashedFolder = VaultDirectory(name: "Docs", diskURL: trashedURL, rootURL: vault.rootURL)
+        let entries = try plaintextFolder(vault, in: trashedFolder, names: ["t.txt", "u.txt"])
+        #expect(vault.indexIsPlaintextJSON(in: trashedFolder))
+
+        try await vault.store.finishEncryption()
+
+        #expect(vault.indexContext(in: trashedFolder) == ".vault_map")
+        #expect(!vault.indexIsPlaintextJSON(in: trashedFolder))
+        #expect(vault.indexEntries(in: trashedFolder) == entries)
+    }
+
     @Test("finishEncryption leaves already-encrypted indexes byte for byte")
     func finishEncryptionKeepsEncryptedIndexes() async throws {
         let vault = try VaultStoreFixture(lockMode: .password)
@@ -801,6 +818,37 @@ import Testing
 
         #expect(vault.indexEntries()?[copyName] == nil)
         #expect(try await contents(of: nil, in: vault) == ["full content"])
+    }
+
+    @Test("A rerun with an indexed copy whose header size differs from the plaintext is not taken as identical")
+    func rerunWithWrongHeaderSizeCopy() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let copyName = VaultStoreFixture.newDiskName()
+        let wrongHeader = HeaderAwareTestCipher.sealed(Data("full content".utf8), declaredSize: 5)
+        try wrongHeader.write(to: vault.rootURL.appendingPathComponent(copyName))
+        try vault.writeIndex([copyName: "a.txt"], context: ".vault_map")
+        let plaintext = try vault.diskFile("a.txt", "full content")
+        let item = try #require(
+            try await vault.store.itemsToMigrate(toEncrypted: true).first { $0.diskURL.lastPathComponent == "a.txt" })
+        _ = await caught { try await vault.store.migrateToEncrypted(item) }
+
+        // The plaintext must not be removed on the strength of the wrong-size copy.
+        if FileManager.default.fileExists(atPath: plaintext.path) {
+            #expect(try vault.content(plaintext) == "full content")
+            let again = try #require(
+                try await vault.store.itemsToMigrate(toEncrypted: true).first {
+                    $0.diskURL.lastPathComponent == "a.txt"
+                })
+            try await vault.store.migrateToEncrypted(again)
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: plaintext.path))
+        #expect(try await vault.names() == ["a.txt"])
+        #expect(try await contents(of: nil, in: vault) == ["full content"])
+        #expect(vault.indexEntries()?[copyName] == nil)
+        #expect(vault.indexEntries()?.values.filter { $0 == "a.txt" }.count == 1)
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
     }
 
     @Test("A key lost during the step throws locked, keeps the plaintext and writes no plaintext index")

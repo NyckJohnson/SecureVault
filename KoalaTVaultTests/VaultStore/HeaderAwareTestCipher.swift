@@ -25,10 +25,11 @@ final class HeaderAwareTestCipher: FileCipher {
     }
 
     /// `content` as a sealed file would hold it.
-    static func sealed(_ content: Data, truncatedBy missing: Int = 0) -> Data {
+    /// - Parameter declaredSize: the total size the header records; the content's own size when nil.
+    static func sealed(_ content: Data, truncatedBy missing: Int = 0, declaredSize: Int? = nil) -> Data {
         var header = magic
         withUnsafeBytes(of: UInt32(MockFileCipher.chunkSize).littleEndian) { header.append(contentsOf: $0) }
-        withUnsafeBytes(of: UInt64(content.count).littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: UInt64(declaredSize ?? content.count).littleEndian) { header.append(contentsOf: $0) }
         header.append(Data(repeating: 0x07, count: 16))
         return header + content.dropLast(missing)
     }
