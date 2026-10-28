@@ -17,11 +17,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // Building `dependencies` (above) already started the StoreKit entitlement listener and
+        // launch refresh; the persisted cache covers the window before that refresh completes.
         dependencies.prepareForLaunch()
-        // Warm up EntitlementService early so the async StoreKit refresh starts before
-        // the user can trigger an import. The persisted cache covers the window before
-        // refresh completes (see EntitlementService.init).
-        Task { @MainActor in _ = EntitlementService.shared }
         return true
     }
 

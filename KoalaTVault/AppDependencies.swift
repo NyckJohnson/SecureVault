@@ -34,6 +34,25 @@ nonisolated final class InMemoryKeychain: KeychainAccessing {
     }
 }
 
+// MARK: - Pro unlock slot
+
+/// Holds the app's one `ProUnlocking`, which `AppDependencies` builds on the main actor at launch and
+/// installs here, so legacy singletons (`FileSystem`, view controllers built by legacy code) can reach it
+/// through `LegacyStorage.current.proUnlock` until each takes it by injection.
+nonisolated final class LegacyProUnlockSlot: Sendable {
+    private let value = OSAllocatedUnfairLock<(any ProUnlocking)?>(initialState: nil)
+
+    init() {}
+
+    /// Installs (or replaces) the entitlement legacy code reads.
+    func install(_ proUnlock: any ProUnlocking) {
+        value.withLock { $0 = proUnlock }
+    }
+
+    /// The installed entitlement, or nil before `AppDependencies` has installed one.
+    var installed: (any ProUnlocking)? { value.withLock { $0 } }
+}
+
 // MARK: - Storage
 
 /// Launch settings that only take effect with `-uiTesting`, read from the environment.
@@ -93,6 +112,8 @@ nonisolated struct LegacyStorage: Sendable {
     let defaultsSuiteName: String?
     /// Non-nil only in `-uiTesting` mode.
     let uiTestSettings: UITestSettings?
+    /// Where `AppDependencies` installs the app's one `ProUnlocking` for legacy code.
+    let proUnlockSlot = LegacyProUnlockSlot()
 
     /// The storage for this process, decided from its launch arguments on first use.
     static let current = LegacyStorage(
@@ -102,6 +123,16 @@ nonisolated struct LegacyStorage: Sendable {
 
     /// Preferences store (`.standard` normally; a cleared dedicated suite in `-uiTesting` mode).
     var defaults: UserDefaults { Self.openDefaults(suiteName: defaultsSuiteName) }
+
+    /// The app's "Unlock Pro" entitlement, built and installed by `AppDependencies` at launch.
+    /// Legacy singletons reach it here; new code takes it by injection from `AppDependencies`.
+    var proUnlock: any ProUnlocking {
+        guard let proUnlock = proUnlockSlot.installed else {
+            // Unreachable: AppDelegate builds AppDependencies (which installs it) before any scene or import.
+            fatalError("LegacyStorage.proUnlock read before AppDependencies installed it")
+        }
+        return proUnlock
+    }
 
     /// `.standard` for a nil `suiteName`, else that suite.
     private static func openDefaults(suiteName: String?) -> UserDefaults {
@@ -185,10 +216,17 @@ final class AppDependencies {
     var fileCipher: any FileCipher { storage.fileCipher }
     /// The app's settings (built once, in `storage`).
     var preferences: any PreferencesStoring { storage.preferences }
+    /// The "Unlock Pro" entitlement, built once at launch over the same UserDefaults as the preferences
+    /// (so its `entitlement.isUnlocked` cache stays where earlier versions kept it). Building it starts the
+    /// transaction-update listener and the launch refresh.
+    let proUnlock: any ProUnlocking
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
     init(storage: LegacyStorage = .current) {
         self.storage = storage
+        let proUnlock = StoreKitProUnlock(defaults: storage.defaults)
+        self.proUnlock = proUnlock
+        storage.proUnlockSlot.install(proUnlock)
     }
 
     /// Applies the `-uiTesting` seeds (files, password) to the empty test storage.

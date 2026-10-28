@@ -6,14 +6,27 @@
 //
 
 import UIKit
-import Combine
 
 final class LegacySecuritySettingsViewController: UIViewController, ErrorPresenting {
 
     private let authService         = AuthService.shared
+    private let proUnlock: any ProUnlocking
     private var tableView: UITableView!
     private var hasUnencryptedFiles = false
-    private var cancellables        = Set<AnyCancellable>()
+    private var entitlementObservation: Task<Void, Never>?
+
+    /// - Parameter proUnlock: the "Unlock Pro" entitlement (the app's one, from the composition root,
+    ///   by default).
+    init(proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock) {
+        self.proUnlock = proUnlock
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    deinit {
+        entitlementObservation?.cancel()
+    }
 
     // MARK: - Sections
     private enum Section: Int, CaseIterable {
@@ -54,15 +67,14 @@ final class LegacySecuritySettingsViewController: UIViewController, ErrorPresent
         view.addSubview(tableView)
     }
 
+    /// Reloads the Pro row on each change of the entitlement (the stream yields changes only).
     private func observeEntitlement() {
-        EntitlementService.shared.$isUnlocked
-            .dropFirst()
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+        let updates = proUnlock.unlockedUpdates()
+        entitlementObservation = Task { [weak self] in
+            for await _ in updates {
                 self?.tableView.reloadSections(IndexSet(integer: Section.pro.rawValue), with: .none)
             }
-            .store(in: &cancellables)
+        }
     }
 }
 
@@ -106,7 +118,7 @@ extension LegacySecuritySettingsViewController: UITableViewDataSource {
         switch sectionKind {
         case .pro:
             cell.accessibilityIdentifier = "upgradeToProCell"
-            if EntitlementService.isUnlockedSync {
+            if proUnlock.isUnlocked {
                 cell.textLabel?.text = "Pro Unlocked"
                 cell.textLabel?.textColor = .secondaryLabel
                 cell.accessoryType = .checkmark
@@ -161,8 +173,8 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
         guard let sectionKind = Section(rawValue: indexPath.section) else { return }
         switch sectionKind {
         case .pro:
-            guard !EntitlementService.isUnlockedSync else { return }
-            let paywall = LegacyPaywallViewController()
+            guard !proUnlock.isUnlocked else { return }
+            let paywall = LegacyPaywallViewController(proUnlock: proUnlock)
             paywall.modalPresentationStyle = .formSheet
             paywall.onUnlock = { [weak self] in self?.tableView.reloadData() }
             present(paywall, animated: true)
