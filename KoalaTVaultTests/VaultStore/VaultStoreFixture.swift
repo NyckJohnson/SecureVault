@@ -221,3 +221,99 @@ extension Sequence {
         return result
     }
 }
+
+// MARK: - Trash, migration and sweep helpers (unit 2)
+
+extension VaultStoreFixture {
+    /// A fresh random UUID string, as a disk name.
+    static func newDiskName() -> String { UUID().uuidString }
+
+    var trashURL: URL { rootURL.appendingPathComponent(".trash", isDirectory: true) }
+    var trashMapURL: URL { rootURL.appendingPathComponent(".trash_map") }
+
+    /// Names of every entry in `.trash`, or empty when it doesn't exist.
+    func trashDiskNames() -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: trashURL.path)) ?? []).sorted()
+    }
+
+    func rawTrashMap() -> Data? { try? Data(contentsOf: trashMapURL) }
+
+    /// The context the trash map on disk was sealed with, or nil when plaintext or absent.
+    func trashMapContext() -> String? {
+        guard let data = rawTrashMap(), data.starts(with: Self.sealedPrefix) else { return nil }
+        let rest = data.dropFirst(Self.sealedPrefix.count)
+        guard let colon = rest.firstIndex(of: UInt8(ascii: ":")) else { return nil }
+        return String(bytes: rest[rest.startIndex..<colon], encoding: .utf8)
+    }
+
+    /// The trash map's JSON payload (after the mock tag, if any), or nil when absent.
+    func trashMapPayload() -> Data? {
+        guard let data = rawTrashMap() else { return nil }
+        guard data.starts(with: Self.sealedPrefix) else { return data }
+        let rest = data.dropFirst(Self.sealedPrefix.count)
+        guard let colon = rest.firstIndex(of: UInt8(ascii: ":")) else { return nil }
+        return Data(rest[rest.index(after: colon)...])
+    }
+
+    /// Whether the trash map on disk is plaintext JSON.
+    func trashMapIsPlaintextJSON() -> Bool {
+        guard let data = rawTrashMap() else { return false }
+        return (try? JSONSerialization.jsonObject(with: data)) != nil
+    }
+
+    /// The trash map's entries keyed by trash UUID, as raw JSON dictionaries; nil when absent or unreadable.
+    func trashEntries() -> [String: [String: Any]]? {
+        guard let payload = trashMapPayload() else { return nil }
+        return (try? JSONSerialization.jsonObject(with: payload)) as? [String: [String: Any]]
+    }
+
+    /// Rewrites every trash entry through `transform`, keeping the map's encryption as it is.
+    func rewriteTrashEntries(_ transform: (inout [String: Any]) -> Void) throws {
+        guard let data = rawTrashMap(), var entries = trashEntries() else { return }
+        for key in entries.keys {
+            var entry = entries[key] ?? [:]
+            transform(&entry)
+            entries[key] = entry
+        }
+        let json = try JSONSerialization.data(withJSONObject: entries, options: [.sortedKeys])
+        let prefix = data.starts(with: Self.sealedPrefix) ? Data(data.prefix(upTo: sealedHeaderEnd(in: data))) : Data()
+        try (prefix + json).write(to: trashMapURL)
+    }
+
+    private func sealedHeaderEnd(in data: Data) -> Int {
+        let start = Self.sealedPrefix.count
+        let rest = data.dropFirst(start)
+        guard let colon = rest.firstIndex(of: UInt8(ascii: ":")) else { return start }
+        return colon + 1
+    }
+
+    /// Writes raw bytes as the trash map.
+    func writeRawTrashMap(_ data: Data) throws {
+        try FileManager.default.createDirectory(at: trashURL, withIntermediateDirectories: true)
+        try data.write(to: trashMapURL)
+    }
+
+    /// Every `.vault_map` under the vault root, as root-relative paths.
+    func indexFilePaths() -> [String] {
+        let enumerator = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: nil)
+        var paths: [String] = []
+        while let url = enumerator?.nextObject() as? URL {
+            if url.lastPathComponent == ".vault_map" { paths.append(String(url.path.dropFirst(rootURL.path.count))) }
+        }
+        return paths.sorted()
+    }
+
+    /// A trash item that doesn't exist.
+    func ghostTrashItem() -> VaultItem {
+        let name = Self.newDiskName()
+        return VaultItem(
+            id: ".trash/\(name)", name: "ghost.txt", isDirectory: false, dateModified: Date(), fileSize: 1,
+            deletedAt: Date(), diskURL: trashURL.appendingPathComponent(name), rootURL: rootURL, isEncrypted: false)
+    }
+}
+
+/// Whether the error is `.indexUnreadable`, whatever folder it names.
+func isIndexUnreadable(_ error: (any Error)?) -> Bool {
+    if case .indexUnreadable = error as? VaultStoreError { return true }
+    return false
+}
