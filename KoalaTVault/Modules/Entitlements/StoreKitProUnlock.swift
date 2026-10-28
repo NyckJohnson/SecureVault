@@ -40,7 +40,8 @@ final class StoreKitProUnlock: ProUnlocking {
     init(
         defaults: UserDefaults,
         productID: String = ProUnlock.productID,
-        verificationTransform: @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 },
+        verificationTransform:
+            @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 },
         purchase: @escaping @MainActor (Product, UIScene?) async throws -> Product.PurchaseResult = { product, scene in
             if #available(iOS 17.0, *), let scene {
                 return try await product.purchase(confirmIn: scene)
