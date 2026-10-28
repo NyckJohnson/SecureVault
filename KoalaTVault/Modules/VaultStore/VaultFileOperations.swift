@@ -227,33 +227,36 @@ extension LiveVaultStore {
 
     // MARK: - Helpers
 
-    private func exists(_ name: String, in folder: URL) -> Bool {
+    /// Whether something named `name` exists in `folder`.
+    func exists(_ name: String, in folder: URL) -> Bool {
         FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path)
     }
 
     /// A new `<UUID>` disk name not used in `folder`.
-    private func freshDiskName(in folder: URL) -> String {
+    func freshDiskName(in folder: URL) -> String {
         var name = UUID().uuidString
         while exists(name, in: folder) { name = UUID().uuidString }
         return name
     }
 
     /// Removes a file this operation created before it failed; the original failure is what's reported.
-    private func removeLeftover(_ url: URL) {
+    func removeLeftover(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         try? FileManager.default.removeItem(at: url)
     }
 
-    private static func standardPath(_ url: URL) -> String {
+    /// The path of `url`, standardized and with symlinks resolved.
+    static func standardPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    private static func samePath(_ lhs: URL, _ rhs: URL) -> Bool {
+    /// Whether both URLs name the same path.
+    static func samePath(_ lhs: URL, _ rhs: URL) -> Bool {
         standardPath(lhs) == standardPath(rhs)
     }
 
     /// Whether `url` is `folder` or somewhere inside it.
-    private static func isSameOrInside(_ url: URL, _ folder: URL) -> Bool {
+    static func isSameOrInside(_ url: URL, _ folder: URL) -> Bool {
         let path = standardPath(url)
         let folderPath = standardPath(folder)
         return path == folderPath || path.hasPrefix(folderPath + "/")

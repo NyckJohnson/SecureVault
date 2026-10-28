@@ -137,7 +137,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "tests",
+          "state": "code",
           "attempts": 1
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-28T09:09:37-07:00",
+  "updatedAt": "2026-10-28T09:13:29-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",

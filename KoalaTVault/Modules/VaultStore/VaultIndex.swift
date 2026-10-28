@@ -37,24 +37,9 @@ struct VaultIndex: Sendable {
     func read(in folder: URL, mode: VaultOperationMode) throws -> [String: VaultIndexEntry] {
         let url = folder.appendingPathComponent(Self.fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        let unreadable = VaultStoreError.indexUnreadable(folder: label(for: folder))
-        guard let data = try? Data(contentsOf: url) else { throw unreadable }
-        if let plaintext = try? JSONDecoder().decode([String: VaultIndexEntry].self, from: data) {
-            return plaintext
-        }
-        guard mode.keyLoaded else { throw mode.isEncrypted ? VaultStoreError.locked : unreadable }
-        let decrypted: Data
-        do {
-            decrypted = try cipher.decrypt(data, contexts: contexts(for: folder))
-        } catch VaultCryptoError.noKeyLoaded where mode.isEncrypted {
-            throw VaultStoreError.locked
-        } catch {
-            throw unreadable
-        }
-        guard let entries = try? JSONDecoder().decode([String: VaultIndexEntry].self, from: decrypted) else {
-            throw unreadable
-        }
-        return entries
+        return try Self.readSealedJSON(
+            [String: VaultIndexEntry].self, at: url, contexts: contexts(for: folder), cipher: cipher, mode: mode,
+            unreadable: .indexUnreadable(folder: label(for: folder)))
     }
 
     /// Writes `entries` as the index of `folder`: encrypted (context ".vault_map") in encrypted mode,
@@ -63,19 +48,50 @@ struct VaultIndex: Sendable {
     func write(_ entries: [String: VaultIndexEntry], in folder: URL, mode: VaultOperationMode) throws {
         let url = folder.appendingPathComponent(Self.fileName)
         if entries.isEmpty, !mode.isEncrypted, !FileManager.default.fileExists(atPath: url.path) { return }
+        try Self.writeSealedJSON(entries, to: url, context: Self.fileName, cipher: cipher, mode: mode)
+    }
+
+    /// Decodes the JSON file at `url`: plaintext JSON first (older builds, plaintext mode), then, with a key
+    /// loaded, ciphertext sealed with the first of `contexts` that opens it.
+    /// - Throws: `unreadable` when the file can't be read, opened or decoded; `.locked` in encrypted mode when
+    ///   there is no key (or it disappeared while decrypting).
+    static func readSealedJSON<T: Decodable>(
+        _ type: T.Type, at url: URL, contexts: [String], cipher: any FileCipher, mode: VaultOperationMode,
+        unreadable: VaultStoreError
+    ) throws -> T {
+        guard let data = try? Data(contentsOf: url) else { throw unreadable }
+        if let plaintext = try? JSONDecoder().decode(T.self, from: data) { return plaintext }
+        guard mode.keyLoaded else { throw mode.isEncrypted ? VaultStoreError.locked : unreadable }
+        let decrypted: Data
+        do {
+            decrypted = try cipher.decrypt(data, contexts: contexts)
+        } catch VaultCryptoError.noKeyLoaded where mode.isEncrypted {
+            throw VaultStoreError.locked
+        } catch {
+            throw unreadable
+        }
+        guard let value = try? JSONDecoder().decode(T.self, from: decrypted) else { throw unreadable }
+        return value
+    }
+
+    /// Writes `value` as JSON to `url` (atomic, complete file protection): sealed with `context` in encrypted
+    /// mode, plaintext otherwise. Never falls back to plaintext in encrypted mode.
+    /// - Throws: `.locked` when the key is gone in encrypted mode (nothing is written), `.io` otherwise.
+    static func writeSealedJSON<T: Encodable>(
+        _ value: T, to url: URL, context: String, cipher: any FileCipher, mode: VaultOperationMode
+    ) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let json: Data
         do {
-            json = try encoder.encode(entries)
+            json = try encoder.encode(value)
         } catch {
             throw VaultStoreError.io(error.localizedDescription)
         }
         let data: Data
         if mode.isEncrypted {
-            // Never falls back to plaintext: without the key the write is refused.
             do {
-                data = try cipher.encrypt(json, context: Self.fileName)
+                data = try cipher.encrypt(json, context: context)
             } catch {
                 throw VaultStoreError.from(error)
             }

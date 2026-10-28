@@ -15,7 +15,7 @@ actor LiveVaultStore: VaultStoring {
     let keyStore: any MasterKeyStoring
     let cipher: any FileCipher
     let preferences: any PreferencesStoring
-    /// The folder temporary files are created under (the app's temp folder in the app).
+    /// The folder the store's own temporary folder is created in (the app's temp folder in the app).
     nonisolated let temporaryRoot: URL
     /// The per-folder index reader and writer.
     let index: VaultIndex
@@ -218,42 +218,4 @@ actor LiveVaultStore: VaultStoring {
         let cleaned = name.replacingOccurrences(of: "/", with: "-")
         return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? "file" : cleaned
     }
-
-    // MARK: - Temp files
-
-    nonisolated func makeTempDirectory() throws -> URL {
-        let url = temporaryRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        do {
-            // Complete protection on the folder: files created in it, such as the plaintext the cipher
-            // decrypts for `open`, inherit it.
-            try FileManager.default.createDirectory(
-                at: url, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
-        } catch {
-            throw VaultStoreError.from(error)
-        }
-        return url
-    }
-
-    // MARK: - Unit 2 (stubs until VaultTrash / VaultMigrationSteps / OrphanSweep / VaultTempFiles)
-
-    private static func notImplemented(_ name: String) -> VaultStoreError {
-        .io("Not implemented: \(name) (VaultStore unit 2)")
-    }
-
-    func moveToTrash(_ item: VaultItem) throws { throw Self.notImplemented("moveToTrash") }
-    func trashContents() throws -> [VaultItem] { throw Self.notImplemented("trashContents") }
-    func restore(_ trashed: VaultItem) throws -> VaultItem { throw Self.notImplemented("restore") }
-    func deletePermanently(_ trashed: VaultItem) throws { throw Self.notImplemented("deletePermanently") }
-    func emptyTrash() {}  // Not implemented: emptyTrash (VaultStore unit 2)
-    func purgeExpiredTrash(now: Date) throws -> Int { throw Self.notImplemented("purgeExpiredTrash") }
-    func countFiles() throws -> Int { throw Self.notImplemented("countFiles") }
-    func itemsToMigrate(toEncrypted: Bool) throws -> [VaultItem] { throw Self.notImplemented("itemsToMigrate") }
-    func migrateToEncrypted(_ item: VaultItem) throws { throw Self.notImplemented("migrateToEncrypted") }
-    func migrateToDecrypted(_ item: VaultItem) throws { throw Self.notImplemented("migrateToDecrypted") }
-    func finishDecryption() throws { throw Self.notImplemented("finishDecryption") }
-    func hasUnencryptedFiles() throws -> Bool { throw Self.notImplemented("hasUnencryptedFiles") }
-    func keyMatchesVault() -> Bool { false }  // Not implemented: keyMatchesVault (VaultStore unit 2)
-    func sweepOrphans() {}  // Not implemented: sweepOrphans (VaultStore unit 2)
-    nonisolated func removeTemporary(_ url: URL) {}  // Not implemented: removeTemporary (VaultStore unit 2)
-    nonisolated func removeAllTemporaryFiles() {}  // Not implemented: removeAllTemporaryFiles (VaultStore unit 2)
 }
