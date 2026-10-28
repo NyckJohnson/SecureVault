@@ -16,6 +16,8 @@ final class StoreKitProUnlock: ProUnlocking {
     private let defaults: UserDefaults
     private let productID: String
     private let verificationTransform: @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction>
+    private let purchaseSeam: @MainActor (Product, UIScene?) async throws -> Product.PurchaseResult
+    private let syncSeam: @MainActor () async throws -> Void
     private let unlockedNow: OSAllocatedUnfairLock<Bool>
     private var observers: [UUID: AsyncStream<Bool>.Continuation] = [:]
     private var updatesListener: Task<Void, Never>?
@@ -29,16 +31,29 @@ final class StoreKitProUnlock: ProUnlocking {
 
     /// An entitlement for `productID`, cached in `defaults`.
     ///
-    /// - Parameter verificationTransform: applied to every `VerificationResult` before it is checked
-    ///   (identity in the app; tests use it to simulate failed verification).
+    /// - Parameters:
+    ///   - verificationTransform: applied to every `VerificationResult` before it is checked
+    ///     (identity in the app; tests use it to simulate failed verification).
+    ///   - purchase: buys a product, confirming in the scene when given (the app uses the default, the real
+    ///     StoreKit call; unit tests inject outcomes, since hosted-test purchases fail on the simulator).
+    ///   - sync: syncs with the App Store (default `AppStore.sync()`).
     init(
         defaults: UserDefaults,
         productID: String = ProUnlock.productID,
-        verificationTransform: @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 }
+        verificationTransform: @escaping @Sendable (VerificationResult<Transaction>) -> VerificationResult<Transaction> = { $0 },
+        purchase: @escaping @MainActor (Product, UIScene?) async throws -> Product.PurchaseResult = { product, scene in
+            if #available(iOS 17.0, *), let scene {
+                return try await product.purchase(confirmIn: scene)
+            }
+            return try await product.purchase()
+        },
+        sync: @escaping @MainActor () async throws -> Void = { try await AppStore.sync() }
     ) {
         self.defaults = defaults
         self.productID = productID
         self.verificationTransform = verificationTransform
+        purchaseSeam = purchase
+        syncSeam = sync
         let cached = defaults.bool(forKey: Self.cacheKey)
         isUnlocked = cached
         unlockedNow = OSAllocatedUnfairLock(initialState: cached)
@@ -70,11 +85,7 @@ final class StoreKitProUnlock: ProUnlocking {
 
         let result: Product.PurchaseResult
         do {
-            if #available(iOS 17.0, *), let scene {
-                result = try await product.purchase(confirmIn: scene)
-            } else {
-                result = try await product.purchase()
-            }
+            result = try await purchaseSeam(product, scene)
         } catch StoreKitError.userCancelled {
             return .cancelled
         } catch {
@@ -100,7 +111,7 @@ final class StoreKitProUnlock: ProUnlocking {
 
     /// Syncs with the App Store, then refreshes. StoreKit's errors (including a user cancel) are rethrown.
     func restore() async throws -> Bool {
-        try await AppStore.sync()
+        try await syncSeam()
         await refresh()
         return isUnlocked
     }
