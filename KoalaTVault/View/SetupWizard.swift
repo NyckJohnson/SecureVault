@@ -10,7 +10,7 @@ import UIKit
 final class LegacySetupWizardViewController: UIViewController, ErrorPresenting {
 
     // MARK: - Properties
-    private var selectedLockMode: LegacyLockMode = .none
+    private var selectedLockMode: LockMode = .none
     private let authService = AuthService.shared
 
     // MARK: - UI
@@ -250,7 +250,7 @@ final class LegacySetupWizardViewController: UIViewController, ErrorPresenting {
     }
 
     private func completeSetup() {
-        PreferencesService.shared.hasCompletedSetup = true
+        LegacyStorage.current.preferences.hasCompletedSetup = true
         dismiss(animated: true)
     }
 }

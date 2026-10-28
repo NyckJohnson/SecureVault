@@ -85,6 +85,9 @@ nonisolated struct LegacyStorage: Sendable {
     let masterKeyStore: any MasterKeyStoring
     /// The file and index cipher, using `masterKeyStore`'s key.
     let fileCipher: any FileCipher
+    /// The app's settings, over `defaults` (built once here). Legacy singletons reach it here;
+    /// new code takes it by injection from `AppDependencies`.
+    let preferences: any PreferencesStoring
     /// The UserDefaults suite in `-uiTesting` mode; `nil` means `.standard`.
     /// (A name rather than the instance, because `UserDefaults` is not `Sendable`.)
     let defaultsSuiteName: String?
@@ -98,22 +101,27 @@ nonisolated struct LegacyStorage: Sendable {
     )
 
     /// Preferences store (`.standard` normally; a cleared dedicated suite in `-uiTesting` mode).
-    var defaults: UserDefaults {
-        guard let defaultsSuiteName else { return .standard }
-        guard let suite = UserDefaults(suiteName: defaultsSuiteName) else {
+    var defaults: UserDefaults { Self.openDefaults(suiteName: defaultsSuiteName) }
+
+    /// `.standard` for a nil `suiteName`, else that suite.
+    private static func openDefaults(suiteName: String?) -> UserDefaults {
+        guard let suiteName else { return .standard }
+        guard let suite = UserDefaults(suiteName: suiteName) else {
             // Unreachable: the name was validated when this storage was made.
             fatalError("-uiTesting: could not open the UserDefaults suite")
         }
         return suite
     }
 
-    /// Builds the storage and the one master key store and file cipher over `keychain`.
+    /// Builds the storage, the one master key store and file cipher over `keychain`, and the
+    /// one preferences store over the chosen UserDefaults suite.
     init(vaultRootURL: URL, keychain: any KeychainAccessing, defaultsSuiteName: String?, uiTestSettings: UITestSettings?) {
         let masterKeyStore = LiveMasterKeyStore(keychain: keychain)
         self.vaultRootURL = vaultRootURL
         self.keychain = keychain
         self.masterKeyStore = masterKeyStore
         self.fileCipher = LiveFileCipher(keyStore: masterKeyStore)
+        self.preferences = UserDefaultsPreferences(defaults: Self.openDefaults(suiteName: defaultsSuiteName))
         self.defaultsSuiteName = defaultsSuiteName
         self.uiTestSettings = uiTestSettings
     }
@@ -175,6 +183,8 @@ final class AppDependencies {
     var masterKeyStore: any MasterKeyStoring { storage.masterKeyStore }
     /// The file and index cipher (built once, in `storage`).
     var fileCipher: any FileCipher { storage.fileCipher }
+    /// The app's settings (built once, in `storage`).
+    var preferences: any PreferencesStoring { storage.preferences }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
     init(storage: LegacyStorage = .current) {
@@ -203,7 +213,7 @@ final class AppDependencies {
                 try AuthService.shared.createPassword(password)
                 AuthService.shared.lockMode = .password
                 AuthService.shared.hasAuthenticated = true
-                PreferencesService.shared.hasCompletedSetup = true
+                preferences.hasCompletedSetup = true
             } catch {
                 // Test-only path: a half-seeded launch would make UI tests fail later for an unclear reason.
                 let message = "-uiTesting: creating the seeded password failed: \(error.localizedDescription)"
@@ -213,8 +223,9 @@ final class AppDependencies {
         }
 
         if let pending = settings.pendingMigration {
-            PreferencesService.shared.pendingMigrationType = LegacyMigrationViewController.MigrationType(rawValue: pending)
-            PreferencesService.shared.pendingMigrationTargetLockMode = AuthService.shared.lockMode
+            preferences.pendingMigration = MigrationKind(rawValue: pending).map {
+                PendingMigration(kind: $0, targetLockMode: AuthService.shared.lockMode)
+            }
         }
         if settings.plaintextIndex {
             seedFile(at: root.appendingPathComponent(".vault_map"), content: Data("{}".utf8))

@@ -322,18 +322,19 @@ final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
     @objc private func promptSort() {
         let sheet = UIAlertController(title: "Sort By", message: nil, preferredStyle: .actionSheet)
 
-        for option in LegacySortOption.allCases {
-            let isCurrent = PreferencesService.shared.sortOption == option
-            let direction = PreferencesService.shared.sortDirection
+        let preferences = LegacyStorage.current.preferences
+        for option in SortOption.allCases {
+            let isCurrent = preferences.sortOption == option
+            let direction = preferences.sortDirection
             let dirSymbol = direction == .ascending ? "↑" : "↓"
             let title = isCurrent ? "\(option.displayName) \(dirSymbol)" : option.displayName
             sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
                 if isCurrent {
                     // toggle direction if same option tapped
-                    PreferencesService.shared.sortDirection = direction == .ascending ? .descending : .ascending
+                    preferences.sortDirection = direction == .ascending ? .descending : .ascending
                 } else {
-                    PreferencesService.shared.sortOption = option
-                    PreferencesService.shared.sortDirection = .ascending
+                    preferences.sortOption = option
+                    preferences.sortDirection = .ascending
                 }
                 self?.loadContents()
             })

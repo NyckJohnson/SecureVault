@@ -26,7 +26,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.makeKeyAndVisible()
         self.window = window
 
-        if !PreferencesService.shared.hasCompletedSetup {
+        if !LegacyStorage.current.preferences.hasCompletedSetup {
             let wizard = LegacySetupWizardViewController()
             wizard.modalPresentationStyle = .fullScreen
             nav.present(wizard, animated: false)
@@ -81,7 +81,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // After unlock, so the key is loaded and the folder indexes can be read.
         // A no-op without the key (no-lock mode).
         FileSystem.shared.sweepOrphanedEncryptedFiles(in: .root)
-        guard let type = PreferencesService.shared.pendingMigrationType,
+        guard let pending = LegacyStorage.current.preferences.pendingMigration,
               let root = window?.rootViewController else { return }
         var topVC = root
         while let presented = topVC.presentedViewController {
@@ -89,7 +89,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             topVC = presented
         }
         guard !(topVC is LegacyMigrationViewController) else { return }
-        let targetLockMode = PreferencesService.shared.pendingMigrationTargetLockMode
+        let type = pending.kind
+        let targetLockMode = pending.targetLockMode
         let migration = LegacyMigrationViewController(type: type, targetLockMode: targetLockMode) { completedFully in
             AuthService.shared.finalizeMigration(type: type, targetLockMode: targetLockMode, completedFully: completedFully)
         }

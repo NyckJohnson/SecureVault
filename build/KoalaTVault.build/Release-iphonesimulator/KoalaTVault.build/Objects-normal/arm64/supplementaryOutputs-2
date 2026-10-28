@@ -1,0 +1,12 @@
+{
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/AuthService.swift" : {
+    "abi-baseline-json" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault.abi.json",
+    "const-values" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault-primary.swiftconstvalues",
+    "dependencies" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault-primary.d",
+    "diagnostics" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault-primary.dia",
+    "objc-header" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault-Swift.h",
+    "swiftdoc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault.swiftdoc",
+    "swiftmodule" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault.swiftmodule",
+    "swiftsourceinfo" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/arm64/KoalaTVault.swiftsourceinfo"
+  }
+}

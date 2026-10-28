@@ -1,0 +1,361 @@
+{
+  "" : {
+    "const-values" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary.swiftconstvalues",
+    "dependencies" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary.d",
+    "diagnostics" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary.dia",
+    "emit-module-dependencies" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary-emit-module.dia",
+    "pch" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KoalaTVault-primary.swiftdeps"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/AppDelegate.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AppDelegate.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AppDelegate.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AppDelegate.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/AppDependencies.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AppDependencies.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AppDependencies.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AppDependencies.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/AuthService.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AuthService.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AuthService.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AuthService.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/EncryptedCopyChecker.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EncryptedCopyChecker.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EncryptedCopyChecker.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EncryptedCopyChecker.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/EntitlementService.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EntitlementService.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EntitlementService.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EntitlementService.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/ErrorPresenting.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ErrorPresenting.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ErrorPresenting.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ErrorPresenting.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/ExportService.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ExportService.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ExportService.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ExportService.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/FileSystem.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileSystem.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileSystem.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileSystem.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/ImportService.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ImportService.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ImportService.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ImportService.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/LegacyFileKind.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyFileKind.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyFileKind.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyFileKind.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/ThumbnailService.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ThumbnailService.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ThumbnailService.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ThumbnailService.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Model/VaultResourceLoaderDelegate.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultResourceLoaderDelegate.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultResourceLoaderDelegate.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultResourceLoaderDelegate.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Browser/Contracts/BrowserContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/BrowserContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/BrowserContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/BrowserContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Browser/Mocks/MockBrowserFactory.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockBrowserFactory.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockBrowserFactory.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockBrowserFactory.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Entitlements/Contracts/EntitlementsContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EntitlementsContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EntitlementsContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/EntitlementsContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Entitlements/Mocks/MockProUnlocking.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockProUnlocking.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockProUnlocking.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockProUnlocking.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Export/Contracts/ExportContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ExportContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ExportContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ExportContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Export/Mocks/MockVaultExporting.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultExporting.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultExporting.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultExporting.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Import/Contracts/ImportContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ImportContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ImportContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ImportContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Import/Mocks/MockCameraRollDeleting.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockCameraRollDeleting.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockCameraRollDeleting.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockCameraRollDeleting.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Import/Mocks/MockVaultImporting.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultImporting.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultImporting.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultImporting.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/LockMigration/Contracts/LockMigrationContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockMigrationContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockMigrationContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockMigrationContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/LockMigration/Mocks/MockLockMigrating.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockLockMigrating.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockLockMigrating.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockLockMigrating.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/LockScreens/Contracts/LockScreensContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockScreensContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockScreensContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockScreensContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/LockScreens/Mocks/MockAppLockCoordinating.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockAppLockCoordinating.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockAppLockCoordinating.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockAppLockCoordinating.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Media/Contracts/MediaContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MediaContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MediaContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MediaContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Media/Mocks/MockThumbnailProviding.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockThumbnailProviding.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockThumbnailProviding.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockThumbnailProviding.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Media/Mocks/MockVideoAssetProviding.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVideoAssetProviding.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVideoAssetProviding.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVideoAssetProviding.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Preferences/Contracts/PreferencesModels.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/PreferencesModels.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/PreferencesModels.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/PreferencesModels.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Preferences/Contracts/PreferencesStoring.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/PreferencesStoring.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/PreferencesStoring.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/PreferencesStoring.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Preferences/Mocks/MockPreferencesStoring.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockPreferencesStoring.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockPreferencesStoring.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockPreferencesStoring.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Preferences/UserDefaultsPreferences.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/UserDefaultsPreferences.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/UserDefaultsPreferences.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/UserDefaultsPreferences.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Settings/Contracts/SettingsContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SettingsContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SettingsContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SettingsContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Settings/Mocks/MockSettingsFactory.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockSettingsFactory.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockSettingsFactory.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockSettingsFactory.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/SharedUI/Contracts/AlertPresentingContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AlertPresentingContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AlertPresentingContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/AlertPresentingContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/SharedUI/Contracts/FileIconMappingContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileIconMappingContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileIconMappingContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileIconMappingContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/SharedUI/Mocks/MockAlertPresenting.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockAlertPresenting.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockAlertPresenting.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockAlertPresenting.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/Contracts/VaultCryptoContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultCryptoContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultCryptoContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultCryptoContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/KeychainStore.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KeychainStore.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KeychainStore.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/KeychainStore.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/LiveFileCipher.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LiveFileCipher.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LiveFileCipher.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LiveFileCipher.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/LiveMasterKeyStore.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LiveMasterKeyStore.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LiveMasterKeyStore.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LiveMasterKeyStore.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/MasterKeyBlob.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MasterKeyBlob.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MasterKeyBlob.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MasterKeyBlob.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/Mocks/MockFileCipher.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockFileCipher.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockFileCipher.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockFileCipher.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/Mocks/MockKeychainAccessing.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockKeychainAccessing.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockKeychainAccessing.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockKeychainAccessing.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/Mocks/MockMasterKeyStoring.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockMasterKeyStoring.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockMasterKeyStoring.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockMasterKeyStoring.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultCrypto/SVC5Format.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SVC5Format.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SVC5Format.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SVC5Format.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultLock/Contracts/VaultLockContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultLockContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultLockContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultLockContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultLock/Mocks/MockVaultLocking.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultLocking.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultLocking.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultLocking.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultStore/Contracts/VaultStoreModels.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultStoreModels.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultStoreModels.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultStoreModels.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultStore/Contracts/VaultStoring.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultStoring.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultStoring.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/VaultStoring.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/VaultStore/Mocks/MockVaultStoring.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultStoring.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultStoring.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockVaultStoring.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Viewer/Contracts/ViewerContract.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ViewerContract.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ViewerContract.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ViewerContract.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/Modules/Viewer/Mocks/MockViewerFactory.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockViewerFactory.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockViewerFactory.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/MockViewerFactory.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/SceneDelegate.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SceneDelegate.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SceneDelegate.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SceneDelegate.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/FileBrowser.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileBrowser.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileBrowser.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileBrowser.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/FileIconProvider.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileIconProvider.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileIconProvider.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileIconProvider.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/FilePage.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FilePage.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FilePage.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FilePage.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/FileViewer.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileViewer.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileViewer.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FileViewer.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/FolderPicker.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FolderPicker.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FolderPicker.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/FolderPicker.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/LegacyFileCell.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyFileCell.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyFileCell.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyFileCell.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/LegacyPaywallViewController.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyPaywallViewController.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyPaywallViewController.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LegacyPaywallViewController.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/LockScreen.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockScreen.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockScreen.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/LockScreen.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/Migration.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/Migration.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/Migration.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/Migration.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/ProgressOverlay.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ProgressOverlay.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ProgressOverlay.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/ProgressOverlay.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/RecentlyDeleted.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/RecentlyDeleted.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/RecentlyDeleted.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/RecentlyDeleted.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/SecuritySettings.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SecuritySettings.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SecuritySettings.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SecuritySettings.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/SetupWizard.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SetupWizard.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SetupWizard.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/SetupWizard.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/TextEditor.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/TextEditor.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/TextEditor.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/TextEditor.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/KoalaTVault/View/UIViewController+Presentation.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/UIViewController+Presentation.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/UIViewController+Presentation.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/UIViewController+Presentation.o"
+  },
+  "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "index-unit-output-path" : "/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/nicholasjohnson/Documents/Programs/SecureVault/build/KoalaTVault.build/Release-iphonesimulator/KoalaTVault.build/Objects-normal/x86_64/GeneratedAssetSymbols.o"
+  }
+}

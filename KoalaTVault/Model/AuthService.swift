@@ -39,15 +39,17 @@ final class AuthService {
     nonisolated private let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
     /// The master key store built once by the composition root (`AppDependencies`).
     nonisolated private var keyStore: any MasterKeyStoring { LegacyStorage.current.masterKeyStore }
+    /// The app's settings, built once by the composition root (`AppDependencies`).
+    private var preferences: any PreferencesStoring { LegacyStorage.current.preferences }
     /// The reason shown with the biometric prompt.
     nonisolated private static let biometricPrompt = "Unlock your vault"
     /// The first bytes of an SVC5 vault file.
     nonisolated private static let encryptedFileMagic = Data("SVC5".utf8)
 
     // MARK: - Lock Mode
-    var lockMode: LegacyLockMode {
-        get { PreferencesService.shared.lockMode }
-        set { PreferencesService.shared.lockMode = newValue }
+    var lockMode: LockMode {
+        get { preferences.lockMode }
+        set { preferences.lockMode = newValue }
     }
 
     // MARK: - Password
@@ -200,7 +202,7 @@ final class AuthService {
     // MARK: - Migration Completion
     func finalizeMigration(
         type: LegacyMigrationViewController.MigrationType,
-        targetLockMode: LegacyLockMode?,
+        targetLockMode: LockMode?,
         completedFully: Bool
     ) {
         guard completedFully else { return }
@@ -320,7 +322,7 @@ final class AuthService {
     /// An interrupted encryption (adding a lock) finishes only with the key, so the launch asks
     /// for the password even if the lock mode was never saved (lock mode none, password set).
     private var pendingEncryptionNeedsPassword: Bool {
-        PreferencesService.shared.pendingMigrationType == .encrypt && hasPassword()
+        preferences.pendingMigration?.kind == .encrypt && hasPassword()
     }
 
     /// A pending encryption with no password at all can never finish (no key exists, so
@@ -328,7 +330,7 @@ final class AuthService {
     /// launch never sits on a lock screen or migration screen with no way forward. Files stay
     /// as they are on disk; nothing is deleted.
     private func resolveUnfinishableEncryption() {
-        guard PreferencesService.shared.pendingMigrationType == .encrypt else { return }
+        guard preferences.pendingMigration?.kind == .encrypt else { return }
         let blobExists: Bool
         do {
             blobExists = try keyStore.hasMasterKeyBlob()
@@ -339,8 +341,7 @@ final class AuthService {
         }
         guard !blobExists else { return }
         logger.error("Pending encryption without a password; finishing as No Lock")
-        PreferencesService.shared.pendingMigrationType = nil
-        PreferencesService.shared.pendingMigrationTargetLockMode = nil
+        preferences.pendingMigration = nil
         lockMode = .none
     }
 
