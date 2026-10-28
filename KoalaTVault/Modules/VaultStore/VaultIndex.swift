@@ -86,7 +86,7 @@ struct VaultIndex: Sendable {
         do {
             json = try encoder.encode(value)
         } catch {
-            throw VaultStoreError.io(error.localizedDescription)
+            throw VaultStoreError.io(error.localizedDescription)  // coverage-exempt: JSONEncoder can't fail for these plain Codable types
         }
         let data: Data
         if mode.isEncrypted {

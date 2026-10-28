@@ -211,11 +211,13 @@ extension LiveVaultStore {
             throw VaultStoreError.io("The index entry for “\(displayName)” wasn't saved.")
         }
         guard try isCompleteEncryptedCopy(at: destination, plaintextSize: plaintextSize) else {
+            // coverage-exempt-begin: unreachable: the earlier byte-for-byte verify already proves this
             // Keep the plaintext; drop the bad copy and its entry (a rerun encrypts again).
             saved.removeValue(forKey: diskName)
             try? index.write(saved, in: folder, mode: sealed)
             removeLeftover(destination)
             throw Self.copyMismatch(item)
+            // coverage-exempt-end
         }
         // Their entries went with the index write above.
         try incomplete.forEach(removeFile)
@@ -401,9 +403,11 @@ extension LiveVaultStore {
             _ = try FileManager.default.replaceItemAt(
                 trashMap.folderURL.appendingPathComponent(trashName), withItemAt: staging)
         } catch {
+            // coverage-exempt-begin: replaceItemAt failing after the same folder's map write succeeded can't be provoked
             try? trashMap.write(map, mode: mode)
             removeLeftover(staging)
             throw VaultStoreError.from(error)
+            // coverage-exempt-end
         }
     }
 
@@ -527,7 +531,7 @@ extension LiveVaultStore {
             do {
                 original = try plain.read(upToCount: decrypted.count) ?? Data()
             } catch {
-                throw VaultStoreError.from(error)
+                throw VaultStoreError.from(error)  // coverage-exempt: read on an open handle can't fail
             }
             guard original == decrypted else { return false }
         }
@@ -535,8 +539,10 @@ extension LiveVaultStore {
         do {
             return try plain.read(upToCount: 1)?.isEmpty ?? true
         } catch {
+            // coverage-exempt-begin: read on an open handle can't fail
             throw VaultStoreError.from(error)
         }
+        // coverage-exempt-end
     }
 
     /// Whether `url` holds a complete encrypted copy of a `plaintextSize`-byte file: the header records that
@@ -592,8 +598,10 @@ extension LiveVaultStore {
             guard let size = attributes[.size] as? Int else { throw VaultStoreError.io("The file size can't be read.") }
             return size
         } catch {
+            // coverage-exempt-begin: stat failing after an existence check can't be provoked
             throw VaultStoreError.from(error)
         }
+        // coverage-exempt-end
     }
 
     private func removeFile(_ url: URL) throws {

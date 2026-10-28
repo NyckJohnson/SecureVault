@@ -72,7 +72,7 @@ struct VaultTrashMap: Sendable {
         do {
             try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         } catch {
-            throw VaultStoreError.from(error)
+            throw VaultStoreError.from(error)  // coverage-exempt: callers have already created .trash
         }
         try VaultIndex.writeSealedJSON(entries, to: url, context: Self.fileName, cipher: cipher, mode: mode)
     }

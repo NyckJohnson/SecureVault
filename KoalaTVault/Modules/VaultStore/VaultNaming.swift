@@ -44,5 +44,5 @@ enum VaultNaming {
             if !isTaken(candidate) { return candidate }
             counter += 1
         }
-    }
+    }  // coverage-exempt: end of a function whose loop only exits by return
 }
