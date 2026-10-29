@@ -434,6 +434,7 @@ extension matching ignores case.
       case stillEncrypted(count: Int)
       case io(String)
   }
+  extension VaultStoreError: LocalizedError { var errorDescription: String? { get } }
 
   protocol VaultStoring: Sendable {
       var root: VaultDirectory { get }
@@ -500,6 +501,7 @@ extension matching ignores case.
   - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list and that carry an SVC5 header (a plaintext file with such a name is kept); folders with no index, an unreadable index, and the trash are never swept.
   - Temp files: `makeTempDirectory` creates a unique folder under the app temp folder; `removeTemporary` removes one; `removeAllTemporaryFiles` removes everything the store created.
   - Contract logic (in `Contracts/VaultStoreModels.swift`; unit 1 tests it): `FileKind(extension:)` maps every extension in Data models › FileKind (one case per extension, also upper and mixed case); an empty or unknown extension → `.other`. `VaultItem.kind` comes from the display name's extension (an encrypted item's original name, not its UUID disk name). `asDirectory`: a folder → `VaultDirectory` with the item's name, diskURL and rootURL; a file → nil.
+  - errorDescription (logic in `Contracts/VaultStoring.swift`, next to `VaultStoreError`; tested in a reopened VaultStore change, one asserting test per case): indexUnreadable "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."; locked → the text of `VaultCryptoError.noKeyLoaded` ("No encryption key is loaded."); invalidName "Names can't contain / or start with ."; notFound "This item no longer exists."; moveIntoItself "A folder can't be moved into itself"; stillEncrypted(1) "1 file is still encrypted.", stillEncrypted(n) "<n> files are still encrypted."; io(message) → the message itself. Alerts show `localizedDescription`, so this is the text the user sees.
 - Contract: see `docs/api/VaultStore.md` (generated; do not edit by hand)
 - Legacy files: Model/FileSystem.swift (part: vault types, index, browse/sort, open/write, create/move/copy/rename/delete, trash, migration steps, orphan sweep, temp files); Model/LegacyFileKind.swift; Model/EncryptedCopyChecker.swift (split out of the old CryptoService in VaultCrypto's switch-over: complete-encrypted-copy and same-content checks for copy and the migration steps)
 - Legacy tests: KoalaTVaultTests/VaultTestCase.swift, KoalaTVaultTests/FileSystemTests.swift, KoalaTVaultTests/EncryptedFileSystemTests.swift, KoalaTVaultTests/FileSystemMappingIntegrityTests.swift, KoalaTVaultTests/TrashTests.swift, KoalaTVaultTests/SortTests.swift, KoalaTVaultTests/CopyTests.swift, KoalaTVaultTests/ConflictResolutionTests.swift, KoalaTVaultTests/VaultDirectoryTests.swift, KoalaTVaultTests/VaultItemTests.swift, KoalaTVaultTests/FileKindTests.swift, KoalaTVaultTests/EdgeCaseTests.swift, KoalaTVaultTests/AdditionalEdgeCaseTests.swift
@@ -941,3 +943,4 @@ extension matching ignores case.
 - 2026-10-28: Empty Trash no longer shows an error when it fails part-way: `emptyTrash()` is best-effort by the approved contract (it removes what it can) — VaultStore switch-over review — follows the approved spec
 - 2026-10-28: VaultStore error behaviors found by coverage are kept and specified: countFiles throws on an unreadable subfolder, migrating an unrecorded trash item throws `.notFound`, purge keeps going past a file it can't remove and then throws — VaultStore coverage triage — decided by the human
 - 2026-10-28: The invalid-name message is "Names can't contain / or start with ." for both rules (one `.invalidName` error); journey 3 expects it — VaultStore switch-over gates — decided by the human
+- 2026-10-29: `VaultStoreError` conforms to `LocalizedError` with the legacy `legacyErrorMessage(for:)` wording, as `VaultCryptoError` does; SharedUI's `AlertPresenting` shows `localizedDescription` and would otherwise show the system fallback text — contract change found in the SharedUI unit 1 review — approved by the human

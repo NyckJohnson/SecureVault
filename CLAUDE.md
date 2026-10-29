@@ -14,3 +14,5 @@ managed block above.
   coverage. Never add a `coverage-exempt` marker to these files.
 - `VaultCrypto/Contracts/VaultCryptoContract.swift` also holds real code (`VaultCryptoError.errorDescription`,
   added in VaultCrypto's switch-over unit). Same rules: tested, never `coverage-exempt`.
+- `VaultStore/Contracts/VaultStoring.swift` also holds real code (`VaultStoreError.errorDescription`, added during SharedUI
+  unit 1, approved 2026-10-29). Same rules: tested, never `coverage-exempt`.
