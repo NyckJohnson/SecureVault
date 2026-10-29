@@ -35,6 +35,7 @@ final class ScriptedMasterKeys: MasterKeyStoring {
         var keyLoaded: Bool
         var hasBiometricKey: Bool
         var failures: [String: VaultCryptoError] = [:]
+        var anyFailures: [String: any Error] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -55,6 +56,12 @@ final class ScriptedMasterKeys: MasterKeyStoring {
     var failures: [String: VaultCryptoError] {
         get { state.withLock { $0.failures } }
         set { state.withLock { $0.failures = newValue } }
+    }
+
+    /// Like `failures`, but for errors that are not `VaultCryptoError`.
+    var anyFailures: [String: any Error] {
+        get { state.withLock { $0.anyFailures } }
+        set { state.withLock { $0.anyFailures = newValue } }
     }
 
     func hasMasterKeyBlob() throws -> Bool {
@@ -122,6 +129,7 @@ final class ScriptedMasterKeys: MasterKeyStoring {
         log.record(name)
         return try state.withLock { state in
             if let error = state.failures[name] { throw error }
+            if let error = state.anyFailures[name] { throw error }
             return try body(&state)
         }
     }
