@@ -3,9 +3,9 @@ import Testing
 
 @testable import KoalaTVault
 
-private let allNames = MigrationHarness.names
+@MainActor private let allNames = MigrationHarness.names
 
-private func encryptHarness(
+@MainActor private func encryptHarness(
     lockMode: LockMode = .password,
     unlocked: Bool = true,
     uiTestFailFileName: String? = nil
@@ -15,7 +15,7 @@ private func encryptHarness(
         uiTestFailFileName: uiTestFailFileName)
 }
 
-private func decryptHarness(
+@MainActor private func decryptHarness(
     lockMode: LockMode = .password,
     uiTestFailFileName: String? = nil
 ) -> MigrationHarness {
@@ -71,10 +71,12 @@ private func decryptHarness(
 
     @Test("Already-encrypted files are left alone")
     func skipsEncryptedFiles() async {
+        // swiftlint:disable trailing_comma
         let files = [
             FakeMigrationStore.file("plain.txt", encrypted: false),
-            FakeMigrationStore.file("secret.txt", encrypted: true)
+            FakeMigrationStore.file("secret.txt", encrypted: true),
         ]
+        // swiftlint:enable trailing_comma
         let harness = MigrationHarness(files: files)
         await harness.migrator.start(.encrypt, target: .password)
         #expect(harness.log.count(of: "enc:plain.txt") == 1)
@@ -256,7 +258,9 @@ private func decryptHarness(
 
 @MainActor
 @Suite struct LiveLockMigratorPauseTests {
-    private func wipeDuringFile(_ harness: MigrationHarness, kind: MigrationKind, file: String) async -> Task<Void, Never> {
+    private func wipeDuringFile(_ harness: MigrationHarness, kind: MigrationKind, file: String) async -> Task<
+        Void, Never
+    > {
         harness.gate.arm(at: "migrate:\(file)")
         let task = Task { await harness.migrator.start(kind, target: kind == .encrypt ? .password : nil) }
         _ = await waitUntil { harness.gate.hasReached("migrate:\(file)") }

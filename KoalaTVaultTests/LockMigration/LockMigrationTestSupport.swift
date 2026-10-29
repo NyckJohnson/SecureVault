@@ -137,6 +137,7 @@ final class FakeMigrationStore: VaultStoring {
 
     var items: [VaultItem] { state.withLock { $0.items } }
 
+    // swiftlint:disable:next discouraged_optional_boolean
     func isEncrypted(_ name: String) -> Bool? {
         items.first { $0.name == name }?.isEncrypted
     }
@@ -255,6 +256,9 @@ final class FakeMigrationPreferences: PreferencesStoring {
     private struct State {
         var lockMode: LockMode
         var pending: PendingMigration?
+        var hasCompletedSetup = false
+        var sortOption = SortOption.name
+        var sortDirection = SortDirection.ascending
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -265,9 +269,20 @@ final class FakeMigrationPreferences: PreferencesStoring {
         self.log = log
     }
 
-    var hasCompletedSetup = false
-    var sortOption = SortOption.name
-    var sortDirection = SortDirection.ascending
+    var hasCompletedSetup: Bool {
+        get { state.withLock { $0.hasCompletedSetup } }
+        set { state.withLock { $0.hasCompletedSetup = newValue } }
+    }
+
+    var sortOption: SortOption {
+        get { state.withLock { $0.sortOption } }
+        set { state.withLock { $0.sortOption = newValue } }
+    }
+
+    var sortDirection: SortDirection {
+        get { state.withLock { $0.sortDirection } }
+        set { state.withLock { $0.sortDirection = newValue } }
+    }
 
     var lockMode: LockMode {
         get { state.withLock { $0.lockMode } }
@@ -378,14 +393,16 @@ final class MigrationHarness {
     /// The default vault: three files and one trashed file, in this listing order.
     static let names = ["a.jpg", "b.pdf", "c.mov", "Old.txt"]
 
+    // swiftlint:disable trailing_comma
     static func sampleFiles(encrypted: Bool) -> [VaultItem] {
         [
             FakeMigrationStore.file("a.jpg", encrypted: encrypted),
             FakeMigrationStore.file("b.pdf", encrypted: encrypted),
             FakeMigrationStore.file("c.mov", encrypted: encrypted),
-            FakeMigrationStore.file("Old.txt", encrypted: encrypted, trashed: true)
+            FakeMigrationStore.file("Old.txt", encrypted: encrypted, trashed: true),
         ]
     }
+    // swiftlint:enable trailing_comma
 
     init(
         files: [VaultItem],
