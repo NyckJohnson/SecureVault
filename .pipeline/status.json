@@ -261,7 +261,7 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T13:31:58-07:00",
+  "updatedAt": "2026-10-29T13:37:17-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
