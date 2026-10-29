@@ -639,9 +639,9 @@ extension matching ignores case.
   - `resumeIfPending` while locked goes straight to `.paused` (no `.running` published first).
   - `start` while a run exists (running, paused or failed) does nothing; a new migration starts only from `.idle` or `.completed`.
 - Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
-- Legacy files: View/Migration.swift (part: migration state machine; it still reads `LegacyStorage.current.masterKeyStore.isKeyLoaded` directly); Model/AuthService.swift (part: `LegacyMigrationCompletion.finalize`, and `resolveUnfinishableEncryption`, the launch recovery that writes lockMode .none and clears the pending record outside VaultLock, then calls `appWillEnterForeground()`; replace with a VaultLock/LockMigration call)
-- Legacy tests: KoalaTVaultTests/MigrationTests.swift; KoalaTVaultTests/LockMigration/MigrationFinalizationTests.swift (a legacy XCTest moved there in VaultLock's switch-over, not a spec test; delete in the switch-over), KoalaTVaultTests/BaselineFix20_23Tests.swift (part: PendingEncryptionLaunchTests)
-- Callers to repoint: SceneDelegate.swift, View/SecuritySettings.swift
+- Legacy files: View/Migration.swift (part: migration state machine; it still reads `LegacyStorage.current.masterKeyStore.isKeyLoaded` directly); Model/AuthService.swift (part: `LegacyMigrationCompletion.finalize`)
+- Legacy tests: KoalaTVaultTests/MigrationTests.swift; KoalaTVaultTests/LockMigration/MigrationFinalizationTests.swift (a legacy XCTest moved there in VaultLock's switch-over, not a spec test; delete in the switch-over)
+- Callers to repoint: SceneDelegate.swift, View/SecuritySettings.swift (the launch recovery must run before `resumeIfPending`)
 
 ### Media
 - Purpose: thumbnails for the grid and streaming encrypted video to AVPlayer without writing plaintext to disk.
@@ -764,8 +764,8 @@ extension matching ignores case.
   - AppLockCoordinator: at connect, needs setup → wizard full-screen unanimated; with a lock → lock screen; resign active with an unlocked lock → privacy cover over the window; background → `appDidEnterBackground`; active → `appWillEnterForeground`, then lock screen if locked (presented on the topmost controller, once), else hide the cover; after unlock → dismiss only the lock screen, hide the cover, call `onUnlocked`.
   - Views: identifiers `continueButton`, `passwordField`, `unlockButton`, `biometricButton`, `lockErrorLabel`, `setupOptionNone`, `setupOptionPassword`, `setupOptionBiometric`. (Views; covered by journey tests.)
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
-- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch, didAuthenticate, reloadFileBrowser, afterLockScreenDismissed; `BiometricKind.legacyDisplayName`, `VaultLockError.legacyMessage`)
-- Legacy tests: none
+- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch with `resolveUnfinishableEncryption` (an encrypt pending with no password is dropped and the app opens; with a password the lock screen shows and the record is kept), didAuthenticate, reloadFileBrowser, afterLockScreenDismissed; `BiometricKind.legacyDisplayName`, `VaultLockError.legacyMessage`)
+- Legacy tests: KoalaTVaultTests/BaselineFix20_23Tests.swift (part: PendingEncryptionLaunchTests)
 - Callers to repoint: SceneDelegate.swift
 
 ### Viewer
@@ -956,3 +956,4 @@ extension matching ignores case.
 - 2026-10-29: Backgrounding with a lock always wipes the key and removes store temp files, even if never unlocked (the legacy `hasAuthenticated` guard is dropped); `stateUpdates` publishes changes only, so callers read `state` first (replaces `vaultUnlockedNotification`, incl. the no-lock launch) — VaultLock switch-over legacy-test scan — decided by the human
 - 2026-10-29: VaultLock switch-over review notes, left to later modules: LockScreen's `addPendingLockIfNeeded` (old pending encrypt with lockMode never saved) passes a `.passwordAndBiometrics` target to `prepareToAddLock`, unlike Settings which always adds `.password` first (no current flow produces that target; LockScreens/LockMigration should always add `.password`); Settings with a lock but no password blob now shows the password-missing error instead of re-prompting (follows the spec) — VaultLock switch-over review — orchestrator, recorded
 - 2026-10-29: LockMigration edge cases specified (finishEncryption failure logged; step failures and decrypt leftovers as `.failed(names: [])` with Retry/Skip; no resume while failures await; Skip always completes; switchMode only when the mode differs, target never `.none`; locked resume goes straight to paused; `start` ignored while a run exists) — LockMigration unit 1 review — decided by the human
+- 2026-10-29: The launch recovery for an encrypt left pending (`resolveUnfinishableEncryption` and PendingEncryptionLaunchTests) belongs to LockScreens, not LockMigration; it stays legacy until LockScreens and must run before `resumeIfPending` — LockMigration switch-over legacy-test scan — decided by the human
