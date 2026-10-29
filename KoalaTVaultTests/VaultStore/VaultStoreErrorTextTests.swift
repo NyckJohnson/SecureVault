@@ -69,6 +69,6 @@ import Testing
 
     @Test("io with an empty message returns the empty string")
     func ioEmptyText() {
-        #expect(VaultStoreError.io("").errorDescription == "")
+        #expect(VaultStoreError.io("").errorDescription?.isEmpty == true)
     }
 }
