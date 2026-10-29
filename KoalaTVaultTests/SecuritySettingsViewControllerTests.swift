@@ -11,14 +11,9 @@ import XCTest
 @MainActor
 final class SecuritySettingsViewControllerTests: XCTestCase {
 
-    override func tearDown() async throws {
-        try await super.tearDown()
-        AuthService.shared.lockMode = .none
-    }
-
     func testReEncryptRowHiddenWhenUnlocked() {
-        AuthService.shared.lockMode = .none
-        let sut = LegacySecuritySettingsViewController(vaultStore: MockVaultStoring(), proUnlock: MockProUnlocking())
+        let sut = LegacySecuritySettingsViewController(
+            vaultStore: MockVaultStoring(), vaultLock: MockVaultLocking(lockMode: .none), proUnlock: MockProUnlocking())
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(true)
 
@@ -26,8 +21,8 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
     }
 
     func testReEncryptRowHiddenWhenNoUnencryptedFiles() {
-        AuthService.shared.lockMode = .password
-        let sut = LegacySecuritySettingsViewController(vaultStore: MockVaultStoring(), proUnlock: MockProUnlocking())
+        let sut = LegacySecuritySettingsViewController(
+            vaultStore: MockVaultStoring(), vaultLock: MockVaultLocking(lockMode: .password), proUnlock: MockProUnlocking())
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(false)
 
@@ -35,8 +30,8 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
     }
 
     func testReEncryptRowShownWhenLockedWithUnencryptedFiles() {
-        AuthService.shared.lockMode = .password
-        let sut = LegacySecuritySettingsViewController(vaultStore: MockVaultStoring(), proUnlock: MockProUnlocking())
+        let sut = LegacySecuritySettingsViewController(
+            vaultStore: MockVaultStoring(), vaultLock: MockVaultLocking(lockMode: .password), proUnlock: MockProUnlocking())
         sut.loadViewIfNeeded()
         sut.testSetHasUnencryptedFiles(true)
 

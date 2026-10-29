@@ -216,7 +216,7 @@
         "Preferences",
         "VaultStore"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -225,8 +225,8 @@
             "BiometricInfo.swift",
             "LiveVaultLock.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 2,
@@ -239,7 +239,7 @@
             "View/SecuritySettings.swift",
             "View/SetupWizard.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T02:28:11-07:00",
+  "updatedAt": "2026-10-29T11:41:44-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",

@@ -198,8 +198,8 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
                 self.applySnapshot()
             } catch {
                 guard let self, generation == self.loadGeneration else { return }
-                // Suppress errors before auth — the lock screen handles the locked state.
-                guard AuthService.shared.hasAuthenticated else { return }
+                // Suppress errors while locked: the lock screen handles the locked state.
+                guard self.services.vaultLock.state != .locked else { return }
                 self.showError(error)
             }
         }
@@ -225,7 +225,7 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
 
     // MARK: - Actions
     @objc private func openSettings() {
-        let settings = LegacySecuritySettingsViewController(vaultStore: vaultStore)
+        let settings = LegacySecuritySettingsViewController(vaultStore: vaultStore, vaultLock: services.vaultLock)
         let nav = UINavigationController(rootViewController: settings)
         nav.modalPresentationStyle = .formSheet
         present(nav, animated: true)

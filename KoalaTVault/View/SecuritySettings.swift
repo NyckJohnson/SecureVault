@@ -9,7 +9,7 @@ import UIKit
 
 final class LegacySecuritySettingsViewController: UIViewController, AlertPresenting {
 
-    private let authService         = AuthService.shared
+    private let vaultLock: any VaultLocking
     private let proUnlock: any ProUnlocking
     private let vaultStore: any VaultStoring
     private var tableView: UITableView!
@@ -18,9 +18,15 @@ final class LegacySecuritySettingsViewController: UIViewController, AlertPresent
 
     /// - Parameters:
     ///   - vaultStore: the app's vault store (unencrypted-file check, trash, migrations).
+    ///   - vaultLock: the app's vault lock (lock mode, password, biometrics).
     ///   - proUnlock: the "Unlock Pro" entitlement (the app's one, from the composition root, by default).
-    init(vaultStore: any VaultStoring, proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock) {
+    init(
+        vaultStore: any VaultStoring,
+        vaultLock: any VaultLocking,
+        proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock
+    ) {
         self.vaultStore = vaultStore
+        self.vaultLock = vaultLock
         self.proUnlock = proUnlock
         super.init(nibName: nil, bundle: nil)
     }
@@ -91,13 +97,13 @@ extension LegacySecuritySettingsViewController: UITableViewDataSource {
         switch sectionKind {
         case .pro: return 1
         case .lockMode: return showsReEncryptRow ? 4 : 3
-        case .password: return authService.lockMode == .none ? 0 : 1
+        case .password: return vaultLock.lockMode == .none ? 0 : 1
         case .trash: return 1
         }
     }
 
     private var showsReEncryptRow: Bool {
-        authService.lockMode != .none && hasUnencryptedFiles
+        vaultLock.lockMode != .none && hasUnencryptedFiles
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -105,7 +111,7 @@ extension LegacySecuritySettingsViewController: UITableViewDataSource {
         switch sectionKind {
         case .pro: return nil
         case .lockMode: return "Lock Mode"
-        case .password: return authService.lockMode == .none ? nil : "Password"
+        case .password: return vaultLock.lockMode == .none ? nil : "Password"
         case .trash: return "Storage"
         }
     }
@@ -136,16 +142,16 @@ extension LegacySecuritySettingsViewController: UITableViewDataSource {
             case 0:
                 cell.textLabel?.text = "No Lock"
                 cell.accessibilityIdentifier = "settings.lockMode.noLockRow"
-                cell.accessoryType = authService.lockMode == .none ? .checkmark : .none
+                cell.accessoryType = vaultLock.lockMode == .none ? .checkmark : .none
             case 1:
                 cell.textLabel?.text = "Password"
                 cell.accessibilityIdentifier = "settings.lockMode.passwordRow"
-                cell.accessoryType = authService.lockMode == .password ? .checkmark : .none
+                cell.accessoryType = vaultLock.lockMode == .password ? .checkmark : .none
             case 2:
-                cell.textLabel?.text = "Password + \(authService.biometricType)"
+                cell.textLabel?.text = "Password + \(vaultLock.biometricKind.legacyDisplayName)"
                 cell.accessibilityIdentifier = "settings.lockMode.biometricRow"
-                cell.accessoryType = authService.lockMode == .passwordAndBiometrics ? .checkmark : .none
-                cell.textLabel?.textColor = authService.biometricsAvailable ? .label : .secondaryLabel
+                cell.accessoryType = vaultLock.lockMode == .passwordAndBiometrics ? .checkmark : .none
+                cell.textLabel?.textColor = vaultLock.biometricsAvailable ? .label : .secondaryLabel
             case 3:
                 cell.textLabel?.text = "Re-encrypt Everything"
                 cell.accessibilityIdentifier = "settings.lockMode.reEncryptRow"
@@ -186,7 +192,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             case 0: setLockMode(.none)
             case 1: setLockMode(.password)
             case 2:
-                guard authService.biometricsAvailable else { return }
+                guard vaultLock.biometricsAvailable else { return }
                 setLockMode(.passwordAndBiometrics)
             case 3: reEncryptRemainingFiles()
             default: break
@@ -210,9 +216,11 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
 #endif
 
     private func reEncryptRemainingFiles() {
-        let migration = LegacyMigrationViewController(type: .encrypt, vaultStore: vaultStore) { completedFully in
-            self.authService.finalizeMigration(type: .encrypt, targetLockMode: self.authService.lockMode, completedFully: completedFully)
-            self.refreshUnencryptedFilesState { self.tableView.reloadData() }
+        // The lock is already on, so an encryption needs nothing more when it finishes.
+        let migration = LegacyMigrationViewController(
+            type: .encrypt, vaultStore: vaultStore, vaultLock: vaultLock
+        ) { [weak self] _ in
+            self?.refreshUnencryptedFilesState { self?.tableView.reloadData() }
         }
         present(migration, animated: true)
     }
@@ -228,35 +236,40 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
                 let migration = LegacyMigrationViewController(
-                    type: .decrypt, vaultStore: self.vaultStore, targetLockMode: mode
-                ) { completedFully in
-                    self.authService.finalizeMigration(type: .decrypt, targetLockMode: mode, completedFully: completedFully)
-                    self.refreshUnencryptedFilesState { self.tableView.reloadData() }
+                    type: .decrypt, vaultStore: self.vaultStore, vaultLock: self.vaultLock, targetLockMode: mode
+                ) { [weak self] completedFully in
+                    guard let self else { return }
+                    Task { [weak self, vaultLock = self.vaultLock] in
+                        do {
+                            try await LegacyMigrationCompletion.finalize(
+                                type: .decrypt, completedFully: completedFully, vaultLock: vaultLock)
+                        } catch {
+                            self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
+                        }
+                        self?.refreshUnencryptedFilesState { self?.tableView.reloadData() }
+                    }
                 }
                 self.present(migration, animated: true)
             })
             present(alert, animated: true)
-        } else if authService.lockMode == .none || !authService.hasPassword() {
-            // Adding a lock from No Lock always asks for a password, even if a key blob from an
-            // earlier install exists: createPassword replaces it (empty vault) or checks it.
-            // Password + Face ID: lock with the password and encrypt first, then enable Face ID,
-            // but only if every file was encrypted. Otherwise (Close or Skip with failed files)
-            // the pending migration targets Password and resumes on the next unlock, so the vault
-            // stays Password with no biometric item and the user is told why.
+        } else if vaultLock.lockMode == .none {
+            // Adding a lock from No Lock always asks for a password, even if a key blob from an earlier
+            // install exists: the vault lock replaces it (empty vault) or checks it.
+            // Password + Face ID: lock with the password and encrypt first, then enable Face ID, but only if
+            // every file was encrypted. Otherwise (Close or Skip with failed files) the pending migration
+            // targets Password and resumes on the next unlock, so the vault stays Password with no
+            // biometric item and the user is told why.
             // If enabling Face ID fails, the vault stays locked with Password and the error shows.
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
-                self.authService.lockMode = .password
                 let migration = LegacyMigrationViewController(
-                    type: .encrypt, vaultStore: self.vaultStore, targetLockMode: .password
+                    type: .encrypt, vaultStore: self.vaultStore, vaultLock: self.vaultLock, targetLockMode: .password
                 ) { [weak self] completedFully in
                     guard let self else { return }
-                    self.authService.finalizeMigration(type: .encrypt, targetLockMode: .password, completedFully: completedFully)
                     if mode == .passwordAndBiometrics {
                         if completedFully {
                             self.enableBiometricsAfterAddingLock()
                         } else {
-                            self.authService.removeBiometricSecret()
                             self.showError(
                                 "Face ID wasn't turned on because some files aren't encrypted yet. "
                                     + "Use Re-encrypt Everything, then turn on Face ID."
@@ -268,32 +281,29 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
                 self.present(migration, animated: true)
             }
         } else {
-            if mode == .passwordAndBiometrics {
+            // Password <-> Password + biometrics: the row shows the real mode afterwards, also on a failure.
+            Task { [weak self, vaultLock] in
                 do {
-                    try authService.enableBiometrics()
+                    try await vaultLock.switchMode(to: mode)
                 } catch {
-                    showError(error)
-                    return
+                    self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
                 }
-            } else {
-                authService.removeBiometricSecret()
+                self?.tableView.reloadData()
             }
-            authService.lockMode = mode
-            tableView.reloadData()
         }
     }
 
-    /// Last step of adding Password + Face ID from No Lock: stores the biometric item and
-    /// switches the lock mode. On failure the lock mode stays Password and the error shows.
+    /// Last step of adding Password + Face ID from No Lock: stores the biometric item and switches the
+    /// lock mode. On failure the lock mode stays Password and the error shows.
     private func enableBiometricsAfterAddingLock() {
-        do {
-            try authService.enableBiometrics()
-            authService.lockMode = .passwordAndBiometrics
-        } catch {
-            authService.removeBiometricSecret()
-            showError(error)
+        Task { [weak self, vaultLock] in
+            do {
+                try await vaultLock.switchMode(to: .passwordAndBiometrics)
+            } catch {
+                self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
+            }
+            self?.tableView.reloadData()
         }
-        tableView.reloadData()
     }
 
     private func promptSetPassword(for mode: LockMode, completion: @escaping @MainActor @Sendable () -> Void = {}) {
@@ -321,20 +331,15 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             }
 
             let overlay = ProgressOverlayView.show(in: self, title: "Setting password…")
-            let service = self.authService
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let result = Result<Void, Error> {
-                    try service.createPassword(password)
-                }
-                DispatchQueue.main.async {
+            // Adds the lock with Password first; biometrics, if chosen, follow once every file is encrypted.
+            Task { [weak self, vaultLock] in
+                do {
+                    try await vaultLock.prepareToAddLock(mode: .password, password: password)
                     overlay.dismiss()
-                    guard let self else { return }
-                    switch result {
-                    case .success:
-                        completion()
-                    case .failure(let error):
-                        self.showError(error)
-                    }
+                    completion()
+                } catch {
+                    overlay.dismiss()
+                    self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
                 }
             }
         })
@@ -370,26 +375,18 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
                 return
             }
 
-            let service = self.authService
             let overlay = ProgressOverlayView.show(in: self, title: "Changing password…")
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let result = Result<Void, Error> {
-                    try service.verifyPassword(current)
-                    try service.changePassword(to: new)
-                }
-                DispatchQueue.main.async {
+            Task { [weak self, vaultLock] in
+                do {
+                    try await vaultLock.changePassword(current: current, new: new)
                     overlay.dismiss()
-                    guard let self else { return }
-                    switch result {
-                    case .success:
-                        self.showSuccess("Password changed successfully")
-                    case .failure(let error):
-                        if case AuthError.wrongPassword = error {
-                            self.showError("Current password is incorrect")
-                        } else {
-                            self.showError(error)
-                        }
-                    }
+                    self?.showSuccess("Password changed successfully")
+                } catch VaultLockError.wrongPassword {
+                    overlay.dismiss()
+                    self?.showError("Current password is incorrect")
+                } catch {
+                    overlay.dismiss()
+                    self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
                 }
             }
         })

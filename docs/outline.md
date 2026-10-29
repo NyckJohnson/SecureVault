@@ -573,7 +573,7 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`.
+  - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`. Only changes are published (the current state is not replayed): subscribers read `state` first, then follow `stateUpdates`; there is no "vault unlocked" notification.
   - Launch: with a lock, starts `.locked`; with none, `.open`.
   - setUp(.none): lockMode .none; nothing in the Keychain changes.
   - setUp(password modes): no blob → key created; blob exists and the vault holds no encrypted data (no index, encrypted file or trash entry) → the stale blob and biometric item are deleted and a new key created; blob exists otherwise → the password must unlock it (`.existingPasswordRequired` on a wrong one; that blob is never replaced); then (biometric mode) the biometric item is stored; then lockMode is written; any failure after a key was created deletes that blob and biometric item, wipes the key, leaves lockMode unchanged and rethrows; empty password → `.emptyPassword`; biometric mode without biometrics → `.biometricsUnavailable`. Ends `.unlocked`.
@@ -631,8 +631,8 @@ extension matching ignores case.
   - resumeIfPending: with a pending record and (for a lock) the key loaded → continues; nothing pending → no change; locked → `.paused`.
   - `UITEST_FAIL_MIGRATION_FILE` (UI-test mode only) makes that file fail.
 - Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
-- Legacy files: View/Migration.swift (part: migration state machine); Model/AuthService.swift (part: finalizeMigration)
-- Legacy tests: KoalaTVaultTests/MigrationTests.swift; KoalaTVaultTests/AuthServiceTests.swift (part: MigrationFinalizationTests)
+- Legacy files: View/Migration.swift (part: migration state machine; it still reads `LegacyStorage.current.masterKeyStore.isKeyLoaded` directly); Model/AuthService.swift (part: `LegacyMigrationCompletion.finalize`, and `resolveUnfinishableEncryption`, the launch recovery that writes lockMode .none and clears the pending record outside VaultLock, then calls `appWillEnterForeground()`; replace with a VaultLock/LockMigration call)
+- Legacy tests: KoalaTVaultTests/MigrationTests.swift; KoalaTVaultTests/LockMigration/MigrationFinalizationTests.swift (a legacy XCTest moved there in VaultLock's switch-over, not a spec test; delete in the switch-over), KoalaTVaultTests/BaselineFix20_23Tests.swift (part: PendingEncryptionLaunchTests)
 - Callers to repoint: SceneDelegate.swift, View/SecuritySettings.swift
 
 ### Media
@@ -756,7 +756,7 @@ extension matching ignores case.
   - AppLockCoordinator: at connect, needs setup → wizard full-screen unanimated; with a lock → lock screen; resign active with an unlocked lock → privacy cover over the window; background → `appDidEnterBackground`; active → `appWillEnterForeground`, then lock screen if locked (presented on the topmost controller, once), else hide the cover; after unlock → dismiss only the lock screen, hide the cover, call `onUnlocked`.
   - Views: identifiers `continueButton`, `passwordField`, `unlockButton`, `biometricButton`, `lockErrorLabel`, `setupOptionNone`, `setupOptionPassword`, `setupOptionBiometric`. (Views; covered by journey tests.)
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
-- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch, didAuthenticate, reloadFileBrowser)
+- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch, didAuthenticate, reloadFileBrowser, afterLockScreenDismissed; `BiometricKind.legacyDisplayName`, `VaultLockError.legacyMessage`)
 - Legacy tests: none
 - Callers to repoint: SceneDelegate.swift
 
@@ -945,3 +945,5 @@ extension matching ignores case.
 - 2026-10-28: VaultStore error behaviors found by coverage are kept and specified: countFiles throws on an unreadable subfolder, migrating an unrecorded trash item throws `.notFound`, purge keeps going past a file it can't remove and then throws — VaultStore coverage triage — decided by the human
 - 2026-10-28: The invalid-name message is "Names can't contain / or start with ." for both rules (one `.invalidName` error); journey 3 expects it — VaultStore switch-over gates — decided by the human
 - 2026-10-29: `VaultStoreError` conforms to `LocalizedError` with the legacy `legacyErrorMessage(for:)` wording, as `VaultCryptoError` does; SharedUI's `AlertPresenting` shows `localizedDescription` and would otherwise show the system fallback text — contract change found in the SharedUI unit 1 review — approved by the human
+- 2026-10-29: Backgrounding with a lock always wipes the key and removes store temp files, even if never unlocked (the legacy `hasAuthenticated` guard is dropped); `stateUpdates` publishes changes only, so callers read `state` first (replaces `vaultUnlockedNotification`, incl. the no-lock launch) — VaultLock switch-over legacy-test scan — decided by the human
+- 2026-10-29: VaultLock switch-over review notes, left to later modules: LockScreen's `addPendingLockIfNeeded` (old pending encrypt with lockMode never saved) passes a `.passwordAndBiometrics` target to `prepareToAddLock`, unlike Settings which always adds `.password` first (no current flow produces that target; LockScreens/LockMigration should always add `.password`); Settings with a lock but no password blob now shows the password-missing error instead of re-prompting (follows the spec) — VaultLock switch-over review — orchestrator, recorded
