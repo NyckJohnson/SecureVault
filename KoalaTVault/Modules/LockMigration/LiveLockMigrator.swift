@@ -197,7 +197,7 @@ final class LiveLockMigrator: LockMigrating {
             if current.encrypting {
                 do {
                     try await store.finishEncryption()
-                } catch where !isInterruption(error) {
+                } catch let error where !isInterruption(error) {
                     Self.logger.error(
                         "Re-encrypting folder indexes failed: \(String(describing: error), privacy: .private)")
                 }
