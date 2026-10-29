@@ -253,7 +253,7 @@
         "VaultLock",
         "Preferences"
       ],
-      "state": "in_progress",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T15:13:06-07:00",
+  "updatedAt": "2026-10-29T15:17:34-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
