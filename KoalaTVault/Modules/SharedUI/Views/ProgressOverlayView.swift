@@ -49,6 +49,7 @@ final class ProgressOverlayView: UIView {
     func update(progress: Float, status: String) {
         guard !isDismissed else { return }
         progressBar.setProgress(progress, animated: false)
+        updateProgressAccessibilityValue()
         statusLabel.text = status
     }
 
@@ -62,6 +63,12 @@ final class ProgressOverlayView: UIView {
         } completion: { _ in
             self.removeFromSuperview()
         }
+    }
+
+    /// Announces the bar's progress to VoiceOver as a whole percentage, e.g. "42%".
+    private func updateProgressAccessibilityValue() {
+        let percent = Int((min(max(progressBar.progress, 0), 1) * 100).rounded())
+        progressBar.accessibilityValue = "\(percent)%"
     }
 
     @objc private func cancelTapped() {
@@ -87,13 +94,19 @@ final class ProgressOverlayView: UIView {
 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        progressBar.accessibilityLabel = "Progress"
+        updateProgressAccessibilityValue()
         progressBar.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.font = .preferredFont(forTextStyle: .caption1)
         statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .center
+        statusLabel.numberOfLines = 0
+        statusLabel.adjustsFontForContentSizeCategory = true
         statusLabel.text = "Preparing..."
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
