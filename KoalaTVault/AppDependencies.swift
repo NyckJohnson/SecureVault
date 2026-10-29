@@ -319,6 +319,8 @@ struct LegacyBrowserServices {
     let importService: ImportService
     /// The export sheet.
     let exportService: ExportService
+    /// The app's one vault lock (lock state, lock mode, settings).
+    let vaultLock: any VaultLocking
 }
 
 // MARK: - Composition root
@@ -349,11 +351,16 @@ final class AppDependencies {
     let importService: ImportService
     /// The legacy export sheet.
     let exportService: ExportService
+    /// The app's one vault lock: the key lifecycle and the lock state, over the master key store, the
+    /// preferences and `vaultStore`.
+    let vaultLock: any VaultLocking
+    /// The legacy lock screen and privacy cover presenter, over `vaultLock`, until LockScreens replaces it.
+    let authService: AuthService
     /// What the legacy browser screens are built with.
     var browserServices: LegacyBrowserServices {
         LegacyBrowserServices(
             vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails,
-            importService: importService, exportService: exportService)
+            importService: importService, exportService: exportService, vaultLock: vaultLock)
     }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
@@ -388,10 +395,45 @@ final class AppDependencies {
         self.thumbnails = thumbnails
         importService = ImportService(fileSystem: legacyTransfers)
         exportService = ExportService(fileSystem: legacyTransfers, vaultStore: vaultStore)
-        AuthService.shared.attach(vaultStore: vaultStore, thumbnails: thumbnails)
+
+        // The seeded lock must be in place before the vault lock reads the lock mode.
+        if let password = storage.uiTestSettings?.password {
+            Self.seedPassword(password, storage: storage)
+        }
+        let vaultRoot = storage.vaultRootURL
+        let vaultLock = LiveVaultLock(
+            masterKeys: storage.masterKeyStore,
+            keychain: storage.keychain,
+            preferences: storage.preferences,
+            store: vaultStore,
+            biometricInfo: BiometricInfo(probe: LiveBiometricProbe()),
+            vaultHoldsEncryptedData: {
+                VaultEncryptedDataCheck.holdsEncryptedData(at: vaultRoot, fileManager: .default)
+            }
+        )
+        self.vaultLock = vaultLock
+        authService = AuthService(
+            vaultLock: vaultLock, preferences: storage.preferences, keyStore: storage.masterKeyStore)
     }
 
-    /// Applies the `-uiTesting` seeds (files, password) to the empty test storage.
+    /// `UITEST_PASSWORD`: the empty test vault starts set up with `password` and lock mode password, as after
+    /// a relaunch (the key is not loaded). Runs before the vault lock is built, so it starts `.locked`.
+    private static func seedPassword(_ password: String, storage: LegacyStorage) {
+        do {
+            try storage.masterKeyStore.createMasterKey(password: password)
+        } catch {
+            // Test-only path: a half-seeded launch would make UI tests fail later for an unclear reason.
+            let message = "-uiTesting: creating the seeded password failed: \(error.localizedDescription)"
+            Logger(subsystem: "com.KoalaTVault", category: "AppDependencies").error("\(message, privacy: .public)")
+            fatalError(message)
+        }
+        storage.masterKeyStore.wipeKey()
+        storage.preferences.lockMode = .password
+        storage.preferences.hasCompletedSetup = true
+    }
+
+    /// Applies the `-uiTesting` seeds (files, pending migration, plaintext index) to the empty test storage;
+    /// the password seed is applied while building (see `seedPassword`).
     /// Does nothing without `-uiTesting`.
     func prepareForLaunch() {
         guard let settings = storage.uiTestSettings else { return }
@@ -408,23 +450,9 @@ final class AppDependencies {
             }
         }
 
-        if let password = settings.password {
-            do {
-                try AuthService.shared.createPassword(password)
-                AuthService.shared.lockMode = .password
-                AuthService.shared.hasAuthenticated = true
-                preferences.hasCompletedSetup = true
-            } catch {
-                // Test-only path: a half-seeded launch would make UI tests fail later for an unclear reason.
-                let message = "-uiTesting: creating the seeded password failed: \(error.localizedDescription)"
-                logger.error("\(message, privacy: .public)")
-                fatalError(message)
-            }
-        }
-
         if let pending = settings.pendingMigration {
             preferences.pendingMigration = MigrationKind(rawValue: pending).map {
-                PendingMigration(kind: $0, targetLockMode: AuthService.shared.lockMode)
+                PendingMigration(kind: $0, targetLockMode: vaultLock.lockMode)
             }
         }
         if settings.plaintextIndex {

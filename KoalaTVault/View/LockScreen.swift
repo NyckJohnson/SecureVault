@@ -6,11 +6,12 @@
 //
 
 import UIKit
-import LocalAuthentication
 
 final class LegacyLockScreenViewController: UIViewController {
 
-    private let authService = AuthService.shared
+    private let vaultLock: any VaultLocking
+    private let preferences: any PreferencesStoring
+    private let onUnlocked: @MainActor (UIWindow?) -> Void
 
     // MARK: - UI
     private let logoImageView    = UIImageView(image: UIImage(systemName: "lock.fill"))
@@ -21,6 +22,23 @@ final class LegacyLockScreenViewController: UIViewController {
     private let errorLabel       = UILabel()
     private var isAuthenticating = false
 
+    /// - Parameters:
+    ///   - vaultLock: the app's vault lock, which unlocks with the password or biometrics.
+    ///   - preferences: the app's settings (read for a pending encryption).
+    ///   - onUnlocked: called with this screen's window after a successful unlock.
+    init(
+        vaultLock: any VaultLocking,
+        preferences: any PreferencesStoring,
+        onUnlocked: @escaping @MainActor (UIWindow?) -> Void
+    ) {
+        self.vaultLock = vaultLock
+        self.preferences = preferences
+        self.onUnlocked = onUnlocked
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -30,7 +48,7 @@ final class LegacyLockScreenViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard authService.lockMode == .passwordAndBiometrics else {
+        guard vaultLock.lockMode == .passwordAndBiometrics else {
             passwordField.becomeFirstResponder()
             return
         }
@@ -77,9 +95,9 @@ final class LegacyLockScreenViewController: UIViewController {
         errorLabel.isHidden = true
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        biometricButton.setTitle("Use \(authService.biometricType)", for: .normal)
+        biometricButton.setTitle("Use \(vaultLock.biometricKind.legacyDisplayName)", for: .normal)
         biometricButton.addTarget(self, action: #selector(biometricButtonTapped), for: .touchUpInside)
-        biometricButton.isHidden = authService.lockMode != .passwordAndBiometrics || !authService.biometricsAvailable
+        biometricButton.isHidden = vaultLock.lockMode != .passwordAndBiometrics || !vaultLock.biometricsAvailable
         biometricButton.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(logoImageView)
@@ -138,73 +156,54 @@ final class LegacyLockScreenViewController: UIViewController {
     
     private func attemptUnlock(with password: String? = nil) {
         guard !isAuthenticating else { return }
+        isAuthenticating = true
         if let password {
-            isAuthenticating = true
-            let lockMode = authService.lockMode
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else { return }
+            // The vault lock refreshes the biometric item after a password unlock in biometric mode.
+            Task { [weak self, vaultLock] in
                 do {
-                    try self.authService.verifyPassword(password)
-                    // Refresh the biometric keychain item after a password login.
-                    // The item uses .biometryCurrentSet, so adding/removing a fingerprint
-                    // invalidates it and causes Touch ID to fail silently on subsequent
-                    // launches. Re-saving here restores biometrics automatically.
-                    if lockMode == .passwordAndBiometrics {
-                        try? self.authService.enableBiometrics()
-                    }
-                    DispatchQueue.main.async {
-                        self.isAuthenticating = false
-                        self.unlockSucceeded()
-                    }
+                    try await vaultLock.unlock(password: password)
+                    try await self?.addPendingLockIfNeeded(password: password)
+                    self?.isAuthenticating = false
+                    self?.unlockSucceeded()
                 } catch {
-                    DispatchQueue.main.async {
-                        self.isAuthenticating = false
-                        if case AuthError.wrongPassword = error {
-                            self.showError("Incorrect password")
-                        } else {
-                            self.showError(error.localizedDescription)
-                        }
-                    }
+                    self?.isAuthenticating = false
+                    self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
                 }
             }
         } else {
-            isAuthenticating = true
-            authService.authenticateWithBiometrics { [weak self] success, error in
-                guard let self else { return }
-                self.isAuthenticating = false
-                if success {
-                    self.unlockSucceeded()
-                } else {
-                    self.handleBiometricFailure(error)
+            Task { [weak self, vaultLock] in
+                do {
+                    try await vaultLock.unlockWithBiometrics()
+                    self?.isAuthenticating = false
+                    self?.unlockSucceeded()
+                } catch {
+                    self?.isAuthenticating = false
+                    self?.handleBiometricFailure(error)
                 }
             }
         }
     }
 
-    private func unlockSucceeded() {
-        authService.didAuthenticate(in: view.window)
+    /// An encryption interrupted by an older version can be pending with no lock mode saved (the lock mode
+    /// was only written at the end). The password just verified adds the lock now, as adding a lock does
+    /// before encrypting, so the vault is unlocked under the lock and the encryption can resume.
+    private func addPendingLockIfNeeded(password: String) async throws {
+        guard vaultLock.lockMode == .none, let pending = preferences.pendingMigration, pending.kind == .encrypt
+        else { return }
+        let mode: LockMode = pending.targetLockMode == .passwordAndBiometrics ? .passwordAndBiometrics : .password
+        try await vaultLock.prepareToAddLock(mode: mode, password: password)
     }
 
-    private func handleBiometricFailure(_ error: Error?) {
-        guard let error else { return } // nil = user dismissed the prompt, show nothing
-        guard let laError = error as? LAError else {
-            showError("Biometric authentication failed")
-            return
-        }
-        switch laError.code {
-        case .userCancel, .userFallback, .systemCancel:
-            break // user-initiated cancellation, not a failure — no error shown
-        case .biometryNotEnrolled:
-            showError("No Face ID/Touch ID set up on this device")
-        case .biometryLockout:
-            showError("Biometric authentication is locked — enter your password")
-        case .passcodeNotSet:
-            showError("Set a device passcode to use biometric authentication")
-        default:
-            showError("Biometric authentication failed")
-        }
+    private func unlockSucceeded() {
+        onUnlocked(view.window)
     }
-    
+
+    private func handleBiometricFailure(_ error: Error) {
+        // A dismissed prompt is the user's choice, not a failure: no error shown.
+        guard (error as? VaultLockError) != .biometricCancelled else { return }
+        showError("Biometric authentication failed")
+    }
+
     private func showError(_ message: String) {
         errorLabel.text = message
         errorLabel.isHidden = false

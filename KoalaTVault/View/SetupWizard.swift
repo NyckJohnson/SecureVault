@@ -11,7 +11,7 @@ final class LegacySetupWizardViewController: UIViewController, AlertPresenting {
 
     // MARK: - Properties
     private var selectedLockMode: LockMode = .none
-    private let authService = AuthService.shared
+    private let vaultLock: any VaultLocking
 
     // MARK: - UI
     private let titleLabel      = UILabel()
@@ -21,6 +21,14 @@ final class LegacySetupWizardViewController: UIViewController, AlertPresenting {
     private let passwordButton  = UIButton(type: .system)
     private let biometricButton = UIButton(type: .system)
     private let continueButton  = UIButton(type: .system)
+
+    /// - Parameter vaultLock: the app's vault lock, which sets up the chosen lock.
+    init(vaultLock: any VaultLocking) {
+        self.vaultLock = vaultLock
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
@@ -48,11 +56,11 @@ final class LegacySetupWizardViewController: UIViewController, AlertPresenting {
         setupOptionButton(passwordButton, title: "Password", subtitle: "Protect with a password", systemImage: "lock")
         setupOptionButton(
             biometricButton,
-            title: "Password + \(authService.biometricType)",
+            title: "Password + \(vaultLock.biometricKind.legacyDisplayName)",
             subtitle: "Password with biometric unlock",
             systemImage: "faceid"
         )
-        biometricButton.isEnabled = authService.biometricsAvailable
+        biometricButton.isEnabled = vaultLock.biometricsAvailable
 
         noneButton.addTarget(self, action: #selector(selectNone), for: .touchUpInside)
         passwordButton.addTarget(self, action: #selector(selectPassword), for: .touchUpInside)
@@ -185,8 +193,14 @@ final class LegacySetupWizardViewController: UIViewController, AlertPresenting {
     // MARK: - Continue
     @objc private func continueSetup() {
         if selectedLockMode == .none {
-            authService.lockMode = .none
-            completeSetup()
+            Task { [weak self, vaultLock] in
+                do {
+                    try await vaultLock.setUp(mode: .none, password: nil)
+                    self?.completeSetup()
+                } catch {
+                    self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
+                }
+            }
         } else {
             promptSetPassword()
         }
@@ -219,30 +233,17 @@ final class LegacySetupWizardViewController: UIViewController, AlertPresenting {
             }
             let overlay = ProgressOverlayView.show(in: self, title: "Setting password…")
 
-            let authService = self.authService
             let selectedMode = self.selectedLockMode
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let result = Result<Void, Error> {
-                    let createdNewKey = try authService.createPassword(password)
-                    guard selectedMode == .passwordAndBiometrics else { return }
-                    do {
-                        try authService.enableBiometrics()
-                    } catch {
-                        // Don't leave a half-done setup: the lock mode stays as it was.
-                        authService.rollBackPasswordSetup(createdNewKey: createdNewKey)
-                        throw error
-                    }
-                }
-                DispatchQueue.main.async {
+            // Creates or checks the key, stores the biometric item for biometric mode, then saves the lock
+            // mode; a failure leaves the lock mode as it was.
+            Task { [weak self, vaultLock] in
+                do {
+                    try await vaultLock.setUp(mode: selectedMode, password: password)
                     overlay.dismiss()
-                    guard let self else { return }
-                    switch result {
-                    case .success:
-                        self.authService.lockMode = selectedMode
-                        self.completeSetup()
-                    case .failure(let error):
-                        self.showError(error)
-                    }
+                    self?.completeSetup()
+                } catch {
+                    overlay.dismiss()
+                    self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
                 }
             }
         })

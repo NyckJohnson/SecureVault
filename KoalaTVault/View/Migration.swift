@@ -27,6 +27,9 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
     private let targetLockMode: LockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private let vaultStore: any VaultStoring
+    private let vaultLock: any VaultLocking
+    /// Follows the vault lock's state, to resume after an unlock.
+    private var lockStateObservation: Task<Void, Never>?
     private var migrationTask: Task<Void, Never>?
     /// True while a `runMigration` loop is executing; at most one loop runs per screen.
     private var isLoopRunning = false
@@ -48,15 +51,18 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
     /// - Parameters:
     ///   - type: encrypt or decrypt the whole vault (trash included).
     ///   - vaultStore: the app's vault store, which runs each step.
+    ///   - vaultLock: the app's vault lock; an unlock resumes a paused migration.
     ///   - targetLockMode: the lock mode once an encryption completes (nil keeps a saved one).
     init(
         type: MigrationType,
         vaultStore: any VaultStoring,
+        vaultLock: any VaultLocking,
         targetLockMode: LockMode? = nil,
         onComplete: @escaping (_ completedFully: Bool) -> Void
     ) {
         self.type = type
         self.vaultStore = vaultStore
+        self.vaultLock = vaultLock
         self.targetLockMode = targetLockMode
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
@@ -69,10 +75,10 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupUI()
+        observeLockState()
         let center = NotificationCenter.default
         // Any of these can make work possible again (key loaded, files readable).
-        for name in [AuthService.vaultUnlockedNotification,
-                     UIApplication.didBecomeActiveNotification,
+        for name in [UIApplication.didBecomeActiveNotification,
                      UIApplication.protectedDataDidBecomeAvailableNotification] {
             center.addObserver(self, selector: #selector(resumeIfPossible), name: name, object: nil)
         }
@@ -83,7 +89,19 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
     }
 
     deinit {
+        lockStateObservation?.cancel()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    /// Resumes a paused migration whenever the vault becomes unlocked (or open). The stream yields changes
+    /// only; the current state needs nothing here, since nothing is paused before the migration starts.
+    private func observeLockState() {
+        let updates = vaultLock.stateUpdates()
+        lockStateObservation = Task { [weak self] in
+            for await state in updates where state != .locked {
+                self?.resumeIfPossible()
+            }
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
