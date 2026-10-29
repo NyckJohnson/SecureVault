@@ -1,187 +1,95 @@
 import XCTest
-import Security
 @testable import KoalaTVault
 
-// Regression tests for adoption baseline fix 24 (docs/adopt/baseline-fixes.md): a vault key blob
-// left in the Keychain by an earlier install is replaced when the vault holds no encrypted data,
-// and required (never replaced) when it does.
+// Regression tests for adoption baseline fix 24 (docs/adopt/baseline-fixes.md): what counts as encrypted
+// data in a vault folder. The stale-blob decisions built on it (replace the blob in an empty vault, require
+// the old password otherwise) are tested in VaultLock/LiveVaultLockTests.swift.
 
-@MainActor
+/// The bytes that start an encrypted vault file.
+private let encryptedFileMagic = Data("SVC5".utf8)
+
 final class StaleVaultKeyTests: XCTestCase {
 
     private var vaultRoot: URL!
 
-    override func setUp() async throws {
-        try await super.setUp()
-        reset()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         vaultRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: vaultRoot, withIntermediateDirectories: true)
     }
 
-    override func tearDown() async throws {
-        reset()
+    override func tearDown() {
         if let vaultRoot { try? FileManager.default.removeItem(at: vaultRoot) }
-        try await super.tearDown()
+        super.tearDown()
     }
 
-    private func reset() {
-        AuthService.shared.lockMode = .none
-        try? AuthService.shared.removePassword()
-        TestCrypto.keyStore.wipeKey()
+    private func holdsEncryptedData(at url: URL) -> Bool {
+        VaultEncryptedDataCheck.holdsEncryptedData(at: url, fileManager: .default)
     }
 
-    /// A blob from an "earlier install": created, then the app forgets the key.
-    private func leaveStaleBlob(password: String) throws {
-        try TestCrypto.keyStore.createMasterKey(password: password)
-        TestCrypto.keyStore.wipeKey()
-    }
-
-    private func storedBlob() -> Data? {
-        try? TestCrypto.keychain.read(account: TestCrypto.blobAccount, prompt: nil)
-    }
-
-    private func writeFile(_ name: String, _ content: String, in dir: URL? = nil) throws -> URL {
+    @discardableResult
+    private func writeFile(_ name: String, _ content: Data, in dir: URL? = nil) throws -> URL {
         let url = (dir ?? vaultRoot).appendingPathComponent(name)
-        try content.write(to: url, atomically: true, encoding: .utf8)
+        try content.write(to: url)
         return url
     }
 
-    /// Adds one file with the loaded key, so the vault holds an encrypted file and an index.
-    private func addEncryptedFile() async throws {
-        try await LegacyVaultHarness.addEncryptedFile(to: vaultRoot)
+    @discardableResult
+    private func writeFile(_ name: String, _ content: String, in dir: URL? = nil) throws -> URL {
+        try writeFile(name, Data(content.utf8), in: dir)
     }
 
-    // MARK: - Empty vault: the stale key is replaced
-
-    func testEmptyVaultWithStaleBlobCreatesANewKeyForTheTypedPassword() throws {
-        try leaveStaleBlob(password: "old-password")
-        let oldBlob = storedBlob()
-
-        try AuthService.shared.createPassword("new-password", vaultRootURL: vaultRoot)
-
-        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
-        XCTAssertNotEqual(storedBlob(), oldBlob)
-        TestCrypto.keyStore.wipeKey()
-        XCTAssertNoThrow(try AuthService.shared.verifyPassword("new-password"))
-        TestCrypto.keyStore.wipeKey()
-        XCTAssertThrowsError(try AuthService.shared.verifyPassword("old-password")) { error in
-            XCTAssertEqual(error as? AuthError, .wrongPassword)
-        }
-    }
-
-    func testVaultWithOnlyPlaintextFilesCountsAsEmpty() throws {
-        _ = try writeFile("plain.txt", "plain")
-        let sub = vaultRoot.appendingPathComponent("Folder")
-        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
-        _ = try writeFile("inner.txt", "inner", in: sub)
-        _ = try writeFile("empty.txt", "")
-        try leaveStaleBlob(password: "old-password")
-
-        XCTAssertFalse(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot))
-        XCTAssertNoThrow(try AuthService.shared.createPassword("new-password", vaultRootURL: vaultRoot))
-        XCTAssertEqual(try String(contentsOf: vaultRoot.appendingPathComponent("plain.txt"), encoding: .utf8), "plain")
-    }
-
-    func testNoBlobCreatesKeyAsBefore() throws {
-        try AuthService.shared.createPassword("password123", vaultRootURL: vaultRoot)
-        XCTAssertTrue(AuthService.shared.hasPassword())
-        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
-    }
-
-    // MARK: - Encrypted data: the old password is required, the blob is untouched
-
-    func testEncryptedDataWithStaleBlobRequiresTheOldPasswordAndKeepsTheBlob() async throws {
-        try TestCrypto.keyStore.createMasterKey(password: "old-password")
-        try await addEncryptedFile()
-        TestCrypto.keyStore.wipeKey()
-        let oldBlob = try XCTUnwrap(storedBlob())
-
-        XCTAssertThrowsError(try AuthService.shared.createPassword("new-password", vaultRootURL: vaultRoot)) { error in
-            XCTAssertEqual(error as? AuthError, .existingPasswordRequired)
-            XCTAssertEqual(error.localizedDescription,
-                           "A vault password already exists on this device. Enter that password.")
-        }
-
-        XCTAssertFalse(TestCrypto.keyStore.isKeyLoaded)
-        XCTAssertEqual(storedBlob(), oldBlob, "the blob is never replaced")
-        XCTAssertNoThrow(try AuthService.shared.verifyPassword("old-password"))
-    }
-
-    func testEncryptedDataWithTheOldPasswordUnlocksTheExistingKey() async throws {
-        try TestCrypto.keyStore.createMasterKey(password: "old-password")
-        try await addEncryptedFile()
-        TestCrypto.keyStore.wipeKey()
-        let oldBlob = try XCTUnwrap(storedBlob())
-
-        try AuthService.shared.createPassword("old-password", vaultRootURL: vaultRoot)
-
-        XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
-        XCTAssertEqual(storedBlob(), oldBlob)
-        let store = LegacyVaultHarness.encryptedStore(over: vaultRoot)
-        let root = VaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
-        let listed = try await store.contents(of: root, sortedBy: .name, .ascending).first
-        let item = try XCTUnwrap(listed)
-        let opened = try await store.open(item)
-        XCTAssertEqual(try String(contentsOf: opened, encoding: .utf8), "secret")
-    }
+    /// An encrypted-format file: the magic bytes then filler.
+    private var encryptedContent: Data { encryptedFileMagic + Data(repeating: 7, count: 64) }
 
     // MARK: - What counts as encrypted data
+
+    func testVaultWithOnlyPlaintextFilesCountsAsEmpty() throws {
+        try writeFile("plain.txt", "plain")
+        let sub = vaultRoot.appendingPathComponent("Folder")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try writeFile("inner.txt", "inner", in: sub)
+        try writeFile("empty.txt", "")
+
+        XCTAssertFalse(holdsEncryptedData(at: vaultRoot))
+    }
 
     func testIndexAloneCountsAsEncryptedData() throws {
         let sub = vaultRoot.appendingPathComponent("Folder")
         try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
-        _ = try writeFile(".vault_map", "anything", in: sub)
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot))
+        try writeFile(".vault_map", "anything", in: sub)
+        XCTAssertTrue(holdsEncryptedData(at: vaultRoot))
     }
 
     func testTrashEntryCountsAsEncryptedData() throws {
         let trash = vaultRoot.appendingPathComponent(".trash")
         try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
-        XCTAssertFalse(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot), "an empty trash folder is nothing")
-        _ = try writeFile(UUID().uuidString, "deleted", in: trash)
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot))
+        XCTAssertFalse(holdsEncryptedData(at: vaultRoot), "an empty trash folder is nothing")
+        try writeFile(UUID().uuidString, "deleted", in: trash)
+        XCTAssertTrue(holdsEncryptedData(at: vaultRoot))
     }
 
     func testEncryptedFileWithoutIndexCountsAsEncryptedData() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
-        let sourceDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: sourceDir) }
-        let source = try writeFile("a.txt", "alpha", in: sourceDir)
-        try TestCrypto.cipher.encryptFile(at: source, to: vaultRoot.appendingPathComponent(UUID().uuidString))
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot))
+        try writeFile(UUID().uuidString, encryptedContent)
+        XCTAssertTrue(holdsEncryptedData(at: vaultRoot))
     }
 
-    func testUnreadableRootCountsAsEncryptedDataAndKeepsTheBlob() throws {
-        try leaveStaleBlob(password: "old-password")
-        let oldBlob = storedBlob()
+    func testUnreadableRootCountsAsEncryptedData() {
         let missing = vaultRoot.appendingPathComponent("does-not-exist")
-
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: missing))
-        XCTAssertThrowsError(try AuthService.shared.createPassword("new-password", vaultRootURL: missing)) { error in
-            XCTAssertEqual(error as? AuthError, .existingPasswordRequired)
-        }
-        XCTAssertEqual(storedBlob(), oldBlob)
+        XCTAssertTrue(holdsEncryptedData(at: missing))
     }
 
     func testEmptyRootHoldsNoEncryptedData() {
-        XCTAssertFalse(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot))
+        XCTAssertFalse(holdsEncryptedData(at: vaultRoot))
     }
 
-    func testPermissionDeniedRootCountsAsEncryptedDataAndKeepsTheBlob() throws {
-        try leaveStaleBlob(password: "old-password")
-        let oldBlob = storedBlob()
+    func testPermissionDeniedRootCountsAsEncryptedData() throws {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: vaultRoot.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: vaultRoot.path) }
-
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: vaultRoot))
-        XCTAssertThrowsError(try AuthService.shared.createPassword("new-password", vaultRootURL: vaultRoot)) { error in
-            XCTAssertEqual(error as? AuthError, .existingPasswordRequired)
-        }
-        XCTAssertEqual(storedBlob(), oldBlob)
+        XCTAssertTrue(holdsEncryptedData(at: vaultRoot))
     }
 
-    // MARK: - Encrypted-file detection (AuthService.vaultHoldsEncryptedData)
+    // MARK: - Encrypted-file detection
 
     /// A fresh vault folder holding only `file`, so the check decides on that file alone.
     private func folderHolding(_ file: URL) throws -> URL {
@@ -193,17 +101,15 @@ final class StaleVaultKeyTests: XCTestCase {
     }
 
     func testMayBeEncryptedFileIsTrueOnlyForTheEncryptedFormat() throws {
-        try TestCrypto.keyStore.createMasterKey(password: "pw")
         let plain = try writeFile("plain.txt", "plain text content")
         let empty = try writeFile("empty.txt", "")
         let short = try writeFile("short.txt", "ab")
-        let encrypted = vaultRoot.appendingPathComponent("enc")
-        try TestCrypto.cipher.encryptFile(at: plain, to: encrypted)
+        let encrypted = try writeFile("enc", encryptedContent)
 
-        XCTAssertFalse(AuthService.shared.vaultHoldsEncryptedData(at: try folderHolding(plain)))
-        XCTAssertFalse(AuthService.shared.vaultHoldsEncryptedData(at: try folderHolding(empty)))
-        XCTAssertFalse(AuthService.shared.vaultHoldsEncryptedData(at: try folderHolding(short)))
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: try folderHolding(encrypted)))
+        XCTAssertFalse(holdsEncryptedData(at: try folderHolding(plain)))
+        XCTAssertFalse(holdsEncryptedData(at: try folderHolding(empty)))
+        XCTAssertFalse(holdsEncryptedData(at: try folderHolding(short)))
+        XCTAssertTrue(holdsEncryptedData(at: try folderHolding(encrypted)))
     }
 
     func testMayBeEncryptedFileIsTrueWhenTheFileCannotBeRead() throws {
@@ -212,6 +118,6 @@ final class StaleVaultKeyTests: XCTestCase {
         let copy = folder.appendingPathComponent("locked.txt")
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: copy.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: copy.path) }
-        XCTAssertTrue(AuthService.shared.vaultHoldsEncryptedData(at: folder))
+        XCTAssertTrue(holdsEncryptedData(at: folder))
     }
 }

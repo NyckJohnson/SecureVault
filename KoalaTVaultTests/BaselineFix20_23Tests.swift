@@ -360,55 +360,41 @@ final class EncryptMigrationSafetyTests: XCTestCase {
 @MainActor
 final class PendingEncryptionLaunchTests: XCTestCase {
 
-    override func setUp() async throws {
-        try await super.setUp()
-        reset()
-    }
-
-    override func tearDown() async throws {
-        reset()
-        try await super.tearDown()
-    }
-
-    private func reset() {
-        AuthService.shared.isLocked = false
-        AuthService.shared.hasAuthenticated = false
-        AuthService.shared.lockMode = .none
-        try? AuthService.shared.removePassword()
-        TestCrypto.keyStore.wipeKey()
-        LegacyStorage.current.preferences.pendingMigration = nil
+    private func makeAuthService(
+        password: String?, pending: PendingMigration?
+    ) -> (AuthService, MockVaultLocking, MockPreferencesStoring) {
+        let lock = MockVaultLocking(lockMode: .none, password: password)
+        let preferences = MockPreferencesStoring(lockMode: .none, pendingMigration: pending)
+        let service = AuthService(
+            vaultLock: lock, preferences: preferences, keyStore: MockMasterKeyStoring(password: password))
+        return (service, lock, preferences)
     }
 
     func testPendingEncryptWithoutAPasswordIsDroppedAndLaunchStaysUnlocked() throws {
-        LegacyStorage.current.preferences.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let (service, lock, preferences) = makeAuthService(
+            password: nil, pending: PendingMigration(kind: .encrypt, targetLockMode: .password))
 
-        var unlocked = false
-        let token = NotificationCenter.default.addObserver(
-            forName: AuthService.vaultUnlockedNotification, object: nil, queue: nil) { _ in unlocked = true }
-        defer { NotificationCenter.default.removeObserver(token) }
+        let showedLockScreen = service.handleInitialLaunch(in: nil)
 
-        AuthService.shared.handleInitialLaunch(in: nil)
-
-        XCTAssertNil(LegacyStorage.current.preferences.pendingMigration)
-        XCTAssertEqual(AuthService.shared.lockMode, .none)
-        XCTAssertFalse(AuthService.shared.isLocked)
-        XCTAssertTrue(unlocked)
+        XCTAssertNil(preferences.pendingMigration)
+        XCTAssertEqual(preferences.lockMode, .none)
+        XCTAssertFalse(showedLockScreen)
+        XCTAssertEqual(lock.state, .open)
+        XCTAssertTrue(lock.calls.contains(.appWillEnterForeground), "the lock is told to refresh its state")
     }
 
     func testPendingEncryptWithAPasswordAsksForItEvenWhenLockModeWasNeverSaved() throws {
-        try AuthService.shared.createPassword("password123")
-        TestCrypto.keyStore.wipeKey()
-        AuthService.shared.lockMode = .none
-        LegacyStorage.current.preferences.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let (service, _, preferences) = makeAuthService(
+            password: "password123", pending: PendingMigration(kind: .encrypt, targetLockMode: .password))
 
-        AuthService.shared.handleInitialLaunch(in: nil)
+        let showedLockScreen = service.handleInitialLaunch(in: nil)
 
-        XCTAssertTrue(AuthService.shared.isLocked)
-        XCTAssertEqual(LegacyStorage.current.preferences.pendingMigration?.kind, .encrypt, "pending encrypt is kept")
+        XCTAssertTrue(showedLockScreen)
+        XCTAssertEqual(preferences.pendingMigration?.kind, .encrypt, "pending encrypt is kept")
     }
 
     func testNoPendingMigrationAndNoLockLaunchesUnlocked() throws {
-        AuthService.shared.handleInitialLaunch(in: nil)
-        XCTAssertFalse(AuthService.shared.isLocked)
+        let (service, _, _) = makeAuthService(password: nil, pending: nil)
+        XCTAssertFalse(service.handleInitialLaunch(in: nil))
     }
 }

@@ -80,9 +80,11 @@ final class MigrationViewControllerTests: XCTestCase {
 
     private var harness: LegacyVaultHarness!
     private var store: ToggleableFailingVaultStore!
+    private var vaultLock: MockVaultLocking!
 
     override func setUp() async throws {
         try await super.setUp()
+        vaultLock = MockVaultLocking()
         harness = try LegacyVaultHarness()
         store = ToggleableFailingVaultStore(base: harness.store)
     }
@@ -92,6 +94,7 @@ final class MigrationViewControllerTests: XCTestCase {
         harness.cleanUp()
         harness = nil
         store = nil
+        vaultLock = nil
         try await super.tearDown()
     }
 
@@ -104,7 +107,8 @@ final class MigrationViewControllerTests: XCTestCase {
     private func makeMigration(
         onComplete: @escaping (_ completedFully: Bool) -> Void
     ) -> LegacyMigrationViewController {
-        LegacyMigrationViewController(type: .encrypt, vaultStore: store, onComplete: onComplete)
+        LegacyMigrationViewController(
+            type: .encrypt, vaultStore: store, vaultLock: vaultLock, onComplete: onComplete)
     }
 
     private func presentAndWait(_ sut: LegacyMigrationViewController, timeout: TimeInterval = 10) async -> Bool {
@@ -209,7 +213,7 @@ final class MigrationViewControllerTests: XCTestCase {
         XCTAssertTrue(sut.testIsPaused)
 
         try TestCrypto.keyStore.unlock(password: "testpassword")
-        NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
+        try await vaultLock.unlock(password: "correct horse")  // the lock publishes .unlocked
 
         await fulfillment(of: [done], timeout: 10)
     }
@@ -237,7 +241,7 @@ final class MigrationViewControllerTests: XCTestCase {
         XCTAssertTrue(sut.testIsPaused)
 
         try TestCrypto.keyStore.unlock(password: "testpassword")
-        NotificationCenter.default.post(name: AuthService.vaultUnlockedNotification, object: nil)
+        try await vaultLock.unlock(password: "correct horse")  // the lock publishes .unlocked
 
         await fulfillment(of: [done], timeout: 10)
         let settle = expectation(description: "settle")
