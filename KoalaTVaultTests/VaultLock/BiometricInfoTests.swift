@@ -27,8 +27,9 @@ import Testing
         #expect(!info.isAvailable)
     }
 
-    @Test("Biometrics that cannot be evaluated are unavailable even when the hardware has a kind",
-          arguments: [BiometricKind.faceID, .touchID])
+    @Test(
+        "Biometrics that cannot be evaluated are unavailable even when the hardware has a kind",
+        arguments: [BiometricKind.faceID, .touchID])
     func cannotEvaluateIsUnavailable(kind: BiometricKind) {
         let info = BiometricInfo(probe: FakeBiometricProbe(kind: kind, canEvaluate: false))
         #expect(!info.isAvailable)

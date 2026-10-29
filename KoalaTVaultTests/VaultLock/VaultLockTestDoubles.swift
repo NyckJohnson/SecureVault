@@ -153,7 +153,9 @@ final class LoggingPreferences: PreferencesStoring {
         get { state.withLock { $0.lockMode } }
         set {
             log.record("lockMode=\(newValue.rawValue)")
-            state.withLock { $0.lockMode = newValue; $0.lockModeWrites.append(newValue) }
+            state.withLock {
+                $0.lockMode = newValue; $0.lockModeWrites.append(newValue)
+            }
         }
     }
 
@@ -180,10 +182,16 @@ final class LoggingPreferences: PreferencesStoring {
 
 /// A biometric probe whose answer tests set.
 final class FakeBiometricProbe: BiometricProbing {
-    private let state: OSAllocatedUnfairLock<(kind: BiometricKind, canEvaluate: Bool, probeCount: Int)>
+    private struct ProbeState {
+        var kind: BiometricKind
+        var canEvaluate: Bool
+        var probeCount = 0
+    }
+
+    private let state: OSAllocatedUnfairLock<ProbeState>
 
     init(kind: BiometricKind, canEvaluate: Bool) {
-        state = OSAllocatedUnfairLock(initialState: (kind, canEvaluate, 0))
+        state = OSAllocatedUnfairLock(initialState: ProbeState(kind: kind, canEvaluate: canEvaluate))
     }
 
     var kind: BiometricKind {

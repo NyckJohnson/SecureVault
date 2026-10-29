@@ -226,7 +226,7 @@
             "LiveVaultLock.swift"
           ],
           "state": "tests",
-          "attempts": 0
+          "attempts": 1
         },
         {
           "number": 2,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T09:37:05-07:00",
+  "updatedAt": "2026-10-29T09:42:58-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
