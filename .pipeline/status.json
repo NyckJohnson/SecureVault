@@ -202,7 +202,7 @@
             "View/SetupWizard.swift",
             "View/TextEditor.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T01:00:55-07:00",
+  "updatedAt": "2026-10-29T01:01:59-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",

@@ -904,6 +904,7 @@ extension matching ignores case.
 - No way back in when the password blob is missing — AuthService.swift:48, LockScreen.swift:~158 — feature password-recovery
 - No lockout after failed passwords — LockScreen.swift:136-166 — feature timed-lockout-for-failed-passwords
 - No minimum password strength — SetupWizard.swift:206-213, SecuritySettings.swift:255-262 — feature minimum-password-strength
+- `FileIcon` → UIImage/UIColor helper (`iconImageAndTint`, `tintColor(named:)`) is copied in two legacy files during the SharedUI switch-over — View/LegacyFileCell.swift, View/RecentlyDeleted.swift — open; Settings (first to replace one of them) moves it into SharedUI's views, and Browser reuses it
 
 ## Features
 <!-- Accepted features, oldest first. -->
