@@ -239,7 +239,7 @@
             "View/SecuritySettings.swift",
             "View/SetupWizard.swift"
           ],
-          "state": "tests",
+          "state": "code",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T10:00:56-07:00",
+  "updatedAt": "2026-10-29T11:05:07-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
