@@ -37,6 +37,7 @@ import Testing
         #expect(harness.migrator.pending == nil)
         #expect(harness.preferences.pendingMigration == nil)
         #expect(harness.lock.lockMode == .passwordAndBiometrics)
+        #expect(harness.log.count(of: "finishEncryption") == 1)
     }
 
     @Test("A listing failure reports failed with no names and keeps the pending record")
@@ -170,6 +171,7 @@ import Testing
         #expect(harness.migrator.phase == .completed(fully: false))
         #expect(harness.migrator.pending == nil)
         #expect(harness.preferences.pendingMigration == nil)
+        #expect(harness.log.count(of: "switchMode:passwordAndBiometrics") == 1)
     }
 }
 
