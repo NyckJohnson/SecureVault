@@ -573,7 +573,7 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`.
+  - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`. Only changes are published (the current state is not replayed): subscribers read `state` first, then follow `stateUpdates`; there is no "vault unlocked" notification.
   - Launch: with a lock, starts `.locked`; with none, `.open`.
   - setUp(.none): lockMode .none; nothing in the Keychain changes.
   - setUp(password modes): no blob → key created; blob exists and the vault holds no encrypted data (no index, encrypted file or trash entry) → the stale blob and biometric item are deleted and a new key created; blob exists otherwise → the password must unlock it (`.existingPasswordRequired` on a wrong one; that blob is never replaced); then (biometric mode) the biometric item is stored; then lockMode is written; any failure after a key was created deletes that blob and biometric item, wipes the key, leaves lockMode unchanged and rethrows; empty password → `.emptyPassword`; biometric mode without biometrics → `.biometricsUnavailable`. Ends `.unlocked`.
@@ -945,3 +945,4 @@ extension matching ignores case.
 - 2026-10-28: VaultStore error behaviors found by coverage are kept and specified: countFiles throws on an unreadable subfolder, migrating an unrecorded trash item throws `.notFound`, purge keeps going past a file it can't remove and then throws — VaultStore coverage triage — decided by the human
 - 2026-10-28: The invalid-name message is "Names can't contain / or start with ." for both rules (one `.invalidName` error); journey 3 expects it — VaultStore switch-over gates — decided by the human
 - 2026-10-29: `VaultStoreError` conforms to `LocalizedError` with the legacy `legacyErrorMessage(for:)` wording, as `VaultCryptoError` does; SharedUI's `AlertPresenting` shows `localizedDescription` and would otherwise show the system fallback text — contract change found in the SharedUI unit 1 review — approved by the human
+- 2026-10-29: Backgrounding with a lock always wipes the key and removes store temp files, even if never unlocked (the legacy `hasAuthenticated` guard is dropped); `stateUpdates` publishes changes only, so callers read `state` first (replaces `vaultUnlockedNotification`, incl. the no-lock launch) — VaultLock switch-over legacy-test scan — decided by the human
