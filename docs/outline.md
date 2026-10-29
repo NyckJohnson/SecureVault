@@ -913,6 +913,8 @@ extension matching ignores case.
 - No lockout after failed passwords — LockScreen.swift:136-166 — feature timed-lockout-for-failed-passwords
 - No minimum password strength — SetupWizard.swift:206-213, SecuritySettings.swift:255-262 — feature minimum-password-strength
 - `FileIcon` → UIImage/UIColor helper (`iconImageAndTint`, `tintColor(named:)`) is copied in two legacy files during the SharedUI switch-over — View/LegacyFileCell.swift, View/RecentlyDeleted.swift — open; Settings (first to replace one of them) moves it into SharedUI's views, and Browser reuses it
+- Locking the device with the app in the foreground during a migration can fail one file with an I/O error before the background key wipe (the legacy screen paused on protected-data-unavailable; the engine pauses only on a lock); the file shows under Retry/Skip — LiveLockMigrator.swift (`isInterruption`), SceneDelegate.swift — open; candidate fix: treat a data-protection error as an interruption, or pause on `sceneWillResignActive`
+- Settings has no unit test for which migration it starts (encrypt with `.password`, decrypt with `nil`, re-encrypt keeping a pending target), and the Migration screen has no test that `onComplete` fires once after paused → running → completed — SecuritySettings.swift, MigrationScreenTests.swift — open; Settings' module (which replaces both screens) tests them
 
 ## Features
 <!-- Accepted features, oldest first. -->
