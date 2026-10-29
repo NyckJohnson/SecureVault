@@ -25,6 +25,7 @@
 - `VaultStoreError: case moveIntoItself`
 - `VaultStoreError: case notFound`
 - `VaultStoreError: case stillEncrypted(count: Int)`
+- `VaultStoreError: var errorDescription: String?`
 - `VaultStoring: func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem`
 - `VaultStoring: func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem]`
 - `VaultStoring: func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem`
