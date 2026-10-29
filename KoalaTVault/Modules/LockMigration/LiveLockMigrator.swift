@@ -57,7 +57,8 @@ final class LiveLockMigrator: LockMigrating {
     }
 
     func start(_ kind: MigrationKind, target: LockMode?) async {
-        guard !isBusy else { return }
+        // A run in this process (running, paused or failed) must end before another starts.
+        guard !isBusy, run == nil else { return }
         let record = PendingMigration(kind: kind, targetLockMode: kind == .encrypt ? target : nil)
         preferences.pendingMigration = record
         run = Run(record: record)
@@ -107,6 +108,11 @@ final class LiveLockMigrator: LockMigrating {
         guard !isBusy, let current = run else { return }
         isBusy = true
         defer { isBusy = false }
+        // Without the key, pause at once rather than publish `.running` first.
+        guard keyLoaded else {
+            pause()
+            return
+        }
 
         if !current.listed {
             guard let items = await list(encrypting: current.encrypting) else { return }
