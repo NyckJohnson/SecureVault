@@ -373,7 +373,7 @@ enum VaultEncryptedDataCheck {
             let name = url.lastPathComponent
             if name == ".vault_map" || name == ".trash_map" { return true }
             guard let isDirectory = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory else {
-                return true
+                return true  // coverage-exempt: only if the entry vanishes between listing and reading its properties
             }
             if isDirectory {
                 if name == ".trash", (try? fileManager.contentsOfDirectory(atPath: url.path))?.isEmpty != true {
