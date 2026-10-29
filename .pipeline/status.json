@@ -225,7 +225,7 @@
             "BiometricInfo.swift",
             "LiveVaultLock.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T09:32:29-07:00",
+  "updatedAt": "2026-10-29T09:37:05-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
