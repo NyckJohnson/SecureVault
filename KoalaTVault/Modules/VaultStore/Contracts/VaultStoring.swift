@@ -70,6 +70,10 @@ protocol VaultStoring: Sendable {
     func migrateToDecrypted(_ item: VaultItem) async throws
     /// Removes the indexes after every file is decrypted.
     func finishDecryption() async throws
+    /// Re-encrypts every index older builds left as plaintext, as the encrypt migration's last step.
+    /// Already-encrypted and unreadable indexes are left as they are; plaintext mode changes nothing.
+    /// - Throws: `.locked` in encrypted mode without the key, before anything is written.
+    func finishEncryption() async throws
     /// Whether any plaintext file is in the vault or the trash.
     func hasUnencryptedFiles() async throws -> Bool
     /// Whether the loaded key decrypts the vault's root index.

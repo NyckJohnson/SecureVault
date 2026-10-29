@@ -23,7 +23,7 @@ final class ImportServiceTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        sut = ImportService()
+        sut = ImportService(fileSystem: FileSystem(store: MockVaultStoring(), proUnlock: MockProUnlocking()))
         fakeDeleter = FakeCameraRollDeleter()
         sut.cameraRollDeleter = fakeDeleter
     }

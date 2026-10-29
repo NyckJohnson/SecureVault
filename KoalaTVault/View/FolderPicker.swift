@@ -8,7 +8,7 @@
 import UIKit
 
 protocol FolderPickerDelegate: AnyObject {
-    func folderPicker(_ picker: LegacyFolderPickerViewController, didSelectFolder directory: LegacyVaultDirectory)
+    func folderPicker(_ picker: LegacyFolderPickerViewController, didSelectFolder directory: VaultDirectory)
     /// Called once when the picker closes without a choice (Cancel, at any level, or swipe-down).
     func folderPickerDidCancel(_ picker: LegacyFolderPickerViewController)
 }
@@ -16,16 +16,28 @@ protocol FolderPickerDelegate: AnyObject {
 final class LegacyFolderPickerViewController: UIViewController {
     
     weak var delegate: FolderPickerDelegate?
-    private let rootDirectory: LegacyVaultDirectory
-    private let currentDirectory: LegacyVaultDirectory
-    private var items: [LegacyVaultItem] = []
+    private let rootDirectory: VaultDirectory
+    private let currentDirectory: VaultDirectory
+    private let vaultStore: any VaultStoring
+    private let preferences: any PreferencesStoring
+    private var items: [VaultItem] = []
     private var tableView: UITableView!
     /// Set on the first Move Here or Cancel, so a double-tap can't tell the delegate twice.
     private var didFinish = false
     
-    init(rootDirectory: LegacyVaultDirectory, currentDirectory: LegacyVaultDirectory) {
+    /// - Parameters:
+    ///   - vaultStore: the app's vault store, which lists the folders.
+    ///   - preferences: the app's settings (folders are listed in the browser's sort order).
+    init(
+        rootDirectory: VaultDirectory,
+        currentDirectory: VaultDirectory,
+        vaultStore: any VaultStoring,
+        preferences: any PreferencesStoring
+    ) {
         self.rootDirectory = rootDirectory
         self.currentDirectory = currentDirectory
+        self.vaultStore = vaultStore
+        self.preferences = preferences
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -60,9 +72,16 @@ final class LegacyFolderPickerViewController: UIViewController {
     }
     
     private func loadContents() {
-        let all = (try? FileSystem.shared.contents(of: currentDirectory)) ?? []
-        items = all.filter { $0.isDirectory }
-        tableView.reloadData()
+        let directory = currentDirectory
+        let option = preferences.sortOption
+        let direction = preferences.sortDirection
+        Task { [weak self, vaultStore] in
+            // An unreadable folder lists no subfolders, as before; Move Here still works.
+            let all = (try? await vaultStore.contents(of: directory, sortedBy: option, direction)) ?? []
+            guard let self else { return }
+            self.items = all.filter { $0.isDirectory }
+            self.tableView.reloadData()
+        }
     }
     
     @objc private func cancel() {
@@ -107,10 +126,12 @@ extension LegacyFolderPickerViewController: UITableViewDataSource {
 extension LegacyFolderPickerViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        let folder = items[indexPath.row]
+        guard let folder = items[indexPath.row].asDirectory else { return }
         let next = LegacyFolderPickerViewController(
             rootDirectory: rootDirectory,
-            currentDirectory: LegacyVaultDirectory(name: folder.name, diskURL: folder.diskURL, rootURL: currentDirectory.rootURL)
+            currentDirectory: folder,
+            vaultStore: vaultStore,
+            preferences: preferences
         )
         next.delegate = delegate
         navigationController?.pushViewController(next, animated: true)

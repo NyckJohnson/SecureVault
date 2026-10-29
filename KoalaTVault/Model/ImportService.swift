@@ -7,15 +7,16 @@ import UIKit
 import PhotosUI
 import Photos
 import UniformTypeIdentifiers
+import os
 
 @MainActor
 final class ImportService: NSObject {
-    static let shared = ImportService()
+    private let fileSystem: FileSystem
 
     var cameraRollDeleter: LegacyCameraRollDeleting = PhotoLibraryCameraRollDeleter()
 
     private weak var presentingViewController: UIViewController?
-    private var targetDirectory: LegacyVaultDirectory?
+    private var targetDirectory: VaultDirectory?
     private var completion: (() -> Void)?
     /// The most recently presented picker. UIKit only holds a presented picker until it is dismissed, but on
     /// iOS 18 the document picker's remote service can still send XPC messages to it right after
@@ -23,10 +24,14 @@ final class ImportService: NSObject {
     /// We hold it until the next picker replaces it.
     private var activePicker: UIViewController?
 
-    override init() {}
+    /// - Parameter fileSystem: legacy import over the app's vault store.
+    init(fileSystem: FileSystem) {
+        self.fileSystem = fileSystem
+        super.init()
+    }
 
     func promptImport(
-        into directory: LegacyVaultDirectory,
+        into directory: VaultDirectory,
         from viewController: UIViewController,
         barButtonItem: UIBarButtonItem? = nil,
         completion: (() -> Void)? = nil
@@ -99,14 +104,19 @@ final class ImportService: NSObject {
     private func performImport(from urls: [URL]) {
         guard let viewController = presentingViewController, let directory = targetDirectory else { return }
         let overlay = ProgressOverlay.show(in: viewController, title: "Importing...")
-        DispatchQueue.global(qos: .userInitiated).async {
+        let fileSystem = fileSystem
+        Task { @MainActor in
             var importError: Error?
             do {
-                var lastUpdate = Date()
-                try FileSystem.shared.importItems(from: urls, to: directory) { progress in
+                let lastUpdate = OSAllocatedUnfairLock(initialState: Date.distantPast)
+                try await fileSystem.importItems(from: urls, to: directory) { progress in
                     let now = Date()
-                    if now.timeIntervalSince(lastUpdate) > 0.1 || progress == 1.0 {
-                        lastUpdate = now
+                    let due = lastUpdate.withLock { last in
+                        guard now.timeIntervalSince(last) > 0.1 || progress == 1.0 else { return false }
+                        last = now
+                        return true
+                    }
+                    if due {
                         DispatchQueue.main.async {
                             overlay.update(progress: Float(progress), status: "\(min(100, Int(progress * 100)))% complete")
                         }
@@ -115,17 +125,15 @@ final class ImportService: NSObject {
             } catch {
                 importError = error
             }
-            DispatchQueue.main.async {
-                overlay.dismiss()
-                self.completion?()
-                if let error = importError {
-                    if case FileSystemError.fileLimitReached = error {
-                        let paywall = LegacyPaywallViewController()
-                        paywall.modalPresentationStyle = .formSheet
-                        viewController.present(paywall, animated: true)
-                    } else {
-                        (viewController as? ErrorPresenting)?.showError(error)
-                    }
+            overlay.dismiss()
+            self.completion?()
+            if let error = importError {
+                if case ImportError.fileLimitReached = error {
+                    let paywall = LegacyPaywallViewController()
+                    paywall.modalPresentationStyle = .formSheet
+                    viewController.present(paywall, animated: true)
+                } else {
+                    (viewController as? ErrorPresenting)?.showError(error)
                 }
             }
         }
@@ -149,25 +157,30 @@ extension ImportService: PHPickerViewControllerDelegate {
             return
         }
 
-        do {
-            try FileSystem.shared.checkImportAllowed(additionalCount: results.count, in: directory)
-        } catch FileSystemError.fileLimitReached {
-            picker.dismiss(animated: true) {
-                let paywall = LegacyPaywallViewController()
-                paywall.modalPresentationStyle = .formSheet
-                viewController.present(paywall, animated: true)
+        Task { @MainActor in
+            do {
+                try await fileSystem.checkImportAllowed(additionalCount: results.count)
+            } catch ImportError.fileLimitReached {
+                picker.dismiss(animated: true) {
+                    let paywall = LegacyPaywallViewController()
+                    paywall.modalPresentationStyle = .formSheet
+                    viewController.present(paywall, animated: true)
+                }
+                return
+            } catch {
+                picker.dismiss(animated: true) {
+                    (viewController as? ErrorPresenting)?.showError(error)
+                }
+                return
             }
-            return
-        } catch {
-            picker.dismiss(animated: true) {
-                (viewController as? ErrorPresenting)?.showError(error)
-            }
-            return
+            importPhotos(results, into: directory, from: viewController)
         }
+    }
 
+    private func importPhotos(_ results: [PHPickerResult], into directory: VaultDirectory, from viewController: UIViewController) {
         presentingViewController?.dismiss(animated: true)
         let overlay = ProgressOverlay.show(in: viewController, title: "Importing Photos...")
-        FileSystem.shared.importFromCameraRoll(results: results, to: directory) { [weak self] succeededIdentifiers, failed in
+        fileSystem.importFromCameraRoll(results: results, to: directory) { [weak self] succeededIdentifiers, failed in
             overlay.dismiss()
             self?.completion?()
             if failed > 0 {

@@ -20,11 +20,10 @@ nonisolated enum FileIconProvider {
         return custom
     }
     
-    static func icon(for item: LegacyVaultItem) -> UIImage? {
+    static func icon(for item: VaultItem) -> UIImage? {
         if item.isDirectory { return folderImage() }
 
-        let ext = (item.name as NSString).pathExtension.lowercased()
-        switch LegacyFileKind(extension: ext) {
+        switch item.kind {
         case .image: return UIImage(systemName: "photo")
         case .video: return UIImage(systemName: "video")
         case .audio: return UIImage(systemName: "music.note")
@@ -38,13 +37,12 @@ nonisolated enum FileIconProvider {
         }
     }
         
-    static func iconColor(for item: LegacyVaultItem) -> UIColor {
+    static func iconColor(for item: VaultItem) -> UIColor {
         if item.isDirectory {
             return UIImage(named: customFolderIconName) != nil ? .clear : .systemYellow
         }
 
-        let ext = (item.name as NSString).pathExtension.lowercased()
-        switch LegacyFileKind(extension: ext) {
+        switch item.kind {
         case .image: return .systemGreen
         case .video: return .systemPurple
         case .audio: return .systemPink

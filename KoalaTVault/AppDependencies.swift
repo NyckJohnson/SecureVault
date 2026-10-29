@@ -39,7 +39,7 @@ nonisolated final class InMemoryKeychain: KeychainAccessing {
 // MARK: - Pro unlock slot
 
 /// Holds the app's one `ProUnlocking`, which `AppDependencies` builds on the main actor at launch and
-/// installs here, so legacy singletons (`FileSystem`, view controllers built by legacy code) can reach it
+/// installs here, so legacy singletons (view controllers built by legacy code) can reach it
 /// through `LegacyStorage.current.proUnlock` until each takes it by injection.
 nonisolated final class LegacyProUnlockSlot: Sendable {
     private let value = OSAllocatedUnfairLock<(any ProUnlocking)?>(initialState: nil)
@@ -208,7 +208,7 @@ nonisolated struct LegacyStorage: Sendable {
     /// falling back to the real vault, Keychain or UserDefaults.
     private static func makeUITesting(environment: [String: String]) -> LegacyStorage {
         let fileManager = FileManager.default
-        // Not under tmp: FileSystem.cleanupTempFiles() empties the temporary directory.
+        // Not under tmp, which holds the vault store's temporary files.
         let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let container = caches.appendingPathComponent("UITestingVault", isDirectory: true)
         let root = container.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -237,6 +237,90 @@ nonisolated struct LegacyStorage: Sendable {
     }
 }
 
+// MARK: - Failing migration store (-uiTesting)
+
+/// A `VaultStoring` that forwards everything to `base`, except that migrating the file named
+/// `failingFileName` (either direction) fails with `VaultCryptoError.encryptionFailed`, as the legacy
+/// app's `UITEST_FAIL_MIGRATION_FILE` hook did. Built only in `-uiTesting` mode, never in the module.
+nonisolated struct FailingMigrationVaultStore: VaultStoring {
+    let base: any VaultStoring
+    let failingFileName: String
+
+    var root: VaultDirectory { base.root }
+
+    private func throwIfFailing(_ item: VaultItem) throws {
+        if item.name == failingFileName { throw VaultCryptoError.encryptionFailed }
+    }
+
+    func migrateToEncrypted(_ item: VaultItem) async throws {
+        try throwIfFailing(item)
+        try await base.migrateToEncrypted(item)
+    }
+
+    func migrateToDecrypted(_ item: VaultItem) async throws {
+        try throwIfFailing(item)
+        try await base.migrateToDecrypted(item)
+    }
+
+    func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem] {
+        try await base.contents(of: directory, sortedBy: option, direction)
+    }
+    func open(_ item: VaultItem) async throws -> URL { try await base.open(item) }
+    func write(_ data: Data, to item: VaultItem) async throws { try await base.write(data, to: item) }
+    func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await base.createFolder(named: name, in: directory)
+    }
+    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await base.createDocument(named: name, in: directory)
+    }
+    func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
+        try await base.addFile(from: source, named: name, to: directory)
+    }
+    func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        try await base.findItem(named: name, in: directory)
+    }
+    func move(_ item: VaultItem, to directory: VaultDirectory) async throws { try await base.move(item, to: directory) }
+    func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
+        try await base.copy(item, to: directory)
+    }
+    func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { try await base.rename(item, to: name) }
+    func moveToTrash(_ item: VaultItem) async throws { try await base.moveToTrash(item) }
+    func trashContents() async throws -> [VaultItem] { try await base.trashContents() }
+    func restore(_ trashed: VaultItem) async throws -> VaultItem { try await base.restore(trashed) }
+    func deletePermanently(_ trashed: VaultItem) async throws { try await base.deletePermanently(trashed) }
+    func emptyTrash() async { await base.emptyTrash() }
+    func purgeExpiredTrash(now: Date) async throws -> Int { try await base.purgeExpiredTrash(now: now) }
+    func countFiles() async throws -> Int { try await base.countFiles() }
+    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
+        try await base.itemsToMigrate(toEncrypted: toEncrypted)
+    }
+    func finishDecryption() async throws { try await base.finishDecryption() }
+    func finishEncryption() async throws { try await base.finishEncryption() }
+    func hasUnencryptedFiles() async throws -> Bool { try await base.hasUnencryptedFiles() }
+    func keyMatchesVault() async -> Bool { await base.keyMatchesVault() }
+    func sweepOrphans() async { await base.sweepOrphans() }
+    func makeTempDirectory() throws -> URL { try base.makeTempDirectory() }
+    func removeTemporary(_ url: URL) { base.removeTemporary(url) }
+    func removeAllTemporaryFiles() { base.removeAllTemporaryFiles() }
+}
+
+// MARK: - Legacy screen services
+
+/// What the legacy browser screens need from the composition root, handed from screen to screen.
+@MainActor
+struct LegacyBrowserServices {
+    /// The app's one vault store.
+    let vaultStore: any VaultStoring
+    /// The app's settings (sort order).
+    let preferences: any PreferencesStoring
+    /// Thumbnails for the browser's cells.
+    let thumbnails: ThumbnailService
+    /// The import sheet and pickers.
+    let importService: ImportService
+    /// The export sheet.
+    let exportService: ExportService
+}
+
 // MARK: - Composition root
 
 /// Builds the app's dependencies once at launch.
@@ -254,6 +338,23 @@ final class AppDependencies {
     /// transaction-update listener and the launch refresh. In the unit-test host (`-unitTestHost`) it is an
     /// inert, always-locked stand-in with no StoreKit calls.
     let proUnlock: any ProUnlocking
+    /// The app's one vault store over `storage.vaultRootURL` (Documents normally; the temporary vault in
+    /// `-uiTesting` mode, where `UITEST_FAIL_MIGRATION_FILE` wraps it in `FailingMigrationVaultStore`).
+    let vaultStore: any VaultStoring
+    /// Legacy import and export over `vaultStore`, until the Import and Export modules replace them.
+    let legacyTransfers: FileSystem
+    /// Thumbnails for vault items, over `vaultStore`.
+    let thumbnails: ThumbnailService
+    /// The legacy import sheet and pickers.
+    let importService: ImportService
+    /// The legacy export sheet.
+    let exportService: ExportService
+    /// What the legacy browser screens are built with.
+    var browserServices: LegacyBrowserServices {
+        LegacyBrowserServices(
+            vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails,
+            importService: importService, exportService: exportService)
+    }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
     init(storage: LegacyStorage = .current, arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -266,6 +367,28 @@ final class AppDependencies {
         }
         self.proUnlock = proUnlock
         storage.proUnlockSlot.install(proUnlock)
+
+        let liveStore = LiveVaultStore(
+            root: storage.vaultRootURL,
+            keyStore: storage.masterKeyStore,
+            cipher: storage.fileCipher,
+            preferences: storage.preferences,
+            temporaryRoot: FileManager.default.temporaryDirectory
+        )
+        let vaultStore: any VaultStoring
+        if let failingFileName = storage.uiTestSettings?.failMigrationFileName {
+            vaultStore = FailingMigrationVaultStore(base: liveStore, failingFileName: failingFileName)
+        } else {
+            vaultStore = liveStore
+        }
+        self.vaultStore = vaultStore
+        let legacyTransfers = FileSystem(store: vaultStore, proUnlock: proUnlock)
+        self.legacyTransfers = legacyTransfers
+        let thumbnails = ThumbnailService(vaultStore: vaultStore, preferences: storage.preferences)
+        self.thumbnails = thumbnails
+        importService = ImportService(fileSystem: legacyTransfers)
+        exportService = ExportService(fileSystem: legacyTransfers, vaultStore: vaultStore)
+        AuthService.shared.attach(vaultStore: vaultStore, thumbnails: thumbnails)
     }
 
     /// Applies the `-uiTesting` seeds (files, password) to the empty test storage.

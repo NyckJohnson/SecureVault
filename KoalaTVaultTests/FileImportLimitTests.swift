@@ -6,110 +6,116 @@
 import XCTest
 @testable import KoalaTVault
 
-final class FileImportLimitTests: VaultTestCase {
+@MainActor
+final class FileImportLimitTests: XCTestCase {
 
-    private var originalProUnlock: (any ProUnlocking)?
+    private var harness: LegacyVaultHarness!
     private var proUnlock: MockProUnlocking!
+    private var transfers: FileSystem!
 
-    override func setUp() {
-        super.setUp()
-        originalProUnlock = LegacyStorage.current.proUnlockSlot.installed
-        proUnlock = MainActor.assumeIsolated { MockProUnlocking(isUnlocked: false) }
-        LegacyStorage.current.proUnlockSlot.install(proUnlock)
+    override func setUp() async throws {
+        try await super.setUp()
+        harness = try LegacyVaultHarness()
+        proUnlock = MockProUnlocking(isUnlocked: false)
+        transfers = harness.transfers(proUnlock: proUnlock)
     }
 
-    override func tearDown() {
-        if let originalProUnlock { LegacyStorage.current.proUnlockSlot.install(originalProUnlock) }
+    override func tearDown() async throws {
+        harness.cleanUp()
+        harness = nil
         proUnlock = nil
-        originalProUnlock = nil
-        super.tearDown()
+        transfers = nil
+        try await super.tearDown()
     }
 
     // MARK: - Helpers
     /// Writes `count` plain files directly into the directory, bypassing importItems
     /// so seeding doesn't depend on the import/encryption pipeline under test.
-    private func seedFiles(count: Int, in directory: LegacyVaultDirectory) throws {
+    private func seedFiles(count: Int, in directory: VaultDirectory) throws {
         for i in 0..<count {
-            let url = directory.diskURL.appendingPathComponent("seed-\(i).txt")
-            try "seed".write(to: url, atomically: true, encoding: .utf8)
+            try harness.diskFile("seed-\(i).txt", "seed", in: directory)
         }
     }
 
     private func assertFileLimitReached(_ error: Error, file: StaticString = #filePath, line: UInt = #line) {
-        guard case FileSystemError.fileLimitReached = error else {
-            XCTFail("Expected FileSystemError.fileLimitReached, got \(error)", file: file, line: line)
+        guard case ImportError.fileLimitReached = error else {
+            XCTFail("Expected ImportError.fileLimitReached, got \(error)", file: file, line: line)
             return
         }
     }
 
-    // MARK: - checkImportAllowed
-    func testCheckImportAllowedPassesUnderLimit() throws {
-        try seedFiles(count: 5, in: testDirectory)
-        XCTAssertNoThrow(try FileSystem.shared.checkImportAllowed(additionalCount: 10, in: testDirectory))
+    private func overflowSource() throws -> URL {
+        try harness.source("overflow.txt", "overflow")
     }
 
-    func testCheckImportAllowedThrowsWhenOverLimit() throws {
-        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
-        XCTAssertThrowsError(try FileSystem.shared.checkImportAllowed(additionalCount: 1, in: testDirectory)) {
-            assertFileLimitReached($0)
+    // MARK: - checkImportAllowed
+    func testCheckImportAllowedPassesUnderLimit() async throws {
+        try seedFiles(count: 5, in: harness.root)
+        try await transfers.checkImportAllowed(additionalCount: 10)
+    }
+
+    func testCheckImportAllowedThrowsWhenOverLimit() async throws {
+        try seedFiles(count: ProUnlock.freeFileLimit, in: harness.root)
+        do {
+            try await transfers.checkImportAllowed(additionalCount: 1)
+            XCTFail("expected checkImportAllowed to throw")
+        } catch {
+            assertFileLimitReached(error)
         }
     }
 
-    func testCheckImportAllowedAllowsExactlyUpToLimit() throws {
-        try seedFiles(count: ProUnlock.freeFileLimit - 1, in: testDirectory)
-        XCTAssertNoThrow(try FileSystem.shared.checkImportAllowed(additionalCount: 1, in: testDirectory))
+    func testCheckImportAllowedAllowsExactlyUpToLimit() async throws {
+        try seedFiles(count: ProUnlock.freeFileLimit - 1, in: harness.root)
+        try await transfers.checkImportAllowed(additionalCount: 1)
     }
 
-    func testCheckImportAllowedPassesWhenUnlockedRegardlessOfCount() throws {
-        MainActor.assumeIsolated { proUnlock.isUnlocked = true }
-        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
-        XCTAssertNoThrow(try FileSystem.shared.checkImportAllowed(additionalCount: 50, in: testDirectory))
+    func testCheckImportAllowedPassesWhenUnlockedRegardlessOfCount() async throws {
+        proUnlock.isUnlocked = true
+        try seedFiles(count: ProUnlock.freeFileLimit, in: harness.root)
+        try await transfers.checkImportAllowed(additionalCount: 50)
     }
 
     // MARK: - importItems
-    func testImportItemsThrowsAndImportsNothingWhenOverLimit() throws {
-        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
+    func testImportItemsThrowsAndImportsNothingWhenOverLimit() async throws {
+        try seedFiles(count: ProUnlock.freeFileLimit, in: harness.root)
+        let sourceURL = try overflowSource()
 
-        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("overflow.txt")
-        try "overflow".write(to: sourceURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: sourceURL) }
-
-        XCTAssertThrowsError(try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)) {
-            assertFileLimitReached($0)
+        do {
+            try await transfers.importItems(from: [sourceURL], to: harness.root)
+            XCTFail("expected importItems to throw")
+        } catch {
+            assertFileLimitReached(error)
         }
 
-        let contents = try FileSystem.shared.contents(of: testDirectory)
+        let contents = try await harness.items()
         XCTAssertEqual(contents.count, ProUnlock.freeFileLimit)
         XCTAssertFalse(contents.contains { $0.name == "overflow.txt" })
     }
 
-    func testImportItemsSucceedsWhenUnlockedBeyondLimit() throws {
-        MainActor.assumeIsolated { proUnlock.isUnlocked = true }
-        try seedFiles(count: ProUnlock.freeFileLimit, in: testDirectory)
+    func testImportItemsSucceedsWhenUnlockedBeyondLimit() async throws {
+        proUnlock.isUnlocked = true
+        try seedFiles(count: ProUnlock.freeFileLimit, in: harness.root)
+        let sourceURL = try overflowSource()
 
-        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("overflow.txt")
-        try "overflow".write(to: sourceURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try await transfers.importItems(from: [sourceURL], to: harness.root)
 
-        try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)
-
-        let contents = try FileSystem.shared.contents(of: testDirectory)
+        let contents = try await harness.items()
         XCTAssertEqual(contents.count, ProUnlock.freeFileLimit + 1)
         XCTAssertTrue(contents.contains { $0.name == "overflow.txt" })
     }
 
-    func testImportItemsCountsAcrossSubfolders() throws {
-        let subFolder = try FileSystem.shared.createFolder(named: "Sub", in: testDirectory)
+    func testImportItemsCountsAcrossSubfolders() async throws {
+        let subFolder = try await harness.folder("Sub")
         try seedFiles(count: ProUnlock.freeFileLimit, in: subFolder)
-
-        let sourceURL = FileManager.default.temporaryDirectory.appendingPathComponent("overflow.txt")
-        try "overflow".write(to: sourceURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        let sourceURL = try overflowSource()
 
         // Importing into the root should still see the subfolder's files, since both
         // share the same rootURL for this vault.
-        XCTAssertThrowsError(try FileSystem.shared.importItems(from: [sourceURL], to: testDirectory)) {
-            assertFileLimitReached($0)
+        do {
+            try await transfers.importItems(from: [sourceURL], to: harness.root)
+            XCTFail("expected importItems to throw")
+        } catch {
+            assertFileLimitReached(error)
         }
     }
 }

@@ -140,7 +140,15 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         let alert = openNewFolderAlert()
         type("a/b", into: alert.textFields["browser.newFolderNameField"])
         tapAlertButton("Create", in: alert)
-        expectErrorAlertAndDismiss(containing: "Names can't contain /")
+        expectErrorAlertAndDismiss(containing: "Names can't contain / or start with .")
+        XCTAssertEqual(app.collectionViews["fileGrid"].cells.count, 1, "No folder should be created")
+    }
+
+    func testJourney3_FolderNameStartingWithDotShowsError() {
+        let alert = openNewFolderAlert()
+        type(".hidden", into: alert.textFields["browser.newFolderNameField"])
+        tapAlertButton("Create", in: alert)
+        expectErrorAlertAndDismiss(containing: "Names can't contain / or start with .")
         XCTAssertEqual(app.collectionViews["fileGrid"].cells.count, 1, "No folder should be created")
     }
 

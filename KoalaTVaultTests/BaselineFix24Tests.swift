@@ -46,14 +46,9 @@ final class StaleVaultKeyTests: XCTestCase {
         return url
     }
 
-    /// Imports one file with the loaded key, so the vault holds an encrypted file and an index.
-    private func addEncryptedFile() throws {
-        let sourceDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: sourceDir) }
-        let source = try writeFile("secret.txt", "secret", in: sourceDir)
-        let root = LegacyVaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
-        try FileSystem.shared.importItems(from: [source], to: root)
+    /// Adds one file with the loaded key, so the vault holds an encrypted file and an index.
+    private func addEncryptedFile() async throws {
+        try await LegacyVaultHarness.addEncryptedFile(to: vaultRoot)
     }
 
     // MARK: - Empty vault: the stale key is replaced
@@ -95,9 +90,9 @@ final class StaleVaultKeyTests: XCTestCase {
 
     // MARK: - Encrypted data: the old password is required, the blob is untouched
 
-    func testEncryptedDataWithStaleBlobRequiresTheOldPasswordAndKeepsTheBlob() throws {
+    func testEncryptedDataWithStaleBlobRequiresTheOldPasswordAndKeepsTheBlob() async throws {
         try TestCrypto.keyStore.createMasterKey(password: "old-password")
-        try addEncryptedFile()
+        try await addEncryptedFile()
         TestCrypto.keyStore.wipeKey()
         let oldBlob = try XCTUnwrap(storedBlob())
 
@@ -112,9 +107,9 @@ final class StaleVaultKeyTests: XCTestCase {
         XCTAssertNoThrow(try AuthService.shared.verifyPassword("old-password"))
     }
 
-    func testEncryptedDataWithTheOldPasswordUnlocksTheExistingKey() throws {
+    func testEncryptedDataWithTheOldPasswordUnlocksTheExistingKey() async throws {
         try TestCrypto.keyStore.createMasterKey(password: "old-password")
-        try addEncryptedFile()
+        try await addEncryptedFile()
         TestCrypto.keyStore.wipeKey()
         let oldBlob = try XCTUnwrap(storedBlob())
 
@@ -122,9 +117,12 @@ final class StaleVaultKeyTests: XCTestCase {
 
         XCTAssertTrue(TestCrypto.keyStore.isKeyLoaded)
         XCTAssertEqual(storedBlob(), oldBlob)
-        let root = LegacyVaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
-        let item = try XCTUnwrap(try FileSystem.shared.contents(of: root).first)
-        XCTAssertEqual(try String(contentsOf: try FileSystem.shared.open(item), encoding: .utf8), "secret")
+        let store = LegacyVaultHarness.encryptedStore(over: vaultRoot)
+        let root = VaultDirectory(name: "test", diskURL: vaultRoot, rootURL: vaultRoot)
+        let listed = try await store.contents(of: root, sortedBy: .name, .ascending).first
+        let item = try XCTUnwrap(listed)
+        let opened = try await store.open(item)
+        XCTAssertEqual(try String(contentsOf: opened, encoding: .utf8), "secret")
     }
 
     // MARK: - What counts as encrypted data

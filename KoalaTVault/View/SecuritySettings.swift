@@ -11,13 +11,16 @@ final class LegacySecuritySettingsViewController: UIViewController, ErrorPresent
 
     private let authService         = AuthService.shared
     private let proUnlock: any ProUnlocking
+    private let vaultStore: any VaultStoring
     private var tableView: UITableView!
     private var hasUnencryptedFiles = false
     private var entitlementObservation: Task<Void, Never>?
 
-    /// - Parameter proUnlock: the "Unlock Pro" entitlement (the app's one, from the composition root,
-    ///   by default).
-    init(proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock) {
+    /// - Parameters:
+    ///   - vaultStore: the app's vault store (unencrypted-file check, trash, migrations).
+    ///   - proUnlock: the "Unlock Pro" entitlement (the app's one, from the composition root, by default).
+    init(vaultStore: any VaultStoring, proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock) {
+        self.vaultStore = vaultStore
         self.proUnlock = proUnlock
         super.init(nibName: nil, bundle: nil)
     }
@@ -48,12 +51,11 @@ final class LegacySecuritySettingsViewController: UIViewController, ErrorPresent
     }
 
     private func refreshUnencryptedFilesState(completion: @escaping @MainActor @Sendable () -> Void = {}) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let hasUnencrypted = (try? FileSystem.shared.filesToMigrate(toEncrypted: true, in: .root))?.isEmpty == false
-            DispatchQueue.main.async {
-                self?.hasUnencryptedFiles = hasUnencrypted
-                completion()
-            }
+        Task { [weak self, vaultStore] in
+            // Locked or unreadable counts as "nothing to re-encrypt", as before.
+            let hasUnencrypted = (try? await vaultStore.hasUnencryptedFiles()) ?? false
+            self?.hasUnencryptedFiles = hasUnencrypted
+            completion()
         }
     }
 
@@ -194,7 +196,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             promptChangePassword()
 
         case .trash:
-            let viewController = LegacyRecentlyDeletedViewController()
+            let viewController = LegacyRecentlyDeletedViewController(vaultStore: vaultStore)
             navigationController?.pushViewController(viewController, animated: true)
         }
     }
@@ -208,7 +210,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
 #endif
 
     private func reEncryptRemainingFiles() {
-        let migration = LegacyMigrationViewController(type: .encrypt) { completedFully in
+        let migration = LegacyMigrationViewController(type: .encrypt, vaultStore: vaultStore) { completedFully in
             self.authService.finalizeMigration(type: .encrypt, targetLockMode: self.authService.lockMode, completedFully: completedFully)
             self.refreshUnencryptedFilesState { self.tableView.reloadData() }
         }
@@ -225,7 +227,9 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
-                let migration = LegacyMigrationViewController(type: .decrypt, targetLockMode: mode) { completedFully in
+                let migration = LegacyMigrationViewController(
+                    type: .decrypt, vaultStore: self.vaultStore, targetLockMode: mode
+                ) { completedFully in
                     self.authService.finalizeMigration(type: .decrypt, targetLockMode: mode, completedFully: completedFully)
                     self.refreshUnencryptedFilesState { self.tableView.reloadData() }
                 }
@@ -243,7 +247,9 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
                 self.authService.lockMode = .password
-                let migration = LegacyMigrationViewController(type: .encrypt, targetLockMode: .password) { [weak self] completedFully in
+                let migration = LegacyMigrationViewController(
+                    type: .encrypt, vaultStore: self.vaultStore, targetLockMode: .password
+                ) { [weak self] completedFully in
                     guard let self else { return }
                     self.authService.finalizeMigration(type: .encrypt, targetLockMode: .password, completedFully: completedFully)
                     if mode == .passwordAndBiometrics {

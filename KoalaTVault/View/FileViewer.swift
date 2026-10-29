@@ -9,7 +9,9 @@ import UIKit
 import AVKit
 
 final class LegacyFileViewerViewController: UIViewController {
-    private let items: [LegacyVaultItem]
+    private let items: [VaultItem]
+    private let vaultStore: any VaultStoring
+    private let exportService: ExportService
     private var currentIndex: Int
     private var pageViewController: UIPageViewController!
     private var isNavBarHidden      = false
@@ -44,8 +46,13 @@ final class LegacyFileViewerViewController: UIViewController {
         }
     }
     
-    init(items: [LegacyVaultItem], startingAt index: Int) {
+    /// - Parameters:
+    ///   - vaultStore: the app's vault store, which opens the items and removes their decrypted copies.
+    ///   - exportService: the export sheet for the Share button.
+    init(items: [VaultItem], startingAt index: Int, vaultStore: any VaultStoring, exportService: ExportService) {
         self.items = items
+        self.vaultStore = vaultStore
+        self.exportService = exportService
         self.currentIndex = index
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -72,7 +79,7 @@ final class LegacyFileViewerViewController: UIViewController {
         pageViewController.dataSource = self
         pageViewController.delegate   = self
         
-        let initial = LegacyFilePageViewController(item: items[currentIndex], viewer: self)
+        let initial = LegacyFilePageViewController(item: items[currentIndex], viewer: self, vaultStore: vaultStore)
         pageViewController.setViewControllers([initial], direction: .forward, animated: false)
         
         addChild(pageViewController)
@@ -271,10 +278,9 @@ final class LegacyFileViewerViewController: UIViewController {
         bufferWidthConstraint?.constant = 0
     }
 
-    func updateUI(for item: LegacyVaultItem) {
+    func updateUI(for item: VaultItem) {
         titleLabel.text = item.name
-        let ext = (item.name as NSString).pathExtension.lowercased()
-        videoControls.isHidden = LegacyFileKind(extension: ext) != .video
+        videoControls.isHidden = item.kind != .video
     }
     
     func updatePlayPauseButton(isPlaying: Bool) {
@@ -287,13 +293,13 @@ final class LegacyFileViewerViewController: UIViewController {
     @objc private func close() {
         if let player { removeTimeObserver(from: player) }
         player?.pause()
-        FileSystem.shared.cleanupTempFiles()
+        vaultStore.removeAllTemporaryFiles()
         dismiss(animated: true)
     }
     
     @objc private func exportCurrent() {
         let item = items[currentIndex]
-        ExportService.shared.export(item, from: self, sourceView: navBar)
+        exportService.export(item, from: self, sourceView: navBar)
     }
     
     @objc func togglePlayPause() {
@@ -473,7 +479,7 @@ extension LegacyFileViewerViewController: UIPageViewControllerDataSource {
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
         guard let index = index(of: viewController), index > 0 else { return nil }
-        return LegacyFilePageViewController(item: items[index - 1], viewer: self)
+        return LegacyFilePageViewController(item: items[index - 1], viewer: self, vaultStore: vaultStore)
     }
 
     func pageViewController(
@@ -481,7 +487,7 @@ extension LegacyFileViewerViewController: UIPageViewControllerDataSource {
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
         guard let index = index(of: viewController), index < items.count - 1 else { return nil }
-        return LegacyFilePageViewController(item: items[index + 1], viewer: self)
+        return LegacyFilePageViewController(item: items[index + 1], viewer: self, vaultStore: vaultStore)
     }
 
     /// Neighbours come from the page asked about, not `currentIndex`: the scroll-style pager can ask for the

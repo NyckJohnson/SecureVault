@@ -116,7 +116,7 @@
         "VaultCrypto",
         "Preferences"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -126,8 +126,8 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -137,8 +137,8 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 3,
@@ -160,8 +160,8 @@
             "View/SecuritySettings.swift",
             "View/TextEditor.swift"
           ],
-          "state": "pending",
-          "attempts": 0,
+          "state": "done",
+          "attempts": 1,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-28T04:44:12-07:00",
+  "updatedAt": "2026-10-28T15:43:45-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",

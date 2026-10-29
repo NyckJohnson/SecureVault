@@ -29,6 +29,7 @@ final class MockVaultStoring: VaultStoring {
         case migrateToEncrypted(String)
         case migrateToDecrypted(String)
         case finishDecryption
+        case finishEncryption
         case hasUnencryptedFiles
         case keyMatchesVault
         case sweepOrphans
@@ -285,6 +286,10 @@ final class MockVaultStoring: VaultStoring {
             let count = (state.items + state.trash).filter(\.isEncrypted).count
             if count > 0 { throw VaultStoreError.stillEncrypted(count: count) }
         }
+    }
+
+    func finishEncryption() async throws {
+        try record(.finishEncryption) { _ in }
     }
 
     func hasUnencryptedFiles() async throws -> Bool {
