@@ -286,12 +286,9 @@ nonisolated final class ThumbnailService: Sendable {
     // MARK: - Folder Icon Composition
     private func renderFolderImage(targetSize: CGSize, scale: CGFloat) -> UIImage? {
         let pointSize = targetSize.height * FolderIconLayout.symbolPointSizeRatio
-        guard let baseFolderImage = FileIconProvider.folderImage(pointSize: pointSize) else {
+        guard let folderImage = Self.folderImage(pointSize: pointSize) else {
             return nil
         }
-        let folderImage = FileIconProvider.hasCustomFolderAsset
-        ? baseFolderImage
-        : baseFolderImage.withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
 
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: rendererFormat(scale: scale))
         return renderer.image { _ in
@@ -302,6 +299,20 @@ nonisolated final class ThumbnailService: Sendable {
             folderDrawRect.origin.y += targetSize.height * FolderIconLayout.verticalOffsetRatio
             folderImage.draw(in: folderDrawRect)
         }
+    }
+
+    /// The folder image from SharedUI's `FileIconMapping`: the folder asset when the bundle has it,
+    /// otherwise the yellow `folder.fill` symbol at `pointSize`.
+    private static func folderImage(pointSize: CGFloat) -> UIImage? {
+        let assetIcon = FileIconMapping.icon(for: .other, isDirectory: true, folderAssetAvailable: true)
+        if assetIcon.usesFolderAsset, let asset = UIImage(named: assetIcon.symbolName) {
+            return asset
+        }
+        let symbolIcon = FileIconMapping.icon(for: .other, isDirectory: true, folderAssetAvailable: false)
+        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        return UIImage(systemName: symbolIcon.symbolName)?
+            .withConfiguration(config)
+            .withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
     }
 
     private func composeFolderIcon(thumbnail: UIImage, targetSize: CGSize, scale: CGFloat) -> UIImage {

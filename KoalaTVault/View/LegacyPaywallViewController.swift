@@ -6,7 +6,7 @@
 import UIKit
 import StoreKit
 
-final class LegacyPaywallViewController: UIViewController, ErrorPresenting {
+final class LegacyPaywallViewController: UIViewController, AlertPresenting {
 
     /// Called after a successful purchase or restore, before dismissal.
     var onUnlock: (() -> Void)?

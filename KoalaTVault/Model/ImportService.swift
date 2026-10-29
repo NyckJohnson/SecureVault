@@ -103,7 +103,7 @@ final class ImportService: NSObject {
     // MARK: - Import execution
     private func performImport(from urls: [URL]) {
         guard let viewController = presentingViewController, let directory = targetDirectory else { return }
-        let overlay = ProgressOverlay.show(in: viewController, title: "Importing...")
+        let overlay = ProgressOverlayView.show(in: viewController, title: "Importing...")
         let fileSystem = fileSystem
         Task { @MainActor in
             var importError: Error?
@@ -133,7 +133,7 @@ final class ImportService: NSObject {
                     paywall.modalPresentationStyle = .formSheet
                     viewController.present(paywall, animated: true)
                 } else {
-                    (viewController as? ErrorPresenting)?.showError(error)
+                    (viewController as? AlertPresenting)?.showError(error)
                 }
             }
         }
@@ -169,7 +169,7 @@ extension ImportService: PHPickerViewControllerDelegate {
                 return
             } catch {
                 picker.dismiss(animated: true) {
-                    (viewController as? ErrorPresenting)?.showError(error)
+                    (viewController as? AlertPresenting)?.showError(error)
                 }
                 return
             }
@@ -179,7 +179,7 @@ extension ImportService: PHPickerViewControllerDelegate {
 
     private func importPhotos(_ results: [PHPickerResult], into directory: VaultDirectory, from viewController: UIViewController) {
         presentingViewController?.dismiss(animated: true)
-        let overlay = ProgressOverlay.show(in: viewController, title: "Importing Photos...")
+        let overlay = ProgressOverlayView.show(in: viewController, title: "Importing Photos...")
         fileSystem.importFromCameraRoll(results: results, to: directory) { [weak self] succeededIdentifiers, failed in
             overlay.dismiss()
             self?.completion?()

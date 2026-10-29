@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class LegacySecuritySettingsViewController: UIViewController, ErrorPresenting {
+final class LegacySecuritySettingsViewController: UIViewController, AlertPresenting {
 
     private let authService         = AuthService.shared
     private let proUnlock: any ProUnlocking
@@ -320,7 +320,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
                 return
             }
 
-            let overlay = ProgressOverlay.show(in: self, title: "Setting password…")
+            let overlay = ProgressOverlayView.show(in: self, title: "Setting password…")
             let service = self.authService
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let result = Result<Void, Error> {
@@ -371,7 +371,7 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             }
 
             let service = self.authService
-            let overlay = ProgressOverlay.show(in: self, title: "Changing password…")
+            let overlay = ProgressOverlayView.show(in: self, title: "Changing password…")
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let result = Result<Void, Error> {
                     try service.verifyPassword(current)

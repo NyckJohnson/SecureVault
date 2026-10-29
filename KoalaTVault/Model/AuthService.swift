@@ -415,11 +415,7 @@ final class AuthService {
     // MARK: - Lock Screen
     private func showLockScreen(in window: UIWindow?) {
         guard let root = window?.rootViewController else { return }
-        // find topmost presented view controller
-        var topVC = root
-        while let presented = topVC.presentedViewController {
-            topVC = presented
-        }
+        let topVC = root.topmostPresentedController
 
         guard !(topVC is LegacyLockScreenViewController) else {
             hidePrivacyScreen(in: window)

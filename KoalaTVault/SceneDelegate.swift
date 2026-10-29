@@ -101,12 +101,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private func presentPendingMigration() {
         guard let pending = LegacyStorage.current.preferences.pendingMigration,
               let root = window?.rootViewController else { return }
-        var topVC = root
-        while let presented = topVC.presentedViewController {
-            if presented is LegacyMigrationViewController { return }   // new: check the whole stack
-            topVC = presented
-        }
-        guard !(topVC is LegacyMigrationViewController) else { return }
+        // Check the whole presentation stack, not just its top.
+        let stack = sequence(first: root, next: \.presentedViewController)
+        guard !stack.contains(where: { $0 is LegacyMigrationViewController }) else { return }
+        let topVC = root.topmostPresentedController
         let type = pending.kind
         let targetLockMode = pending.targetLockMode
         let migration = LegacyMigrationViewController(

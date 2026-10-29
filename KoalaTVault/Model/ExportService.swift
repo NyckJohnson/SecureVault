@@ -83,7 +83,7 @@ final class ExportService {
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
         sheet.addAction(UIAlertAction(title: "Save to Files", style: .default) { _ in
-            let overlay = ProgressOverlay.show(in: viewController, title: "Exporting...")
+            let overlay = ProgressOverlayView.show(in: viewController, title: "Exporting...")
             Task { @MainActor in
                 do {
                     let files = try await fileSystem.prepareForExport(items) { progress in
@@ -98,7 +98,7 @@ final class ExportService {
                     viewController.present(picker, animated: true)
                 } catch {
                     overlay.dismiss()
-                    viewController.present(Self.errorAlert(legacyErrorMessage(for: error)), animated: true)
+                    viewController.present(Self.errorAlert(error.localizedDescription), animated: true)
                 }
             }
         })
