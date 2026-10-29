@@ -89,12 +89,36 @@ final class MigrationGate: Sendable {
 
 /// Whether the master key is in memory; shared by the fake lock and the fake store.
 final class MigrationKeyState: Sendable {
-    private let loaded = OSAllocatedUnfairLock(initialState: true)
+    private struct State {
+        var loaded = true
+        var noLock = false
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     var isLoaded: Bool {
-        get { loaded.withLock { $0 } }
-        set { loaded.withLock { $0 = newValue } }
+        get { state.withLock { $0.loaded } }
+        set { state.withLock { $0.loaded = newValue } }
     }
+
+    /// True once the vault has no lock at all (lock mode `.none`): store work then needs no key.
+    var hasNoLock: Bool {
+        get { state.withLock { $0.noLock } }
+        set { state.withLock { $0.noLock = newValue } }
+    }
+
+    /// Whether store work can run: the key is in memory, or there is no lock.
+    var isAvailable: Bool { state.withLock { $0.loaded || $0.noLock } }
+}
+
+/// The store methods whose failure a test can inject (besides per-file failures).
+enum MigrationStoreStep: Hashable {
+    case itemsToMigrate, finishEncryption, finishDecryption
+}
+
+/// The lock methods whose failure a test can inject.
+enum MigrationLockStep: Hashable {
+    case switchMode, removeKeysAfterDecryption
 }
 
 // MARK: - Store
@@ -106,6 +130,7 @@ final class FakeMigrationStore: VaultStoring {
         var listings = 0
         var injections: [Int: [VaultItem]] = [:]
         var failing: [String: VaultStoreError] = [:]
+        var stepFailures: [MigrationStoreStep: VaultStoreError] = [:]
         var finishesInFlightFile = false
     }
 
@@ -147,6 +172,16 @@ final class FakeMigrationStore: VaultStoring {
         state.withLock { $0.failing[name] = error }
     }
 
+    /// The store method keeps failing with this error until cleared (the key is loaded; it is not a lock failure).
+    func setFailure(_ error: VaultStoreError?, forStep step: MigrationStoreStep) {
+        state.withLock { $0.stepFailures[step] = error }
+    }
+
+    /// Adds a file straight away, without waiting for a listing.
+    func add(_ item: VaultItem) {
+        state.withLock { $0.items.append(item) }
+    }
+
     /// Makes the file appear from the given (1-based) `itemsToMigrate` call on.
     func inject(_ item: VaultItem, atListing listing: Int) {
         state.withLock { $0.injections[listing, default: []].append(item) }
@@ -165,6 +200,7 @@ final class FakeMigrationStore: VaultStoring {
             return state.listings
         }
         await gate.pass("list:\(listing)")
+        if let error = state.withLock({ $0.stepFailures[.itemsToMigrate] }) { throw error }
         return items.filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
     }
 
@@ -181,7 +217,7 @@ final class FakeMigrationStore: VaultStoring {
         log.add("\(tag):\(item.name)")
         await gate.pass("migrate:\(item.name)")
         let finishes = state.withLock { $0.finishesInFlightFile }
-        if !key.isLoaded && !finishes { throw VaultStoreError.locked }
+        if !key.isAvailable && !finishes { throw VaultStoreError.locked }
         if let error = state.withLock({ $0.failing[item.name] }) { throw error }
         try state.withLock { state in
             guard let index = state.items.firstIndex(where: { $0.id == item.id }) else {
@@ -199,7 +235,8 @@ final class FakeMigrationStore: VaultStoring {
     func finishDecryption() async throws {
         log.add("finishDecryption")
         await gate.pass("finishDecryption")
-        guard key.isLoaded else { throw VaultStoreError.locked }
+        guard key.isAvailable else { throw VaultStoreError.locked }
+        if let error = state.withLock({ $0.stepFailures[.finishDecryption] }) { throw error }
         let remaining = items.filter(\.isEncrypted).count
         if remaining > 0 { throw VaultStoreError.stillEncrypted(count: remaining) }
     }
@@ -207,7 +244,8 @@ final class FakeMigrationStore: VaultStoring {
     func finishEncryption() async throws {
         log.add("finishEncryption")
         await gate.pass("finishEncryption")
-        guard key.isLoaded else { throw VaultStoreError.locked }
+        guard key.isAvailable else { throw VaultStoreError.locked }
+        if let error = state.withLock({ $0.stepFailures[.finishEncryption] }) { throw error }
     }
 
     // The rest of the store is not used by a migration.
@@ -315,6 +353,7 @@ final class FakeMigrationLock: VaultLocking {
     private let gate: MigrationGate
     private let key: MigrationKeyState
     private(set) var state: LockState
+    private var failures: [MigrationLockStep: VaultLockError] = [:]
 
     var lockMode: LockMode { preferences.lockMode }
     var biometricKind = BiometricKind.faceID
@@ -334,6 +373,12 @@ final class FakeMigrationLock: VaultLocking {
             state = unlocked ? .unlocked : .locked
         }
         key.isLoaded = state != .locked
+        key.hasNoLock = state == .open
+    }
+
+    /// The lock method keeps failing with this error until cleared.
+    func setFailure(_ error: VaultLockError?, forStep step: MigrationLockStep) {
+        failures[step] = error
     }
 
     /// The app went to the background: the key disappears.
@@ -351,13 +396,19 @@ final class FakeMigrationLock: VaultLocking {
     func removeKeysAfterDecryption() async throws {
         log.add("removeKeys")
         await gate.pass("removeKeys:before")
+        if let error = failures[.removeKeysAfterDecryption] { throw error }
         preferences.lockMode = .none
-        key.isLoaded = true
+        key.isLoaded = false
+        key.hasNoLock = true
         state = .open
         await gate.pass("removeKeys:after")
     }
 
+    /// As the real lock: a key is required, and neither the current nor the new mode may be `.none`.
     func switchMode(to mode: LockMode) async throws {
+        log.add("switchMode:\(mode.rawValue)")
+        if let error = failures[.switchMode] { throw error }
+        guard key.isLoaded, mode != .none, preferences.lockMode != .none else { throw VaultLockError.notUnlocked }
         preferences.lockMode = mode
     }
 
