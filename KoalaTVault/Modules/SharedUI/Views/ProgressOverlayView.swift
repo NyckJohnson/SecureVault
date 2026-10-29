@@ -106,26 +106,24 @@ final class ProgressOverlayView: UIView {
         containerView.addSubview(statusLabel)
         containerView.addSubview(cancelButton)
 
-        NSLayoutConstraint.activate([
-            containerView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            containerView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            containerView.widthAnchor.constraint(equalToConstant: 300),
+        // Built by appends rather than one array literal: swift-format and swiftlint disagree on
+        // the trailing comma of a multiline literal.
+        var constraints: [NSLayoutConstraint] = []
+        constraints.append(containerView.centerXAnchor.constraint(equalTo: centerXAnchor))
+        constraints.append(containerView.centerYAnchor.constraint(equalTo: centerYAnchor))
+        constraints.append(containerView.widthAnchor.constraint(equalToConstant: 300))
 
-            titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 24),
-            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+        constraints.append(titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 24))
+        constraints.append(progressBar.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16))
+        constraints.append(statusLabel.topAnchor.constraint(equalTo: progressBar.bottomAnchor, constant: 8))
+        for row: UIView in [titleLabel, progressBar, statusLabel] {
+            constraints.append(row.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16))
+            constraints.append(row.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16))
+        }
 
-            progressBar.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-            progressBar.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-            progressBar.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-
-            statusLabel.topAnchor.constraint(equalTo: progressBar.bottomAnchor, constant: 8),
-            statusLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
-            statusLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-
-            cancelButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 16),
-            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16)
-        ])
+        constraints.append(cancelButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 16))
+        constraints.append(cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor))
+        constraints.append(cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -16))
+        NSLayoutConstraint.activate(constraints)
     }
 }
