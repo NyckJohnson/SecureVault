@@ -225,7 +225,8 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
 
     // MARK: - Actions
     @objc private func openSettings() {
-        let settings = LegacySecuritySettingsViewController(vaultStore: vaultStore, vaultLock: services.vaultLock)
+        let settings = LegacySecuritySettingsViewController(
+            vaultStore: vaultStore, vaultLock: services.vaultLock, lockMigrator: services.lockMigrator)
         let nav = UINavigationController(rootViewController: settings)
         nav.modalPresentationStyle = .formSheet
         present(nav, animated: true)

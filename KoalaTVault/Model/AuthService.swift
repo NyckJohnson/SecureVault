@@ -5,9 +5,8 @@
 //  Created by Nicholas Johnson on 7/12/26.
 //
 //  What is left of the legacy auth service once VaultLock owns the key lifecycle and the lock state:
-//  presenting the lock screen and the privacy cover (until LockScreens replaces it), the launch recovery
-//  of an interrupted encryption, and the end of a migration (until LockMigration replaces it). Every lock
-//  operation goes through the app's one `VaultLocking`.
+//  presenting the lock screen and the privacy cover and the launch recovery of an interrupted encryption
+//  (until LockScreens replaces them). Every lock operation goes through the app's one `VaultLocking`.
 //
 
 import Foundation
@@ -40,31 +39,6 @@ extension VaultLockError {
         case .biometricCancelled, .biometryLockedOut, .biometryNotEnrolled, .passcodeNotSet, .biometricChanged:
             return "Biometric authentication failed"
         case .keychain(let status): return "A Keychain error occurred (\(status))."
-        }
-    }
-}
-
-// MARK: - Migration completion (LockMigration's part)
-
-/// The end of a legacy migration screen's run, until LockMigration replaces it.
-@MainActor
-enum LegacyMigrationCompletion {
-    private static let logger = Logger(subsystem: "com.KoalaTVault", category: "AuthService")
-
-    /// Finishes a migration that `completedFully`: a decrypt removes the keys and the lock through `vaultLock`.
-    ///
-    /// An encrypt needs nothing here: the lock was added before the encryption started
-    /// (`VaultLocking.prepareToAddLock`), so the lock mode already is the target. A migration that didn't
-    /// complete fully changes nothing (a skipped decrypt keeps the lock and keys).
-    /// - Throws: the `VaultLockError` of `removeKeysAfterDecryption`; the steps it didn't reach are left as
-    ///   they were, and calling it again redoes them.
-    static func finalize(type: MigrationKind, completedFully: Bool, vaultLock: any VaultLocking) async throws {
-        guard completedFully, type == .decrypt else { return }
-        do {
-            try await vaultLock.removeKeysAfterDecryption()
-        } catch {
-            logger.error("Removing the keys after decryption failed: \(String(describing: error), privacy: .public)")
-            throw error
         }
     }
 }

@@ -237,28 +237,33 @@ nonisolated struct LegacyStorage: Sendable {
     }
 }
 
-// MARK: - Failing migration store (-uiTesting)
+// MARK: - Slow migration store (-uiTesting)
 
-/// A `VaultStoring` that forwards everything to `base`, except that migrating the file named
-/// `failingFileName` (either direction) fails with `VaultCryptoError.encryptionFailed`, as the legacy
-/// app's `UITEST_FAIL_MIGRATION_FILE` hook did. Built only in `-uiTesting` mode, never in the module.
-nonisolated struct FailingMigrationVaultStore: VaultStoring {
+/// A `VaultStoring` that forwards everything to `base`, except that migrating a file (either direction)
+/// first waits `delay`, as the legacy app's `UITEST_MIGRATION_FILE_DELAY` hook did, so a UI test can
+/// background or lock mid-migration. Built only in `-uiTesting` mode, never in a module.
+nonisolated struct SlowMigrationVaultStore: VaultStoring {
     let base: any VaultStoring
-    let failingFileName: String
+    let delay: Duration
 
     var root: VaultDirectory { base.root }
 
-    private func throwIfFailing(_ item: VaultItem) throws {
-        if item.name == failingFileName { throw VaultCryptoError.encryptionFailed }
+    /// Waits before a file's migration. A cancelled wait just migrates sooner.
+    private func waitBeforeMigrating() async {
+        do {
+            try await Task.sleep(for: delay)
+        } catch {
+            // Cancellation only; nothing in the app cancels a migration.
+        }
     }
 
     func migrateToEncrypted(_ item: VaultItem) async throws {
-        try throwIfFailing(item)
+        await waitBeforeMigrating()
         try await base.migrateToEncrypted(item)
     }
 
     func migrateToDecrypted(_ item: VaultItem) async throws {
-        try throwIfFailing(item)
+        await waitBeforeMigrating()
         try await base.migrateToDecrypted(item)
     }
 
@@ -321,6 +326,8 @@ struct LegacyBrowserServices {
     let exportService: ExportService
     /// The app's one vault lock (lock state, lock mode, settings).
     let vaultLock: any VaultLocking
+    /// The app's one lock migration (Settings adds and removes the lock through it).
+    let lockMigrator: any LockMigrating
 }
 
 // MARK: - Composition root
@@ -341,7 +348,7 @@ final class AppDependencies {
     /// inert, always-locked stand-in with no StoreKit calls.
     let proUnlock: any ProUnlocking
     /// The app's one vault store over `storage.vaultRootURL` (Documents normally; the temporary vault in
-    /// `-uiTesting` mode, where `UITEST_FAIL_MIGRATION_FILE` wraps it in `FailingMigrationVaultStore`).
+    /// `-uiTesting` mode, where `UITEST_MIGRATION_FILE_DELAY` wraps it in `SlowMigrationVaultStore`).
     let vaultStore: any VaultStoring
     /// Legacy import and export over `vaultStore`, until the Import and Export modules replace them.
     let legacyTransfers: FileSystem
@@ -356,11 +363,15 @@ final class AppDependencies {
     let vaultLock: any VaultLocking
     /// The legacy lock screen and privacy cover presenter, over `vaultLock`, until LockScreens replaces it.
     let authService: AuthService
+    /// The app's one lock migration, over `vaultStore`, `vaultLock` and the preferences. In `-uiTesting` mode
+    /// `UITEST_FAIL_MIGRATION_FILE` names the file it fails.
+    let lockMigrator: any LockMigrating
     /// What the legacy browser screens are built with.
     var browserServices: LegacyBrowserServices {
         LegacyBrowserServices(
             vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails,
-            importService: importService, exportService: exportService, vaultLock: vaultLock)
+            importService: importService, exportService: exportService, vaultLock: vaultLock,
+            lockMigrator: lockMigrator)
     }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
@@ -383,8 +394,8 @@ final class AppDependencies {
             temporaryRoot: FileManager.default.temporaryDirectory
         )
         let vaultStore: any VaultStoring
-        if let failingFileName = storage.uiTestSettings?.failMigrationFileName {
-            vaultStore = FailingMigrationVaultStore(base: liveStore, failingFileName: failingFileName)
+        if let seconds = storage.uiTestSettings?.migrationFileDelay, seconds > 0 {
+            vaultStore = SlowMigrationVaultStore(base: liveStore, delay: .seconds(seconds))
         } else {
             vaultStore = liveStore
         }
@@ -414,6 +425,10 @@ final class AppDependencies {
         self.vaultLock = vaultLock
         authService = AuthService(
             vaultLock: vaultLock, preferences: storage.preferences, keyStore: storage.masterKeyStore)
+        // `uiTestSettings` is non-nil only in `-uiTesting` mode, so the failing file is a UI-test hook only.
+        lockMigrator = LiveLockMigrator(
+            store: vaultStore, lock: vaultLock, preferences: storage.preferences,
+            uiTestFailFileName: storage.uiTestSettings?.failMigrationFileName)
     }
 
     /// `UITEST_PASSWORD`: the empty test vault starts set up with `password` and lock mode password, as after

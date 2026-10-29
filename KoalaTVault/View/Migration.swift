@@ -4,8 +4,10 @@
 //
 //  Created by Nicholas Johnson on 7/12/26.
 //
+//  The Migration screen. It only shows what the app's one `LockMigrating` reports and forwards the user's
+//  Retry and Skip; the migration itself (files, pause and resume, the pending record) lives in LockMigration.
+//
 
-import os
 import UIKit
 
 final class LegacyMigrationViewController: UIViewController, AlertPresenting {
@@ -14,102 +16,85 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
     typealias MigrationType = MigrationKind
 
     private let type: MigrationType
+    private let migrator: any LockMigrating
+    /// What the presenter wants the migrator to do (start, or resume a pending one); run once, on first appearance.
+    private let begin: @MainActor (any LockMigrating) async -> Void
     private let onComplete: (_ completedFully: Bool) -> Void
 
     private let titleLabel    = UILabel()
     private let progressBar   = UIProgressView(progressViewStyle: .default)
     private let statusLabel   = UILabel()
 
-    private var filesToMigrate: [VaultItem] = []
-    private var failedFiles: [(item: VaultItem, error: Error)] = []
-    private var currentIndex      = 0
-    private var isPaused          = false
-    private let targetLockMode: LockMode?
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
-    private let vaultStore: any VaultStoring
-    private let vaultLock: any VaultLocking
-    /// Follows the vault lock's state, to resume after an unlock.
-    private var lockStateObservation: Task<Void, Never>?
-    private var migrationTask: Task<Void, Never>?
-    /// True while a `runMigration` loop is executing; at most one loop runs per screen.
-    private var isLoopRunning = false
-    /// Set when the closing index cleanup of a decrypt migration failed; a Skip then reports
-    /// the migration as not completed, so the key and lock are kept.
-    private var decryptCleanupFailed = false
-    /// False until the scan of files to migrate has succeeded; the scan needs the key, so a
-    /// migration that starts (or is retried) while locked scans after the unlock.
-    private var filesLoaded = false
-    /// Counts backgroundings and data-protection losses. A file that fails while this changed
-    /// failed because of the interruption, not because of the file, and is run again.
-    private var interruptions = 0
-    /// Reruns of the current file after interrupted failures; bounded so a file that keeps
-    /// failing is reported instead of looping.
-    private var transientRetries = 0
-    private static let maxTransientRetries = 2
-    private let logger = Logger(subsystem: "com.KoalaTVault", category: "Migration")
+    /// Follows the migrator's phase; subscribed at init, so no change after `begin` is missed.
+    private var phaseObservation: Task<Void, Never>?
+    private var beginTask: Task<Void, Never>?
+    /// The failure alert currently shown, so a later phase can take it away.
+    private weak var failureAlert: UIAlertController?
+    private var isFinishing = false
+    /// A failure reported before the screen was on screen; shown once it appears.
+    private var failureAwaitingAppearance: [String]?
 
     /// - Parameters:
-    ///   - type: encrypt or decrypt the whole vault (trash included).
-    ///   - vaultStore: the app's vault store, which runs each step.
-    ///   - vaultLock: the app's vault lock; an unlock resumes a paused migration.
-    ///   - targetLockMode: the lock mode once an encryption completes (nil keeps a saved one).
+    ///   - type: encrypt or decrypt the whole vault (trash included); sets the title.
+    ///   - migrator: the app's one lock migration, which this screen shows.
+    ///   - begin: called once when the screen first appears, e.g. `start(_:target:)` or `resumeIfPending()`.
+    ///   - onComplete: called after the screen is dismissed on `.completed(fully:)`, with `fully`.
     init(
         type: MigrationType,
-        vaultStore: any VaultStoring,
-        vaultLock: any VaultLocking,
-        targetLockMode: LockMode? = nil,
+        migrator: any LockMigrating,
+        begin: @escaping @MainActor (any LockMigrating) async -> Void,
         onComplete: @escaping (_ completedFully: Bool) -> Void
     ) {
         self.type = type
-        self.vaultStore = vaultStore
-        self.vaultLock = vaultLock
-        self.targetLockMode = targetLockMode
+        self.migrator = migrator
+        self.begin = begin
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
+        observePhase()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit {
+        phaseObservation?.cancel()
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupUI()
-        observeLockState()
-        let center = NotificationCenter.default
-        // Any of these can make work possible again (key loaded, files readable).
-        for name in [UIApplication.didBecomeActiveNotification,
-                     UIApplication.protectedDataDidBecomeAvailableNotification] {
-            center.addObserver(self, selector: #selector(resumeIfPossible), name: name, object: nil)
-        }
-        for name in [UIApplication.didEnterBackgroundNotification,
-                     UIApplication.protectedDataWillBecomeUnavailableNotification] {
-            center.addObserver(self, selector: #selector(noteInterruption), name: name, object: nil)
-        }
-    }
-
-    deinit {
-        lockStateObservation?.cancel()
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    /// Resumes a paused migration whenever the vault becomes unlocked (or open). The stream yields changes
-    /// only; the current state needs nothing here, since nothing is paused before the migration starts.
-    private func observeLockState() {
-        let updates = vaultLock.stateUpdates()
-        lockStateObservation = Task { [weak self] in
-            for await state in updates where state != .locked {
-                self?.resumeIfPossible()
-            }
+        // A run already under way (e.g. a resume) shows at once. An old `.completed` or `.idle` belongs to an
+        // earlier migration: the screen waits for this one's phases instead.
+        switch migrator.phase {
+        case .running, .paused, .failed: render(migrator.phase)
+        case .idle, .completed: break
         }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Appears again when a lock screen is dismissed over it; the migration is already
-        // under way then (running or paused), and unlocking resumes it via resumeIfPossible.
-        guard migrationTask == nil else { return }
-        startMigration()
+        if let names = failureAwaitingAppearance {
+            failureAwaitingAppearance = nil
+            presentFailureSummary(names: names)
+        }
+        // Appears again when a lock screen is dismissed over it; the migration is already under way then
+        // (running or paused), and the unlock resumes it through `resumeIfPending`.
+        guard beginTask == nil else { return }
+        let migrator = migrator
+        let begin = begin
+        beginTask = Task { await begin(migrator) }
+    }
+
+    /// The stream yields changes only; `viewDidLoad` renders the phase at hand.
+    private func observePhase() {
+        let updates = migrator.phaseUpdates()
+        phaseObservation = Task { [weak self] in
+            for await phase in updates {
+                self?.render(phase)
+            }
+        }
     }
 
     private func setupUI() {
@@ -149,207 +134,48 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
         ])
     }
 
-    private func startMigration() {
-        let preferences = LegacyStorage.current.preferences
-        // Keeps an already-saved target when this screen has none (a resume passes it back).
-        let target = targetLockMode ?? preferences.pendingMigration?.targetLockMode
-        preferences.pendingMigration = PendingMigration(kind: type, targetLockMode: target)
-        beginBackgroundTask()
-        migrationTask = Task { await runMigration() }
-    }
+    // MARK: - Phases
 
-    /// Work needs the key (wiped when the app backgrounds under a lock) and readable files
-    /// (data protection closes them while the device is locked).
-    private var canMigrate: Bool {
-        LegacyStorage.current.masterKeyStore.isKeyLoaded && UIApplication.shared.isProtectedDataAvailable
-    }
-
-    /// Scans for files (once per run or Retry), then migrates them one at a time. Pauses
-    /// whenever work isn't possible; nothing is counted as failed for that. State stays on the
-    /// main actor; only the file I/O runs in the background.
-    private func runMigration() async {
-        guard !isLoopRunning else { return }
-        isLoopRunning = true
-        defer { isLoopRunning = false }
-        guard await loadFilesIfNeeded() else { return }
-        while currentIndex < filesToMigrate.count {
-            await delayForUITests()
-            guard canMigrate else {
-                pauseMigration()
-                return
-            }
-            let item = filesToMigrate[currentIndex]
-            let interruptionsBefore = interruptions
-            do {
-                try await Self.migrate(item, with: vaultStore, encrypt: type == .encrypt)
-            } catch {
-                if wasInterrupted(by: error, since: interruptionsBefore) {
-                    // Each file's migration is safe to rerun from any point, so run it again.
-                    guard canMigrate else {
-                        pauseMigration()
-                        return
-                    }
-                    if transientRetries < Self.maxTransientRetries {
-                        transientRetries += 1
-                        continue
-                    }
-                }
-                failedFiles.append((item: item, error: error))
-            }
-            transientRetries = 0
-            currentIndex += 1
-            showProgress()
-        }
-        if type == .encrypt {
-            guard await secureLeftoverIndexes() else { return }
-        }
-        if type == .decrypt && failedFiles.isEmpty {
-            guard await finishDecryption() else { return }
-        }
-        finishOrShowFailures()
-    }
-
-    /// Scans for the files to migrate unless this run already has. Returns false when the run
-    /// stopped here: paused (no key or files unreadable), or the scan-failure alert is shown.
-    private func loadFilesIfNeeded() async -> Bool {
-        guard !filesLoaded else { return true }
-        guard canMigrate else {
-            pauseMigration()
-            return false
-        }
-        do {
-            filesToMigrate = try await vaultStore.itemsToMigrate(toEncrypted: type == .encrypt)
-        } catch {
-            if canMigrate {
-                presentLoadFailure(error)
+    private func render(_ phase: MigrationPhase) {
+        guard !isFinishing else { return }
+        switch phase {
+        case .idle:
+            break
+        case .running(let done, let total):
+            dismissFailureAlert()
+            beginBackgroundTask()
+            showProgress(done: done, total: total)
+        case .paused(let done, let total):
+            dismissFailureAlert()
+            endBackgroundTask()
+            setProgress(done: done, total: total)
+            statusLabel.text = "Paused — unlock to continue"
+        case .failed(let names):
+            endBackgroundTask()
+            if viewIfLoaded?.window == nil {
+                failureAwaitingAppearance = names
             } else {
-                pauseMigration()
+                presentFailureSummary(names: names)
             }
-            return false
-        }
-        filesLoaded = true
-        currentIndex = 0
-        transientRetries = 0
-        return true
-    }
-
-    /// True when a file's failure came from an interruption (backgrounding, device lock, key
-    /// wipe) rather than from the file.
-    private func wasInterrupted(by error: Error, since interruptionsBefore: Int) -> Bool {
-        interruptions != interruptionsBefore || !canMigrate
-            || (error as? VaultStoreError) == .locked || (error as? VaultCryptoError) == .noKeyLoaded
-    }
-
-    private func showProgress() {
-        guard !filesToMigrate.isEmpty else { return }
-        let progress = Double(currentIndex) / Double(filesToMigrate.count)
-        progressBar.setProgress(Float(progress), animated: true)
-        statusLabel.text = "\(Int(progress * 100))% complete"
-    }
-
-    /// Last step of an encrypt migration: re-saves encrypted any folder index an older build
-    /// left in plaintext. Returns false when it paused (key wiped); a failure with the key loaded
-    /// is logged and doesn't stop the migration: every file is safe, and the next save of that
-    /// folder's index encrypts it.
-    private func secureLeftoverIndexes() async -> Bool {
-        do {
-            try await vaultStore.finishEncryption()
-        } catch {
-            guard canMigrate else {
-                pauseMigration()
-                return false
-            }
-            logger.error("Re-encrypting folder indexes failed: \(error.localizedDescription, privacy: .public)")
-        }
-        return true
-    }
-
-    /// `UITEST_MIGRATION_FILE_DELAY`: waits before each file so a UI test can background mid-run.
-    private func delayForUITests() async {
-        guard let seconds = LegacyStorage.current.uiTestSettings?.migrationFileDelay, seconds > 0 else { return }
-        // Sleeping only throws on cancellation, which nothing here requests.
-        try? await Task.sleep(for: .seconds(seconds))
-    }
-
-    /// The scan failed with the key loaded (e.g. a damaged folder index). Never a dead end:
-    /// Retry scans again; Close leaves the migration pending, so it resumes after the next unlock.
-    private func presentLoadFailure(_ error: Error) {
-        statusLabel.text = "Couldn't prepare the files"
-        let alert = UIAlertController(
-            title: "Couldn't Prepare Files",
-            message: error.localizedDescription,
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-            self?.retryFailedFiles()
-        })
-        alert.addAction(UIAlertAction(title: "Close", style: .cancel) { [weak self] _ in
-            self?.closeLeavingPending()
-        })
-        present(alert, animated: true)
-    }
-
-    private func closeLeavingPending() {
-        endBackgroundTask()
-        dismiss(animated: true) { [onComplete] in
-            onComplete(false)
+        case .completed(let fully):
+            dismissFailureAlert()
+            finishMigration(completedFully: fully)
         }
     }
 
-    /// Last step of a decrypt migration, run while the key is still loaded: deletes every folder's
-    /// index (and rewrites the trash map as plaintext), so the vault lists once the key is removed.
-    /// Files still encrypted (e.g. added since the scan) fail it with `.stillEncrypted`; Retry scans
-    /// again and decrypts them. Returns false when the run stopped here (paused for a key wipe, or
-    /// the failure alert is shown); the caller must then not finish.
-    private func finishDecryption() async -> Bool {
-        guard LegacyStorage.current.masterKeyStore.isKeyLoaded else {
-            pauseMigration()
-            return false
-        }
-        do {
-            try await vaultStore.finishDecryption()
-            decryptCleanupFailed = false
-            return true
-        } catch {
-            if !LegacyStorage.current.masterKeyStore.isKeyLoaded {
-                // The key was wiped mid-cleanup; unlocking resumes it.
-                pauseMigration()
-            } else {
-                decryptCleanupFailed = true
-                presentCleanupFailure(error)
-            }
-            return false
-        }
+    private func showProgress(done: Int, total: Int) {
+        guard total > 0 else { return }
+        setProgress(done: done, total: total)
+        statusLabel.text = "\(done * 100 / total)% complete"
     }
 
-    private func presentCleanupFailure(_ error: Error) {
-        let alert = UIAlertController(
-            title: "Some Files Failed",
-            message: error.localizedDescription,
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-            self?.retryFailedFiles()
-        })
-        alert.addAction(UIAlertAction(title: "Skip", style: .default) { [weak self] _ in
-            self?.finishMigration()
-        })
-        present(alert, animated: true)
+    private func setProgress(done: Int, total: Int) {
+        guard total > 0 else { return }
+        progressBar.setProgress(Float(done) / Float(total), animated: true)
     }
 
-    private static func migrate(_ item: VaultItem, with vaultStore: any VaultStoring, encrypt: Bool) async throws {
-        if encrypt {
-            try await vaultStore.migrateToEncrypted(item)
-        } else {
-            try await vaultStore.migrateToDecrypted(item)
-        }
-    }
-
-    private func finishMigration() {
-        let completedFully = failedFiles.isEmpty && !decryptCleanupFailed
-        if completedFully {
-            LegacyStorage.current.preferences.pendingMigration = nil
-        }
+    private func finishMigration(completedFully: Bool) {
+        isFinishing = true
         endBackgroundTask()
         progressBar.setProgress(1.0, animated: true)
         statusLabel.text = "Complete"
@@ -361,71 +187,46 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
         }
     }
 
-    private func finishOrShowFailures() {
-        if failedFiles.isEmpty {
-            finishMigration()
-        } else {
-            presentFailureSummary()
-        }
-    }
-
-    private func presentFailureSummary() {
-        let names = failedFiles.map { $0.item.name }.joined(separator: ", ")
-        let alert = UIAlertController(
-            title: "Some Files Failed",
-            message: "These files couldn't be migrated: \(names)",
-            preferredStyle: .alert
-        )
+    /// The failure summary. `names` is empty when a step other than a file failed (listing the files, or a
+    /// closing step); the screen then says so generically, and the error itself is only logged.
+    private func presentFailureSummary(names: [String]) {
+        dismissFailureAlert()
+        let message = names.isEmpty
+            ? "The migration couldn't finish. Retry, or Skip to stop for now."
+            : "These files couldn't be migrated: \(names.joined(separator: ", "))"
+        let alert = UIAlertController(title: "Some Files Failed", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
             self?.retryFailedFiles()
         })
         alert.addAction(UIAlertAction(title: "Skip", style: .default) { [weak self] _ in
-            self?.finishMigration()
+            self?.skipFailedFiles()
         })
+        failureAlert = alert
         present(alert, animated: true)
     }
 
-    /// Scans again rather than reusing the failed list, so whatever state an earlier attempt
-    /// left (a file already finished, a leftover copy) is picked up from disk.
+    private func dismissFailureAlert() {
+        failureAwaitingAppearance = nil
+        guard let failureAlert, failureAlert.presentingViewController != nil else { return }
+        failureAlert.dismiss(animated: false)
+        self.failureAlert = nil
+    }
+
     private func retryFailedFiles() {
-        failedFiles = []
-        filesLoaded = false
-        currentIndex = 0
-        transientRetries = 0
-        beginBackgroundTask()
-        migrationTask = Task { await runMigration() }
+        Task { [migrator] in await migrator.retryFailed() }
     }
 
-    private func pauseMigration() {
-        guard !isPaused else { return }
-        isPaused = true
-        endBackgroundTask()
-        statusLabel.text = "Paused — unlock to continue"
+    private func skipFailedFiles() {
+        Task { [migrator] in await migrator.skipFailed() }
     }
 
-    @objc private func resumeIfPossible() {
-        guard isPaused, !isLoopRunning, canMigrate else { return }
-        isPaused = false
-        transientRetries = 0
-        if filesLoaded {
-            showProgress()
-        } else {
-            statusLabel.text = "Preparing..."
-        }
-        beginBackgroundTask()
-        migrationTask = Task { await runMigration() }
-    }
-
-    @objc private func noteInterruption() {
-        interruptions += 1
-    }
+    // MARK: - Background time
 
     private func beginBackgroundTask() {
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "MigrationCompletion") { [weak self] in
-            // Expiration handler: time is nearly up. Nothing needs aborting: each file's
-            // migration is safe to interrupt, a suspended file is rerun on resume, and
-            // pendingMigration (already persisted) drives resume on the next launch.
+            // Expiration handler: time is nearly up. Nothing needs aborting: the migrator pauses on the key
+            // wipe, and its persisted pending record drives the resume after the next unlock.
             self?.endBackgroundTask()
         }
     }
@@ -435,16 +236,13 @@ final class LegacyMigrationViewController: UIViewController, AlertPresenting {
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
     }
-    
+
 #if DEBUG
-    var testFailedFileNames: [String] { failedFiles.map { $0.item.name } }
-    var testIsPaused: Bool { isPaused }
     var testStatusText: String? { statusLabel.text }
-    var testMigrationTask: Task<Void, Never>? { migrationTask }
 
     /// Directly invokes what the "Retry"/"Skip" alert actions do, bypassing UIAlertController
     /// entirely — avoids relying on undocumented private API to simulate a tap.
     func testTapRetry() { retryFailedFiles() }
-    func testTapSkip() { finishMigration() }
+    func testTapSkip() { skipFailedFiles() }
 #endif
 }

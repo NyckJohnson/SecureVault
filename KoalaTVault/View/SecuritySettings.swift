@@ -12,21 +12,25 @@ final class LegacySecuritySettingsViewController: UIViewController, AlertPresent
     private let vaultLock: any VaultLocking
     private let proUnlock: any ProUnlocking
     private let vaultStore: any VaultStoring
+    private let lockMigrator: any LockMigrating
     private var tableView: UITableView!
     private var hasUnencryptedFiles = false
     private var entitlementObservation: Task<Void, Never>?
 
     /// - Parameters:
-    ///   - vaultStore: the app's vault store (unencrypted-file check, trash, migrations).
+    ///   - vaultStore: the app's vault store (unencrypted-file check, trash).
     ///   - vaultLock: the app's vault lock (lock mode, password, biometrics).
+    ///   - lockMigrator: the app's one lock migration, which adds and removes the lock's encryption.
     ///   - proUnlock: the "Unlock Pro" entitlement (the app's one, from the composition root, by default).
     init(
         vaultStore: any VaultStoring,
         vaultLock: any VaultLocking,
+        lockMigrator: any LockMigrating,
         proUnlock: any ProUnlocking = LegacyStorage.current.proUnlock
     ) {
         self.vaultStore = vaultStore
         self.vaultLock = vaultLock
+        self.lockMigrator = lockMigrator
         self.proUnlock = proUnlock
         super.init(nibName: nil, bundle: nil)
     }
@@ -216,12 +220,15 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
 #endif
 
     private func reEncryptRemainingFiles() {
-        // The lock is already on, so an encryption needs nothing more when it finishes.
+        // The lock is already on, so the encryption needs no target; a pending encrypt's target is kept.
+        let pending = lockMigrator.pending
+        let target = pending?.kind == .encrypt ? pending?.targetLockMode : nil
         let migration = LegacyMigrationViewController(
-            type: .encrypt, vaultStore: vaultStore, vaultLock: vaultLock
-        ) { [weak self] _ in
-            self?.refreshUnencryptedFilesState { self?.tableView.reloadData() }
-        }
+            type: .encrypt, migrator: lockMigrator,
+            begin: { await $0.start(.encrypt, target: target) },
+            onComplete: { [weak self] _ in
+                self?.refreshUnencryptedFilesState { self?.tableView.reloadData() }
+            })
         present(migration, animated: true)
     }
 
@@ -235,20 +242,14 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
             alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { [weak self] _ in
                 guard let self else { return }
+                // The migrator removes the keys and the lock once every file is decrypted; a failure there
+                // shows on the Migration screen, and Skip keeps the lock and keys.
                 let migration = LegacyMigrationViewController(
-                    type: .decrypt, vaultStore: self.vaultStore, vaultLock: self.vaultLock, targetLockMode: mode
-                ) { [weak self] completedFully in
-                    guard let self else { return }
-                    Task { [weak self, vaultLock = self.vaultLock] in
-                        do {
-                            try await LegacyMigrationCompletion.finalize(
-                                type: .decrypt, completedFully: completedFully, vaultLock: vaultLock)
-                        } catch {
-                            self?.showError((error as? VaultLockError)?.legacyMessage ?? error.localizedDescription)
-                        }
+                    type: .decrypt, migrator: self.lockMigrator,
+                    begin: { await $0.start(.decrypt, target: nil) },
+                    onComplete: { [weak self] _ in
                         self?.refreshUnencryptedFilesState { self?.tableView.reloadData() }
-                    }
-                }
+                    })
                 self.present(migration, animated: true)
             })
             present(alert, animated: true)
@@ -256,28 +257,29 @@ extension LegacySecuritySettingsViewController: UITableViewDelegate {
             // Adding a lock from No Lock always asks for a password, even if a key blob from an earlier
             // install exists: the vault lock replaces it (empty vault) or checks it.
             // Password + Face ID: lock with the password and encrypt first, then enable Face ID, but only if
-            // every file was encrypted. Otherwise (Close or Skip with failed files) the pending migration
-            // targets Password and resumes on the next unlock, so the vault stays Password with no
-            // biometric item and the user is told why.
+            // every file was encrypted. Otherwise (Skip with failed files) the vault stays Password with no
+            // biometric item and the user is told why; after a kill the pending migration targets Password
+            // and resumes on the next unlock.
             // If enabling Face ID fails, the vault stays locked with Password and the error shows.
             promptSetPassword(for: mode) { [weak self] in
                 guard let self else { return }
                 let migration = LegacyMigrationViewController(
-                    type: .encrypt, vaultStore: self.vaultStore, vaultLock: self.vaultLock, targetLockMode: .password
-                ) { [weak self] completedFully in
-                    guard let self else { return }
-                    if mode == .passwordAndBiometrics {
-                        if completedFully {
-                            self.enableBiometricsAfterAddingLock()
-                        } else {
-                            self.showError(
-                                "Face ID wasn't turned on because some files aren't encrypted yet. "
-                                    + "Use Re-encrypt Everything, then turn on Face ID."
-                            )
+                    type: .encrypt, migrator: self.lockMigrator,
+                    begin: { await $0.start(.encrypt, target: .password) },
+                    onComplete: { [weak self] completedFully in
+                        guard let self else { return }
+                        if mode == .passwordAndBiometrics {
+                            if completedFully {
+                                self.enableBiometricsAfterAddingLock()
+                            } else {
+                                self.showError(
+                                    "Face ID wasn't turned on because some files aren't encrypted yet. "
+                                        + "Use Re-encrypt Everything, then turn on Face ID."
+                                )
+                            }
                         }
-                    }
-                    self.refreshUnencryptedFilesState { self.tableView.reloadData() }
-                }
+                        self.refreshUnencryptedFilesState { self.tableView.reloadData() }
+                    })
                 self.present(migration, animated: true)
             }
         } else {

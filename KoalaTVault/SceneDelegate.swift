@@ -31,6 +31,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private var vaultLock: any VaultLocking { dependencies.vaultLock }
     /// The legacy lock screen and privacy cover presenter.
     private var authService: AuthService { dependencies.authService }
+    /// The app's one lock migration.
+    private var lockMigrator: any LockMigrating { dependencies.lockMigrator }
 
     deinit {
         lockStateObservation?.cancel()
@@ -56,6 +58,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             wizard.modalPresentationStyle = .fullScreen
             nav.present(wizard, animated: false)
         } else {
+            // Runs the launch recovery of a pending encrypt first, so `resumeIfPending` (in the post-unlock
+            // steps, which never run before this) sees the record it left.
             let showedLockScreen = authService.handleInitialLaunch(in: window)
             // The stream yields changes only: a vault that is already usable (no lock) runs the steps now.
             if !showedLockScreen && vaultLock.state != .locked {
@@ -122,29 +126,25 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 
-    /// Presents the Migration screen for a pending migration, unless one is already showing.
+    /// Resumes a pending migration: presents the Migration screen, which resumes it, or, when one is already
+    /// showing (a migration paused under the lock screen), resumes it under that screen.
     private func presentPendingMigration() {
-        guard let pending = dependencies.preferences.pendingMigration,
+        let lockMigrator = lockMigrator
+        guard let pending = lockMigrator.pending,
               let root = window?.rootViewController else { return }
         // Check the whole presentation stack, not just its top.
         let stack = sequence(first: root, next: \.presentedViewController)
-        guard !stack.contains(where: { $0 is LegacyMigrationViewController }) else { return }
-        let topVC = root.topmostPresentedController
-        let type = pending.kind
-        let vaultLock = vaultLock
-        let migration = LegacyMigrationViewController(
-            type: type, vaultStore: vaultStore, vaultLock: vaultLock, targetLockMode: pending.targetLockMode
-        ) { [logger] completedFully in
-            Task {
-                do {
-                    try await LegacyMigrationCompletion.finalize(
-                        type: type, completedFully: completedFully, vaultLock: vaultLock)
-                } catch {
-                    // Already logged with its cause; the lock and keys stay as the vault lock left them.
-                    logger.error("Finishing the resumed migration failed")
-                }
-            }
+        guard !stack.contains(where: { $0 is LegacyMigrationViewController }) else {
+            Task { await lockMigrator.resumeIfPending() }
+            return
         }
+        let topVC = root.topmostPresentedController
+        // The migrator finishes the lock and keys itself; nothing is left to do when the screen closes.
+        let migration = LegacyMigrationViewController(
+            type: pending.kind, migrator: lockMigrator, begin: { await $0.resumeIfPending() },
+            onComplete: { [logger] completedFully in
+                logger.info("Resumed migration closed (completed fully: \(completedFully, privacy: .public))")
+            })
         topVC.present(migration, animated: true)
     }
 
