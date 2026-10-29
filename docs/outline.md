@@ -42,7 +42,7 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    to toggle, "N Selected", bulk Delete, Move, Export, Copy, Cancel. Move opens the folder picker at the root ("Move
    Here", "Cancel"); Copy always copies into the current folder with " 1", " 2" names; drag a cell onto a folder cell to
    move it. Ends when the files are where the user wants them.
-   - Failure path: empty folder shows "No files yet"; empty names are ignored; a name with "/" → "Names can't contain /";
+   - Failure path: empty folder shows "No files yet"; empty names are ignored; a name with "/" or starting with "." → "Names can't contain / or start with .";
      a move into the item's own folder does nothing; a folder moved into itself or a subfolder → "A folder can't be moved
      into itself"; any failed operation shows its error (bulk operations report how many failed).
 4. **Import** — the user wants to add files. Import → sheet "Choose Files", "Choose Folder", "Choose Photos", "Cancel".
@@ -940,3 +940,4 @@ extension matching ignores case.
 - 2026-10-28: VaultStoring gains `finishEncryption()` (approved contract change): the encrypt migration ends by re-encrypting plaintext indexes left by older builds, as the legacy app did, so no index naming encrypted files stays readable — VaultStore switch-over — approved by the human
 - 2026-10-28: Empty Trash no longer shows an error when it fails part-way: `emptyTrash()` is best-effort by the approved contract (it removes what it can) — VaultStore switch-over review — follows the approved spec
 - 2026-10-28: VaultStore error behaviors found by coverage are kept and specified: countFiles throws on an unreadable subfolder, migrating an unrecorded trash item throws `.notFound`, purge keeps going past a file it can't remove and then throws — VaultStore coverage triage — decided by the human
+- 2026-10-28: The invalid-name message is "Names can't contain / or start with ." for both rules (one `.invalidName` error); journey 3 expects it — VaultStore switch-over gates — decided by the human
