@@ -253,7 +253,7 @@
         "VaultLock",
         "Preferences"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -261,8 +261,8 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -270,7 +270,7 @@
             "SceneDelegate.swift",
             "View/SecuritySettings.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T13:28:02-07:00",
+  "updatedAt": "2026-10-29T15:17:34-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
