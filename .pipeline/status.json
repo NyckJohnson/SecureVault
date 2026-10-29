@@ -172,7 +172,7 @@
       "dependsOn": [
         "VaultStore"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -182,8 +182,8 @@
             "Views/AlertPresenting.swift",
             "Views/UIViewController+Topmost.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 2,
@@ -202,7 +202,7 @@
             "View/SetupWizard.swift",
             "View/TextEditor.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-28T21:35:47-07:00",
+  "updatedAt": "2026-10-29T01:01:59-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",

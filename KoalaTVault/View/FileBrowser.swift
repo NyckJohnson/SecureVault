@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class LegacyFileBrowserViewController: UIViewController, ErrorPresenting {
+final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
 
     // MARK: - Properties
     private let directory: VaultDirectory
@@ -580,7 +580,7 @@ extension LegacyFileBrowserViewController: FolderPickerDelegate {
                 loadContents()
                 // Bulk results report how many failed, with the first error.
                 if let firstError = errors.first {
-                    showError("\(errors.count) of \(items.count) failed. \(legacyErrorMessage(for: firstError))")
+                    showError("\(errors.count) of \(items.count) failed. \(firstError.localizedDescription)")
                 }
             }
         } else if let item = itemPendingMove {

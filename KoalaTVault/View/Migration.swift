@@ -8,7 +8,7 @@
 import os
 import UIKit
 
-final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
+final class LegacyMigrationViewController: UIViewController, AlertPresenting {
 
     /// Encrypt or decrypt; the same type the preferences persist as the pending migration.
     typealias MigrationType = MigrationKind
@@ -259,7 +259,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
         statusLabel.text = "Couldn't prepare the files"
         let alert = UIAlertController(
             title: "Couldn't Prepare Files",
-            message: legacyErrorMessage(for: error),
+            message: error.localizedDescription,
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
@@ -307,7 +307,7 @@ final class LegacyMigrationViewController: UIViewController, ErrorPresenting {
     private func presentCleanupFailure(_ error: Error) {
         let alert = UIAlertController(
             title: "Some Files Failed",
-            message: legacyErrorMessage(for: error),
+            message: error.localizedDescription,
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in

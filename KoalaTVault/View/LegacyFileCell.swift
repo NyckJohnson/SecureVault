@@ -88,11 +88,11 @@ final class LegacyFileCell: UICollectionViewCell {
     /// Shows `item`; its thumbnail comes from `thumbnails` (the app's one thumbnail service).
     func configure(with item: VaultItem, gridMode: Bool, thumbnails: ThumbnailService) {
         let config = UIImage.SymbolConfiguration(pointSize: 50, weight: .regular)
-        let icon = FileIconProvider.icon(for: item)
+        let (icon, tint) = Self.iconImageAndTint(for: item)
         
         // only apply symbol config to SF Symbols, not custom assets
         iconView.image       = item.isDirectory ? icon : icon?.withConfiguration(config)
-        iconView.tintColor   = FileIconProvider.iconColor(for: item)
+        iconView.tintColor   = tint
         iconView.contentMode = item.isDirectory ? .scaleAspectFit : .center
         nameLabel.text       = item.name
         detailLabel.text     = item.isDirectory ? "" : formattedSize(item.fileSize)
@@ -129,5 +129,40 @@ final class LegacyFileCell: UICollectionViewCell {
         thumbnailRequest = nil
         iconView.image = nil
         iconView.contentMode = .center
+    }
+
+    // MARK: - File icons
+
+    /// The image and tint for `item`, from SharedUI's `FileIconMapping`: the folder asset when the
+    /// bundle has it, otherwise the SF Symbol (the folder fallback symbol at 24 pt).
+    private static func iconImageAndTint(for item: VaultItem) -> (image: UIImage?, tint: UIColor) {
+        var icon = FileIconMapping.icon(for: item.kind, isDirectory: item.isDirectory, folderAssetAvailable: true)
+        if icon.usesFolderAsset {
+            if let asset = UIImage(named: icon.symbolName) {
+                return (asset, tintColor(named: icon.tintName))
+            }
+            icon = FileIconMapping.icon(for: item.kind, isDirectory: item.isDirectory, folderAssetAvailable: false)
+        }
+        var image = UIImage(systemName: icon.symbolName)
+        if item.isDirectory {
+            image = image?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 24, weight: .regular))
+        }
+        return (image, tintColor(named: icon.tintName))
+    }
+
+    /// The `UIColor` a `FileIcon.tintName` names.
+    private static func tintColor(named name: String) -> UIColor {
+        switch name {
+        case "clear": .clear
+        case "systemYellow": .systemYellow
+        case "systemGreen": .systemGreen
+        case "systemPurple": .systemPurple
+        case "systemPink": .systemPink
+        case "systemRed": .systemRed
+        case "systemBlue": .systemBlue
+        case "systemOrange": .systemOrange
+        case "systemBrown": .systemBrown
+        default: .systemGray
+        }
     }
 }

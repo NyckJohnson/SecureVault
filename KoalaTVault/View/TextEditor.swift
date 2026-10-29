@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class LegacyTextEditorViewController: UIViewController, ErrorPresenting {
+final class LegacyTextEditorViewController: UIViewController, AlertPresenting {
 
     // MARK: - Properties
     private let item: VaultItem

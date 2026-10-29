@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class LegacySetupWizardViewController: UIViewController, ErrorPresenting {
+final class LegacySetupWizardViewController: UIViewController, AlertPresenting {
 
     // MARK: - Properties
     private var selectedLockMode: LockMode = .none
@@ -217,7 +217,7 @@ final class LegacySetupWizardViewController: UIViewController, ErrorPresenting {
                 self.showError("Passwords do not match")
                 return
             }
-            let overlay = ProgressOverlay.show(in: self, title: "Setting password…")
+            let overlay = ProgressOverlayView.show(in: self, title: "Setting password…")
 
             let authService = self.authService
             let selectedMode = self.selectedLockMode

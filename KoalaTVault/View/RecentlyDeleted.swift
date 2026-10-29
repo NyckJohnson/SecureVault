@@ -7,7 +7,7 @@
 
 import UIKit
 
-final class LegacyRecentlyDeletedViewController: UIViewController, ErrorPresenting {
+final class LegacyRecentlyDeletedViewController: UIViewController, AlertPresenting {
     private let vaultStore: any VaultStoring
     private var items: [VaultItem] = []
     private var tableView: UITableView!
@@ -94,6 +94,41 @@ final class LegacyRecentlyDeletedViewController: UIViewController, ErrorPresenti
         })
         present(alert, animated: true)
     }
+
+    // MARK: - File icons
+
+    /// The image and tint for `item`, from SharedUI's `FileIconMapping`: the folder asset when the
+    /// bundle has it, otherwise the SF Symbol (the folder fallback symbol at 24 pt).
+    private static func iconImageAndTint(for item: VaultItem) -> (image: UIImage?, tint: UIColor) {
+        var icon = FileIconMapping.icon(for: item.kind, isDirectory: item.isDirectory, folderAssetAvailable: true)
+        if icon.usesFolderAsset {
+            if let asset = UIImage(named: icon.symbolName) {
+                return (asset, tintColor(named: icon.tintName))
+            }
+            icon = FileIconMapping.icon(for: item.kind, isDirectory: item.isDirectory, folderAssetAvailable: false)
+        }
+        var image = UIImage(systemName: icon.symbolName)
+        if item.isDirectory {
+            image = image?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 24, weight: .regular))
+        }
+        return (image, tintColor(named: icon.tintName))
+    }
+
+    /// The `UIColor` a `FileIcon.tintName` names.
+    private static func tintColor(named name: String) -> UIColor {
+        switch name {
+        case "clear": .clear
+        case "systemYellow": .systemYellow
+        case "systemGreen": .systemGreen
+        case "systemPurple": .systemPurple
+        case "systemPink": .systemPink
+        case "systemRed": .systemRed
+        case "systemBlue": .systemBlue
+        case "systemOrange": .systemOrange
+        case "systemBrown": .systemBrown
+        default: .systemGray
+        }
+    }
 }
 
 // MARK: - UITableViewDataSource
@@ -109,8 +144,9 @@ extension LegacyRecentlyDeletedViewController: UITableViewDataSource {
         config.text = item.name
         let daysLeft = 30 - Int(Date().timeIntervalSince(item.deletedAt ?? item.dateModified) / 86400)
         config.secondaryText = "Deletes in \(max(0, daysLeft)) day\(daysLeft == 1 ? "" : "s")"
-        config.image = FileIconProvider.icon(for: item)
-        config.imageProperties.tintColor = FileIconProvider.iconColor(for: item)
+        let (icon, tint) = Self.iconImageAndTint(for: item)
+        config.image = icon
+        config.imageProperties.tintColor = tint
         cell.contentConfiguration = config
         cell.accessibilityIdentifier = "recentlyDeleted.row.\(item.name)"
         return cell

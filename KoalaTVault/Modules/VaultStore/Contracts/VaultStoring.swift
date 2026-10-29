@@ -1,7 +1,5 @@
 import Foundation
 
-// coverage-exempt-file: declarations only
-
 /// Errors thrown by the vault store.
 enum VaultStoreError: Error, Equatable, Sendable {
     /// A folder's index exists but can't be read; it is never overwritten.
@@ -18,6 +16,24 @@ enum VaultStoreError: Error, Equatable, Sendable {
     case stillEncrypted(count: Int)
     /// A file-system failure.
     case io(String)  // swiftlint:disable:this identifier_name
+}
+
+/// User-facing text for each error, shown in alerts through `localizedDescription`.
+extension VaultStoreError: LocalizedError {
+    /// The error's user-facing description; `.stillEncrypted` includes the count, `.io` is its message.
+    var errorDescription: String? {
+        switch self {
+        case .indexUnreadable:
+            "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."
+        case .locked: VaultCryptoError.noKeyLoaded.localizedDescription
+        case .invalidName: "Names can't contain / or start with ."
+        case .notFound: "This item no longer exists."
+        case .moveIntoItself: "A folder can't be moved into itself"
+        case .stillEncrypted(let count):
+            count == 1 ? "1 file is still encrypted." : "\(count) files are still encrypted."
+        case .io(let message): message
+        }
+    }
 }
 
 /// The vault on disk: indexes, browsing, file operations, trash, migration steps and temp files.
