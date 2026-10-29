@@ -17,6 +17,22 @@ private func makeHostedController() -> (AlertHostViewController, UIWindow) {
     return (host, window)
 }
 
+@MainActor
+private func presentAndWait(_ presenter: UIViewController, _ presented: UIViewController) async {
+    presented.modalPresentationStyle = .fullScreen
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        presenter.present(presented, animated: false) { continuation.resume() }
+    }
+}
+
+/// Waits (bounded) until the controller has a presented controller.
+@MainActor
+private func waitForPresentation(on controller: UIViewController) async {
+    for _ in 0..<200 where controller.presentedViewController == nil {
+        try? await Task.sleep(nanoseconds: 10_000_000)
+    }
+}
+
 private struct DescribedError: LocalizedError {
     var errorDescription: String? { "Disk is full" }
 }
@@ -66,15 +82,16 @@ private struct DescribedError: LocalizedError {
     }
 
     @Test("The alert is presented from the topmost presented controller")
-    func presentedFromTopmost() throws {
+    func presentedFromTopmost() async throws {
         let (host, window) = makeHostedController()
         defer { window.isHidden = true }
         let first = UIViewController()
         let second = UIViewController()
-        host.present(first, animated: false)
-        first.present(second, animated: false)
+        await presentAndWait(host, first)
+        await presentAndWait(first, second)
 
         host.showError("Nested")
+        await waitForPresentation(on: second)
 
         let alert = try #require(second.presentedViewController as? UIAlertController)
         #expect(alert.message == "Nested")
@@ -83,13 +100,14 @@ private struct DescribedError: LocalizedError {
     }
 
     @Test("A success alert is also presented from the topmost presented controller")
-    func successFromTopmost() throws {
+    func successFromTopmost() async throws {
         let (host, window) = makeHostedController()
         defer { window.isHidden = true }
         let child = UIViewController()
-        host.present(child, animated: false)
+        await presentAndWait(host, child)
 
         host.showSuccess("Done")
+        await waitForPresentation(on: child)
 
         let alert = try #require(child.presentedViewController as? UIAlertController)
         #expect(alert.message == "Done")

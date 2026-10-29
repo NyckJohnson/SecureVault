@@ -10,18 +10,20 @@ import Testing
         var testDescription: String { kind.rawValue }
     }
 
-    private static let rows: [Row] = [
-        Row(kind: .image, symbol: "photo", tint: "systemGreen"),
-        Row(kind: .video, symbol: "video", tint: "systemPurple"),
-        Row(kind: .audio, symbol: "music.note", tint: "systemPink"),
-        Row(kind: .pdf, symbol: "doc.richtext", tint: "systemRed"),
-        Row(kind: .word, symbol: "doc.text", tint: "systemBlue"),
-        Row(kind: .spreadsheet, symbol: "tablecells", tint: "systemGreen"),
-        Row(kind: .presentation, symbol: "rectangle.stack", tint: "systemOrange"),
-        Row(kind: .archive, symbol: "archivebox", tint: "systemBrown"),
-        Row(kind: .text, symbol: "doc.plaintext", tint: "systemGray"),
-        Row(kind: .other, symbol: "doc", tint: "systemGray"),
-    ]
+    private static let rows: [Row] = {
+        var rows: [Row] = []
+        rows.append(Row(kind: .image, symbol: "photo", tint: "systemGreen"))
+        rows.append(Row(kind: .video, symbol: "video", tint: "systemPurple"))
+        rows.append(Row(kind: .audio, symbol: "music.note", tint: "systemPink"))
+        rows.append(Row(kind: .pdf, symbol: "doc.richtext", tint: "systemRed"))
+        rows.append(Row(kind: .word, symbol: "doc.text", tint: "systemBlue"))
+        rows.append(Row(kind: .spreadsheet, symbol: "tablecells", tint: "systemGreen"))
+        rows.append(Row(kind: .presentation, symbol: "rectangle.stack", tint: "systemOrange"))
+        rows.append(Row(kind: .archive, symbol: "archivebox", tint: "systemBrown"))
+        rows.append(Row(kind: .text, symbol: "doc.plaintext", tint: "systemGray"))
+        rows.append(Row(kind: .other, symbol: "doc", tint: "systemGray"))
+        return rows
+    }()
 
     @Test("The table covers every file kind")
     func tableCoversAllKinds() {

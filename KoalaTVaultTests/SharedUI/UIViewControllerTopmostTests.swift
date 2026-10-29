@@ -4,6 +4,14 @@ import UIKit
 @testable import KoalaTVault
 
 @MainActor
+private func presentAndWait(_ presenter: UIViewController, _ presented: UIViewController) async {
+    presented.modalPresentationStyle = .fullScreen
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        presenter.present(presented, animated: false) { continuation.resume() }
+    }
+}
+
+@MainActor
 @Suite struct UIViewControllerTopmostTests {
     private func hosted() -> (UIViewController, UIWindow) {
         let window = UIWindow(frame: UIScreen.main.bounds)
@@ -22,15 +30,15 @@ import UIKit
     }
 
     @Test("The topmost controller follows presentedViewController to the end of the chain")
-    func followsChain() {
+    func followsChain() async {
         let (root, window) = hosted()
         defer { window.isHidden = true }
         let first = UIViewController()
         let second = UIViewController()
         let third = UIViewController()
-        root.present(first, animated: false)
-        first.present(second, animated: false)
-        second.present(third, animated: false)
+        await presentAndWait(root, first)
+        await presentAndWait(first, second)
+        await presentAndWait(second, third)
 
         #expect(root.topmostPresentedController === third)
         #expect(first.topmostPresentedController === third)
