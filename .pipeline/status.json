@@ -216,7 +216,7 @@
         "Preferences",
         "VaultStore"
       ],
-      "state": "in_progress",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-29T11:08:41-07:00",
+  "updatedAt": "2026-10-29T11:41:44-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
