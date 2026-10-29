@@ -172,7 +172,7 @@
       "dependsOn": [
         "VaultStore"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-28T21:35:47-07:00",
+  "updatedAt": "2026-10-28T23:52:14-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
