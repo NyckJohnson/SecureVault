@@ -283,7 +283,7 @@
         "VaultStore",
         "VaultCrypto"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T12:05:17-07:00",
+  "updatedAt": "2026-10-30T15:24:49-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
