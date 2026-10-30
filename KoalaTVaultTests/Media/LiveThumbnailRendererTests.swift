@@ -200,3 +200,15 @@ import UIKit
         #expect(try #require(Self.pixel(in: composed, x: 85, y: 50)).isClose(to: Self.blue))
     }
 }
+
+@Suite struct LiveThumbnailRendererFiniteDurationTests {
+    @Test("A finite non-negative duration is returned unchanged", arguments: [0.0, 12.5])
+    func finiteDurationIsReturned(seconds: Double) {
+        #expect(LiveThumbnailRenderer.finiteDuration(seconds) == seconds)
+    }
+
+    @Test("A negative, NaN or infinite duration gives nil", arguments: [-1.0, Double.nan, Double.infinity])
+    func invalidDurationIsNil(seconds: Double) {
+        #expect(LiveThumbnailRenderer.finiteDuration(seconds) == nil)
+    }
+}

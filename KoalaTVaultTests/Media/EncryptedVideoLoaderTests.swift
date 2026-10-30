@@ -444,3 +444,22 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         #expect(request.failedCount == 0)
     }
 }
+
+@Suite struct EncryptedVideoLoaderHandlesTests {
+    private let loader = EncryptedVideoLoader(cipher: MockFileCipher())
+
+    @Test("A vault-stream URL is handled")
+    func vaultStreamIsHandled() {
+        #expect(loader.handles(URL(string: "vault-stream://abc/clip.mp4")))
+    }
+
+    @Test("Other schemes are not handled", arguments: ["https://example.com/a.mp4", "file:///tmp/a.mp4"])
+    func otherSchemesAreNotHandled(string: String) {
+        #expect(!loader.handles(URL(string: string)))
+    }
+
+    @Test("A nil URL is not handled")
+    func nilURLIsNotHandled() {
+        #expect(!loader.handles(nil))
+    }
+}
