@@ -319,7 +319,9 @@ struct LegacyBrowserServices {
     /// The app's settings (sort order).
     let preferences: any PreferencesStoring
     /// Thumbnails for the browser's cells.
-    let thumbnails: ThumbnailService
+    let thumbnails: any ThumbnailProviding
+    /// Streaming playback of encrypted videos in the viewer.
+    let videoAssets: any VideoAssetProviding
     /// The import sheet and pickers.
     let importService: ImportService
     /// The export sheet.
@@ -352,8 +354,10 @@ final class AppDependencies {
     let vaultStore: any VaultStoring
     /// Legacy import and export over `vaultStore`, until the Import and Export modules replace them.
     let legacyTransfers: FileSystem
-    /// Thumbnails for vault items, over `vaultStore`.
-    let thumbnails: ThumbnailService
+    /// The app's one video loader: streams encrypted videos to AVPlayer, over the file cipher.
+    let videoAssets: any VideoAssetProviding
+    /// The app's one thumbnail provider, over `vaultStore`, the file cipher, `videoAssets` and the preferences.
+    let thumbnails: any ThumbnailProviding
     /// The legacy import sheet and pickers.
     let importService: ImportService
     /// The legacy export sheet.
@@ -369,7 +373,7 @@ final class AppDependencies {
     /// What the legacy browser screens are built with.
     var browserServices: LegacyBrowserServices {
         LegacyBrowserServices(
-            vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails,
+            vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails, videoAssets: videoAssets,
             importService: importService, exportService: exportService, vaultLock: vaultLock,
             lockMigrator: lockMigrator)
     }
@@ -402,8 +406,11 @@ final class AppDependencies {
         self.vaultStore = vaultStore
         let legacyTransfers = FileSystem(store: vaultStore, proUnlock: proUnlock)
         self.legacyTransfers = legacyTransfers
-        let thumbnails = ThumbnailService(vaultStore: vaultStore, preferences: storage.preferences)
-        self.thumbnails = thumbnails
+        let videoAssets = EncryptedVideoLoader(cipher: storage.fileCipher)
+        self.videoAssets = videoAssets
+        thumbnails = LiveThumbnailProvider(
+            store: vaultStore, cipher: storage.fileCipher, videoAssets: videoAssets,
+            renderer: LiveThumbnailRenderer(), preferences: storage.preferences)
         importService = ImportService(fileSystem: legacyTransfers)
         exportService = ExportService(fileSystem: legacyTransfers, vaultStore: vaultStore)
 

@@ -6,7 +6,6 @@
 //
 
 import UIKit
-import QuickLookThumbnailing
 
 final class LegacyFileCell: UICollectionViewCell {
     static let reuseID = "FileCell"
@@ -15,7 +14,13 @@ final class LegacyFileCell: UICollectionViewCell {
     private let nameLabel   = UILabel()
     private let detailLabel = UILabel()
     private var checkmark = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
-    private var thumbnailRequest: QLThumbnailGenerator.Request?
+    /// A pending thumbnail request: the item it is for, the provider asked, and the task awaiting it.
+    private struct ThumbnailRequest {
+        let item: VaultItem
+        let provider: any ThumbnailProviding
+        let task: Task<Void, Never>
+    }
+    private var thumbnailRequest: ThumbnailRequest?
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -86,7 +91,7 @@ final class LegacyFileCell: UICollectionViewCell {
     }
     
     /// Shows `item`; its thumbnail comes from `thumbnails` (the app's one thumbnail service).
-    func configure(with item: VaultItem, gridMode: Bool, thumbnails: ThumbnailService) {
+    func configure(with item: VaultItem, gridMode: Bool, thumbnails: any ThumbnailProviding) {
         let config = UIImage.SymbolConfiguration(pointSize: 50, weight: .regular)
         let (icon, tint) = Self.iconImageAndTint(for: item)
         
@@ -102,16 +107,27 @@ final class LegacyFileCell: UICollectionViewCell {
         detailLabel.accessibilityIdentifier = "browser.cell.\(item.name).sizeLabel"
         checkmark.accessibilityIdentifier   = "browser.cell.\(item.name).checkmark"
 
-        thumbnailRequest = thumbnails.thumbnail(for: item, size: CGSize(width: 40, height: 40)) { [weak self] image in
-            guard let self, let image else { return }
+        cancelThumbnailRequest()
+        // UIScreen must only be read on the main thread; this cell is main-actor isolated.
+        let scale = UIScreen.main.scale
+        let task = Task { [weak self] in
+            let image = await thumbnails.thumbnail(for: item, size: CGSize(width: 40, height: 40), scale: scale)
+            // Ignore a result for an item this cell no longer shows (reused, or the request was cancelled).
+            guard let self, !Task.isCancelled, let image,
+                  self.thumbnailRequest?.item.id == item.id else { return }
+            self.thumbnailRequest = nil
             self.iconView.image = image
             self.iconView.contentMode = .scaleAspectFit
-            
-            /* borders for dsign
-            self.iconView.layer.borderWidth = 2
-            self.iconView.layer.borderColor = UIColor.purple.cgColor
-            */
         }
+        thumbnailRequest = ThumbnailRequest(item: item, provider: thumbnails, task: task)
+    }
+
+    /// Cancels the pending thumbnail request, if any, so its work stops and its result is dropped.
+    private func cancelThumbnailRequest() {
+        guard let request = thumbnailRequest else { return }
+        thumbnailRequest = nil
+        request.task.cancel()
+        request.provider.cancel(request.item)
     }
     
     func setSelected(_ selected: Bool, inSelectMode: Bool) {
@@ -126,7 +142,7 @@ final class LegacyFileCell: UICollectionViewCell {
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        thumbnailRequest = nil
+        cancelThumbnailRequest()
         iconView.image = nil
         iconView.contentMode = .center
     }

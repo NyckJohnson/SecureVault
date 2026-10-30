@@ -486,7 +486,8 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
                 let startIndex = nonDirectories.firstIndex(where: { $0.id == item.id }) ?? 0
                 let viewer = LegacyFileViewerViewController(
                     items: nonDirectories, startingAt: startIndex,
-                    vaultStore: vaultStore, exportService: services.exportService)
+                    vaultStore: vaultStore, videoAssets: services.videoAssets,
+                    exportService: services.exportService)
                 present(viewer, animated: true)
             }
         }

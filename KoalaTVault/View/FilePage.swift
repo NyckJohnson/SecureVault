@@ -12,6 +12,7 @@ import QuickLook
 final class LegacyFilePageViewController: UIViewController {
     let item: VaultItem
     private let vaultStore: any VaultStoring
+    private let videoAssets: any VideoAssetProviding
     private weak var viewer: LegacyFileViewerViewController?
     private var playerLayer: AVPlayerLayer?
     /// This page's own player. The pager loads neighbour pages before they show, so the page hands it to the
@@ -20,15 +21,20 @@ final class LegacyFilePageViewController: UIViewController {
     private var previewURL: URL?
     private var imageView: UIImageView?
     private var scrollView: UIScrollView?
-    private var resourceLoaderDelegate: VaultResourceLoaderDelegate?
     private var playerItemStatusObservation: NSKeyValueObservation?  // invalidated when released
     private var errorLabel: UILabel?
     
-    /// - Parameter vaultStore: the app's vault store, which opens (decrypts) the item.
-    init(item: VaultItem, viewer: LegacyFileViewerViewController, vaultStore: any VaultStoring) {
+    /// - Parameters:
+    ///   - vaultStore: the app's vault store, which opens (decrypts) the item.
+    ///   - videoAssets: the app's one video loader, which streams encrypted videos.
+    init(
+        item: VaultItem, viewer: LegacyFileViewerViewController, vaultStore: any VaultStoring,
+        videoAssets: any VideoAssetProviding
+    ) {
         self.item = item
         self.viewer = viewer
         self.vaultStore = vaultStore
+        self.videoAssets = videoAssets
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -157,34 +163,32 @@ final class LegacyFilePageViewController: UIViewController {
     }
     
     private func setupVideoPlayer() {
-        let ext = (item.name as NSString).pathExtension.lowercased()
-
-        guard item.isEncrypted,
-              let delegate = VaultResourceLoaderDelegate(encryptedURL: item.diskURL, fileExtension: ext) else {
-            // Not encrypted (or streaming setup failed) — play directly.
-            Task {
-                guard let url = await openItem() else {
-                    showErrorLabel()
-                    return
-                }
-                installVideoPlayer(url: url)
-            }
+        guard item.isEncrypted else {
+            playOpenedItem()
             return
         }
-
-        resourceLoaderDelegate = delegate
-        guard var comps = URLComponents(url: item.diskURL, resolvingAgainstBaseURL: false) else {
-            showErrorLabel()
+        // Encrypted: stream through the Media loader. The asset keeps the loader set as its resource
+        // loader's delegate; the loader itself lives for the app's lifetime (built once in AppDependencies).
+        let asset: AVURLAsset
+        do {
+            asset = try videoAssets.asset(for: item)
+        } catch {
+            // Streaming setup failed (invalid header, locked vault): play a decrypted copy instead.
+            playOpenedItem()
             return
         }
-        comps.scheme = "vault-stream"
-        guard let streamURL = comps.url else {
-            showErrorLabel()
-            return
-        }
-        let asset = AVURLAsset(url: streamURL)
-        asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue(label: "com.KoalaTVault.resourceloader"))
         installVideoPlayer(url: nil, asset: asset)
+    }
+
+    /// Opens (decrypts if needed) the item through the vault store and plays the result.
+    private func playOpenedItem() {
+        Task {
+            guard let url = await openItem() else {
+                showErrorLabel()
+                return
+            }
+            installVideoPlayer(url: url)
+        }
     }
 
     private func installVideoPlayer(url: URL?, asset: AVURLAsset? = nil) {
