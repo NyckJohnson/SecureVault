@@ -292,7 +292,7 @@
             "LiveThumbnailProvider.swift",
             "EncryptedVideoLoader.swift"
           ],
-          "state": "tests",
+          "state": "code",
           "attempts": 2
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T02:39:45-07:00",
+  "updatedAt": "2026-10-30T02:42:17-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
