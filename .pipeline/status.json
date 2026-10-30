@@ -303,7 +303,7 @@
             "View/FileCell.swift",
             "View/FilePage.swift"
           ],
-          "state": "tests",
+          "state": "code",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T11:11:06-07:00",
+  "updatedAt": "2026-10-30T12:03:53-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
