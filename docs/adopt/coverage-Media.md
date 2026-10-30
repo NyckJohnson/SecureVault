@@ -15,3 +15,9 @@ Report: docs/adopt/coverage-Media-report.txt (102 lines, 21 blocks). not-in-spec
 - EncryptedVideoLoader.swift:34 `extension LoadingRequest { var isCancelled: Bool { false } }` — not-in-spec (dead code). Both conformers (`FakeLoadingRequest` in tests, `ResourceLoadingRequestAdapter`) declare their own `isCancelled`; nothing uses the default. Remove lines 33-35 (the extension); the protocol requirement at line 28 stays.
 - EncryptedVideoLoader.swift:101, :109 — exempt (marker fixed). The begin/end pair now wraps the whole `resourceLoader(_:shouldWaitForLoadingOfRequestedResource:)` method, signature to closing brace.
 - LiveThumbnailRenderer.swift:52 `return nil` in `folderIcon` — not-in-spec (unreachable). `folderImage(named:pointSize:)` returns nil only if `UIImage(systemName: "folder.fill")` is nil, which never happens on iOS. Would remove: the `guard let ... else { return nil }` (make `folderImage` return a non-optional, e.g. fall back to `UIImage()`, which adds another unreachable line) — or accept the nil path with a human-approved exemption. Not exempted here because the pipeline rule prefers removal over exemption.
+
+## Exemption review (2026-10-30) — fail, reclassified
+- LiveThumbnailRenderer.swift:36 `seconds.isFinite && seconds >= 0 ? seconds : nil` — exemption invalid (pure logic) → **missed**: extract `static func finiteDuration(_ seconds: Double) -> TimeInterval?`, test 0, 12.5 (returned), -1, .nan, .infinity (nil). :35 exemption valid.
+- EncryptedVideoLoader.swift:94-105 delegate's scheme check → **missed** (optional, taken): extract `func handles(_ url: URL?) -> Bool`, test vault-stream / other scheme / nil.
+- Folder-image fallback test: also assert a yellow-ish pixel.
+- Adapters (192-267): exemption accepted (nil fallbacks unreachable without a real request).
