@@ -335,9 +335,12 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
     @Test("A short non-final chunk that only partly covers the range fails the request")
     func truncatedStreamFails() async throws {
         let info = StreamInfo(totalSize: 300, chunkSize: 100)
+        let first = Data(repeating: 1, count: 100)
+        let second = Data(repeating: 2, count: 40)
+        let third = Data(repeating: 3, count: 100)
         let rig = try scriptedRig(
             info: info,
-            chunks: [0: Data(repeating: 1, count: 100), 1: Data(repeating: 2, count: 40), 2: Data(repeating: 3, count: 100)])
+            chunks: [0: first, 1: second, 2: third])
         let data = FakeLoadingRequest.LoadingData(offset: 50, length: 200, toEnd: false)
         let request = FakeLoadingRequest(url: rig.url, data: data)
         await rig.loader.serve(request)
@@ -348,9 +351,12 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
     @Test("Full-size chunks of a scripted stream are served in order")
     func scriptedFullChunksServed() async throws {
         let info = StreamInfo(totalSize: 250, chunkSize: 100)
+        let first = Data(repeating: 1, count: 100)
+        let second = Data(repeating: 2, count: 100)
+        let third = Data(repeating: 3, count: 50)
         let rig = try scriptedRig(
             info: info,
-            chunks: [0: Data(repeating: 1, count: 100), 1: Data(repeating: 2, count: 100), 2: Data(repeating: 3, count: 50)])
+            chunks: [0: first, 1: second, 2: third])
         let data = FakeLoadingRequest.LoadingData(offset: 90, length: 20, toEnd: false)
         let request = FakeLoadingRequest(url: rig.url, data: data)
         await rig.loader.serve(request)
