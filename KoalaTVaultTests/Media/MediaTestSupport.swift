@@ -27,7 +27,8 @@ final class MediaTestDirectory {
 
 /// A vault item for tests; the id is the disk file name.
 func makeMediaItem(
-    name: String, diskURL: URL, isDirectory: Bool = false, isEncrypted: Bool = false, fileSize: Int? = nil
+    name: String, diskURL: URL, isDirectory: Bool = false, isEncrypted: Bool = false,
+    fileSize: Int? = nil
 ) -> VaultItem {
     VaultItem(
         id: diskURL.lastPathComponent, name: name, isDirectory: isDirectory,
@@ -63,12 +64,16 @@ final class MediaTestGate: Sendable {
 
     func pass() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let (resumeNow, toWake) = state.withLock { state -> (Bool, [CheckedContinuation<Void, Never>]) in
+            let (resumeNow, toWake): (Bool, [CheckedContinuation<Void, Never>]) = state.withLock { state in
                 state.entered += 1
                 var wake: [CheckedContinuation<Void, Never>] = []
                 var rest: [Waiter] = []
                 for waiter in state.waiters {
-                    if state.entered >= waiter.count { wake.append(waiter.continuation) } else { rest.append(waiter) }
+                    if state.entered >= waiter.count {
+                        wake.append(waiter.continuation)
+                    } else {
+                        rest.append(waiter)
+                    }
                 }
                 state.waiters = rest
                 if state.isOpen { return (true, wake) }
@@ -201,12 +206,16 @@ final class FakeThumbnailRenderer: ThumbnailRendering {
         state.withLock { $0.duration }
     }
 
-    func videoFrame(of asset: AVURLAsset, at time: TimeInterval, size: CGSize, scale: CGFloat) async -> UIImage? {
+    // swiftlint:disable opening_brace
+    func videoFrame(of asset: AVURLAsset, at time: TimeInterval, size: CGSize, scale: CGFloat) async
+        -> UIImage?
+    {
         state.withLock { state in
             state.frameRequests.append(FrameRequest(url: asset.url, time: time))
             return state.frameResult
         }
     }
+    // swiftlint:enable opening_brace
 
     func folderIcon(size: CGSize, scale: CGFloat) -> UIImage? {
         state.withLock { $0.folderIconResult }

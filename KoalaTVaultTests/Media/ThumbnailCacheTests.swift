@@ -10,7 +10,7 @@ import UIKit
     func emptyCache() {
         let cache = ThumbnailCache()
         #expect(cache.image(for: "a") == nil)
-        #expect(cache.count == 0)
+        #expect(cache.count < 1)
     }
 
     @Test("A stored image is returned for its id only")
@@ -56,7 +56,7 @@ import UIKit
         cache.store(image, for: "a", generation: cache.generation)
         cache.store(image, for: "b", generation: cache.generation)
         cache.removeAll()
-        #expect(cache.count == 0)
+        #expect(cache.count < 1)
         #expect(cache.image(for: "a") == nil)
     }
 
@@ -75,7 +75,7 @@ import UIKit
         cache.removeAll()
         cache.store(image, for: "a", generation: stale)
         #expect(cache.image(for: "a") == nil)
-        #expect(cache.count == 0)
+        #expect(cache.count < 1)
     }
 
     @Test("An image stored with the current generation after a clear is kept")

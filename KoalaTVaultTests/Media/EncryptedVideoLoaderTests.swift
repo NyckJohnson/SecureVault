@@ -12,7 +12,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         var isByteRangeAccessSupported = false
     }
 
-    final class Data_: LoadingDataRequest, @unchecked Sendable {
+    final class LoadingData: LoadingDataRequest, @unchecked Sendable {
         let requestedOffset: Int64
         let requestedLength: Int
         let requestsAllDataToEndOfResource: Bool
@@ -39,7 +39,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
     private(set) var failure: (any Error)?
     private(set) var failedCount = 0
 
-    init(url: URL?, contentInfo: ContentInfo? = nil, data: Data_? = nil) {
+    init(url: URL?, contentInfo: ContentInfo? = nil, data: LoadingData? = nil) {
         requestURL = url
         contentInformationRequest = contentInfo
         dataRequest = data
@@ -142,6 +142,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         "Content info reports the type from the extension",
         arguments: [
             ("clip.mp4", "public.mpeg-4"), ("clip.mov", "com.apple.quicktime-movie"),
+            // swiftlint:disable:next trailing_comma
             ("clip.m4v", "com.apple.m4v-video"), ("CLIP.MOV", "com.apple.quicktime-movie"),
         ])
     func contentTypeFromExtension(name: String, expectedType: String) async throws {
@@ -154,7 +155,9 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         #expect(request.succeeded)
     }
 
-    @Test("Content info defaults to mpeg-4 for an unknown or missing extension", arguments: ["clip.xyz", "clip"])
+    @Test(
+        "Content info defaults to mpeg-4 for an unknown or missing extension",
+        arguments: ["clip.xyz", "clip"])
     func contentTypeDefault(name: String) async throws {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted(name))
@@ -183,7 +186,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
         let offset = Self.oneMiB + 10
-        let data = FakeLoadingRequest.Data_(offset: Int64(offset), length: 100, toEnd: false)
+        let data = FakeLoadingRequest.LoadingData(offset: Int64(offset), length: 100, toEnd: false)
         let request = FakeLoadingRequest(url: url, data: data)
         await rig.loader.serve(request)
         #expect(data.received == rig.plaintext.subdata(in: offset..<(offset + 100)))
@@ -196,7 +199,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
         let offset = Self.oneMiB - 10
-        let data = FakeLoadingRequest.Data_(offset: Int64(offset), length: 20, toEnd: false)
+        let data = FakeLoadingRequest.LoadingData(offset: Int64(offset), length: 20, toEnd: false)
         let request = FakeLoadingRequest(url: url, data: data)
         await rig.loader.serve(request)
         #expect(data.received == rig.plaintext.subdata(in: offset..<(offset + 20)))
@@ -208,7 +211,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
     func rangeFromStart() async throws {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
-        let data = FakeLoadingRequest.Data_(offset: 0, length: 1000, toEnd: false)
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 1000, toEnd: false)
         await rig.loader.serve(FakeLoadingRequest(url: url, data: data))
         #expect(data.received == rig.plaintext.prefix(1000))
         #expect(Set(rig.decryptedChunkIndexes()) == [0])
@@ -219,7 +222,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
         let offset = 3 * Self.oneMiB - 5
-        let data = FakeLoadingRequest.Data_(offset: Int64(offset), length: Int.max, toEnd: true)
+        let data = FakeLoadingRequest.LoadingData(offset: Int64(offset), length: Int.max, toEnd: true)
         let request = FakeLoadingRequest(url: url, data: data)
         await rig.loader.serve(request)
         #expect(data.received == rig.plaintext.suffix(from: offset))
@@ -232,7 +235,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
         let offset = rig.plaintext.count - 10
-        let data = FakeLoadingRequest.Data_(offset: Int64(offset), length: 5000, toEnd: false)
+        let data = FakeLoadingRequest.LoadingData(offset: Int64(offset), length: 5000, toEnd: false)
         let request = FakeLoadingRequest(url: url, data: data)
         await rig.loader.serve(request)
         #expect(data.received == rig.plaintext.suffix(10))
@@ -243,7 +246,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
     func emptyRangeFinishesAtOnce() async throws {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
-        let data = FakeLoadingRequest.Data_(offset: 500, length: 0, toEnd: false)
+        let data = FakeLoadingRequest.LoadingData(offset: 500, length: 0, toEnd: false)
         let request = FakeLoadingRequest(url: url, data: data)
         await rig.loader.serve(request)
         #expect(request.succeeded)
@@ -256,7 +259,7 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         let rig = Rig()
         let url = try rig.streamURL(for: rig.encrypted())
         rig.cipher.errorToThrow = .decryptionFailed
-        let data = FakeLoadingRequest.Data_(offset: 0, length: 100, toEnd: false)
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 100, toEnd: false)
         let request = FakeLoadingRequest(url: url, data: data)
         await rig.loader.serve(request)
         #expect(request.failedCount == 1)

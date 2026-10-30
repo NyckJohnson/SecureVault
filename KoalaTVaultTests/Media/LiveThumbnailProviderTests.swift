@@ -77,18 +77,20 @@ import UIKit
     @Test("Clearing one item's cache leaves the others cached")
     func clearCacheForItem() async {
         let rig = Rig()
-        let a = rig.plaintext("a.png")
-        let b = rig.plaintext("b.png")
-        _ = await rig.provider.thumbnail(for: a, size: size, scale: scale)
-        _ = await rig.provider.thumbnail(for: b, size: size, scale: scale)
-        rig.provider.clearCache(for: a)
-        _ = await rig.provider.thumbnail(for: a, size: size, scale: scale)
-        _ = await rig.provider.thumbnail(for: b, size: size, scale: scale)
+        let first = rig.plaintext("first.png")
+        let second = rig.plaintext("second.png")
+        _ = await rig.provider.thumbnail(for: first, size: size, scale: scale)
+        _ = await rig.provider.thumbnail(for: second, size: size, scale: scale)
+        rig.provider.clearCache(for: first)
+        _ = await rig.provider.thumbnail(for: first, size: size, scale: scale)
+        _ = await rig.provider.thumbnail(for: second, size: size, scale: scale)
         #expect(rig.renderer.quickLookURLs.count == 3)
-        #expect(rig.renderer.quickLookURLs.last == a.diskURL)
+        #expect(rig.renderer.quickLookURLs.last == first.diskURL)
     }
 
-    @Test("A generation finishing after the cache was cleared does not refill it", .timeLimit(.minutes(1)))
+    @Test(
+        "A generation finishing after the cache was cleared does not refill it", .timeLimit(.minutes(1))
+    )
     func generationAfterClearDoesNotRefill() async {
         let gate = MediaTestGate()
         let rig = Rig(gate: gate)
@@ -172,19 +174,23 @@ import UIKit
     func encryptedVideoInvalidHeader() async {
         let rig = Rig()
         rig.videoAssets.errorToThrow = .decryptionFailed
-        #expect(await rig.provider.thumbnail(for: rig.encrypted("clip.mp4"), size: size, scale: scale) == nil)
+        #expect(
+            await rig.provider.thumbnail(for: rig.encrypted("clip.mp4"), size: size, scale: scale) == nil)
     }
 
     @Test("An encrypted video whose frame cannot be read gives nil")
     func encryptedVideoFrameFails() async {
         let rig = Rig()
         rig.renderer.frameResult = nil
-        #expect(await rig.provider.thumbnail(for: rig.encrypted("clip.mp4"), size: size, scale: scale) == nil)
+        #expect(
+            await rig.provider.thumbnail(for: rig.encrypted("clip.mp4"), size: size, scale: scale) == nil)
     }
 
     // MARK: Other encrypted files
 
-    @Test("An encrypted document is decrypted into a store temp folder, thumbnailed, and the temp removed")
+    @Test(
+        "An encrypted document is decrypted into a store temp folder, thumbnailed, and the temp removed"
+    )
     func encryptedDocumentUsesTempFolder() async throws {
         let rig = Rig()
         let item = rig.encrypted("report.pdf", contents: Data("plain bytes".utf8))
@@ -193,25 +199,31 @@ import UIKit
 
         let calls = rig.store.calls
         #expect(calls.contains(.makeTempDirectory))
-        let removed = try #require(calls.compactMap { call -> URL? in
-            if case .removeTemporary(let url) = call { url } else { nil }
-        }.first)
+        let removed = try #require(
+            calls.compactMap { call -> URL? in
+                if case .removeTemporary(let url) = call { url } else { nil }
+            }.first)
         let rendered = try #require(rig.renderer.quickLookURLs.first)
         #expect(rendered.standardizedFileURL.path.hasPrefix(removed.standardizedFileURL.path))
         #expect(rendered != item.diskURL)
         #expect(rig.renderer.quickLookFileExisted == [true])
         #expect(rig.renderer.quickLookFileContents == [Data("plain bytes".utf8)])
         #expect(!FileManager.default.fileExists(atPath: removed.path))
-        #expect(rig.cipher.calls.contains { if case .decryptFile(let source, _) = $0 { source == item.diskURL } else { false } })
+        #expect(
+            rig.cipher.calls.contains {
+                if case .decryptFile(let source, _) = $0 { source == item.diskURL } else { false }
+            })
     }
 
     @Test("The temp folder is removed even when the thumbnail cannot be made")
     func tempRemovedOnRenderFailure() async {
         let rig = Rig()
         rig.renderer.quickLookResult = nil
-        #expect(await rig.provider.thumbnail(for: rig.encrypted("a.pdf"), size: size, scale: scale) == nil)
+        #expect(
+            await rig.provider.thumbnail(for: rig.encrypted("a.pdf"), size: size, scale: scale) == nil)
         let made = rig.store.calls.filter { $0 == .makeTempDirectory }.count
-        let removed = rig.store.calls.filter { if case .removeTemporary = $0 { true } else { false } }.count
+        let removed = rig.store.calls.filter { if case .removeTemporary = $0 { true } else { false } }
+            .count
         #expect(made == 1)
         #expect(removed == 1)
     }
@@ -220,10 +232,12 @@ import UIKit
     func lockedGivesNil() async {
         let rig = Rig()
         rig.cipher.errorToThrow = .noKeyLoaded
-        #expect(await rig.provider.thumbnail(for: rig.encrypted("a.pdf"), size: size, scale: scale) == nil)
+        #expect(
+            await rig.provider.thumbnail(for: rig.encrypted("a.pdf"), size: size, scale: scale) == nil)
         #expect(rig.renderer.quickLookURLs.isEmpty)
         let made = rig.store.calls.filter { $0 == .makeTempDirectory }.count
-        let removed = rig.store.calls.filter { if case .removeTemporary = $0 { true } else { false } }.count
+        let removed = rig.store.calls.filter { if case .removeTemporary = $0 { true } else { false } }
+            .count
         #expect(made == removed)
     }
 
@@ -231,15 +245,18 @@ import UIKit
     func corruptGivesNil() async {
         let rig = Rig()
         rig.cipher.errorToThrow = .decryptionFailed
-        #expect(await rig.provider.thumbnail(for: rig.encrypted("a.pdf"), size: size, scale: scale) == nil)
-        #expect(await rig.provider.thumbnail(for: rig.encrypted("b.mp4"), size: size, scale: scale) == nil)
+        #expect(
+            await rig.provider.thumbnail(for: rig.encrypted("a.pdf"), size: size, scale: scale) == nil)
+        #expect(
+            await rig.provider.thumbnail(for: rig.encrypted("b.mp4"), size: size, scale: scale) == nil)
     }
 
     @Test("A missing source file gives nil")
     func missingFileGivesNil() async {
         let rig = Rig()
         let item = makeMediaItem(
-            name: "a.pdf", diskURL: rig.directory.url.appendingPathComponent("does-not-exist"), isEncrypted: true)
+            name: "a.pdf", diskURL: rig.directory.url.appendingPathComponent("does-not-exist"),
+            isEncrypted: true)
         #expect(await rig.provider.thumbnail(for: item, size: size, scale: scale) == nil)
     }
 
@@ -253,7 +270,9 @@ import UIKit
         let provider = rig.provider
         let size = self.size
         let scale = self.scale
-        let requests = items.map { item in Task { await provider.thumbnail(for: item, size: size, scale: scale) } }
+        let requests = items.map { item in
+            Task { await provider.thumbnail(for: item, size: size, scale: scale) }
+        }
 
         await gate.waitUntilEntered(2)
         await settleTasks()
@@ -268,7 +287,8 @@ import UIKit
         #expect(rig.renderer.quickLookURLs.count == 5)
     }
 
-    @Test("Cancelling a request that has not started gives nil and does no work", .timeLimit(.minutes(1)))
+    @Test(
+        "Cancelling a request that has not started gives nil and does no work", .timeLimit(.minutes(1)))
     func cancelBeforeWorkStarts() async {
         let gate = MediaTestGate()
         let rig = Rig(gate: gate)
@@ -278,7 +298,9 @@ import UIKit
         let provider = rig.provider
         let size = self.size
         let scale = self.scale
-        let running = [first, second].map { item in Task { await provider.thumbnail(for: item, size: size, scale: scale) } }
+        let running = [first, second].map { item in
+            Task { await provider.thumbnail(for: item, size: size, scale: scale) }
+        }
         await gate.waitUntilEntered(2)
         let cancelled = Task { await provider.thumbnail(for: waiting, size: size, scale: scale) }
         await settleTasks()
@@ -289,7 +311,10 @@ import UIKit
         #expect(await cancelled.value == nil)
         for request in running { #expect(await request.value != nil) }
         #expect(rig.renderer.quickLookURLs.count == 2)
-        #expect(!rig.cipher.calls.contains { if case .decryptFile(let source, _) = $0 { source == waiting.diskURL } else { false } })
+        #expect(
+            !rig.cipher.calls.contains {
+                if case .decryptFile(let source, _) = $0 { source == waiting.diskURL } else { false }
+            })
     }
 
     // MARK: Folders
@@ -297,7 +322,10 @@ import UIKit
     private func makeFolder(_ rig: Rig, children: [String]) async throws -> VaultItem {
         let folder = try await rig.store.createFolder(named: "Trip", in: rig.store.root)
         let directory = try #require(folder.asDirectory)
-        for name in children { _ = try await rig.store.createDocument(named: name, in: directory) }
+        for name in children {
+            let source = rig.directory.file(name)
+            _ = try await rig.store.addFile(from: source, named: name, to: directory)
+        }
         return folder
     }
 
@@ -334,7 +362,9 @@ import UIKit
     func emptyFolder() async throws {
         let rig = Rig()
         let folder = try await makeFolder(rig, children: [])
-        #expect(await rig.provider.thumbnail(for: folder, size: size, scale: scale) === rig.renderer.folderIconImage)
+        #expect(
+            await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+                === rig.renderer.folderIconImage)
     }
 
     @Test("A folder whose media thumbnail fails shows the plain folder icon")
@@ -342,7 +372,9 @@ import UIKit
         let rig = Rig()
         rig.renderer.quickLookResult = nil
         let folder = try await makeFolder(rig, children: ["b.png"])
-        #expect(await rig.provider.thumbnail(for: folder, size: size, scale: scale) === rig.renderer.folderIconImage)
+        #expect(
+            await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+                === rig.renderer.folderIconImage)
     }
 
     @Test("A folder thumbnail is cached by the folder's id")
