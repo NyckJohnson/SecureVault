@@ -111,4 +111,34 @@ import Testing
         #expect(vault.tempFiles().isEmpty)
         #expect(try await vault.openedContent(item) == "original")
     }
+
+    @Test(
+        "Opening an encrypted item whose decryption fails throws io and leaves no temp folder or file",
+        arguments: [LockMode.password, .passwordAndBiometrics])
+    func openDecryptionFailureThrowsIOAndCleansTemp(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode, selective: true)
+        defer { vault.cleanUp() }
+        let item = try await vault.add("a.txt", "secret")
+        let failing = try #require(vault.failing)
+        failing.decryptFileError = VaultCryptoError.decryptionFailed
+
+        let error = await caught { _ = try await vault.store.open(item) }
+
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(vault.tempContents().allSatisfy { $0.lastPathComponent == "VaultStore" })  // no per-open folder or file
+    }
+
+    @Test("Opening an encrypted item whose file read fails throws io and leaves no temp folder or file")
+    func openFileSystemFailureThrowsIOAndCleansTemp() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, selective: true)
+        defer { vault.cleanUp() }
+        let item = try await vault.add("a.txt", "secret")
+        let failing = try #require(vault.failing)
+        failing.decryptFileError = CocoaError(.fileReadNoPermission)
+
+        let error = await caught { _ = try await vault.store.open(item) }
+
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(vault.tempContents().allSatisfy { $0.lastPathComponent == "VaultStore" })  // no per-open folder or file
+    }
 }
