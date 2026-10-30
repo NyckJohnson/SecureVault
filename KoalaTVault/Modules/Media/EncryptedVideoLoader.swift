@@ -30,10 +30,6 @@ protocol LoadingRequest: AnyObject, Sendable {
     func finishLoading(with error: (any Error)?)
 }
 
-extension LoadingRequest {
-    var isCancelled: Bool { false }
-}
-
 /// Why `EncryptedVideoLoader` failed a loading request.
 enum EncryptedVideoLoaderError: Error, Equatable, Sendable {
     /// The request's URL is not a stream this loader registered.

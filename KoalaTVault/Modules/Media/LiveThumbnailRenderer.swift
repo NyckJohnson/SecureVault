@@ -48,9 +48,7 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
 
     func folderIcon(size: CGSize, scale: CGFloat) -> UIImage? {
         let pointSize = size.height * FolderIconLayout.symbolPointSizeRatio
-        guard let folder = Self.folderImage(named: FolderIconLayout.assetName, pointSize: pointSize) else {
-            return nil
-        }
+        let folder = Self.folderImage(named: FolderIconLayout.assetName, pointSize: pointSize)
         return UIGraphicsImageRenderer(size: size, format: Self.format(scale: scale)).image { _ in
             var rect = AVMakeRect(aspectRatio: folder.size, insideRect: CGRect(origin: .zero, size: size))
             rect.origin.y += size.height * FolderIconLayout.verticalOffsetRatio
@@ -73,12 +71,14 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
 
     /// The image named `assetName` when the bundle has it, otherwise the yellow `folder.fill` symbol
     /// at `pointSize`. Internal (not private) so tests can exercise the fallback with a missing name.
-    static func folderImage(named assetName: String, pointSize: CGFloat) -> UIImage? {
+    /// `UIImage(systemName:)` is optional in the API but `folder.fill` always exists on iOS; the empty
+    /// `UIImage()` keeps the result non-optional without a separate unreachable branch.
+    static func folderImage(named assetName: String, pointSize: CGFloat) -> UIImage {
         if let asset = UIImage(named: assetName) { return asset }
         let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         return UIImage(systemName: FolderIconLayout.symbolName)?
             .withConfiguration(configuration)
-            .withTintColor(.systemYellow, renderingMode: .alwaysOriginal)
+            .withTintColor(.systemYellow, renderingMode: .alwaysOriginal) ?? UIImage()
     }
 
     private static func format(scale: CGFloat) -> UIGraphicsImageRendererFormat {
