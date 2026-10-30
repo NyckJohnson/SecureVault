@@ -21,3 +21,6 @@ Report: docs/adopt/coverage-Media-report.txt (102 lines, 21 blocks). not-in-spec
 - EncryptedVideoLoader.swift:94-105 delegate's scheme check → **missed** (optional, taken): extract `func handles(_ url: URL?) -> Bool`, test vault-stream / other scheme / nil.
 - Folder-image fallback test: also assert a yellow-ish pixel.
 - Adapters (192-267): exemption accepted (nil fallbacks unreachable without a real request).
+
+## Round 3
+- LiveThumbnailRenderer.swift:36 `return Self.finiteDuration(seconds)` — exempt (marker added; reviewer to confirm). Reached only after `asset.load(.duration)` succeeds, which needs a real video asset (line 35 is exempt for the same reason). It is a one-call delegation; the logic (finite and non-negative check) lives in `finiteDuration`, which is tested directly.
