@@ -95,18 +95,18 @@ final class EncryptedVideoLoader: NSObject, AVAssetResourceLoaderDelegate, Video
 
     // MARK: AVAssetResourceLoaderDelegate
 
+    // coverage-exempt-begin: AVFoundation delegate entry point; needs a real AVAssetResourceLoadingRequest
     func resourceLoader(
         _ resourceLoader: AVAssetResourceLoader,
         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
     ) -> Bool {
-        // coverage-exempt-begin: AVFoundation delegate entry point; needs a real AVAssetResourceLoadingRequest
         guard loadingRequest.request.url?.scheme == Self.scheme else { return false }
         let request = ResourceLoadingRequestAdapter(loadingRequest)
         // Decrypting blocks, so it runs on the loader's serial queue rather than the cooperative pool.
         delegateQueue.async { self.respond(to: request, isTaskCancelled: { false }) }
         return true
-        // coverage-exempt-end
     }
+    // coverage-exempt-end
 
     // MARK: Serving
 
