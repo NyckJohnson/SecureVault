@@ -6,9 +6,16 @@ import UIKit
 @Suite struct LiveThumbnailRendererFolderImageTests {
     /// Whether any opaque-ish pixel is yellow-ish (strong red and green, weak blue).
     private static func hasYellowishPixel(_ image: UIImage) -> Bool {
-        guard let cgImage = image.cgImage else { return false }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let drawn = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        guard let cgImage = drawn.cgImage else { return false }
         let width = cgImage.width
         let height = cgImage.height
+        guard width > 0, height > 0 else { return false }
         let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         var data = [UInt8](repeating: 0, count: width * height * 4)
         let drew = data.withUnsafeMutableBytes { buffer -> Bool in
