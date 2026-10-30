@@ -9,3 +9,12 @@
 7. EncryptedVideoLoaderTests — no assertions for `unknownStream`, `truncatedStream`, `chunkSize == 0`, `serve`'s `isCancelled` early return (isCancelled not in spec). → coverage triage `missed`; decide whether isCancelled belongs in spec.
 8. LiveThumbnailRenderer.swift and the private adapters (EncryptedVideoLoader.swift:183-254) — untested; exempt only lines that truly need AVFoundation/QuickLook; test folder drawing / AVMakeRect / compose.
 9. LiveThumbnailRenderer.swift:9 — "nej_FolderIconB" asset name duplicated from SharedUI's mapping (no import; boundary kept).
+
+# Media unit 1 re-review after the 2026-10-30 spec change — RESULT: pass
+Resolved: 1, 2, 3, 4, 5; 7 mostly. Still open: 6 (registry never shrinks), 8 (renderer/adapters untested → coverage triage), 9 (asset name duplicated).
+New minor findings (to the test-writer at coverage triage):
+- EncryptedVideoLoaderTests ~384 `cancelledServeDoesNoDecrypt`: also assert `failedCount == 1`, `finishCount == 0`.
+- EncryptedVideoLoader.swift:157 `if request.isCancelled { return }` untested: give the fake a settable `isCancelled`.
+- EncryptedVideoLoaderTests ~365 `zeroChunkSizeDoesNotServe`: `guard ... else { return }` lets it pass silently; assert the failure path directly.
+- ThumbnailCache.swift:49: superseded versions of an edited item stay until a clear (optional: drop older keys of the same id on store).
+- EncryptedVideoLoader.swift:104 delegate method + adapters need a real AVAssetResourceLoadingRequest; exemption valid only for those lines.
