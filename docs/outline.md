@@ -3,6 +3,7 @@
 <!-- Adoption memo. The behavior spec describes what the app does today (from docs/adopt/survey-*.md), except where
 `## Known issues` says a bug is fixed in the baseline or in a module: there the spec states the corrected behavior.
 Contracts are redesigned to the pipeline's standards. -->
+- A cached grid thumbnail now arrives one main-actor turn after the cell is configured (async `ThumbnailProviding`), so a cell may flash its kind icon while scrolling — View/LegacyFileCell.swift:110-120 — open: check on device in verify; a fix needs a sync cache accessor (contract change)
 
 ## Purpose
 KoalaTVault is an offline, encrypted file store for iPhone and iPad. The user keeps files (photos, videos, documents) in
