@@ -11,6 +11,7 @@ import AVKit
 final class LegacyFileViewerViewController: UIViewController {
     private let items: [VaultItem]
     private let vaultStore: any VaultStoring
+    private let videoAssets: any VideoAssetProviding
     private let exportService: ExportService
     private var currentIndex: Int
     private var pageViewController: UIPageViewController!
@@ -48,10 +49,15 @@ final class LegacyFileViewerViewController: UIViewController {
     
     /// - Parameters:
     ///   - vaultStore: the app's vault store, which opens the items and removes their decrypted copies.
+    ///   - videoAssets: the app's one video loader, which streams encrypted videos.
     ///   - exportService: the export sheet for the Share button.
-    init(items: [VaultItem], startingAt index: Int, vaultStore: any VaultStoring, exportService: ExportService) {
+    init(
+        items: [VaultItem], startingAt index: Int, vaultStore: any VaultStoring,
+        videoAssets: any VideoAssetProviding, exportService: ExportService
+    ) {
         self.items = items
         self.vaultStore = vaultStore
+        self.videoAssets = videoAssets
         self.exportService = exportService
         self.currentIndex = index
         super.init(nibName: nil, bundle: nil)
@@ -79,7 +85,8 @@ final class LegacyFileViewerViewController: UIViewController {
         pageViewController.dataSource = self
         pageViewController.delegate   = self
         
-        let initial = LegacyFilePageViewController(item: items[currentIndex], viewer: self, vaultStore: vaultStore)
+        let initial = LegacyFilePageViewController(
+            item: items[currentIndex], viewer: self, vaultStore: vaultStore, videoAssets: videoAssets)
         pageViewController.setViewControllers([initial], direction: .forward, animated: false)
         
         addChild(pageViewController)
@@ -479,7 +486,7 @@ extension LegacyFileViewerViewController: UIPageViewControllerDataSource {
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
         guard let index = index(of: viewController), index > 0 else { return nil }
-        return LegacyFilePageViewController(item: items[index - 1], viewer: self, vaultStore: vaultStore)
+        return LegacyFilePageViewController(item: items[index - 1], viewer: self, vaultStore: vaultStore, videoAssets: videoAssets)
     }
 
     func pageViewController(
@@ -487,7 +494,7 @@ extension LegacyFileViewerViewController: UIPageViewControllerDataSource {
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
         guard let index = index(of: viewController), index < items.count - 1 else { return nil }
-        return LegacyFilePageViewController(item: items[index + 1], viewer: self, vaultStore: vaultStore)
+        return LegacyFilePageViewController(item: items[index + 1], viewer: self, vaultStore: vaultStore, videoAssets: videoAssets)
     }
 
     /// Neighbours come from the page asked about, not `currentIndex`: the scroll-style pager can ask for the
