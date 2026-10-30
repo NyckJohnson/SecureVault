@@ -179,6 +179,31 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         #expect(rig.decryptedChunkIndexes().isEmpty)
     }
 
+    @Test("An empty encrypted item still gets a stream asset, with length 0 and byte ranges")
+    func emptyEncryptedItemStreams() async throws {
+        let rig = Rig(size: 0)
+        let asset = try rig.loader.asset(for: rig.encrypted())
+        #expect(asset.url.scheme == "vault-stream")
+        let info = FakeLoadingRequest.ContentInfo()
+        let request = FakeLoadingRequest(url: asset.url, contentInfo: info)
+        await rig.loader.serve(request)
+        #expect(info.contentLength == 0)
+        #expect(info.isByteRangeAccessSupported)
+        #expect(request.succeeded)
+    }
+
+    @Test("A data request on an empty encrypted item finishes without decrypting")
+    func emptyEncryptedItemDataRequest() async throws {
+        let rig = Rig(size: 0)
+        let url = try rig.streamURL(for: rig.encrypted())
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 1000, toEnd: false)
+        let request = FakeLoadingRequest(url: url, data: data)
+        await rig.loader.serve(request)
+        #expect(request.succeeded)
+        #expect(data.received.isEmpty)
+        #expect(rig.decryptedChunkIndexes().isEmpty)
+    }
+
     // MARK: Data requests
 
     @Test("A range inside one chunk decrypts only that chunk")
