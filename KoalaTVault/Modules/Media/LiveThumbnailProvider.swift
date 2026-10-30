@@ -164,8 +164,8 @@ final class LiveThumbnailProvider: ThumbnailProviding {
     /// the folder cancels it.
     private func folderThumbnail(_ item: VaultItem, size: CGSize, scale: CGFloat, generation: Int) async -> UIImage? {
         var media: VaultItem?
-        if let directory = item.asDirectory,
-            let children = try? await store.contents(of: directory, sortedBy: .name, .ascending) {
+        if let directory = item.asDirectory {
+            let children = (try? await store.contents(of: directory, sortedBy: .name, .ascending)) ?? []
             media = children.first { !$0.isDirectory && ($0.kind == .image || $0.kind == .video) }
         }
         guard let icon = renderer.folderIcon(size: size, scale: scale) else { return nil }
