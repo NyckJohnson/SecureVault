@@ -37,9 +37,27 @@ private final class RunStatePhaseRecorder {
         }.count
     }
 
-    func stop() async {
-        try? await Task.sleep(for: .milliseconds(50))
+    /// Waits until the recorded phases satisfy `predicate` (generous limit so a real bug fails, not hangs),
+    /// then lets any straggling phases arrive briefly, and cancels.
+    func stop(after predicate: ([MigrationPhase]) -> Bool) async {
+        for _ in 0..<2000 {
+            if predicate(phases) { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        try? await Task.sleep(for: .milliseconds(20))
         task?.cancel()
+    }
+
+    func stopAfterCompleted() async {
+        await stop {
+            $0.contains { if case .completed = $0 { return true } else { return false } }
+        }
+    }
+
+    func stopAfterPaused() async {
+        await stop {
+            $0.contains { if case .paused = $0 { return true } else { return false } }
+        }
     }
 }
 
@@ -106,7 +124,7 @@ private final class RunStatePhaseRecorder {
         }
         harness.lock.restoreKey()
         await harness.migrator.resumeIfPending()
-        await recorder.stop()
+        await recorder.stopAfterCompleted()
         #expect(harness.migrator.phase == .completed(fully: true))
         #expect(recorder.completedCount == 1)
         for name in allNames {
@@ -121,7 +139,7 @@ private final class RunStatePhaseRecorder {
         let migrator = harness.relaunch()
         let recorder = RunStatePhaseRecorder(migrator.phaseUpdates())
         await migrator.resumeIfPending()
-        await recorder.stop()
+        await recorder.stopAfterPaused()
         #expect(recorder.runningCount == 0)
         guard case .paused = migrator.phase else {
             Issue.record("Expected paused, got \(migrator.phase)")
