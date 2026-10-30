@@ -32,8 +32,8 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
 
     func videoDuration(of asset: AVURLAsset) async -> TimeInterval? {
         guard let duration = try? await asset.load(.duration) else { return nil }
-        let seconds = CMTimeGetSeconds(duration) // coverage-exempt: needs a real video duration
-        return seconds.isFinite && seconds >= 0 ? seconds : nil // coverage-exempt: needs a real video duration
+        let seconds = CMTimeGetSeconds(duration)  // coverage-exempt: needs a real video duration
+        return seconds.isFinite && seconds >= 0 ? seconds : nil  // coverage-exempt: needs a real video duration
     }
 
     func videoFrame(of asset: AVURLAsset, at time: TimeInterval, size: CGSize, scale: CGFloat) async -> UIImage? {
@@ -43,11 +43,12 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
         generator.maximumSize = CGSize(width: size.width * scale, height: size.height * scale)
         let frameTime = CMTime(seconds: time, preferredTimescale: 600)
         guard let frame = try? await generator.image(at: frameTime) else { return nil }
-        return UIImage(cgImage: frame.image) // coverage-exempt: needs a real AVAssetImageGenerator frame
+        return UIImage(cgImage: frame.image)  // coverage-exempt: needs a real AVAssetImageGenerator frame
     }
 
     func folderIcon(size: CGSize, scale: CGFloat) -> UIImage? {
-        guard let folder = Self.folderImage(pointSize: size.height * FolderIconLayout.symbolPointSizeRatio) else {
+        let pointSize = size.height * FolderIconLayout.symbolPointSizeRatio
+        guard let folder = Self.folderImage(named: FolderIconLayout.assetName, pointSize: pointSize) else {
             return nil
         }
         return UIGraphicsImageRenderer(size: size, format: Self.format(scale: scale)).image { _ in
@@ -70,9 +71,10 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
         }
     }
 
-    /// The folder asset when the bundle has it, otherwise the yellow `folder.fill` symbol.
-    private static func folderImage(pointSize: CGFloat) -> UIImage? {
-        if let asset = UIImage(named: FolderIconLayout.assetName) { return asset }
+    /// The image named `assetName` when the bundle has it, otherwise the yellow `folder.fill` symbol
+    /// at `pointSize`. Internal (not private) so tests can exercise the fallback with a missing name.
+    static func folderImage(named assetName: String, pointSize: CGFloat) -> UIImage? {
+        if let asset = UIImage(named: assetName) { return asset }
         let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         return UIImage(systemName: FolderIconLayout.symbolName)?
             .withConfiguration(configuration)
