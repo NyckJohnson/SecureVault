@@ -224,7 +224,7 @@ extension matching ignores case.
 5. SharedUI (depends on: VaultStore)
 6. VaultLock (depends on: VaultCrypto, Preferences, VaultStore)
 7. LockMigration (depends on: VaultStore, VaultLock, Preferences)
-8. Media (depends on: VaultStore, VaultCrypto)
+8. Media (depends on: VaultStore, VaultCrypto, Preferences)
 9. Import (depends on: VaultStore, Entitlements, SharedUI)
 10. Export (depends on: VaultStore, SharedUI)
 11. LockScreens (depends on: VaultLock, SharedUI)
@@ -645,7 +645,7 @@ extension matching ignores case.
 
 ### Media
 - Purpose: thumbnails for the grid and streaming encrypted video to AVPlayer without writing plaintext to disk.
-- Depends on: VaultStore, VaultCrypto
+- Depends on: VaultStore, VaultCrypto, Preferences
 - Files: ThumbnailCache.swift, LiveThumbnailProvider.swift, EncryptedVideoLoader.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
@@ -664,9 +664,9 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - Cache: in memory only, keyed by item id; a second request for the same item returns the cached image without generating; `clearCache` empties it and a generation finishing after the clear doesn't refill it.
+  - Cache: in memory only, keyed by item id + `dateModified` + `fileSize` (an edited or replaced file at the same path gets a fresh thumbnail, as today); a second request for the same unchanged item returns the cached image without generating; `clearCache` empties it and a generation finishing after the clear doesn't refill it.
   - Plaintext file → QuickLook thumbnail; encrypted video → a frame at min(5 s, duration / 2) through the streaming loader, nothing written to disk; other encrypted files → decrypted into a store temp folder, thumbnailed, temp removed; at most 2 decrypts at once.
-  - Folder → the first image or video inside composed onto the folder icon; no media → the folder icon; cancelling a folder cancels its media request.
+  - Folder → the first image or video inside, in the user's current browser sort (`PreferencesStoring.sortOption`/`sortDirection`, read at request time), composed onto the folder icon; no media → the folder icon; cancelling a folder cancels its media request.
   - cancel before work starts → returns nil and no work is done; corrupt, truncated or locked files → nil.
   - asset(for:) encrypted: `vault-stream://` URL with a loader that answers content info (type from the extension, default mpeg-4; length = plaintext size; byte ranges) and data requests by decrypting only the needed chunks; empty range finishes at once; a decrypt error fails the request; invalid header → throws.
   - asset(for:) plaintext → the disk URL.
@@ -959,3 +959,4 @@ extension matching ignores case.
 - 2026-10-29: VaultLock switch-over review notes, left to later modules: LockScreen's `addPendingLockIfNeeded` (old pending encrypt with lockMode never saved) passes a `.passwordAndBiometrics` target to `prepareToAddLock`, unlike Settings which always adds `.password` first (no current flow produces that target; LockScreens/LockMigration should always add `.password`); Settings with a lock but no password blob now shows the password-missing error instead of re-prompting (follows the spec) — VaultLock switch-over review — orchestrator, recorded
 - 2026-10-29: LockMigration edge cases specified (finishEncryption failure logged; step failures and decrypt leftovers as `.failed(names: [])` with Retry/Skip; no resume while failures await; Skip always completes; switchMode only when the mode differs, target never `.none`; locked resume goes straight to paused; `start` ignored while a run exists) — LockMigration unit 1 review — decided by the human
 - 2026-10-29: The launch recovery for an encrypt left pending (`resolveUnfinishableEncryption` and PendingEncryptionLaunchTests) belongs to LockScreens, not LockMigration; it stays legacy until LockScreens and must run before `resumeIfPending` — LockMigration switch-over legacy-test scan — decided by the human
+- 2026-10-30: Media's thumbnail cache key is item id + `dateModified` + `fileSize` (edited notes refresh their thumbnail, as legacy `ThumbnailService.cacheKey` did), and a folder thumbnail's first media follows the user's browser sort (Media now depends on Preferences) — Media unit 1 review — decided by the human
