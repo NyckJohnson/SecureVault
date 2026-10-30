@@ -99,11 +99,13 @@ final class EncryptedVideoLoader: NSObject, AVAssetResourceLoaderDelegate, Video
         _ resourceLoader: AVAssetResourceLoader,
         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
     ) -> Bool {
+        // coverage-exempt-begin: AVFoundation delegate entry point; needs a real AVAssetResourceLoadingRequest
         guard loadingRequest.request.url?.scheme == Self.scheme else { return false }
         let request = ResourceLoadingRequestAdapter(loadingRequest)
         // Decrypting blocks, so it runs on the loader's serial queue rather than the cooperative pool.
         delegateQueue.async { self.respond(to: request, isTaskCancelled: { false }) }
         return true
+        // coverage-exempt-end
     }
 
     // MARK: Serving
@@ -191,6 +193,7 @@ final class EncryptedVideoLoader: NSObject, AVAssetResourceLoaderDelegate, Video
 
 // MARK: AVFoundation adapters
 
+// coverage-exempt-begin: adapters over a real AVAssetResourceLoadingRequest (cannot be built in a unit test)
 /// Wraps a real `AVAssetResourceLoadingRequest`. AVFoundation's request types are not `Sendable`, so the
 /// request lives inside a lock and every access goes through it, one at a time.
 private final class ResourceLoadingRequestAdapter: LoadingRequest {
@@ -265,3 +268,4 @@ private final class DataRequestAdapter: LoadingDataRequest {
         box.withLockUnchecked { $0.dataRequest?.respond(with: data) }
     }
 }
+// coverage-exempt-end

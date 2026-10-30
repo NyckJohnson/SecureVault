@@ -21,17 +21,19 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
 
     func quickLookThumbnail(for url: URL, size: CGSize, scale: CGFloat) async -> UIImage? {
         guard !Task.isCancelled else { return nil }
+        // coverage-exempt-begin: QLThumbnailGenerator needs the real QuickLook service
         let request = QLThumbnailGenerator.Request(
             fileAt: url, size: size, scale: scale, representationTypes: .thumbnail)
         // A file QuickLook can't read is not an error for the grid: it shows the kind's icon.
         let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
         return representation?.uiImage
+        // coverage-exempt-end
     }
 
     func videoDuration(of asset: AVURLAsset) async -> TimeInterval? {
         guard let duration = try? await asset.load(.duration) else { return nil }
-        let seconds = CMTimeGetSeconds(duration)
-        return seconds.isFinite && seconds >= 0 ? seconds : nil
+        let seconds = CMTimeGetSeconds(duration) // coverage-exempt: needs a real video duration
+        return seconds.isFinite && seconds >= 0 ? seconds : nil // coverage-exempt: needs a real video duration
     }
 
     func videoFrame(of asset: AVURLAsset, at time: TimeInterval, size: CGSize, scale: CGFloat) async -> UIImage? {
@@ -41,7 +43,7 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
         generator.maximumSize = CGSize(width: size.width * scale, height: size.height * scale)
         let frameTime = CMTime(seconds: time, preferredTimescale: 600)
         guard let frame = try? await generator.image(at: frameTime) else { return nil }
-        return UIImage(cgImage: frame.image)
+        return UIImage(cgImage: frame.image) // coverage-exempt: needs a real AVAssetImageGenerator frame
     }
 
     func folderIcon(size: CGSize, scale: CGFloat) -> UIImage? {
