@@ -24,15 +24,18 @@ protocol ThumbnailRendering: Sendable {
 ///   `VideoAssetProviding`; no plaintext touches the disk.
 /// - Other encrypted files: decrypted into a store temp folder, thumbnailed, and the folder removed.
 ///   At most `maxConcurrentDecrypts` of these run at once.
-/// - Folders: the first image or video inside (by name) composed onto the folder icon, else the icon.
+/// - Folders: the first image or video inside, in the user's current browser sort (read from
+///   `PreferencesStoring` at request time), composed onto the folder icon, else the icon.
 ///
 /// Any failure (locked vault, corrupt or truncated file, missing file, render failure) gives nil,
-/// which the grid shows as the kind's icon; failures are not cached. Results are cached by item id.
+/// which the grid shows as the kind's icon; failures are not cached. Results are cached by item id, modification date and file size, so an
+/// edited or replaced file gets a fresh thumbnail.
 final class LiveThumbnailProvider: ThumbnailProviding {
     private let store: any VaultStoring
     private let cipher: any FileCipher
     private let videoAssets: any VideoAssetProviding
     private let renderer: any ThumbnailRendering
+    private let preferences: any PreferencesStoring
     private let cache = ThumbnailCache()
     private let decryptSlots: DecryptSlots
     /// The running generation tasks per item id, so `cancel(_:)` can cancel them.
@@ -43,15 +46,17 @@ final class LiveThumbnailProvider: ThumbnailProviding {
     ///   - cipher: decrypts encrypted files and checks encrypted video headers.
     ///   - videoAssets: streaming assets for encrypted videos.
     ///   - renderer: QuickLook, video frames and folder icon drawing.
+    ///   - preferences: the browser sort that picks a folder's media.
     ///   - maxConcurrentDecrypts: how many encrypted files may be decrypted at once (at least 1).
     init(
         store: any VaultStoring, cipher: any FileCipher, videoAssets: any VideoAssetProviding,
-        renderer: any ThumbnailRendering, maxConcurrentDecrypts: Int = 2
+        renderer: any ThumbnailRendering, preferences: any PreferencesStoring, maxConcurrentDecrypts: Int = 2
     ) {
         self.store = store
         self.cipher = cipher
         self.videoAssets = videoAssets
         self.renderer = renderer
+        self.preferences = preferences
         decryptSlots = DecryptSlots(count: maxConcurrentDecrypts)
     }
 
@@ -63,14 +68,18 @@ final class LiveThumbnailProvider: ThumbnailProviding {
     }
 
     func thumbnail(for item: VaultItem, size: CGSize, scale: CGFloat) async -> UIImage? {
-        if let cached = cache.image(for: item.id) { return cached }
+        if let cached = cache.image(for: Self.cacheKey(for: item)) { return cached }
         let generation = cache.generation
         let token = UUID()
-        // An unstructured task so `cancel(_:)` can cancel this request from outside.
-        let task = Task { [self] in
-            await generate(item, size: size, scale: scale, generation: generation)
+        // An unstructured task so `cancel(_:)` can cancel this request from outside. It is created and
+        // registered under the same lock `cancel(_:)` takes, so no cancel can fall between the two.
+        let task = running.withLock { running in
+            let task = Task { [self] in
+                await generate(item, size: size, scale: scale, generation: generation)
+            }
+            running[item.id, default: [:]][token] = task
+            return task
         }
-        running.withLock { $0[item.id, default: [:]][token] = task }
         let image = await withTaskCancellationHandler {
             await task.value
         } onCancel: {
@@ -96,6 +105,11 @@ final class LiveThumbnailProvider: ThumbnailProviding {
         cache.remove(id: item.id)
     }
 
+    /// The cache key of the item's current version.
+    private static func cacheKey(for item: VaultItem) -> ThumbnailCache.Key {
+        ThumbnailCache.Key(id: item.id, dateModified: item.dateModified, fileSize: item.fileSize)
+    }
+
     // MARK: Generation
 
     /// Makes and caches the item's thumbnail; nil when cancelled or when none can be made.
@@ -108,7 +122,7 @@ final class LiveThumbnailProvider: ThumbnailProviding {
                 await fileThumbnail(item, size: size, scale: scale)
             }
         guard let image, !Task.isCancelled else { return nil }
-        cache.store(image, for: item.id, generation: generation)
+        cache.store(image, for: Self.cacheKey(for: item), generation: generation)
         return image
     }
 
@@ -159,25 +173,29 @@ final class LiveThumbnailProvider: ThumbnailProviding {
 
     // MARK: Folders
 
-    /// The first image or video inside (sorted by name) composed onto the folder icon; the plain icon
+    /// The first image or video inside (in the user's browser sort) composed onto the folder icon; the plain icon
     /// when there is none or its thumbnail fails. The media thumbnail runs in this task, so cancelling
     /// the folder cancels it.
     private func folderThumbnail(_ item: VaultItem, size: CGSize, scale: CGFloat, generation: Int) async -> UIImage? {
         var media: VaultItem?
         if let directory = item.asDirectory {
-            let children = (try? await store.contents(of: directory, sortedBy: .name, .ascending)) ?? []
+            // Read at request time so the pick follows the sort the user has now.
+            let option = preferences.sortOption
+            let direction = preferences.sortDirection
+            let children = (try? await store.contents(of: directory, sortedBy: option, direction)) ?? []
             media = children.first { !$0.isDirectory && ($0.kind == .image || $0.kind == .video) }
         }
         guard let icon = renderer.folderIcon(size: size, scale: scale) else { return nil }
         guard let media else { return icon }
 
         let mediaImage: UIImage?
-        if let cached = cache.image(for: media.id) {
+        let mediaKey = Self.cacheKey(for: media)
+        if let cached = cache.image(for: mediaKey) {
             mediaImage = cached
         } else {
             mediaImage = await fileThumbnail(media, size: size, scale: scale)
             if let mediaImage, !Task.isCancelled {
-                cache.store(mediaImage, for: media.id, generation: generation)
+                cache.store(mediaImage, for: mediaKey, generation: generation)
             }
         }
         guard let mediaImage else { return icon }

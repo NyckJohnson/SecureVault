@@ -38,7 +38,7 @@ extension LoadingRequest {
 enum EncryptedVideoLoaderError: Error, Equatable, Sendable {
     /// The request's URL is not a stream this loader registered.
     case unknownStream
-    /// A chunk held fewer bytes than the stream header promised.
+    /// A chunk held fewer bytes than the stream header promised, or the header's chunk size is zero.
     case truncatedStream
 }
 
@@ -101,15 +101,23 @@ final class EncryptedVideoLoader: NSObject, AVAssetResourceLoaderDelegate, Video
     ) -> Bool {
         guard loadingRequest.request.url?.scheme == Self.scheme else { return false }
         let request = ResourceLoadingRequestAdapter(loadingRequest)
-        Task { await self.serve(request) }
+        // Decrypting blocks, so it runs on the loader's serial queue rather than the cooperative pool.
+        delegateQueue.async { self.respond(to: request, isTaskCancelled: { false }) }
         return true
     }
 
     // MARK: Serving
 
     /// Answers the request and finishes it (successfully, or with an error) before returning;
-    /// a request AVFoundation cancelled is abandoned between chunks.
+    /// a request AVFoundation cancelled is abandoned between chunks. If the calling task is cancelled,
+    /// no further chunk is decrypted and the request fails with `CancellationError`.
     func serve(_ request: any LoadingRequest) async {
+        respond(to: request, isTaskCancelled: { Task.isCancelled })
+    }
+
+    /// The blocking work behind `serve(_:)`: content information, then the requested bytes, decrypting
+    /// only the chunks the range covers. `isTaskCancelled` is checked before every chunk.
+    private func respond(to request: any LoadingRequest, isTaskCancelled: () -> Bool) {
         guard let url = request.requestURL, let stream = stream(for: url) else {
             request.finishLoading(with: EncryptedVideoLoaderError.unknownStream)
             return
@@ -147,11 +155,16 @@ final class EncryptedVideoLoader: NSObject, AVAssetResourceLoaderDelegate, Video
         do {
             for index in (start / chunkSize)...((end - 1) / chunkSize) {
                 if request.isCancelled { return }
+                if isTaskCancelled() { throw CancellationError() }
                 let chunk = try cipher.decryptChunk(Int(index), of: stream.fileURL, info: stream.info)
                 let chunkStart = index * chunkSize
+                // The part of this chunk the range needs. Only the final chunk may be shorter than
+                // `chunkSize`, and since `end <= total` the needed part always fits in a whole chunk;
+                // a chunk too short to hold it is truncated, and answering with it would misalign
+                // every later byte.
                 let lower = Int(max(start, chunkStart) - chunkStart)
-                let upper = Int(min(end, chunkStart + Int64(chunk.count)) - chunkStart)
-                guard lower < upper else { throw EncryptedVideoLoaderError.truncatedStream }
+                let upper = Int(min(end, chunkStart + chunkSize) - chunkStart)
+                guard upper <= chunk.count else { throw EncryptedVideoLoaderError.truncatedStream }
                 dataRequest.respond(with: chunk.subdata(in: lower..<upper))
             }
             request.finishLoading()
