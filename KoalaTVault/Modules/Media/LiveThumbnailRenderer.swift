@@ -33,7 +33,13 @@ final class LiveThumbnailRenderer: ThumbnailRendering {
     func videoDuration(of asset: AVURLAsset) async -> TimeInterval? {
         guard let duration = try? await asset.load(.duration) else { return nil }
         let seconds = CMTimeGetSeconds(duration)  // coverage-exempt: needs a real video duration
-        return seconds.isFinite && seconds >= 0 ? seconds : nil  // coverage-exempt: needs a real video duration
+        return Self.finiteDuration(seconds)
+    }
+
+    /// `seconds` when it is a usable duration (finite and not negative), otherwise `nil`.
+    /// `CMTimeGetSeconds` gives NaN or infinity for indefinite and invalid times.
+    static func finiteDuration(_ seconds: Double) -> TimeInterval? {
+        seconds.isFinite && seconds >= 0 ? seconds : nil
     }
 
     func videoFrame(of asset: AVURLAsset, at time: TimeInterval, size: CGSize, scale: CGFloat) async -> UIImage? {

@@ -96,13 +96,19 @@ final class EncryptedVideoLoader: NSObject, AVAssetResourceLoaderDelegate, Video
         _ resourceLoader: AVAssetResourceLoader,
         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
     ) -> Bool {
-        guard loadingRequest.request.url?.scheme == Self.scheme else { return false }
+        guard handles(loadingRequest.request.url) else { return false }
         let request = ResourceLoadingRequestAdapter(loadingRequest)
         // Decrypting blocks, so it runs on the loader's serial queue rather than the cooperative pool.
         delegateQueue.async { self.respond(to: request, isTaskCancelled: { false }) }
         return true
     }
     // coverage-exempt-end
+
+    /// Whether `url` is one of this loader's streaming URLs (the `vault-stream` scheme); the delegate
+    /// declines every other request so AVFoundation loads it itself.
+    func handles(_ url: URL?) -> Bool {
+        url?.scheme == Self.scheme
+    }
 
     // MARK: Serving
 
