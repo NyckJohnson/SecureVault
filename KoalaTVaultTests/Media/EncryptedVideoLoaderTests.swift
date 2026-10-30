@@ -38,6 +38,8 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
     private(set) var finishCount = 0
     private(set) var failure: (any Error)?
     private(set) var failedCount = 0
+    /// What AVFoundation would report when it cancels the request.
+    var isCancelled = false
 
     init(url: URL?, contentInfo: ContentInfo? = nil, data: LoadingData? = nil) {
         requestURL = url
@@ -397,13 +399,15 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         let loader = EncryptedVideoLoader(cipher: cipher)
         let item = makeMediaItem(
             name: "clip.mp4", diskURL: directory.file(UUID().uuidString), isEncrypted: true, fileSize: 100)
-        // Either the asset is refused up front, or the data request fails; never a trap or data.
-        guard let url = try? loader.asset(for: item).url else { return }
+        let url = try loader.asset(for: item).url
         let data = FakeLoadingRequest.LoadingData(offset: 0, length: 50, toEnd: false)
         let request = FakeLoadingRequest(url: url, data: data)
         await loader.serve(request)
         #expect(request.failedCount == 1)
+        #expect(request.finishCount == 0)
+        #expect(request.failure as? EncryptedVideoLoaderError == .truncatedStream)
         #expect(data.received.isEmpty)
+        #expect(cipher.decryptedChunks == 0)
     }
 
     @Test("Serving a request whose task is already cancelled does no decrypt work")
@@ -421,5 +425,22 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         await task.value
         #expect(rig.decryptedChunkIndexes().isEmpty)
         #expect(data.received.isEmpty)
+        #expect(request.failedCount == 1)
+        #expect(request.finishCount == 0)
+        #expect(request.failure is CancellationError)
+    }
+
+    @Test("A request AVFoundation cancelled is abandoned: no decrypt, no data, not finished")
+    func cancelledRequestIsAbandoned() async throws {
+        let rig = Rig()
+        let url = try rig.streamURL(for: rig.encrypted())
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 100, toEnd: false)
+        let request = FakeLoadingRequest(url: url, data: data)
+        request.isCancelled = true
+        await rig.loader.serve(request)
+        #expect(rig.decryptedChunkIndexes().isEmpty)
+        #expect(data.received.isEmpty)
+        #expect(request.finishCount == 0)
+        #expect(request.failedCount == 0)
     }
 }

@@ -461,6 +461,40 @@ import UIKit
         #expect(rig.renderer.quickLookCancelled == [true])
     }
 
+    @Test("Cancelling the requesting task cancels the generation", .timeLimit(.minutes(1)))
+    func cancellingRequestingTaskCancelsGeneration() async {
+        let gate = MediaTestGate()
+        let rig = Rig(gate: gate)
+        let item = rig.plaintext("a.png")
+        let provider = rig.provider
+        let size = self.size
+        let scale = self.scale
+        let request = Task { await provider.thumbnail(for: item, size: size, scale: scale) }
+        await gate.waitUntilEntered(1)
+
+        request.cancel()
+        gate.open()
+        let image = await request.value
+
+        #expect(rig.renderer.quickLookCancelled == [true])
+        #expect(image == nil)
+    }
+
+    @Test("A folder whose first media is already cached reuses it instead of generating again")
+    func folderUsesCachedMedia() async throws {
+        let rig = Rig()
+        let folder = try await makeFolder(rig, children: ["b.png"])
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.count == 1)
+
+        rig.provider.clearCache(for: folder)
+        let image = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+
+        #expect(image === rig.renderer.composedImage)
+        #expect(rig.renderer.quickLookURLs.count == 1)
+        #expect(rig.renderer.composeCount == 2)
+    }
+
     // MARK: Folder media order
 
     @Test("A folder asks the store for its children in the user's sort at request time")
