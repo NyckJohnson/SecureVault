@@ -28,11 +28,11 @@ final class MediaTestDirectory {
 /// A vault item for tests; the id is the disk file name.
 func makeMediaItem(
     name: String, diskURL: URL, isDirectory: Bool = false, isEncrypted: Bool = false,
-    fileSize: Int? = nil
+    fileSize: Int? = nil, dateModified: Date = Date(timeIntervalSince1970: 0)
 ) -> VaultItem {
     VaultItem(
         id: diskURL.lastPathComponent, name: name, isDirectory: isDirectory,
-        dateModified: Date(timeIntervalSince1970: 0), fileSize: isDirectory ? nil : fileSize,
+        dateModified: dateModified, fileSize: isDirectory ? nil : fileSize,
         deletedAt: nil, diskURL: diskURL, rootURL: diskURL.deletingLastPathComponent(),
         isEncrypted: isEncrypted)
 }
@@ -227,4 +227,31 @@ final class FakeThumbnailRenderer: ThumbnailRendering {
             return state.composedResult
         }
     }
+}
+
+/// A cipher whose stream info and chunks are scripted, to test short or odd chunks.
+final class ScriptedFileCipher: FileCipher, @unchecked Sendable {
+    private let info: StreamInfo
+    private let chunks: [Int: Data]
+    private let decryptCount = OSAllocatedUnfairLock(initialState: 0)
+
+    init(info: StreamInfo, chunks: [Int: Data]) {
+        self.info = info
+        self.chunks = chunks
+    }
+
+    var decryptedChunks: Int { decryptCount.withLock { $0 } }
+
+    func streamInfo(of url: URL) throws -> StreamInfo { info }
+
+    func decryptChunk(_ index: Int, of url: URL, info: StreamInfo) throws -> Data {
+        decryptCount.withLock { $0 += 1 }
+        guard let data = chunks[index] else { throw VaultCryptoError.decryptionFailed }
+        return data
+    }
+
+    func encrypt(_ data: Data, context: String) throws -> Data { throw VaultCryptoError.encryptionFailed }
+    func decrypt(_ data: Data, contexts: [String]) throws -> Data { throw VaultCryptoError.decryptionFailed }
+    func encryptFile(at source: URL, to destination: URL) throws { throw VaultCryptoError.encryptionFailed }
+    func decryptFile(at source: URL, to destination: URL) throws { throw VaultCryptoError.decryptionFailed }
 }

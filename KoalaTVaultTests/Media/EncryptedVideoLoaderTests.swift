@@ -282,4 +282,113 @@ final class FakeLoadingRequest: LoadingRequest, @unchecked Sendable {
         #expect(firstInfo.contentType == "public.mpeg-4")
         #expect(secondInfo.contentType == "com.apple.quicktime-movie")
     }
+
+    // MARK: Unknown streams, truncation, cancellation
+
+    @Test("A vault-stream URL the loader never issued fails the request")
+    func unknownStreamFails() async {
+        let rig = Rig()
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 100, toEnd: false)
+        let request = FakeLoadingRequest(url: URL(string: "vault-stream://not-issued/clip.mp4"), data: data)
+        await rig.loader.serve(request)
+        #expect(request.failedCount == 1)
+        #expect(request.finishCount == 0)
+        #expect(data.received.isEmpty)
+        #expect(rig.decryptedChunkIndexes().isEmpty)
+    }
+
+    @Test("A stream URL issued by another loader fails the request")
+    func foreignLoaderStreamFails() async throws {
+        let rig = Rig()
+        let other = Rig()
+        let url = try other.streamURL(for: other.encrypted())
+        let info = FakeLoadingRequest.ContentInfo()
+        let request = FakeLoadingRequest(url: url, contentInfo: info)
+        await rig.loader.serve(request)
+        #expect(request.failedCount == 1)
+        #expect(request.finishCount == 0)
+    }
+
+    @Test("A request for a foreign URL scheme fails")
+    func foreignSchemeFails() async {
+        let rig = Rig()
+        let request = FakeLoadingRequest(
+            url: URL(string: "https://example.com/clip.mp4"),
+            contentInfo: FakeLoadingRequest.ContentInfo())
+        await rig.loader.serve(request)
+        #expect(request.failedCount == 1)
+        #expect(request.finishCount == 0)
+    }
+
+    private func scriptedRig(
+        info: StreamInfo, chunks: [Int: Data]
+    ) throws -> (loader: EncryptedVideoLoader, url: URL) {
+        let directory = MediaTestDirectory()
+        let cipher = ScriptedFileCipher(info: info, chunks: chunks)
+        let loader = EncryptedVideoLoader(cipher: cipher)
+        let item = makeMediaItem(
+            name: "clip.mp4", diskURL: directory.file(UUID().uuidString), isEncrypted: true,
+            fileSize: info.totalSize)
+        return (loader, try loader.asset(for: item).url)
+    }
+
+    @Test("A short non-final chunk that only partly covers the range fails the request")
+    func truncatedStreamFails() async throws {
+        let info = StreamInfo(totalSize: 300, chunkSize: 100)
+        let rig = try scriptedRig(
+            info: info,
+            chunks: [0: Data(repeating: 1, count: 100), 1: Data(repeating: 2, count: 40), 2: Data(repeating: 3, count: 100)])
+        let data = FakeLoadingRequest.LoadingData(offset: 50, length: 200, toEnd: false)
+        let request = FakeLoadingRequest(url: rig.url, data: data)
+        await rig.loader.serve(request)
+        #expect(request.failedCount == 1)
+        #expect(request.finishCount == 0)
+    }
+
+    @Test("Full-size chunks of a scripted stream are served in order")
+    func scriptedFullChunksServed() async throws {
+        let info = StreamInfo(totalSize: 250, chunkSize: 100)
+        let rig = try scriptedRig(
+            info: info,
+            chunks: [0: Data(repeating: 1, count: 100), 1: Data(repeating: 2, count: 100), 2: Data(repeating: 3, count: 50)])
+        let data = FakeLoadingRequest.LoadingData(offset: 90, length: 20, toEnd: false)
+        let request = FakeLoadingRequest(url: rig.url, data: data)
+        await rig.loader.serve(request)
+        #expect(data.received == Data(repeating: 1, count: 10) + Data(repeating: 2, count: 10))
+        #expect(request.succeeded)
+    }
+
+    @Test("A stream reporting a chunk size of zero never serves data or crashes")
+    func zeroChunkSizeDoesNotServe() async throws {
+        let info = StreamInfo(totalSize: 100, chunkSize: 0)
+        let directory = MediaTestDirectory()
+        let cipher = ScriptedFileCipher(info: info, chunks: [:])
+        let loader = EncryptedVideoLoader(cipher: cipher)
+        let item = makeMediaItem(
+            name: "clip.mp4", diskURL: directory.file(UUID().uuidString), isEncrypted: true, fileSize: 100)
+        // Either the asset is refused up front, or the data request fails; never a trap or data.
+        guard let url = try? loader.asset(for: item).url else { return }
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 50, toEnd: false)
+        let request = FakeLoadingRequest(url: url, data: data)
+        await loader.serve(request)
+        #expect(request.failedCount == 1)
+        #expect(data.received.isEmpty)
+    }
+
+    @Test("Serving a request whose task is already cancelled does no decrypt work")
+    func cancelledServeDoesNoDecrypt() async throws {
+        let rig = Rig()
+        let url = try rig.streamURL(for: rig.encrypted())
+        let data = FakeLoadingRequest.LoadingData(offset: 0, length: 100, toEnd: false)
+        let request = FakeLoadingRequest(url: url, data: data)
+        let loader = rig.loader
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            await loader.serve(request)
+        }
+        task.cancel()
+        await task.value
+        #expect(rig.decryptedChunkIndexes().isEmpty)
+        #expect(data.received.isEmpty)
+    }
 }

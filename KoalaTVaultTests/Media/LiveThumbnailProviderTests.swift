@@ -14,6 +14,7 @@ import UIKit
         let store = MockVaultStoring(withSampleContent: false)
         let cipher = MockFileCipher()
         let videoAssets = MockVideoAssetProviding()
+        let preferences = MockPreferencesStoring()
         let renderer: FakeThumbnailRenderer
         let provider: LiveThumbnailProvider
 
@@ -21,11 +22,19 @@ import UIKit
             let renderer = FakeThumbnailRenderer(gate: gate)
             self.renderer = renderer
             provider = LiveThumbnailProvider(
-                store: store, cipher: cipher, videoAssets: videoAssets, renderer: renderer)
+                store: store, cipher: cipher, videoAssets: videoAssets, renderer: renderer,
+                preferences: preferences)
         }
 
         func plaintext(_ name: String) -> VaultItem {
             makeMediaItem(name: name, diskURL: directory.file(name))
+        }
+
+        /// The sort arguments of every folder listing the provider asked the store for.
+        var listings: [(SortOption, SortDirection)] {
+            store.calls.compactMap { call in
+                if case .contents(_, let option, let direction) = call { (option, direction) } else { nil }
+            }
         }
 
         func encrypted(_ name: String, contents: Data = Data("secret".utf8)) -> VaultItem {
@@ -54,6 +63,54 @@ import UIKit
         #expect(first != nil)
         #expect(second === first)
         #expect(rig.renderer.quickLookURLs.count == 1)
+    }
+
+    @Test("The same id with a changed modification date generates a fresh thumbnail")
+    func changedDateRegenerates() async {
+        let rig = Rig()
+        let url = rig.directory.file("note.txt")
+        let old = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 10)
+        let edited = makeMediaItem(
+            name: "note.txt", diskURL: url, fileSize: 10, dateModified: Date(timeIntervalSince1970: 500))
+        let first = await rig.provider.thumbnail(for: old, size: size, scale: scale)
+        let second = await rig.provider.thumbnail(for: edited, size: size, scale: scale)
+        #expect(first != nil && second != nil)
+        #expect(rig.renderer.quickLookURLs.count == 2)
+    }
+
+    @Test("The same id with a changed file size generates a fresh thumbnail")
+    func changedSizeRegenerates() async {
+        let rig = Rig()
+        let url = rig.directory.file("note.txt")
+        let old = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 10)
+        let edited = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 25)
+        _ = await rig.provider.thumbnail(for: old, size: size, scale: scale)
+        _ = await rig.provider.thumbnail(for: edited, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.count == 2)
+    }
+
+    @Test("An unchanged item (same id, date and size) still hits the cache")
+    func unchangedItemHitsCache() async {
+        let rig = Rig()
+        let url = rig.directory.file("note.txt")
+        let first = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 10)
+        let same = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 10)
+        let one = await rig.provider.thumbnail(for: first, size: size, scale: scale)
+        let two = await rig.provider.thumbnail(for: same, size: size, scale: scale)
+        #expect(two === one)
+        #expect(rig.renderer.quickLookURLs.count == 1)
+    }
+
+    @Test("Clearing an item's cache clears it whichever version was cached")
+    func clearCacheForChangedItem() async {
+        let rig = Rig()
+        let url = rig.directory.file("note.txt")
+        let old = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 10)
+        let edited = makeMediaItem(name: "note.txt", diskURL: url, fileSize: 25)
+        _ = await rig.provider.thumbnail(for: edited, size: size, scale: scale)
+        rig.provider.clearCache(for: old)
+        _ = await rig.provider.thumbnail(for: edited, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.count == 2)
     }
 
     @Test("Different items are cached separately")
@@ -402,5 +459,63 @@ import UIKit
         _ = await request.value
 
         #expect(rig.renderer.quickLookCancelled == [true])
+    }
+
+    // MARK: Folder media order
+
+    @Test("A folder asks the store for its children in the user's sort at request time")
+    func folderPassesPreferencesToStore() async throws {
+        let rig = Rig()
+        rig.preferences.sortOption = .dateModified
+        rig.preferences.sortDirection = .descending
+        let folder = try await makeFolder(rig, children: ["b.png"])
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        let listings = rig.listings
+        #expect(listings.count == 1)
+        #expect(listings.first?.0 == .dateModified)
+        #expect(listings.first?.1 == .descending)
+    }
+
+    @Test("Name descending picks the last name as the folder's media")
+    func folderDescendingNamePicksOtherChild() async throws {
+        let rig = Rig()
+        rig.preferences.sortDirection = .descending
+        let folder = try await makeFolder(rig, children: ["b.png", "c.png"])
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.map(\.lastPathComponent) == ["c.png"])
+    }
+
+    @Test("Name ascending picks the first name as the folder's media")
+    func folderAscendingNamePicksFirstChild() async throws {
+        let rig = Rig()
+        let folder = try await makeFolder(rig, children: ["b.png", "c.png"])
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.map(\.lastPathComponent) == ["b.png"])
+    }
+
+    @Test(
+        "Sorting by type picks the media whose extension sorts first or last",
+        arguments: [(SortDirection.ascending, "x.mp4"), (SortDirection.descending, "y.png")])
+    func folderTypeSort(direction: SortDirection, expected: String) async throws {
+        let rig = Rig()
+        rig.preferences.sortOption = .type
+        rig.preferences.sortDirection = direction
+        let folder = try await makeFolder(rig, children: ["y.png", "x.mp4"])
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.map(\.lastPathComponent) == [expected])
+        #expect(rig.listings.first?.0 == .type)
+        #expect(rig.listings.first?.1 == direction)
+    }
+
+    @Test("Changing the sort between requests of an uncached folder changes the pick")
+    func folderPickFollowsPreferenceChange() async throws {
+        let rig = Rig()
+        let folder = try await makeFolder(rig, children: ["b.png", "c.png"])
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        rig.preferences.sortDirection = .descending
+        rig.provider.clearCache(for: folder)
+        _ = await rig.provider.thumbnail(for: folder, size: size, scale: scale)
+        #expect(rig.renderer.quickLookURLs.map(\.lastPathComponent) == ["b.png", "c.png"])
+        #expect(rig.listings.map(\.1) == [.ascending, .descending])
     }
 }

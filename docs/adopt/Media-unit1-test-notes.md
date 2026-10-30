@@ -3,9 +3,10 @@
 ## ThumbnailCache.swift
 - `final class ThumbnailCache: Sendable`, `init()`, lock-protected state.
 - `var generation: Int { get }` (changes on `removeAll()`); `var count: Int { get }`
-- `func image(for id: String) -> UIImage?`
-- `func store(_ image: UIImage, for id: String, generation: Int)` (ignored when generation is stale)
-- `func remove(id: String)`; `func removeAll()` (starts a new generation)
+- `struct ThumbnailCache.Key: Hashable, Sendable`, `init(id: String, dateModified: Date, fileSize: Int?)` (changed 2026-10-30: item id + `dateModified` + `fileSize`)
+- `func image(for key: Key) -> UIImage?`
+- `func store(_ image: UIImage, for key: Key, generation: Int)` (ignored when generation is stale)
+- `func remove(id: String)` (removes every version of that item id); `func removeAll()` (starts a new generation)
 
 ## LiveThumbnailProvider.swift
 - `protocol ThumbnailRendering: Sendable`:
@@ -14,7 +15,7 @@
   - `func videoFrame(of asset: AVURLAsset, at time: TimeInterval, size: CGSize, scale: CGFloat) async -> UIImage?`
   - `func folderIcon(size: CGSize, scale: CGFloat) -> UIImage?`
   - `func compose(_ media: UIImage, onto folderIcon: UIImage, size: CGSize, scale: CGFloat) -> UIImage?`
-- `LiveThumbnailProvider: ThumbnailProviding`, `init(store: VaultStoring, cipher: FileCipher, videoAssets: VideoAssetProviding, renderer: ThumbnailRendering)` (may add defaulted `maxConcurrentDecrypts: Int = 2` after `renderer`).
+- `LiveThumbnailProvider: ThumbnailProviding`, `init(store: VaultStoring, cipher: FileCipher, videoAssets: VideoAssetProviding, renderer: ThumbnailRendering, preferences: PreferencesStoring)` (changed 2026-10-30; may add defaulted `maxConcurrentDecrypts: Int = 2` after `preferences`). Cache key is built from the item's id, `dateModified`, `fileSize`.
 - `static func frameTime(forDuration: TimeInterval) -> TimeInterval` = min(5, duration / 2).
 
 ## EncryptedVideoLoader.swift
@@ -30,6 +31,10 @@
 - Gated tests carry `.timeLimit(.minutes(1))`.
 - Cancel before start → nil with no decrypt/render; cancelling a folder must cancel the media request as a Swift Task (renderer sees `Task.isCancelled`).
 - The 2-decrypt slot covers decrypt through temp removal (test counts `makeTempDirectory` on `MockVaultStoring`).
-- Folder children: `store.contents(of:sortedBy: .name, .ascending)`; first image or video wins.
+- Folder children: `store.contents(of:sortedBy: preferences.sortOption, preferences.sortDirection)`, both read at request time; first image or video wins.
 - Mock cipher `decryptChunk` returns raw bytes; chunk size is the mock's 1 MiB.
 - Shared test helpers: `KoalaTVaultTests/Media/MediaTestSupport.swift`.
+- Test-only helper `ScriptedFileCipher` (in `MediaTestSupport.swift`) scripts `StreamInfo` and chunk bytes (short chunks, chunkSize 0), since `MockFileCipher` always returns full chunks.
+- `chunkSize == 0`: reachable through the `FileCipher` contract (`StreamInfo` is a plain struct with no validation), so tested: `asset(for:)` may refuse it, otherwise the data request must fail without trapping or returning data.
+- `serve` on an already-cancelled task: only asserted that no chunk is decrypted (how the request finishes is not specified).
+- Unknown/foreign URL (unissued `vault-stream://`, another loader's URL, other scheme): request fails with an error.
