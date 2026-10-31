@@ -16,6 +16,7 @@ private enum FlowEvent: Equatable, Sendable {
     case message(String)
     case error(String)
     case limitReached
+    case finished
     case importedItems([URL])
     case importedPhotos(Int)
     case deletedAssets([String])
@@ -78,7 +79,20 @@ private final class RecordingFlowView: ImportFlowViewing {
 
     func showOverlay(title: String, progress: Double?) { log.add(.overlay(title: title, progress: progress)) }
     func hideOverlay() { log.add(.overlayHidden) }
-    func showMessage(_ text: String) { log.add(.message(text)) }
+    var holdsMessages = false
+    private var heldMessage: CheckedContinuation<Void, Never>?
+
+    func showMessage(_ text: String) async {
+        log.add(.message(text))
+        guard holdsMessages else { return }
+        await withCheckedContinuation { heldMessage = $0 }
+    }
+
+    /// Lets a held `showMessage` return, as when the user taps OK.
+    func releaseMessage() {
+        heldMessage?.resume()
+        heldMessage = nil
+    }
     func showError(_ text: String) { log.add(.error(text)) }
 }
 
@@ -168,7 +182,8 @@ private struct Fixture {
     ) -> ImportFlowModel {
         ImportFlowModel(
             importer: importer, cameraRoll: LoggingCameraRoll(log: log), photoAccess: LoggingPhotoAccess(log: log),
-            store: store, view: view, onLimitReached: { log.add(.limitReached) })
+            store: store, view: view, onLimitReached: { log.add(.limitReached) },
+            onFinished: { log.add(.finished) })
     }
 
     var directory: VaultDirectory { store.root }
@@ -273,7 +288,8 @@ private struct PresenterTestError: LocalizedError {
     func filesOverlayShowsProgress() async throws {
         let fixture = try Fixture()
         defer { fixture.store.cleanup() }
-        fixture.importer.script(progress: [0, 0.5, 1], files: ImportResult(imported: 1, skippedDuplicates: 0, failed: 0))
+        let result = ImportResult(imported: 1, skippedDuplicates: 0, failed: 0)
+        fixture.importer.script(progress: [0, 0.5, 1], files: result)
 
         await fixture.model.pickedItems([sampleURL("one.txt")], into: fixture.directory)
 
@@ -548,5 +564,77 @@ private struct PresenterTestError: LocalizedError {
         let source = fixture.model.photoSource(for: broken)
 
         await #expect(throws: (any Error).self) { _ = try await source.loadFile() }
+    }
+
+    // MARK: Finishing
+
+    @Test("onFinished runs once after a successful files import")
+    func finishedAfterFilesImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(files: ImportResult(imported: 1, skippedDuplicates: 0, failed: 0))
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+    }
+
+    @Test("onFinished runs once after a successful photo import")
+    func finishedAfterPhotoImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1"], failed: 0))
+
+        await fixture.model.pickedPhotos([pick("a1")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+    }
+
+    @Test("onFinished runs once after an import that throws")
+    func finishedAfterFailedImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(error: PresenterTestError())
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+    }
+
+    @Test("onFinished never runs after a cancel", arguments: [ImportSourceChoice.files, .folder, .photos])
+    func notFinishedAfterCancel(choice: ImportSourceChoice) async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(choice)
+
+        await fixture.model.cancelPicker()
+
+        #expect(!fixture.log.events.contains(.finished))
+    }
+
+    @Test("The camera-roll delete does not start until the failure message has been acknowledged")
+    func deleteWaitsForMessage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.view.holdsMessages = true
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1"], failed: 1))
+        let model = fixture.model
+        let directory = fixture.directory
+        let photos = [pick("a1"), pick("b2")]
+
+        let running = Task { @MainActor in await model.pickedPhotos(photos, into: directory) }
+        var attempts = 0
+        while fixture.log.messages.isEmpty && attempts < 1000 {
+            await Task.yield()
+            attempts += 1
+        }
+        #expect(fixture.log.messages == ["1 imported, 1 failed"])
+        for _ in 0..<50 { await Task.yield() }
+        #expect(fixture.log.deletes.isEmpty)
+
+        fixture.view.releaseMessage()
+        await running.value
+
+        #expect(fixture.log.deletes == [["a1"]])
     }
 }
