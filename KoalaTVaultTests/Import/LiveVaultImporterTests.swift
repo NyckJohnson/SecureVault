@@ -11,10 +11,18 @@ import Testing
         let source: SourceFolder
         let importer: LiveVaultImporter
 
-        init(existingFiles: Int = 0, isPro: Bool = false, encrypted: Bool = false) throws {
+        init(
+            existingFiles: Int = 0, isPro: Bool = false, encrypted: Bool = false,
+            scopedAccess: (any ScopedResourceAccessing)? = nil
+        ) throws {
             store = try DiskBackedVaultStore(extraFileCount: existingFiles, encrypted: encrypted)
             source = try SourceFolder()
-            importer = LiveVaultImporter(store: store, proUnlock: MockProUnlocking(isUnlocked: isPro))
+            let unlock = MockProUnlocking(isUnlocked: isPro)
+            if let scopedAccess {
+                importer = LiveVaultImporter(store: store, proUnlock: unlock, scopedAccess: scopedAccess)
+            } else {
+                importer = LiveVaultImporter(store: store, proUnlock: unlock)
+            }
         }
 
         func cleanup() { store.cleanup(); source.cleanup() }
@@ -239,6 +247,133 @@ import Testing
         let url = try f.source.file("a.txt", content: "A")
         let result = try await f.importItems([url])
         #expect(result.imported == 1)
+    }
+
+    // MARK: Folder merge
+
+    @Test("A picked folder named like an existing folder merges into it without a ' 1' folder")
+    func mergesIntoExistingFolder() async throws {
+        let f = try Fixture()
+        defer { f.cleanup() }
+        try f.store.seed("Trip/old.txt", content: "old")
+        try f.source.file("Trip/new.txt", content: "new")
+        let result = try await f.importItems([f.source.url.appendingPathComponent("Trip")])
+        #expect(result == ImportResult(imported: 1, skippedDuplicates: 0, failed: 0))
+        let paths = f.store.allPaths()
+        #expect(paths.contains("Trip/new.txt"))
+        #expect(paths.contains("Trip/old.txt"))
+        #expect(!paths.contains("Trip 1/"))
+        #expect(paths.filter { $0.hasPrefix("Trip 1") }.isEmpty)
+        #expect(f.store.readString("Trip/new.txt") == "new")
+    }
+
+    @Test("A nested subfolder named like an existing subfolder merges into it")
+    func mergesNestedSubfolder() async throws {
+        let f = try Fixture()
+        defer { f.cleanup() }
+        try f.store.seed("Trip/Sub/old.txt", content: "old")
+        try f.source.file("Trip/Sub/new.txt", content: "new")
+        let result = try await f.importItems([f.source.url.appendingPathComponent("Trip")])
+        #expect(result.imported == 1)
+        let paths = f.store.allPaths()
+        #expect(paths.contains("Trip/Sub/new.txt"))
+        #expect(paths.contains("Trip/Sub/old.txt"))
+        #expect(!paths.contains { $0.contains("Trip 1") })
+        #expect(!paths.contains { $0.contains("Sub 1") })
+    }
+
+    @Test("A file already in the merged folder with the same name and content is skipped and counted")
+    func mergedFolderSkipsDuplicate() async throws {
+        let f = try Fixture()
+        defer { f.cleanup() }
+        try f.store.seed("Trip/a.txt", content: "same")
+        try f.source.file("Trip/a.txt", content: "same")
+        try f.source.file("Trip/b.txt", content: "B")
+        let result = try await f.importItems([f.source.url.appendingPathComponent("Trip")])
+        #expect(result == ImportResult(imported: 1, skippedDuplicates: 1, failed: 0))
+        let paths = f.store.allPaths()
+        #expect(!paths.contains("Trip/a 1.txt"))
+        #expect(paths.contains("Trip/b.txt"))
+        #expect(!paths.contains { $0.contains("Trip 1") })
+    }
+
+    @Test("A picked folder whose name belongs to an existing file gets a free name")
+    func folderNamedLikeFileGetsFreeName() async throws {
+        let f = try Fixture()
+        defer { f.cleanup() }
+        try f.store.seed("Trip", content: "i am a file")
+        try f.source.file("Trip/a.txt", content: "A")
+        let result = try await f.importItems([f.source.url.appendingPathComponent("Trip")])
+        #expect(result.imported == 1)
+        #expect(f.store.readString("Trip") == "i am a file")
+        #expect(f.store.readString("Trip 1/a.txt") == "A")
+        #expect(f.store.allPaths().contains("Trip 1/"))
+    }
+
+    // MARK: Security-scoped URLs
+
+    @Test("Every picked URL is opened and closed exactly once after a successful import")
+    func scopedURLsClosedOnSuccess() async throws {
+        let access = RecordingScopedAccess()
+        let f = try Fixture(scopedAccess: access)
+        defer { f.cleanup() }
+        let a = try f.source.file("a.txt", content: "A")
+        let folder = try f.source.file("Trip/b.txt", content: "B").deletingLastPathComponent()
+        _ = try await f.importItems([a, folder])
+        for url in [a, folder] {
+            #expect(access.startCount(url) == 1)
+            #expect(access.stopCount(url) == 1)
+        }
+    }
+
+    @Test("Every opened URL is closed exactly once when an import fails part-way")
+    func scopedURLsClosedOnFailure() async throws {
+        let access = RecordingScopedAccess()
+        let f = try Fixture(scopedAccess: access)
+        defer { f.cleanup() }
+        let a = try f.source.file("a.txt", content: "A")
+        let b = try f.source.file("b.txt", content: "B")
+        let c = try f.source.file("c.txt", content: "C")
+        f.store.failAdding("b.txt")
+        await #expect(throws: VaultStoreError.io("boom")) {
+            _ = try await f.importItems([a, b, c])
+        }
+        for url in access.started {
+            #expect(access.stopCount(url) == 1)
+            #expect(access.startCount(url) == 1)
+        }
+        #expect(access.stopped.count == access.started.count)
+        #expect(access.startCount(a) == 1)
+    }
+
+    @Test("A URL that refuses access is not stopped, while the others are closed once")
+    func refusedURLIsNotStopped() async throws {
+        let f0 = try SourceFolder()
+        defer { f0.cleanup() }
+        let refused = try f0.file("refused.txt", content: "R")
+        let granted = try f0.file("granted.txt", content: "G")
+        let access = RecordingScopedAccess(refusing: [refused])
+        let f = try Fixture(scopedAccess: access)
+        defer { f.cleanup() }
+        _ = try? await f.importItems([refused, granted])
+        #expect(access.startCount(refused) == 1)
+        #expect(access.stopCount(refused) == 0)
+        #expect(access.startCount(granted) == 1)
+        #expect(access.stopCount(granted) == 1)
+    }
+
+    @Test("Opened URLs are closed when the import is refused for passing the free limit")
+    func scopedURLsClosedOnLimit() async throws {
+        let access = RecordingScopedAccess()
+        let f = try Fixture(existingFiles: 99, scopedAccess: access)
+        defer { f.cleanup() }
+        let a = try f.source.file("a.txt", content: "A")
+        let b = try f.source.file("b.txt", content: "B")
+        await #expect(throws: ImportError.fileLimitReached(limit: 100)) {
+            _ = try await f.importItems([a, b])
+        }
+        #expect(access.stopped.count == access.started.count)
+        for url in access.started { #expect(access.stopCount(url) == 1) }
     }
 
     // MARK: Names starting with "."

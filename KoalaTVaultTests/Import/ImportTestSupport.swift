@@ -253,3 +253,33 @@ final class ProgressRecorder: @unchecked Sendable {
     var recorded: [Double] { values.withLock { $0 } }
     func record(_ value: Double) { values.withLock { $0.append(value) } }
 }
+
+/// Records security-scoped access calls; `refusing` URLs make `start` return false.
+final class RecordingScopedAccess: ScopedResourceAccessing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _started: [URL] = []
+    private var _stopped: [URL] = []
+    private let refusing: Set<String>
+
+    init(refusing: [URL] = []) { self.refusing = Set(refusing.map { $0.standardizedFileURL.path }) }
+
+    var started: [URL] { lock.withLock { _started } }
+    var stopped: [URL] { lock.withLock { _stopped } }
+
+    func start(_ url: URL) -> Bool {
+        lock.withLock { _started.append(url) }
+        return !refusing.contains(url.standardizedFileURL.path)
+    }
+
+    func stop(_ url: URL) { lock.withLock { _stopped.append(url) } }
+
+    func startCount(_ url: URL) -> Int {
+        let path = url.standardizedFileURL.path
+        return started.filter { $0.standardizedFileURL.path == path }.count
+    }
+
+    func stopCount(_ url: URL) -> Int {
+        let path = url.standardizedFileURL.path
+        return stopped.filter { $0.standardizedFileURL.path == path }.count
+    }
+}
