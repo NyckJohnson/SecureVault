@@ -736,7 +736,7 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - prepareForSharing: plaintext items → their disk URLs; encrypted → decrypted copies with their original names in one store temp folder; a folder holding encrypted items → a decrypted copy of its whole tree (original names, no `.vault_map`, no UUID names), a plaintext folder → its disk URL; an empty selection → `.nothingToExport`; a failure part-way removes every copy made and rethrows; `cleanUp` removes the temp folder (safe to call twice).
+  - prepareForSharing: plaintext items → their disk URLs; encrypted → decrypted copies with their original names in one store temp folder; a folder holding encrypted items → a decrypted copy of its whole tree (original names, no `.vault_map`, no UUID names), a plaintext folder → its disk URL; an empty selection → `.nothingToExport`; two copies with the same name in one selection get " 1", " 2" before the extension (plaintext items stay their disk URLs, whatever their names); a failure part-way removes every copy made and rethrows; `cleanUp` removes the temp folder (safe to call twice).
   - saveToPhotos: add-only access required (`.photoAccessDenied` otherwise); images and videos only (others counted in `skipped`); each decrypted to temp, saved, temp removed; per-item failures counted.
   - canSaveToPhotos: true when any item is an image or video.
   - ExportPresenter (view): sheet "Save to Files", "Save to Camera Roll" (when allowed), "Cancel"; "Exporting..." overlay; document picker for export as copies, `cleanUp` on pick or cancel; "N saved, M failed"; access denied → "Allow KoalaTVault to add photos in Settings."; errors shown.
@@ -923,6 +923,7 @@ extension matching ignores case.
 - Camera-roll photos were stored under random (UUID) names since 2026-10-07, so re-imports were never detected as duplicates — FileSystem.swift:166 — fixed in module Import; photos already imported keep those names
 - If the "N imported, M failed" alert is torn down without OK (a lock screen dismissing it), that import's camera-roll delete prompt never appears and its flow stays suspended; originals stay in the library — ImportPresenter.swift — open, rare
 - Dismissing the import sheet or photo picker without a handler firing (tap outside on iPad, swipe down) keeps the flow's model and the screen it captures until the next import — ImportPresenter.swift — open, minor
+- A folder emptied in an encrypted vault exports as its disk URL with its hidden `.vault_map` (folders are never `isEncrypted`, and the index is sealed and lists nothing, so no data leaves) — LiveVaultExporter.swift — open, cosmetic
 
 ## Features
 <!-- Accepted features, oldest first. -->
@@ -973,3 +974,4 @@ extension matching ignores case.
 - 2026-10-30: Contract change approved: `ImportError` is a `LocalizedError` with tested text, and `PhotoImportSource.loadFile` documents its own temp folder; `ImportContract.swift` now holds real code — Import unit 1 review — approved by the human
 - 2026-10-30: Photos are stored under their real names. Random names were a regression from 420725e (2026-10-07), whose temp copy got a UUID name that was then stored, and the survey recorded it as today's behavior; photos imported since then keep their UUID names — Import unit 2 review — decided by the human
 - 2026-10-30: Presenters may use SharedUI's views (`ProgressOverlayView`, `topmostPresentedController`) directly, though they are outside SharedUI's `Contracts/` — Import unit 2 review — approved by the human
+- 2026-10-30: Export: same-named decrypted copies in one selection get " 1", " 2" in their shared temp folder (legacy handed the picker two URLs with the same name) — Export unit 1 — orchestrator, recorded
