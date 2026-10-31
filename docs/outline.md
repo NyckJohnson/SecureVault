@@ -933,6 +933,7 @@ extension matching ignores case.
 - If the app (not the user) closes the export picker, copies are removed after a 30 s grace for a late pick report; a pick reporting later than that would lose its source and fail with no message, and no plaintext leaks — ExportPresenter.swift — open, rare
 - Viewer close still calls `removeAllTemporaryFiles`, deleting export copies in progress (safe: data is gone, not leaked; Files then fails with no message); the Viewer unit's acceptance removes that call — FileViewer.swift:303 — open until module Viewer
 - The drag-out rule trusts `lockMode` and `pendingMigration` to match the disk; no path in the app reaches a no-lock vault still holding ciphertext, only something outside it (a restored backup) could — FileBrowser.swift — open, accepted
+- Open before LockScreens unit 1's code: `VaultLockError` has no user-facing text (the legacy `legacyMessage` in AuthService.swift:31 supplies it, and SecuritySettings still uses it until Settings), while the LockScreens spec says "other errors → their message" and its tests assume `localizedDescription`, which reads "The operation couldn't be completed" for `.keychain` and `.notUnlocked`. Today's text is "A Keychain error occurred (<status>)." and "Unlock the vault first." Needs the human: an `errorDescription` in VaultLock's contract (as VaultStoreError and ImportError did), or a mapping in the view models — VaultLock/Contracts — open
 
 ## Features
 <!-- Accepted features, oldest first. -->
