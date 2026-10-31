@@ -92,6 +92,7 @@ private final class ScriptedExporter: VaultExporting, @unchecked Sendable {
     private var photoResult = PhotoSaveResult(saved: 0, failed: 0, skipped: 0)
     private var mediaAllowed = true
     private var cleanUps = 0
+    private var duringPrepare: (@Sendable () async -> Void)?
 
     init(log: ExportLog) { self.log = log }
 
@@ -100,10 +101,13 @@ private final class ScriptedExporter: VaultExporting, @unchecked Sendable {
     func failPreparing(with error: any Error) { lock.withLock { prepareError = error } }
     func failSaving(with error: any Error) { lock.withLock { photoError = error } }
     func setPhotoResult(_ result: PhotoSaveResult) { lock.withLock { photoResult = result } }
+    /// Runs `hook` inside `prepareForSharing`, before it returns.
+    func onPrepare(_ hook: @escaping @Sendable () async -> Void) { lock.withLock { duringPrepare = hook } }
     func setMediaAllowed(_ allowed: Bool) { lock.withLock { mediaAllowed = allowed } }
 
     func prepareForSharing(_ items: [VaultItem]) async throws -> ExportBundle {
         log.add(.prepared)
+        if let hook = lock.withLock({ duringPrepare }) { await hook() }
         if let error = lock.withLock({ prepareError }) { throw error }
         return ExportBundle(urls: items.map(\.diskURL)) { [self] in
             lock.withLock { cleanUps += 1 }
@@ -124,6 +128,18 @@ private func makeItem(_ name: String) -> VaultItem {
     return VaultItem(
         id: name, name: name, isDirectory: false, dateModified: Date(), fileSize: 1, deletedAt: nil,
         diskURL: root.appendingPathComponent(name), rootURL: root, isEncrypted: false)
+}
+
+@MainActor
+private final class ViewHolder {
+    var view: RecordingExportView?
+    init(view: RecordingExportView) { self.view = view }
+}
+
+/// Builds a model without leaving a strong reference to the holder's view in the caller.
+@MainActor
+private func makeModel(exporter: ScriptedExporter, holder: ViewHolder) -> ExportFlowModel {
+    ExportFlowModel(exporter: exporter, view: holder.view ?? RecordingExportView(log: ExportLog()))
 }
 
 @MainActor
@@ -239,6 +255,19 @@ private struct Fixture {
         #expect(fixture.log.events.isEmpty)
     }
 
+    @Test("If the view is gone when preparing ends, the copies are removed once and no picker opens")
+    func viewReleasedDuringPrepare() async {
+        let log = ExportLog()
+        let exporter = ScriptedExporter(log: log)
+        let holder = ViewHolder(view: RecordingExportView(log: log))
+        let model = makeModel(exporter: exporter, holder: holder)
+        exporter.onPrepare { await MainActor.run { holder.view = nil } }
+        await model.choose(.saveToFiles, for: [makeItem("a.jpg")])
+        model.documentPickerCancelled()
+        #expect(exporter.cleanUpCount == 1)
+        #expect(log.pickers.isEmpty)
+    }
+
     @Test("A prepare failure hides the overlay and shows the error's text with no picker")
     func prepareFailureShowsError() async {
         let fixture = Fixture()
@@ -301,11 +330,10 @@ private struct Fixture {
         let expected: String
     }
 
-    nonisolated static let noFailureCases = [
-        NoFailureCase(saved: 0, expected: "0 items saved to Camera Roll"),
-        NoFailureCase(saved: 1, expected: "1 item saved to Camera Roll"),
-        NoFailureCase(saved: 4, expected: "4 items saved to Camera Roll")
-    ]
+    nonisolated static let noneSaved = NoFailureCase(saved: 0, expected: "0 items saved to Camera Roll")
+    nonisolated static let oneSaved = NoFailureCase(saved: 1, expected: "1 item saved to Camera Roll")
+    nonisolated static let fourSaved = NoFailureCase(saved: 4, expected: "4 items saved to Camera Roll")
+    nonisolated static let noFailureCases = [noneSaved, oneSaved, fourSaved]
 
     @Test("Save to Camera Roll without failures reports N item(s) saved to Camera Roll", arguments: noFailureCases)
     func cameraRollNothingFailed(_ testCase: NoFailureCase) async {
