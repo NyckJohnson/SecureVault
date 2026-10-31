@@ -43,7 +43,7 @@ final class FileViewerViewControllerTests: XCTestCase {
     /// A viewer over a mock vault store.
     private func makeViewer() -> LegacyFileViewerViewController {
         let store = MockVaultStoring()
-        let transfers = FileSystem(store: store, proUnlock: MockProUnlocking(isUnlocked: true))
+        let transfers = FileSystem(store: store)
         return LegacyFileViewerViewController(
             items: [makeItem()], startingAt: 0, vaultStore: store,
             videoAssets: MockVideoAssetProviding(),
