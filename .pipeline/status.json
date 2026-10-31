@@ -356,7 +356,7 @@
         "VaultStore",
         "SharedUI"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T20:01:57-07:00",
+  "updatedAt": "2026-10-30T20:16:26-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
