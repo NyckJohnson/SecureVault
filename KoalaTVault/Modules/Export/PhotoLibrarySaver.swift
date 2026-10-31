@@ -11,6 +11,7 @@ protocol PhotoLibraryAdding: Sendable {
 
 /// The real photo library, using add-only access.
 struct SystemPhotoLibraryAdder: PhotoLibraryAdding {
+    // coverage-exempt-begin: needs the real photo library and the iOS permission prompt
     func requestAddOnlyAccess() async -> Bool {
         await PHPhotoLibrary.requestAuthorization(for: .addOnly) == .authorized
     }
@@ -24,6 +25,7 @@ struct SystemPhotoLibraryAdder: PhotoLibraryAdding {
             }
         }
     }
+    // coverage-exempt-end
 }
 
 /// Saves the images and videos among vault items to the photo library, one at a time.
