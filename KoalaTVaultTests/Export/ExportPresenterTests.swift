@@ -12,11 +12,13 @@ import Testing
 //       func showMessage(_ text: String); func showError(_ text: String)
 //   }
 //   @MainActor final class ExportFlowModel {
-//       init(exporter: any VaultExporting, view: any ExportFlowViewing)
+//       init(exporter: any VaultExporting, view: any ExportFlowViewing,
+//            onEnded: @escaping @MainActor () -> Void = {})   // runs once however the export ends
 //       func sheetChoices(for items: [VaultItem]) -> [ExportSheetChoice]
 //       func choose(_ choice: ExportSheetChoice, for items: [VaultItem]) async
 //       func documentPicked()            // the picker returned (copies were saved)
 //       func documentPickerCancelled()   // the picker was dismissed
+//       func pickerRefused()             // the picker could not open
 //   }
 
 private enum ExportEvent: Equatable, Sendable {
@@ -131,6 +133,12 @@ private func makeItem(_ name: String) -> VaultItem {
 }
 
 @MainActor
+private final class EndCounter {
+    private(set) var count = 0
+    func record() { count += 1 }
+}
+
+@MainActor
 private final class ViewHolder {
     var view: RecordingExportView?
     init(view: RecordingExportView) { self.view = view }
@@ -138,8 +146,12 @@ private final class ViewHolder {
 
 /// Builds a model without leaving a strong reference to the holder's view in the caller.
 @MainActor
-private func makeModel(exporter: ScriptedExporter, holder: ViewHolder) -> ExportFlowModel {
-    ExportFlowModel(exporter: exporter, view: holder.view ?? RecordingExportView(log: ExportLog()))
+private func makeModel(
+    exporter: ScriptedExporter, holder: ViewHolder, ends: EndCounter
+) -> ExportFlowModel {
+    ExportFlowModel(
+        exporter: exporter, view: holder.view ?? RecordingExportView(log: ExportLog()),
+        onEnded: { ends.record() })
 }
 
 @MainActor
@@ -148,12 +160,14 @@ private struct Fixture {
     let view: RecordingExportView
     let exporter: ScriptedExporter
     let model: ExportFlowModel
+    let ends = EndCounter()
     let items = [makeItem("a.jpg"), makeItem("b.txt")]
 
     init() {
         view = RecordingExportView(log: log)
         exporter = ScriptedExporter(log: log)
-        model = ExportFlowModel(exporter: exporter, view: view)
+        let counter = ends
+        model = ExportFlowModel(exporter: exporter, view: view, onEnded: { counter.record() })
     }
 }
 
@@ -260,12 +274,161 @@ private struct Fixture {
         let log = ExportLog()
         let exporter = ScriptedExporter(log: log)
         let holder = ViewHolder(view: RecordingExportView(log: log))
-        let model = makeModel(exporter: exporter, holder: holder)
+        let ends = EndCounter()
+        let model = makeModel(exporter: exporter, holder: holder, ends: ends)
         exporter.onPrepare { await MainActor.run { holder.view = nil } }
         await model.choose(.saveToFiles, for: [makeItem("a.jpg")])
         model.documentPickerCancelled()
         #expect(exporter.cleanUpCount == 1)
         #expect(log.pickers.isEmpty)
+        #expect(ends.count == 1)
+    }
+
+    // MARK: Ending
+
+    @Test("Choosing Cancel ends the export once")
+    func endsOnCancel() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.cancel, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("A prepare failure ends the export once")
+    func endsOnPrepareFailure() async {
+        let fixture = Fixture()
+        fixture.exporter.failPreparing(with: DescribedFailure(text: "Disk is full"))
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("A cancelled prepare ends the export once")
+    func endsOnCancelledPrepare() async {
+        let fixture = Fixture()
+        fixture.exporter.failPreparing(with: CancellationError())
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("Nothing to export ends the export once")
+    func endsOnNothingToExport() async {
+        let fixture = Fixture()
+        fixture.exporter.failPreparing(with: ExportError.nothingToExport)
+        await fixture.model.choose(.saveToFiles, for: [])
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("A camera roll success ends the export once")
+    func endsOnCameraRollSuccess() async {
+        let fixture = Fixture()
+        fixture.exporter.setPhotoResult(PhotoSaveResult(saved: 2, failed: 0, skipped: 0))
+        await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("Photo access denied ends the export once")
+    func endsOnAccessDenied() async {
+        let fixture = Fixture()
+        fixture.exporter.failSaving(with: ExportError.photoAccessDenied)
+        await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("Another camera roll error ends the export once")
+    func endsOnOtherSaveError() async {
+        let fixture = Fixture()
+        fixture.exporter.failSaving(with: DescribedFailure(text: "Library unavailable"))
+        await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("A cancelled camera roll save ends the export once")
+    func endsOnCancelledSave() async {
+        let fixture = Fixture()
+        fixture.exporter.failSaving(with: CancellationError())
+        await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("The export has not ended while the document picker is open")
+    func notEndedWhilePickerOpen() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        #expect(fixture.ends.count == 0)
+    }
+
+    @Test("Picking a destination ends the export once")
+    func endsOnPick() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.documentPicked()
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("Cancelling the picker ends the export once")
+    func endsOnPickerCancel() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.documentPickerCancelled()
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("A closing report after a pick does not end the export again")
+    func doubleCloseEndsOnce() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.documentPicked()
+        fixture.model.documentPickerCancelled()
+        #expect(fixture.ends.count == 1)
+    }
+
+    // MARK: Picker refused
+
+    @Test("A picker that cannot open removes the copies once")
+    func refusedCleansUpOnce() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.pickerRefused()
+        #expect(fixture.exporter.cleanUpCount == 1)
+    }
+
+    @Test("A picker that cannot open shows Couldn't open the Files picker.")
+    func refusedShowsError() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.pickerRefused()
+        #expect(fixture.log.errors == ["Couldn't open the Files picker."])
+    }
+
+    @Test("A picker that cannot open ends the export once")
+    func refusedEndsOnce() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.pickerRefused()
+        #expect(fixture.ends.count == 1)
+    }
+
+    @Test("A close report after a refused picker changes nothing")
+    func closeAfterRefusedChangesNothing() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        fixture.model.pickerRefused()
+        let eventsBefore = fixture.log.events
+        fixture.model.documentPickerCancelled()
+        #expect(fixture.exporter.cleanUpCount == 1)
+        #expect(fixture.ends.count == 1)
+        #expect(fixture.log.events == eventsBefore)
+    }
+
+    // MARK: Second export
+
+    @Test("Starting a second Save to Files while a picker is open cleans up the first bundle once")
+    func secondExportCleansUpFirst() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        #expect(fixture.exporter.cleanUpCount == 1)
+        fixture.model.documentPicked()
+        #expect(fixture.exporter.cleanUpCount == 2)
     }
 
     @Test("A prepare failure hides the overlay and shows the error's text with no picker")
