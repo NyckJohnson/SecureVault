@@ -162,6 +162,51 @@ private struct ExporterTestFixture {
         #expect(store.filesUnder(original) == ["open.txt": "open"])
     }
 
+    @Test("A folder with encrypted items only in a nested folder gives a decrypted copy of the whole tree")
+    func nestedOnlyEncryptedFolderIsDecrypted() async throws {
+        let fixture = try makeExporter()
+        let exporter = fixture.exporter
+        let store = fixture.store
+        defer { store.cleanup() }
+        let outer = try store.seedFolder("Outer")
+        try store.seedFile("plain.txt", content: "plain", in: outer)
+        let inner = try store.seedFolder("Inner", in: outer)
+        try store.seedFile("secret.txt", content: "shh", encrypted: true, in: inner)
+
+        let bundle = try await exporter.prepareForSharing([outer])
+
+        let copy = try #require(bundle.urls.first)
+        #expect(bundle.urls.count == 1)
+        #expect(copy != outer.diskURL)
+        #expect(copy != inner.diskURL)
+        #expect(copy.lastPathComponent == "Outer")
+        #expect(isInside(copy, store.tempArea))
+        #expect(store.filesUnder(copy) == ["plain.txt": "plain", "Inner/secret.txt": "shh"])
+        bundle.cleanUp()
+        #expect(store.tempEntries().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: outer.diskURL.path))
+    }
+
+    @Test("A locked vault makes prepareForSharing rethrow locked and leave no copies")
+    func lockedVaultRethrowsLocked() async throws {
+        let fixture = try makeExporter()
+        let exporter = fixture.exporter
+        let store = fixture.store
+        defer { store.cleanup() }
+        let secret = try store.seedFile("secret.txt", encrypted: true)
+        store.lockVault()
+
+        var thrown: (any Error)?
+        do {
+            _ = try await exporter.prepareForSharing([secret])
+        } catch {
+            thrown = error
+        }
+
+        #expect(thrown as? VaultStoreError == .locked)
+        #expect(store.tempEntries().isEmpty)
+    }
+
     @Test("A plaintext folder gives its disk URL")
     func plaintextFolderGivesDiskURL() async throws {
         let fixture = try makeExporter()

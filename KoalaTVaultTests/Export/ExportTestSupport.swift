@@ -14,6 +14,7 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     private var children: [String: [VaultItem]] = [:]
     private var plaintexts: [String: String] = [:]
     private var failingNames: Set<String> = []
+    private var vaultLocked = false
     private var afterOpenHook: (@Sendable (String) -> Void)?
 
     init() throws {
@@ -58,6 +59,9 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
 
     /// `open` throws `.io("boom")` for items with this display name.
     func failOpening(_ name: String) { lock.withLock { _ = failingNames.insert(name) } }
+
+    /// `open` throws `.locked` for encrypted items, as when the key is gone.
+    func lockVault() { lock.withLock { vaultLocked = true } }
 
     /// Runs `hook` with the item's display name each time `open` has finished decrypting an item.
     func onOpened(_ hook: @escaping @Sendable (String) -> Void) { lock.withLock { afterOpenHook = hook } }
@@ -112,6 +116,7 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     }
 
     func open(_ item: VaultItem) async throws -> URL {
+        if lock.withLock({ vaultLocked }), item.isEncrypted { throw VaultStoreError.locked }
         if lock.withLock({ failingNames.contains(item.name) }) { throw VaultStoreError.io("boom") }
         guard item.isEncrypted, !item.isDirectory else { return item.diskURL }
         let folder = try makeTempDirectory()
