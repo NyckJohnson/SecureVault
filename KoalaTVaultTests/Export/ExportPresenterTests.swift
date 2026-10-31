@@ -268,13 +268,12 @@ private struct Fixture {
         #expect(fixture.log.index(of: .overlayHidden) != nil)
     }
 
-    @Test("Nothing to export hides the overlay and shows some error text with no picker")
+    @Test("Nothing to export hides the overlay and shows Nothing to export. with no picker")
     func nothingToExportShowsError() async {
         let fixture = Fixture()
         fixture.exporter.failPreparing(with: ExportError.nothingToExport)
         await fixture.model.choose(.saveToFiles, for: [])
-        #expect(fixture.log.errors.count == 1)
-        #expect(fixture.log.errors.first?.isEmpty == false)
+        #expect(fixture.log.errors == ["Nothing to export."])
         #expect(fixture.log.pickers.isEmpty)
         #expect(fixture.log.index(of: .overlayHidden) != nil)
     }
@@ -297,21 +296,40 @@ private struct Fixture {
         #expect(hidden < message)
     }
 
-    @Test("Save to Camera Roll reports zero failures as 0 failed")
-    func cameraRollNothingFailed() async {
+    struct NoFailureCase: Sendable {
+        let saved: Int
+        let expected: String
+    }
+
+    nonisolated static let noFailureCases = [
+        NoFailureCase(saved: 0, expected: "0 items saved to Camera Roll"),
+        NoFailureCase(saved: 1, expected: "1 item saved to Camera Roll"),
+        NoFailureCase(saved: 4, expected: "4 items saved to Camera Roll")
+    ]
+
+    @Test("Save to Camera Roll without failures reports N item(s) saved to Camera Roll", arguments: noFailureCases)
+    func cameraRollNothingFailed(_ testCase: NoFailureCase) async {
         let fixture = Fixture()
-        fixture.exporter.setPhotoResult(PhotoSaveResult(saved: 4, failed: 0, skipped: 0))
+        fixture.exporter.setPhotoResult(PhotoSaveResult(saved: testCase.saved, failed: 0, skipped: 0))
         await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
-        #expect(fixture.log.messages == ["4 saved, 0 failed"])
+        #expect(fixture.log.messages == [testCase.expected])
         #expect(fixture.log.errors.isEmpty)
     }
 
-    @Test("Skipped items are not counted as saved or failed in the message")
+    @Test("Skipped items are not mentioned in the message")
     func cameraRollSkippedNotMentioned() async {
         let fixture = Fixture()
         fixture.exporter.setPhotoResult(PhotoSaveResult(saved: 1, failed: 0, skipped: 5))
         await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
-        #expect(fixture.log.messages == ["1 saved, 0 failed"])
+        #expect(fixture.log.messages == ["1 item saved to Camera Roll"])
+    }
+
+    @Test("Skipped items are not mentioned when some saves failed")
+    func cameraRollSkippedWithFailures() async {
+        let fixture = Fixture()
+        fixture.exporter.setPhotoResult(PhotoSaveResult(saved: 2, failed: 1, skipped: 5))
+        await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
+        #expect(fixture.log.messages == ["2 saved, 1 failed"])
     }
 
     @Test("Save to Camera Roll presents no document picker and leaves nothing to clean up")
