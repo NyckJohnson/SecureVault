@@ -11,18 +11,28 @@ import Testing
 //   PhotoLibrarySaver(store: any VaultStoring, library: any PhotoLibraryAdding)
 //   func save(_ items: [VaultItem]) async throws -> PhotoSaveResult
 
+private struct SaverTestFixture {
+    let saver: PhotoLibrarySaver
+    let store: ExportTestStore
+    let library: FakePhotoLibrary
+}
+
 @Suite struct PhotoLibrarySaverTests {
     private func makeSaver(
         accessGranted: Bool = true
-    ) throws -> (saver: PhotoLibrarySaver, store: ExportTestStore, library: FakePhotoLibrary) {
+    ) throws -> SaverTestFixture {
         let store = try ExportTestStore()
         let library = FakePhotoLibrary(accessGranted: accessGranted)
-        return (PhotoLibrarySaver(store: store, library: library), store, library)
+        return SaverTestFixture(
+            saver: PhotoLibrarySaver(store: store, library: library), store: store, library: library)
     }
 
     @Test("Without add-only access saving throws photoAccessDenied and saves nothing")
     func deniedAccessThrows() async throws {
-        let (saver, store, library) = try makeSaver(accessGranted: false)
+        let fixture = try makeSaver(accessGranted: false)
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let photo = try store.seedFile("photo.jpg", encrypted: true)
 
@@ -34,7 +44,10 @@ import Testing
 
     @Test("Access is requested from the photo library")
     func requestsAccess() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let photo = try store.seedFile("photo.jpg")
 
@@ -45,7 +58,10 @@ import Testing
 
     @Test("Images and videos are saved with their kind and others are counted as skipped")
     func savesMediaAndSkipsOthers() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let photo = try store.seedFile("photo.jpg", content: "pixels")
         let movie = try store.seedFile("movie.mp4", content: "frames")
@@ -63,7 +79,10 @@ import Testing
 
     @Test("An encrypted image is saved from a decrypted copy under its original name")
     func savesDecryptedCopy() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let photo = try store.seedFile("holiday.heic", content: "secret pixels", encrypted: true)
 
@@ -76,7 +95,9 @@ import Testing
 
     @Test("Temporary copies are removed after saving")
     func removesTempAfterSave() async throws {
-        let (saver, store, _) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
         defer { store.cleanup() }
         let photo = try store.seedFile("a.jpg", encrypted: true)
         let movie = try store.seedFile("b.mov", encrypted: true)
@@ -88,7 +109,9 @@ import Testing
 
     @Test("A plaintext item's original file is never removed")
     func keepsPlaintextOriginal() async throws {
-        let (saver, store, _) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
         defer { store.cleanup() }
         let photo = try store.seedFile("plain.png", content: "pixels")
 
@@ -99,7 +122,10 @@ import Testing
 
     @Test("A failed save counts as failed, removes its temp copy, and the rest are still saved")
     func failedSaveIsCountedAndCleaned() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let first = try store.seedFile("first.jpg", encrypted: true)
         let broken = try store.seedFile("broken.jpg", encrypted: true)
@@ -115,7 +141,10 @@ import Testing
 
     @Test("An item that cannot be decrypted counts as failed and the rest are still saved")
     func failedDecryptIsCounted() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let broken = try store.seedFile("broken.jpg", encrypted: true)
         let fine = try store.seedFile("fine.jpg", encrypted: true)
@@ -130,7 +159,10 @@ import Testing
 
     @Test("Saving only non-media items skips them all")
     func onlyNonMediaIsSkipped() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
         let document = try store.seedFile("notes.txt")
         let archive = try store.seedFile("bundle.zip")
@@ -143,7 +175,10 @@ import Testing
 
     @Test("Saving an empty list returns an all-zero result")
     func emptyListSavesNothing() async throws {
-        let (saver, store, library) = try makeSaver()
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        let library = fixture.library
         defer { store.cleanup() }
 
         let result = try await saver.save([])
