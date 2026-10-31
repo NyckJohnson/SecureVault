@@ -111,4 +111,54 @@ import Testing
             _ = try await check.isDuplicate(source: file, named: "a.txt", in: store.root)
         }
     }
+
+    @Test("A same-named item whose source file does not exist is not a duplicate and does not throw")
+    func missingSourceIsNotDuplicate() async throws {
+        let store = try DiskBackedVaultStore()
+        let source = try SourceFolder()
+        defer { store.cleanup(); source.cleanup() }
+        try store.seed("a.txt", content: "hello")
+        let missing = source.url.appendingPathComponent("missing.txt")
+        let check = DuplicateCheck(store: store)
+        #expect(try await check.isDuplicate(source: missing, named: "a.txt", in: store.root) == false)
+    }
+
+    @Test("A same-named item whose opened file does not exist is not a duplicate and does not throw")
+    func unreadableExistingFileIsNotDuplicate() async throws {
+        let store = try DiskBackedVaultStore(encrypted: true)
+        let source = try SourceFolder()
+        defer { store.cleanup(); source.cleanup() }
+        try store.seed("a.txt", content: "hello")
+        let file = try source.file("a.txt", content: "hello")
+        store.overrideOpen(with: source.url.appendingPathComponent("nonexistent-opened.txt"))
+        let check = DuplicateCheck(store: store)
+        #expect(try await check.isDuplicate(source: file, named: "a.txt", in: store.root) == false)
+        #expect(store.leftoverTempFiles.isEmpty)
+    }
+
+    @Test("A folder given as the source is not a duplicate and does not throw")
+    func directorySourceIsNotDuplicate() async throws {
+        let store = try DiskBackedVaultStore(encrypted: true)
+        let source = try SourceFolder()
+        defer { store.cleanup(); source.cleanup() }
+        try store.seed("a.txt", content: "hello")
+        let folder = try source.folder("a.txt")
+        let check = DuplicateCheck(store: store)
+        #expect(try await check.isDuplicate(source: folder, named: "a.txt", in: store.root) == false)
+        #expect(store.leftoverTempFiles.isEmpty)
+    }
+
+    @Test("A folder as the existing file's opened URL is not a duplicate and does not throw")
+    func directoryOpenedUrlIsNotDuplicate() async throws {
+        let store = try DiskBackedVaultStore(encrypted: true)
+        let source = try SourceFolder()
+        defer { store.cleanup(); source.cleanup() }
+        try store.seed("a.txt", content: "hello")
+        let file = try source.file("a.txt", content: "hello")
+        let folder = try source.folder("opened-folder")
+        store.overrideOpen(with: folder)
+        let check = DuplicateCheck(store: store)
+        #expect(try await check.isDuplicate(source: file, named: "a.txt", in: store.root) == false)
+        #expect(store.leftoverTempFiles.isEmpty)
+    }
 }

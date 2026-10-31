@@ -705,4 +705,15 @@ import Testing
         #expect(result == PhotoImportResult(importedAssetIDs: ["ok"], failed: 1))
         #expect(fixture.store.allPaths() == ["a.jpg"])
     }
+
+    @Test("A store whose createFolder returns a file makes a folder import throw notFound")
+    func folderCreatedAsFileThrowsNotFound() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try fixture.source.file("Trip/a.txt", content: "A")
+        fixture.store.makeCreateFolderReturnFile()
+        await #expect(throws: VaultStoreError.notFound) {
+            _ = try await fixture.importItems([fixture.source.url.appendingPathComponent("Trip")])
+        }
+    }
 }

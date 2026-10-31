@@ -23,6 +23,8 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     private var _tempDirectories: [URL] = []
     private var _findItemError: (any Error)?
     private var _countFilesError: (any Error)?
+    private var _openOverride: URL?
+    private var _createFolderReturnsFile = false
 
     /// The store's temp area: `makeTempDirectory` folders live inside it and `removeTemporary` deletes
     /// only paths strictly inside it, as the real store does.
@@ -48,6 +50,12 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     /// `findItem` throws this error from now on.
     func failFindItem(with error: any Error) { lock.withLock { _findItemError = error } }
+
+    /// `open` hands out this URL for every item from now on.
+    func overrideOpen(with url: URL) { lock.withLock { _openOverride = url } }
+
+    /// `createFolder` creates a plain file and returns it, instead of a folder, from now on.
+    func makeCreateFolderReturnFile() { lock.withLock { _createFolderReturnsFile = true } }
 
     /// `countFiles` throws this error from now on.
     func failCountFiles(with error: any Error) { lock.withLock { _countFilesError = error } }
@@ -134,6 +142,11 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
         if name.isEmpty || name.contains("/") { throw VaultStoreError.invalidName }
         let unique = uniqueName(name, in: directory.diskURL)
+        if lock.withLock({ _createFolderReturnsFile }) {
+            let fileTarget = directory.diskURL.appendingPathComponent(unique)
+            try? Data("file".utf8).write(to: fileTarget)
+            return item(at: fileTarget)
+        }
         let target = directory.diskURL.appendingPathComponent(unique, isDirectory: true)
         try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         return item(at: target)
@@ -155,6 +168,7 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func open(_ item: VaultItem) async throws -> URL {
+        if let override = lock.withLock({ _openOverride }) { return override }
         guard encrypted, !item.isDirectory else { return item.diskURL }
         let dir = try makeTempDirectory()
         let copy = dir.appendingPathComponent(item.name)
