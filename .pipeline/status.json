@@ -317,7 +317,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "in_progress",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T18:46:18-07:00",
+  "updatedAt": "2026-10-30T18:46:53-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
