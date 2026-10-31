@@ -687,7 +687,7 @@ extension matching ignores case.
 
   struct ImportResult: Sendable, Equatable { var imported: Int; var skippedDuplicates: Int; var failed: Int }
   struct PhotoImportResult: Sendable, Equatable { var importedAssetIDs: [String]; var failed: Int }
-  enum ImportError: Error, Equatable, Sendable { case fileLimitReached(limit: Int), unreadableSource(String) }
+  enum ImportError: LocalizedError, Equatable, Sendable { case fileLimitReached(limit: Int), unreadableSource(String) }
 
   protocol VaultImporting: Sendable {
       func checkAllowed(adding count: Int) async throws
@@ -695,6 +695,7 @@ extension matching ignores case.
       func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult
   }
   /// One picked photo or video: its asset identifier (nil without library access) and a loader for its file.
+  /// `loadFile` returns a file alone in its own store temp folder; `importPhotos` removes that folder afterwards.
   struct PhotoImportSource: Sendable {
       let assetID: String?
       let suggestedName: String
@@ -708,6 +709,7 @@ extension matching ignores case.
   - importPhotos: checks the limit for the count first; imports one at a time; returns the asset IDs that were imported or were already in the vault, and the failure count; temp copies are removed.
   - Duplicate check in an encrypted vault decrypts the existing same-name file to a temp folder to hash it and removes it afterwards.
   - Names starting with ".": `VaultStoring.addFile` accepts them, but in a no-lock vault they would be hidden from listings (and a root ".trash" would clash with the trash), so Import handles them. A file or folder picked directly, or a photo's `suggestedName`, has its leading dots removed before it is stored (".env" → "env", ".trash" → "trash"), and the duplicate check uses the new name; it counts toward the limit. A name that is only dots counts as `failed` (`importPhotos`: in `failed`, with nothing imported for it). Hidden files and folders inside a picked folder are skipped: not imported, not counted toward the limit, not reported in `ImportResult`.
+  - ImportError text: `.unreadableSource(name)` → `Couldn't read "<name>".`; `.fileLimitReached(limit)` → `This vault has reached its limit of <limit> files.`
   - ImportPresenter (view): sheet "Choose Files", "Choose Folder", "Choose Photos", "Cancel" anchored to the Import button on iPad; document pickers (multi-select); photo picker (images and videos, no limit, requests read-write access first); Cancel in any picker closes it; limit → picker closes then the caller's `onLimitReached` runs (the paywall); "Importing..." / "Importing Photos..." overlays with progress; "N imported, M failed" when any failed; then the camera-roll delete for the imported asset IDs (iOS shows its own confirmation); other errors shown after the picker closes.
 - Contract: see `docs/api/Import.md` (generated; do not edit by hand)
 - Legacy files: Model/ImportService.swift; Model/FileSystem.swift (part: importItems, importSingleFile, importFolder, importFromCameraRoll, checkImportAllowed, countFiles, isDuplicate, sha256Hex)
@@ -916,6 +918,7 @@ extension matching ignores case.
 - `FileIcon` → UIImage/UIColor helper (`iconImageAndTint`, `tintColor(named:)`) is copied in two legacy files during the SharedUI switch-over — View/LegacyFileCell.swift, View/RecentlyDeleted.swift — open; Settings (first to replace one of them) moves it into SharedUI's views, and Browser reuses it
 - Locking the device with the app in the foreground during a migration can fail one file with an I/O error before the background key wipe (the legacy screen paused on protected-data-unavailable; the engine pauses only on a lock); the file shows under Retry/Skip — LiveLockMigrator.swift (`isInterruption`), SceneDelegate.swift — open; candidate fix: treat a data-protection error as an interruption, or pause on `sceneWillResignActive`
 - Settings has no unit test for which migration it starts (encrypt with `.password`, decrypt with `nil`, re-encrypt keeping a pending target), and the Migration screen has no test that `onComplete` fires once after paused → running → completed — SecuritySettings.swift, MigrationScreenTests.swift — open; Settings' module (which replaces both screens) tests them
+- A cancelled photo import carries on through its remaining photos (`importPhotos` counts `CancellationError` as a failure); nothing can cancel an import today, since the overlays have no Cancel — LiveVaultImporter.swift — open, matters only if a Cancel is added
 
 ## Features
 <!-- Accepted features, oldest first. -->
@@ -963,3 +966,4 @@ extension matching ignores case.
 - 2026-10-30: Media's thumbnail cache key is item id + `dateModified` + `fileSize` (edited notes refresh their thumbnail, as legacy `ThumbnailService.cacheKey` did), and a folder thumbnail's first media follows the user's browser sort (Media now depends on Preferences) — Media unit 1 review — decided by the human
 - 2026-10-30: Import names starting with ".": directly picked files and folders and photo names lose their leading dots before storing (a name of only dots counts as failed); hidden items inside a picked folder stay skipped, uncounted and unreported — Import unit 1 prerequisite — decided by the human
 - 2026-10-30: Import spec gains today's folder merge (a same-named existing folder is merged into, FileSystem.swift:99-108), which the survey had omitted; no behavior change — Import unit 1 tests — orchestrator, recorded
+- 2026-10-30: Contract change approved: `ImportError` is a `LocalizedError` with tested text, and `PhotoImportSource.loadFile` documents its own temp folder; `ImportContract.swift` now holds real code — Import unit 1 review — approved by the human
