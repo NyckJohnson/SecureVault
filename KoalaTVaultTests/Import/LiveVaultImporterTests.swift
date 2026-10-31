@@ -33,8 +33,10 @@ import Testing
         }
     }
 
-    /// A photo whose loader writes a fresh temp file (in its own folder) and records what happened.
+    /// A photo whose loader writes a fresh file alone in its own store temp folder and records what happened.
     private final class PhotoProbe: @unchecked Sendable {
+        private let store: DiskBackedVaultStore
+        init(store: DiskBackedVaultStore) { self.store = store }
         private let lock = NSLock()
         private var _loads = 0, _running = 0, _maxRunning = 0
         private var _tempFiles: [URL] = []
@@ -52,9 +54,7 @@ import Testing
                 defer { lock.withLock { _running -= 1 } }
                 try await Task.sleep(nanoseconds: 5_000_000)
                 if fails { throw ImportError.unreadableSource(name) }
-                let dir = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("PhotoTemp-\(UUID().uuidString)", isDirectory: true)
-                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let dir = try store.makeTempDirectory()
                 let url = dir.appendingPathComponent(name.isEmpty ? "x" : "tmp-" + UUID().uuidString)
                 try Data(content.utf8).write(to: url)
                 lock.withLock { _tempFiles.append(url) }
@@ -180,6 +180,42 @@ import Testing
         #expect(values.last == 1)
         #expect(values.allSatisfy { (0...1).contains($0) })
         #expect(zip(values, values.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
+    @Test("Progress with a folder, a skipped duplicate and an only-dots pick runs 0 to 1 without going backwards")
+    func progressWithMixedPicks() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try fixture.store.seed("dup.txt", content: "same")
+        try fixture.source.file("Trip/a.txt", content: "A")
+        try fixture.source.file("Trip/Sub/b.txt", content: "B")
+        let urls = [
+            fixture.source.url.appendingPathComponent("Trip"),
+            try fixture.source.file("dup.txt", content: "same"),
+            try fixture.source.file("...", content: "dots"),
+            try fixture.source.file("plain.txt", content: "P")
+        ]
+        let progress = ProgressRecorder()
+        let result = try await fixture.importItems(urls, progress: progress)
+        #expect(result == ImportResult(imported: 3, skippedDuplicates: 1, failed: 1))
+        let values = progress.recorded
+        #expect(values.first == 0)
+        #expect(values.last == 1)
+        #expect(values.allSatisfy { (0...1).contains($0) })
+        #expect(zip(values, values.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
+    @Test("A picked folder that cannot be listed throws unreadableSource with the folder's name")
+    func unlistableFolderThrowsUnreadableSource() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let folder = try fixture.source.folder("Trip")
+        try fixture.source.file("Trip/a.txt", content: "A")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        await #expect(throws: ImportError.unreadableSource("Trip")) {
+            _ = try await fixture.importItems([folder])
+        }
     }
 
     @Test("A failure part-way keeps the earlier files and rethrows the error")
@@ -487,7 +523,7 @@ import Testing
     func photosLimitFirst() async throws {
         let fixture = try Fixture(existingFiles: 99)
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "1", name: "a.jpg", content: "a")
         let photo2 = probe.source(id: "2", name: "b.jpg", content: "b")
         let assets = [photo1, photo2]
@@ -502,7 +538,7 @@ import Testing
     func photosImported() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "id-1", name: "a.jpg", content: "a")
         let photo2 = probe.source(id: "id-2", name: "b.mov", content: "b")
         let assets = [photo1, photo2]
@@ -516,7 +552,7 @@ import Testing
     func photosOneAtATime() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let assets = (1...5).map { probe.source(id: "id-\($0)", name: "p\($0).jpg", content: "c\($0)") }
         _ = try await fixture.importer.importPhotos(assets, into: fixture.store.root)
         #expect(probe.loads == 5)
@@ -528,7 +564,7 @@ import Testing
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         try fixture.store.seed("a.jpg", content: "same")
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "dup", name: "a.jpg", content: "same")
         let photo2 = probe.source(id: "new", name: "b.jpg", content: "b")
         let assets = [photo1, photo2]
@@ -543,7 +579,7 @@ import Testing
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         try fixture.store.seed("a.jpg", content: "old")
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let result = try await fixture.importer.importPhotos(
             [probe.source(id: "x", name: "a.jpg", content: "new")], into: fixture.store.root)
         #expect(result.importedAssetIDs == ["x"])
@@ -554,7 +590,7 @@ import Testing
     func photoLoadFailureCounted() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "ok-1", name: "a.jpg", content: "a")
         let photo2 = probe.source(id: "bad", name: "b.jpg", content: "b", fails: true)
         let photo3 = probe.source(id: "ok-2", name: "c.jpg", content: "c")
@@ -569,7 +605,7 @@ import Testing
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         fixture.store.failAdding("b.jpg")
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "ok", name: "a.jpg", content: "a")
         let photo2 = probe.source(id: "bad", name: "b.jpg", content: "b")
         let assets = [photo1, photo2]
@@ -582,7 +618,7 @@ import Testing
     func photoWithoutAssetID() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let result = try await fixture.importer.importPhotos(
             [probe.source(id: nil, name: "a.jpg", content: "a")], into: fixture.store.root)
         #expect(result == PhotoImportResult(importedAssetIDs: [], failed: 0))
@@ -595,7 +631,7 @@ import Testing
         defer { fixture.cleanup() }
         try fixture.store.seed("dup.jpg", content: "same")
         fixture.store.failAdding("bad.jpg")
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "1", name: "a.jpg", content: "a")
         let photo2 = probe.source(id: "2", name: "dup.jpg", content: "same")
         let photo3 = probe.source(id: "3", name: "bad.jpg", content: "b")
@@ -607,11 +643,25 @@ import Testing
         }
     }
 
+    @Test("A photo whose file is outside the store's temp area leaves that file and its folder alone")
+    func photoOutsideTempAreaIsLeftAlone() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let outside = try fixture.source.file("Elsewhere/original.jpg", content: "pic")
+        let folder = outside.deletingLastPathComponent()
+        let photo = PhotoImportSource(assetID: "id", suggestedName: "p.jpg") { outside }
+        let result = try await fixture.importer.importPhotos([photo], into: fixture.store.root)
+        #expect(result == PhotoImportResult(importedAssetIDs: ["id"], failed: 0))
+        #expect(fixture.store.readString("p.jpg") == "pic")
+        #expect(FileManager.default.fileExists(atPath: outside.path))
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
     @Test("A photo's suggested name loses its leading dots before storing and counts toward the limit")
     func photoNameLosesLeadingDots() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let result = try await fixture.importer.importPhotos(
             [probe.source(id: "id", name: ".hidden.jpg", content: "h")], into: fixture.store.root)
         #expect(result.importedAssetIDs == ["id"])
@@ -623,7 +673,7 @@ import Testing
     func dotNamedPhotoCountsTowardLimit() async throws {
         let fixture = try Fixture(existingFiles: 99)
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "1", name: ".a.jpg", content: "a")
         let photo2 = probe.source(id: "2", name: "b.jpg", content: "b")
         let assets = [photo1, photo2]
@@ -637,7 +687,7 @@ import Testing
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         try fixture.store.seed("hidden.jpg", content: "same")
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let result = try await fixture.importer.importPhotos(
             [probe.source(id: "id", name: ".hidden.jpg", content: "same")], into: fixture.store.root)
         #expect(result.importedAssetIDs == ["id"])
@@ -648,7 +698,7 @@ import Testing
     func onlyDotsPhotoFails() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        let probe = PhotoProbe()
+        let probe = PhotoProbe(store: fixture.store)
         let photo1 = probe.source(id: "bad", name: "...", content: "x")
         let photo2 = probe.source(id: "ok", name: "a.jpg", content: "a")
         let assets = [photo1, photo2]

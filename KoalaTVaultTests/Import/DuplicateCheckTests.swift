@@ -98,4 +98,17 @@ import Testing
         _ = try await check.isDuplicate(source: file, named: "a.txt", in: store.root)
         #expect(store.leftoverTempFiles.isEmpty)
     }
+
+    @Test("An error from the store's findItem is rethrown")
+    func findItemErrorIsRethrown() async throws {
+        let store = try DiskBackedVaultStore()
+        let source = try SourceFolder()
+        defer { store.cleanup(); source.cleanup() }
+        let file = try source.file("a.txt", content: "hello")
+        store.failFindItem(with: VaultStoreError.io("find failed"))
+        let check = DuplicateCheck(store: store)
+        await #expect(throws: VaultStoreError.io("find failed")) {
+            _ = try await check.isDuplicate(source: file, named: "a.txt", in: store.root)
+        }
+    }
 }

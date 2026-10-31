@@ -21,12 +21,20 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     private var _addCalls: [AddCall] = []
     private var _failNames: Set<String> = []
     private var _tempDirectories: [URL] = []
+    private var _findItemError: (any Error)?
+    private var _countFilesError: (any Error)?
+
+    /// The store's temp area: `makeTempDirectory` folders live inside it and `removeTemporary` deletes
+    /// only paths strictly inside it, as the real store does.
+    let tempArea: URL
 
     init(extraFileCount: Int = 0, encrypted: Bool = false) throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ImportTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         root = VaultDirectory(name: "KoalaTVault", diskURL: rootURL, rootURL: rootURL)
+        tempArea = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ImportTempArea-\(UUID().uuidString)", isDirectory: true)
         self.extraFileCount = extraFileCount
         self.encrypted = encrypted
     }
@@ -37,6 +45,12 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     /// `addFile` throws `.io("boom")` for these names.
     func failAdding(_ name: String) { lock.withLock { _ = _failNames.insert(name) } }
+
+    /// `findItem` throws this error from now on.
+    func failFindItem(with error: any Error) { lock.withLock { _findItemError = error } }
+
+    /// `countFiles` throws this error from now on.
+    func failCountFiles(with error: any Error) { lock.withLock { _countFilesError = error } }
 
     /// Every regular file left under any temp folder this store handed out.
     var leftoverTempFiles: [URL] {
@@ -83,11 +97,13 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func cleanup() {
         try? FileManager.default.removeItem(at: root.diskURL)
         for dir in lock.withLock({ _tempDirectories }) { try? FileManager.default.removeItem(at: dir) }
+        try? FileManager.default.removeItem(at: tempArea)
     }
 
     // MARK: VaultStoring (used by imports)
 
     func countFiles() async throws -> Int {
+        if let error = lock.withLock({ _countFilesError }) { throw error }
         var count = extraFileCount
         let walker = FileManager.default.enumerator(
             at: root.diskURL, includingPropertiesForKeys: [.isRegularFileKey],
@@ -124,6 +140,7 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        if let error = lock.withLock({ _findItemError }) { throw error }
         let target = directory.diskURL.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: target.path) else { return nil }
         return item(at: target)
@@ -146,8 +163,7 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func makeTempDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ImportTempFolder-\(UUID().uuidString)", isDirectory: true)
+        let url = tempArea.appendingPathComponent("ImportTempFolder-\(UUID().uuidString)", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         } catch {
@@ -157,7 +173,11 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
         return url
     }
 
-    func removeTemporary(_ url: URL) { try? FileManager.default.removeItem(at: url) }
+    func removeTemporary(_ url: URL) {
+        let areaPath = tempArea.standardizedFileURL.path
+        guard url.standardizedFileURL.path.hasPrefix(areaPath + "/") else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
 
     func removeAllTemporaryFiles() {}
 

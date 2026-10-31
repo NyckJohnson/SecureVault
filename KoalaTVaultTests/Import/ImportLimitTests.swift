@@ -61,4 +61,22 @@ import Testing
             try await limit.checkAllowed(adding: 1)
         }
     }
+
+    @Test("An error from the store's countFiles is rethrown for a free user")
+    func countFilesErrorIsRethrownForFree() async throws {
+        let (limit, store) = try limit(fileCount: 0, isPro: false)
+        defer { store.cleanup() }
+        store.failCountFiles(with: VaultStoreError.io("count failed"))
+        await #expect(throws: VaultStoreError.io("count failed")) {
+            try await limit.checkAllowed(adding: 1)
+        }
+    }
+
+    @Test("A Pro user passes even when counting files would fail")
+    func proPassesWhenCountingFails() async throws {
+        let (limit, store) = try limit(fileCount: 0, isPro: true)
+        defer { store.cleanup() }
+        store.failCountFiles(with: VaultStoreError.io("count failed"))
+        try await limit.checkAllowed(adding: 1)
+    }
 }
