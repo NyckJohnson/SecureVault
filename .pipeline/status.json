@@ -327,7 +327,7 @@
             "LiveVaultImporter.swift",
             "PhotoLibraryAccess.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T17:49:49-07:00",
+  "updatedAt": "2026-10-30T17:53:52-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
