@@ -364,7 +364,7 @@
             "LiveVaultExporter.swift",
             "PhotoLibrarySaver.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T20:25:59-07:00",
+  "updatedAt": "2026-10-30T20:32:31-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
