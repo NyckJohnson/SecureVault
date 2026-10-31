@@ -18,6 +18,6 @@ struct PhotoLibraryAccess: CameraRollDeleting {
             // originals simply stay in the library.
             Self.logger.info("Camera-roll delete did not complete: \(error.localizedDescription)")
         }
-        // coverage-exempt-end
     }
+    // coverage-exempt-end
 }
