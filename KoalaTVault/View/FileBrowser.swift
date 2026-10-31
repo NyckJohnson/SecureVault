@@ -78,7 +78,7 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
             let moveButton = UIBarButtonItem(
                 image: UIImage(systemName: "arrow.right.circle"), style: .plain, target: self, action: #selector(bulkMove))
             let exportButton = UIBarButtonItem(
-                image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(bulkExport))
+                image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(bulkExport(_:)))
             let copyButton = UIBarButtonItem(
                 image: UIImage(systemName: "doc.on.doc"), style: .plain, target: self, action: #selector(bulkCopy))
 
@@ -326,9 +326,9 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
         presentFolderPicker(for: firstItem)
     }
 
-    @objc private func bulkExport() {
+    @objc private func bulkExport(_ sender: UIBarButtonItem) {
         guard !selectedItemIDs.isEmpty else { return }
-        services.exportService.exportMultiple(selectedItems, from: self, barButtonItem: navigationItem.rightBarButtonItems?.first)
+        services.exportPresenter.presentExportSheet(for: selectedItems, from: self, anchor: .barButton(sender))
     }
 
     @objc private func bulkCopy() {
@@ -495,7 +495,7 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
                 let viewer = LegacyFileViewerViewController(
                     items: nonDirectories, startingAt: startIndex,
                     vaultStore: vaultStore, videoAssets: services.videoAssets,
-                    exportService: services.exportService)
+                    exportPresenter: services.exportPresenter)
                 present(viewer, animated: true)
             }
         }
@@ -525,8 +525,9 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
                 identifier: UIAction.Identifier("browser.contextMenu.export")
             ) { [weak self] _ in
                 guard let self else { return }
-                let cell = collectionView.cellForItem(at: indexPath)
-                self.services.exportService.export(item, from: self, sourceView: cell)
+                // The cell is gone if it scrolled away or the list reloaded under the menu.
+                let anchorView: UIView = collectionView.cellForItem(at: indexPath) ?? collectionView
+                self.services.exportPresenter.presentExportSheet(for: [item], from: self, anchor: .sourceView(anchorView))
             }
             let move = UIAction(
                 title: "Move", image: UIImage(systemName: "folder"),
@@ -642,12 +643,16 @@ extension LegacyFileBrowserViewController: UICollectionViewDragDelegate {
         return [dragItem]
     }
 
-    // The provider hands out the on-disk URL, which is ciphertext in an encrypted vault, so
-    // such drags stay inside the app (move onto a folder); export goes through ExportService.
+    // The provider hands out the on-disk URL, which is ciphertext for an encrypted item, so a drag
+    // stays inside the app (move onto a folder) when a lock is on, a migration is pending or the item
+    // is encrypted. Only a no-lock vault with no migration pending can drag items out; every other
+    // way out goes through ExportPresenter, which makes decrypted copies.
     func collectionView(_ collectionView: UICollectionView, dragSessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool {
         session.items.contains { dragItem in
             guard let item = dragItem.localObject as? VaultItem else { return true }
-            return services.exportService.needsDecryptedCopy(item)
+            return services.preferences.lockMode != .none
+                || services.preferences.pendingMigration != nil
+                || item.isEncrypted
         }
     }
 }

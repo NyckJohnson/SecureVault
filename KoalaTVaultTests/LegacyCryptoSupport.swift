@@ -81,18 +81,6 @@ final class LegacyVaultHarness: @unchecked Sendable {
         try? FileManager.default.removeItem(at: base)
     }
 
-    /// Legacy export over this vault's store.
-    func transfers() -> FileSystem {
-        FileSystem(store: store)
-    }
-
-    /// Adds outside files to `directory` through the store, each under its own file name.
-    func importFiles(_ urls: [URL], to directory: VaultDirectory) async throws {
-        for url in urls {
-            _ = try await store.addFile(from: url, named: url.lastPathComponent, to: directory)
-        }
-    }
-
     /// A file outside the vault, to import.
     func source(_ name: String, _ content: String) throws -> URL {
         let dir = base.appendingPathComponent("Sources/\(UUID().uuidString)", isDirectory: true)
