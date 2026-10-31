@@ -46,7 +46,7 @@ struct DuplicateCheck: Sendable {
                 }
             }
         } catch {
-            return nil // coverage-exempt: read failure after a successful open can't be simulated
+            return nil  // coverage-exempt: read failure after a successful open can't be simulated
         }
         return hasher.finalize()
     }
