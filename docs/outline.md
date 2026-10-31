@@ -926,6 +926,7 @@ extension matching ignores case.
 - Dismissing the import sheet or photo picker without a handler firing (tap outside on iPad, swipe down) keeps the flow's model and the screen it captures until the next import — ImportPresenter.swift — open, minor
 - A folder emptied in an encrypted vault exports as its disk URL with its hidden `.vault_map` (folders are never `isEncrypted`, and the index is sealed and lists nothing, so no data leaves) — LiveVaultExporter.swift — open, cosmetic
 - Backgrounding with a lock while the export picker is open removes the copies it is reading (the spec's background rule), so tapping Save afterwards fails inside Files with no message from the app — ExportPresenter.swift — open, safe but unhelpful
+- If the app (not the user) closes the export picker, copies are removed after a 30 s grace for a late pick report; a pick reporting later than that would lose its source and fail with no message, and no plaintext leaks — ExportPresenter.swift — open, rare
 
 ## Features
 <!-- Accepted features, oldest first. -->
