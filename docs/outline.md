@@ -695,10 +695,10 @@ extension matching ignores case.
       func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult
   }
   /// One picked photo or video: its asset identifier (nil without library access) and a loader for its file.
-  /// `loadFile` returns a file alone in its own store temp folder; `importPhotos` removes that folder afterwards.
   struct PhotoImportSource: Sendable {
       let assetID: String?
       let suggestedName: String
+      /// Loads the asset's file: returns a file alone in its own store temp folder, which `importPhotos` removes afterwards.
       let loadFile: @Sendable () async throws -> URL
   }
   protocol CameraRollDeleting: Sendable { func deleteAssets(withIdentifiers ids: [String]) async }
