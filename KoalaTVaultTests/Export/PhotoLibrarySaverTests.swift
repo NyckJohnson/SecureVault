@@ -227,8 +227,8 @@ private struct SaverTestFixture {
         #expect(store.tempEntries().isEmpty)
     }
 
-    @Test("A CancellationError from the library is not counted as a failed item")
-    func libraryCancellationIsNotAFailure() async throws {
+    @Test("A CancellationError from the library is rethrown, not counted as a failed item")
+    func libraryCancellationIsRethrown() async throws {
         let fixture = try makeSaver()
         let store = fixture.store
         defer { store.cleanup() }
@@ -236,16 +236,7 @@ private struct SaverTestFixture {
         let second = try store.seedFile("two.jpg", encrypted: true)
         fixture.library.throwCancellationWhenSaving("one.jpg")
 
-        var failedCount: Int?
-        var thrown: (any Error)?
-        do {
-            failedCount = try await fixture.saver.save([first, second]).failed
-        } catch {
-            thrown = error
-        }
-
-        #expect(failedCount == nil || failedCount == 0)
-        #expect(failedCount != nil || thrown is CancellationError)
+        await #expect(throws: CancellationError.self) { try await fixture.saver.save([first, second]) }
         #expect(store.tempEntries().isEmpty)
     }
 }

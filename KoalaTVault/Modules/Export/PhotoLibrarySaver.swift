@@ -43,7 +43,8 @@ struct PhotoLibrarySaver: Sendable {
 
     /// Saves the items' media and counts the outcome. A failure on one item is counted in `failed`
     /// and the rest still save. Access is only requested when there is media to save.
-    /// - Throws: `ExportError.photoAccessDenied` without add-only access.
+    /// - Throws: `ExportError.photoAccessDenied` without add-only access; `CancellationError` when the
+    ///   task is cancelled or the library reports cancellation, which is never counted as a failure.
     @concurrent
     func save(_ items: [VaultItem]) async throws -> PhotoSaveResult {
         let media = items.filter(Self.isSavable)
@@ -52,9 +53,12 @@ struct PhotoLibrarySaver: Sendable {
         guard await library.requestAddOnlyAccess() else { throw ExportError.photoAccessDenied }
 
         for item in media {
+            try Task.checkCancellation()
             do {
                 try await saveOne(item)
                 result.saved += 1
+            } catch let error as CancellationError {
+                throw error
             } catch {
                 result.failed += 1
             }

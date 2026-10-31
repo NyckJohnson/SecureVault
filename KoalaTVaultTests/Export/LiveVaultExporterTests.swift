@@ -308,8 +308,10 @@ private struct ExporterTestFixture {
         #expect(safeName("plain.txt") == "plain.txt")
     }
 
-    @Test("A selected item with a crafted name is copied under its safe name inside the temp folder",
-        arguments: craftedNames)
+    @Test(
+        "A selected item with a crafted name is copied under its safe name inside the temp folder",
+        arguments: craftedNames
+    )
     func craftedSelectedName(name: String) async throws {
         let fixture = try makeExporter()
         let store = fixture.store

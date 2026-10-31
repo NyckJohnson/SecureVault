@@ -18,6 +18,7 @@ struct LiveVaultExporter: VaultExporting {
         var tempFolder: URL?
         do {
             for item in items {
+                try Task.checkCancellation()
                 if try await needsDecryptedCopy(item) {
                     let folder = try tempFolder ?? store.makeTempDirectory()
                     tempFolder = folder
@@ -26,6 +27,8 @@ struct LiveVaultExporter: VaultExporting {
                     urls.append(item.diskURL)
                 }
             }
+            // Inside the `do`, so cancellation arriving after the last item still removes the copies.
+            try Task.checkCancellation()
         } catch {
             if let tempFolder { store.removeTemporary(tempFolder) }
             throw error
@@ -50,20 +53,26 @@ struct LiveVaultExporter: VaultExporting {
         if item.isEncrypted { return true }
         guard let directory = item.asDirectory else { return false }
         for child in try await store.contents(of: directory, sortedBy: .name, .ascending) {
+            try Task.checkCancellation()
             let childNeedsCopy = try await needsDecryptedCopy(child)
             if childNeedsCopy { return true }
         }
         return false
     }
 
-    /// Writes the item's plaintext under its display name into `folder`, recursing through folders.
+    /// Writes the item's plaintext under its safe display name into `folder`, recursing through folders.
     /// Each folder `open` makes is removed as soon as its copy has moved out, so `folder` is the only
     /// temp folder left to clean up. Thrown errors leave partial output in `folder` for the caller to remove.
+    /// - Throws: `VaultStoreError.invalidName` if the name would still land outside `folder`.
     private func writeDecryptedCopy(of item: VaultItem, into folder: URL) async throws -> URL {
-        let target = folder.appendingPathComponent(Self.freeName(for: item.name, in: folder))
+        let target = folder.appendingPathComponent(Self.freeName(for: Self.safeName(item.name), in: folder))
+        // A second check on top of `safeName`: nothing may be written anywhere but directly in `folder`.
+        let parent = target.standardizedFileURL.deletingLastPathComponent()
+        guard parent.path == folder.standardizedFileURL.path else { throw VaultStoreError.invalidName }
         if let directory = item.asDirectory {
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
             for child in try await store.contents(of: directory, sortedBy: .name, .ascending) {
+                try Task.checkCancellation()
                 _ = try await writeDecryptedCopy(of: child, into: target)
             }
         } else if item.isEncrypted {
@@ -74,6 +83,14 @@ struct LiveVaultExporter: VaultExporting {
             try FileManager.default.copyItem(at: item.diskURL, to: target)
         }
         return target
+    }
+
+    /// `name` made safe to use as one path component, since it comes from an index that may be crafted
+    /// or corrupted: "/" becomes "-", leading dots are removed, and an empty result becomes "file".
+    private static func safeName(_ name: String) -> String {
+        let slashless = name.replacingOccurrences(of: "/", with: "-")
+        let trimmed = String(slashless.drop { $0 == "." })
+        return trimmed.isEmpty ? "file" : trimmed
     }
 
     /// `name`, or `name` with " 1", " 2"... before the extension if `folder` already has it, so two
