@@ -142,6 +142,26 @@ private final class ScriptedImporter: VaultImporting, @unchecked Sendable {
     }
 }
 
+/// An importer that loads every photo like the real one: a photo that fails to load counts as failed and the
+/// next one is still loaded.
+private final class FailureTolerantImporter: VaultImporting, @unchecked Sendable {
+    func checkAllowed(adding count: Int) async throws {}
+
+    func importItems(
+        _ urls: [URL], into directory: VaultDirectory, progress: @Sendable (Double) -> Void
+    ) async throws -> ImportResult {
+        ImportResult(imported: 0, skippedDuplicates: 0, failed: 0)
+    }
+
+    func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult {
+        var loaded: [String] = []
+        for asset in assets {
+            if (try? await asset.loadFile()) != nil, let id = asset.assetID { loaded.append(id) }
+        }
+        return PhotoImportResult(importedAssetIDs: loaded, failed: assets.count - loaded.count)
+    }
+}
+
 private final class LoggingCameraRoll: CameraRollDeleting {
     private let log: FlowLog
     init(log: FlowLog) { self.log = log }
@@ -564,6 +584,100 @@ private struct PresenterTestError: LocalizedError {
         let source = fixture.model.photoSource(for: broken)
 
         await #expect(throws: (any Error).self) { _ = try await source.loadFile() }
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: fixture.store.tempArea.path)) ?? []
+        #expect(leftovers.isEmpty)
+    }
+
+    @Test("A pick whose write fails still advances the photo progress, which never decreases and ends at 1")
+    func failedLoadStillAdvancesProgress() async throws {
+        let log = FlowLog()
+        let store = try DiskBackedVaultStore()
+        defer { store.cleanup() }
+        let view = RecordingFlowView(log: log)
+        let model = ImportFlowModel(
+            importer: FailureTolerantImporter(), cameraRoll: LoggingCameraRoll(log: log),
+            photoAccess: LoggingPhotoAccess(log: log), store: store, view: view,
+            onLimitReached: { log.add(.limitReached) }, onFinished: { log.add(.finished) })
+        let broken = ImportPickedPhoto(
+            assetID: "b2", suggestedName: "bad.jpg", writeFile: { _ in throw PresenterTestError() })
+
+        await model.pickedPhotos([pick("a1", name: "1.jpg"), broken, pick("c3", name: "3.jpg")], into: store.root)
+
+        let values = log.overlays.compactMap(\.progress)
+        #expect(values == values.sorted())
+        #expect(values.last == 1)
+        #expect(values.contains { abs($0 - 2.0 / 3.0) < 0.0001 })
+        #expect(log.messages == ["2 imported, 1 failed"])
+    }
+
+    @Test("The limit path runs onFinished exactly once, before onLimitReached")
+    func limitPathFinishesOnceBeforePaywall() async throws {
+        let fixture = try Fixture(mock: MockVaultImporting(fileCount: 100, isPro: false))
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(.photos)
+
+        await fixture.model.pickedPhotos([pick("a1")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+        let finished = try #require(fixture.log.index(of: .finished))
+        let limit = try #require(fixture.log.index(of: .limitReached))
+        #expect(finished < limit)
+    }
+
+    // MARK: Photo naming
+
+    struct NameCase: Sendable {
+        let base: String?
+        let type: String?
+        let expected: String
+    }
+
+    static let nameCase0 = NameCase(base: "IMG_1", type: "public.heic", expected: "IMG_1.heic")
+    static let nameCase1 = NameCase(base: "IMG_1", type: "public.jpeg", expected: "IMG_1.jpg")
+    static let nameCase2 = NameCase(base: "a.JPG", type: "public.jpeg", expected: "a.JPG")
+    static let nameCase3 = NameCase(base: "a.jpeg", type: "public.jpeg", expected: "a.jpeg")
+    static let nameCase4 = NameCase(base: "IMG_2.HEIC", type: "public.heic", expected: "IMG_2.HEIC")
+    static let nameCase5 = NameCase(base: "Photo 2024.10.01", type: "public.heic", expected: "Photo 2024.10.01.heic")
+    static let nameCase6 = NameCase(base: "IMG 1.5", type: "public.jpeg", expected: "IMG 1.5.jpg")
+    static let nameCase7 = NameCase(base: "clip", type: "com.apple.quicktime-movie", expected: "clip.mov")
+    static let nameCase8 = NameCase(base: nil, type: "public.heic", expected: "photo.heic")
+    static let nameCase9 = NameCase(base: "IMG_1", type: nil, expected: "IMG_1")
+    static let nameCase10 = NameCase(base: nil, type: nil, expected: "photo")
+    static let nameCases = [nameCase0, nameCase1, nameCase2, nameCase3, nameCase4, nameCase5]
+        + [nameCase6, nameCase7, nameCase8, nameCase9, nameCase10]
+
+    @Test("A photo is stored under its real name plus its type's extension", arguments: nameCases)
+    func storedNameFollowsRealNameAndType(testCase: NameCase) {
+        let name = ImportPickedPhoto.storedName(baseName: testCase.base, typeIdentifier: testCase.type)
+
+        #expect(name == testCase.expected)
+    }
+
+    @Test("The type choice skips a leading non-image type and takes the first image or movie type")
+    func typeChoiceSkipsNonImageLead() {
+        let chosen = ImportPickedPhoto.chooseTypeIdentifier(from: ["public.data", "public.heic", "public.jpeg"])
+
+        #expect(chosen == "public.heic")
+    }
+
+    @Test("The type choice takes the first of an all-image list")
+    func typeChoiceTakesFirstImage() {
+        let chosen = ImportPickedPhoto.chooseTypeIdentifier(from: ["public.jpeg", "public.heic"])
+
+        #expect(chosen == "public.jpeg")
+    }
+
+    @Test("The type choice accepts a movie type")
+    func typeChoiceAcceptsMovie() {
+        let chosen = ImportPickedPhoto.chooseTypeIdentifier(from: ["public.data", "com.apple.quicktime-movie"])
+
+        #expect(chosen == "com.apple.quicktime-movie")
+    }
+
+    @Test("The type choice is nil without an image or movie type, and for an empty list")
+    func typeChoiceNilWithoutMedia() {
+        #expect(ImportPickedPhoto.chooseTypeIdentifier(from: ["public.data", "public.text"]) == nil)
+        #expect(ImportPickedPhoto.chooseTypeIdentifier(from: []) == nil)
     }
 
     // MARK: Finishing
