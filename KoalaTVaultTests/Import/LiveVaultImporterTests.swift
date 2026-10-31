@@ -189,12 +189,11 @@ import Testing
         try fixture.store.seed("dup.txt", content: "same")
         try fixture.source.file("Trip/a.txt", content: "A")
         try fixture.source.file("Trip/Sub/b.txt", content: "B")
-        let urls = [
-            fixture.source.url.appendingPathComponent("Trip"),
-            try fixture.source.file("dup.txt", content: "same"),
-            try fixture.source.file("...", content: "dots"),
-            try fixture.source.file("plain.txt", content: "P")
-        ]
+        let folder = fixture.source.url.appendingPathComponent("Trip")
+        let duplicate = try fixture.source.file("dup.txt", content: "same")
+        let dots = try fixture.source.file("...", content: "dots")
+        let plain = try fixture.source.file("plain.txt", content: "P")
+        let urls = [folder, duplicate, dots, plain]
         let progress = ProgressRecorder()
         let result = try await fixture.importItems(urls, progress: progress)
         #expect(result == ImportResult(imported: 3, skippedDuplicates: 1, failed: 1))

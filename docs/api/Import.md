@@ -4,6 +4,7 @@
 
 - `CameraRollDeleting: func deleteAssets(withIdentifiers ids: [String]) async`
 - `ImportError: case fileLimitReached(limit: Int), unreadableSource(String)`
+- `ImportError: var errorDescription: String?`
 - `ImportResult: var failed: Int`
 - `ImportResult: var imported: Int`
 - `ImportResult: var skippedDuplicates: Int`
@@ -15,7 +16,7 @@
 - `VaultImporting: func checkAllowed(adding count: Int) async throws`
 - `VaultImporting: func importItems(_ urls: [URL], into directory: VaultDirectory, progress: @Sendable (Double) -> Void) async throws -> ImportResult`
 - `VaultImporting: func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult`
-- `enum ImportError: Error, Equatable, Sendable`
+- `enum ImportError: LocalizedError, Equatable, Sendable`
 - `protocol CameraRollDeleting: Sendable`
 - `protocol VaultImporting: Sendable`
 - `struct ImportResult: Sendable, Equatable`
