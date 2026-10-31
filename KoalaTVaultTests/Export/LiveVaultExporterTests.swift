@@ -156,6 +156,10 @@ private struct ExporterTestFixture {
         let copy = try #require(bundle.urls.first)
         #expect(copy.lastPathComponent == "Mixed")
         #expect(store.filesUnder(copy) == ["open.txt": "open", "hidden.txt": "hidden"])
+        let original = folder.diskURL.appendingPathComponent("open.txt")
+        #expect(store.filesUnder(original) == ["open.txt": "open"])
+        bundle.cleanUp()
+        #expect(store.filesUnder(original) == ["open.txt": "open"])
     }
 
     @Test("A plaintext folder gives its disk URL")
@@ -282,6 +286,196 @@ private struct ExporterTestFixture {
 
         #expect(store.filesUnder(plain.diskURL) == ["plain.txt": "keep me"])
         #expect(FileManager.default.fileExists(atPath: folder.diskURL.appendingPathComponent("inner.txt").path))
+    }
+
+    // MARK: Safe names
+
+    /// The spec's rule: "/" becomes "-", leading dots are removed, an empty name becomes "file".
+    private func safeName(_ name: String) -> String {
+        let slashless = name.replacingOccurrences(of: "/", with: "-")
+        let trimmed = String(slashless.drop { $0 == "." })
+        return trimmed.isEmpty ? "file" : trimmed
+    }
+
+    private static let craftedNames = ["../escape.txt", "a/b.txt", "..", ".", "", ".vault_map", ".hidden.txt"]
+
+    @Test("The safe-name rule gives the expected names for known cases")
+    func safeNameRuleExamples() {
+        #expect(safeName("../escape.txt") == "-escape.txt")
+        #expect(safeName("a/b.txt") == "a-b.txt")
+        #expect(safeName("..") == "file")
+        #expect(safeName(".hidden.txt") == "hidden.txt")
+        #expect(safeName("plain.txt") == "plain.txt")
+    }
+
+    @Test("A selected item with a crafted name is copied under its safe name inside the temp folder",
+        arguments: craftedNames)
+    func craftedSelectedName(name: String) async throws {
+        let fixture = try makeExporter()
+        let store = fixture.store
+        defer { store.cleanup() }
+        let item = try store.seedFile(name, content: "payload", encrypted: true)
+
+        let bundle = try await fixture.exporter.prepareForSharing([item])
+
+        let copy = try #require(bundle.urls.first)
+        #expect(bundle.urls.count == 1)
+        #expect(copy.lastPathComponent == safeName(name))
+        #expect(store.filesUnder(copy) == [safeName(name): "payload"])
+        #expect(store.topLevelTempEntries().count == 1)
+        #expect(isInside(copy, store.tempArea))
+        #expect(parentPath(copy).hasPrefix(store.tempArea.standardizedFileURL.path + "/"))
+        #expect(store.strayEntries().isEmpty)
+        bundle.cleanUp()
+        #expect(store.tempEntries().isEmpty)
+        #expect(store.strayEntries().isEmpty)
+    }
+
+    @Test("Every crafted name in one selection stays inside one temp folder")
+    func craftedNamesTogetherStayInside() async throws {
+        let fixture = try makeExporter()
+        let store = fixture.store
+        defer { store.cleanup() }
+        var items: [VaultItem] = []
+        for name in Self.craftedNames { items.append(try store.seedFile(name, content: "x", encrypted: true)) }
+
+        let bundle = try await fixture.exporter.prepareForSharing(items)
+
+        #expect(bundle.urls.count == items.count)
+        #expect(Set(bundle.urls.map(parentPath)).count == 1)
+        #expect(bundle.urls.allSatisfy { parentPath($0).hasPrefix(store.tempArea.standardizedFileURL.path + "/") })
+        #expect(Set(bundle.urls.map(\.lastPathComponent)).count == items.count)
+        #expect(store.topLevelTempEntries().count == 1)
+        #expect(store.strayEntries().isEmpty)
+        bundle.cleanUp()
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    @Test("Crafted names that collide after cleaning still get numbered")
+    func craftedCollisionsGetNumbered() async throws {
+        let fixture = try makeExporter()
+        let store = fixture.store
+        defer { store.cleanup() }
+        let dots = try store.seedFile("..", content: "dots", encrypted: true)
+        let dot = try store.seedFile(".", content: "dot", encrypted: true)
+        let empty = try store.seedFile("", content: "empty", encrypted: true)
+
+        let bundle = try await fixture.exporter.prepareForSharing([dots, dot, empty])
+
+        #expect(bundle.urls.map(\.lastPathComponent) == ["file", "file 1", "file 2"])
+        let contents = bundle.urls.compactMap { store.filesUnder($0).values.first }
+        #expect(contents == ["dots", "dot", "empty"])
+    }
+
+    @Test("Crafted names inside a folder tree are cleaned, with no vault map at any depth")
+    func craftedNamesInTree() async throws {
+        let fixture = try makeExporter()
+        let store = fixture.store
+        defer { store.cleanup() }
+        let folder = try store.seedFolder("Tree", encrypted: true)
+        let inner = try store.seedFolder("Inner", encrypted: true, in: folder)
+        for (index, name) in Self.craftedNames.enumerated() {
+            let parent = index.isMultiple(of: 2) ? folder : inner
+            try store.seedFile(name, content: "c\(index)", encrypted: true, in: parent)
+        }
+
+        let bundle = try await fixture.exporter.prepareForSharing([folder])
+
+        let copy = try #require(bundle.urls.first)
+        #expect(copy.lastPathComponent == "Tree")
+        #expect(parentPath(copy).hasPrefix(store.tempArea.standardizedFileURL.path + "/"))
+        let paths = store.pathsUnder(copy)
+        let leafNames = paths.flatMap { $0.split(separator: "/").map(String.init) }
+        #expect(!leafNames.contains(".vault_map"))
+        #expect(leafNames.allSatisfy { !$0.hasPrefix(".") && !$0.isEmpty })
+        let files = store.filesUnder(copy)
+        #expect(files.count == Self.craftedNames.count)
+        #expect(Set(files.values) == ["c0", "c1", "c2", "c3", "c4", "c5", "c6"])
+        #expect(files["-escape.txt"] == "c0")
+        #expect(files["Inner/a-b.txt"] == "c1")
+        #expect(files["Inner/vault_map"] == "c5")
+        #expect(files["hidden.txt"] == "c6")
+        #expect(store.topLevelTempEntries().count == 1)
+        #expect(store.strayEntries().isEmpty)
+        bundle.cleanUp()
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    @Test("A folder item with a crafted name is copied inside the temp folder")
+    func craftedFolderName() async throws {
+        let fixture = try makeExporter()
+        let store = fixture.store
+        defer { store.cleanup() }
+        let folder = try store.seedFolder("../evil", encrypted: true)
+        try store.seedFile("inside.txt", content: "in", encrypted: true, in: folder)
+
+        let bundle = try await fixture.exporter.prepareForSharing([folder])
+
+        let copy = try #require(bundle.urls.first)
+        #expect(copy.lastPathComponent == safeName("../evil"))
+        #expect(parentPath(copy).hasPrefix(store.tempArea.standardizedFileURL.path + "/"))
+        #expect(store.filesUnder(copy) == ["inside.txt": "in"])
+        #expect(store.topLevelTempEntries().count == 1)
+        #expect(store.strayEntries().isEmpty)
+        bundle.cleanUp()
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    // MARK: Cancellation
+
+    @Test("prepareForSharing in a cancelled task throws CancellationError and leaves no copies")
+    func prepareCancelledUpFront() async throws {
+        let fixture = try makeExporter()
+        let exporter = fixture.exporter
+        let store = fixture.store
+        defer { store.cleanup() }
+        let first = try store.seedFile("one.txt", encrypted: true)
+        let second = try store.seedFile("two.txt", encrypted: true)
+        let folder = try store.seedFolder("Tree", encrypted: true)
+        try store.seedFile("inside.txt", encrypted: true, in: folder)
+        let items = [first, second, folder]
+
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try await exporter.prepareForSharing(items)
+        }
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    @Test("Cancellation arriving after the last item still throws and removes every copy")
+    func prepareCancelledAfterLastItem() async throws {
+        let fixture = try makeExporter()
+        let exporter = fixture.exporter
+        let store = fixture.store
+        defer { store.cleanup() }
+        let first = try store.seedFile("first.txt", encrypted: true)
+        let last = try store.seedFile("last.txt", encrypted: true)
+        store.onOpened { name in if name == "last.txt" { cancelCurrentTask() } }
+
+        let task = Task { try await exporter.prepareForSharing([first, last]) }
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    @Test("Cancellation after the last file inside a folder removes the whole tree copy")
+    func prepareCancelledAfterLastFileInFolder() async throws {
+        let fixture = try makeExporter()
+        let exporter = fixture.exporter
+        let store = fixture.store
+        defer { store.cleanup() }
+        let folder = try store.seedFolder("Tree", encrypted: true)
+        try store.seedFile("early.txt", encrypted: true, in: folder)
+        try store.seedFile("late.txt", encrypted: true, in: folder)
+        store.onOpened { name in if name == "late.txt" { cancelCurrentTask() } }
+
+        let task = Task { try await exporter.prepareForSharing([folder]) }
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(store.tempEntries().isEmpty)
     }
 
     // MARK: Duplicate names

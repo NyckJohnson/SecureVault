@@ -186,4 +186,66 @@ private struct SaverTestFixture {
         #expect(result == PhotoSaveResult(saved: 0, failed: 0, skipped: 0))
         #expect(library.saved.isEmpty)
     }
+
+    // MARK: Cancellation
+
+    @Test("Saving in a cancelled task throws CancellationError, saves nothing and leaves no temp files")
+    func saveCancelledUpFront() async throws {
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        defer { store.cleanup() }
+        let first = try store.seedFile("one.jpg", encrypted: true)
+        let second = try store.seedFile("two.jpg", encrypted: true)
+
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            return try await saver.save([first, second])
+        }
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(fixture.library.saved.isEmpty)
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    @Test("Cancelling during a save stops saving further items and removes the temp copy")
+    func cancelDuringSaveStops() async throws {
+        let fixture = try makeSaver()
+        let saver = fixture.saver
+        let store = fixture.store
+        defer { store.cleanup() }
+        let first = try store.seedFile("one.jpg", encrypted: true)
+        let second = try store.seedFile("two.jpg", encrypted: true)
+        let third = try store.seedFile("three.mp4", encrypted: true)
+        fixture.library.cancelTaskWhenSaving("one.jpg")
+
+        let task = Task { try await saver.save([first, second, third]) }
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(fixture.library.saved.map(\.fileName) == ["one.jpg"])
+        #expect(store.tempEntries().isEmpty)
+    }
+
+    @Test("A CancellationError from the library is not counted as a failed item")
+    func libraryCancellationIsNotAFailure() async throws {
+        let fixture = try makeSaver()
+        let store = fixture.store
+        defer { store.cleanup() }
+        let first = try store.seedFile("one.jpg", encrypted: true)
+        let second = try store.seedFile("two.jpg", encrypted: true)
+        fixture.library.throwCancellationWhenSaving("one.jpg")
+
+        var failedCount: Int?
+        var thrown: (any Error)?
+        do {
+            failedCount = try await fixture.saver.save([first, second]).failed
+        } catch {
+            thrown = error
+        }
+
+        #expect(failedCount == nil || failedCount == 0)
+        #expect(failedCount != nil || thrown is CancellationError)
+        #expect(store.tempEntries().isEmpty)
+    }
 }

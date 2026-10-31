@@ -14,6 +14,7 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     private var children: [String: [VaultItem]] = [:]
     private var plaintexts: [String: String] = [:]
     private var failingNames: Set<String> = []
+    private var afterOpenHook: (@Sendable (String) -> Void)?
 
     init() throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -58,6 +59,19 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     /// `open` throws `.io("boom")` for items with this display name.
     func failOpening(_ name: String) { lock.withLock { _ = failingNames.insert(name) } }
 
+    /// Runs `hook` with the item's display name each time `open` has finished decrypting an item.
+    func onOpened(_ hook: @escaping @Sendable (String) -> Void) { lock.withLock { afterOpenHook = hook } }
+
+    /// Whatever sits beside the vault and the temp area (in their shared parent), as relative paths.
+    func strayEntries() -> [String] {
+        let base = root.diskURL.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: base.path)) ?? []
+        return names.filter { $0 != root.diskURL.lastPathComponent && $0 != tempArea.lastPathComponent }.sorted()
+    }
+
+    /// The names directly inside the temp area.
+    func topLevelTempEntries() -> [String] { tempEntries().filter { !$0.contains("/") } }
+
     /// Every file and folder left under the temp area, as paths relative to it.
     func tempEntries() -> [String] {
         guard let walker = FileManager.default.enumerator(atPath: tempArea.path) else { return [] }
@@ -101,9 +115,12 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
         if lock.withLock({ failingNames.contains(item.name) }) { throw VaultStoreError.io("boom") }
         guard item.isEncrypted, !item.isDirectory else { return item.diskURL }
         let folder = try makeTempDirectory()
-        let copy = folder.appendingPathComponent(item.name)
+        // A crafted display name must not steer where the store itself writes.
+        let craftedName = item.name.isEmpty || item.name.hasPrefix(".") || item.name.contains("/")
+        let copy = folder.appendingPathComponent(craftedName ? "decrypted-\(UUID().uuidString)" : item.name)
         let text = lock.withLock { plaintexts[item.diskURL.path] } ?? ""
         try Data(text.utf8).write(to: copy)
+        lock.withLock { afterOpenHook }?(item.name)
         return copy
     }
 
@@ -186,6 +203,8 @@ final class FakePhotoLibrary: PhotoLibraryAdding, @unchecked Sendable {
     private let lock = NSLock()
     private var granted: Bool
     private var failingFileNames: Set<String> = []
+    private var cancellingFileNames: Set<String> = []
+    private var cancelTaskFileNames: Set<String> = []
     private var _saved: [SavedMedia] = []
     private var _accessRequests = 0
 
@@ -196,6 +215,12 @@ final class FakePhotoLibrary: PhotoLibraryAdding, @unchecked Sendable {
 
     /// Saving a file with this name throws.
     func failSaving(_ fileName: String) { lock.withLock { _ = failingFileNames.insert(fileName) } }
+
+    /// Saving a file with this name throws `CancellationError`, as the system library may.
+    func throwCancellationWhenSaving(_ fileName: String) { lock.withLock { _ = cancellingFileNames.insert(fileName) } }
+
+    /// Saving a file with this name cancels the task that is saving it, then succeeds.
+    func cancelTaskWhenSaving(_ fileName: String) { lock.withLock { _ = cancelTaskFileNames.insert(fileName) } }
 
     func requestAddOnlyAccess() async -> Bool {
         lock.withLock {
@@ -211,8 +236,15 @@ final class FakePhotoLibrary: PhotoLibraryAdding, @unchecked Sendable {
             _saved.append(SavedMedia(fileName: name, isVideo: isVideo, content: content))
             return failingFileNames.contains(name)
         }
+        if lock.withLock({ cancellingFileNames.contains(name) }) { throw CancellationError() }
+        if lock.withLock({ cancelTaskFileNames.contains(name) }) { cancelCurrentTask() }
         if shouldFail { throw FakePhotoLibraryError.rejected }
     }
 }
 
 enum FakePhotoLibraryError: Error, Equatable { case rejected }
+
+/// Cancels the task the caller is running in.
+func cancelCurrentTask() {
+    withUnsafeCurrentTask { $0?.cancel() }
+}
