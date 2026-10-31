@@ -13,7 +13,7 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         harness = try LegacyVaultHarness()
-        transfers = harness.transfers(proUnlock: MockProUnlocking(isUnlocked: true))
+        transfers = harness.transfers()
     }
 
     override func tearDown() async throws {
@@ -48,8 +48,8 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
         try lockVault()
         let folder = try await harness.folder("Trip")
         let inner = try await harness.folder("Day1", in: folder)
-        try await transfers.importItems(from: [try harness.source("a.txt", "alpha secret")], to: folder)
-        try await transfers.importItems(from: [try harness.source("b.txt", "beta secret")], to: inner)
+        try await harness.importFiles([try harness.source("a.txt", "alpha secret")], to: folder)
+        try await harness.importFiles([try harness.source("b.txt", "beta secret")], to: inner)
 
         let folderItem = try await item(named: "Trip")
         let urls = try await transfers.prepareForExport([folderItem]).urls
@@ -65,7 +65,7 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
     func testEncryptedFolderExportContainsNoIndexFileOrUUIDNames() async throws {
         try lockVault()
         let folder = try await harness.folder("Docs")
-        try await transfers.importItems(from: [try harness.source("x.txt", "x content")], to: folder)
+        try await harness.importFiles([try harness.source("x.txt", "x content")], to: folder)
         let folderItem = try await item(named: "Docs")
 
         let exportedValue = try await transfers.prepareForExport([folderItem]).urls.first
@@ -81,7 +81,7 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
     func testEncryptedFolderExportFileIsNotCiphertext() async throws {
         try lockVault()
         let folder = try await harness.folder("Docs")
-        try await transfers.importItems(from: [try harness.source("x.txt", "plain marker text")], to: folder)
+        try await harness.importFiles([try harness.source("x.txt", "plain marker text")], to: folder)
         let folderItem = try await item(named: "Docs")
 
         let exportedValue = try await transfers.prepareForExport([folderItem]).urls.first
@@ -94,7 +94,7 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
     func testEncryptedFolderNeedsDecryptedCopy() async throws {
         try lockVault()
         let folder = try await harness.folder("Docs")
-        try await transfers.importItems(from: [try harness.source("x.txt", "x")], to: folder)
+        try await harness.importFiles([try harness.source("x.txt", "x")], to: folder)
         let folderItem = try await item(named: "Docs")
         XCTAssertTrue(transfers.needsDecryptedCopy(folderItem))
     }
@@ -103,14 +103,14 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
         try lockVault()
         let outer = try await harness.folder("Outer")
         let inner = try await harness.folder("Inner", in: outer)
-        try await transfers.importItems(from: [try harness.source("x.txt", "x")], to: inner)
+        try await harness.importFiles([try harness.source("x.txt", "x")], to: inner)
         let outerItem = try await item(named: "Outer")
         XCTAssertTrue(transfers.needsDecryptedCopy(outerItem))
     }
 
     func testNoLockFolderExportStillWorksAsPlainFolder() async throws {
         let folder = try await harness.folder("Plain")
-        try await transfers.importItems(from: [try harness.source("p.txt", "plain")], to: folder)
+        try await harness.importFiles([try harness.source("p.txt", "plain")], to: folder)
         let folderItem = try await item(named: "Plain")
 
         XCTAssertFalse(transfers.needsDecryptedCopy(folderItem))
@@ -128,7 +128,7 @@ final class FolderExportDecryptedCopyTests: XCTestCase {
 
     func testEncryptedFileNeedsDecryptedCopy() async throws {
         try lockVault()
-        try await transfers.importItems(from: [try harness.source("e.txt", "e")], to: harness.root)
+        try await harness.importFiles([try harness.source("e.txt", "e")], to: harness.root)
         let listed = try await harness.items().first
         let item = try XCTUnwrap(listed)
         XCTAssertTrue(transfers.needsDecryptedCopy(item))

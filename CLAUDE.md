@@ -16,3 +16,5 @@ managed block above.
   added in VaultCrypto's switch-over unit). Same rules: tested, never `coverage-exempt`.
 - `VaultStore/Contracts/VaultStoring.swift` also holds real code (`VaultStoreError.errorDescription`, added during SharedUI
   unit 1, approved 2026-10-29). Same rules: tested, never `coverage-exempt`.
+- `Import/Contracts/ImportContract.swift` also holds real code (`ImportError.errorDescription`, added during Import unit 1, approved
+  2026-10-30). Same rules: tested, never `coverage-exempt`.

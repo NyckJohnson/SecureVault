@@ -10,7 +10,7 @@ final class ExportServiceTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         harness = try LegacyVaultHarness()
-        transfers = harness.transfers(proUnlock: MockProUnlocking(isUnlocked: true))
+        transfers = harness.transfers()
     }
 
     override func tearDown() async throws {
@@ -28,7 +28,7 @@ final class ExportServiceTests: XCTestCase {
 
     // MARK: - Prepare For Export (Unencrypted)
     func testPrepareForExportReturnsOriginalURLForUnencryptedFile() async throws {
-        try await transfers.importItems(from: [try harness.source("test.txt", "hello")], to: harness.root)
+        try await harness.importFiles([try harness.source("test.txt", "hello")], to: harness.root)
         let listed = try await harness.items().first
         let item = try XCTUnwrap(listed)
         let exportURLs = try await transfers.prepareForExport([item]).urls
@@ -40,7 +40,7 @@ final class ExportServiceTests: XCTestCase {
     func testPrepareForExportMultipleUnencryptedFiles() async throws {
         let url1 = try harness.source("file1.txt", "hello")
         let url2 = try harness.source("file2.txt", "world")
-        try await transfers.importItems(from: [url1, url2], to: harness.root)
+        try await harness.importFiles([url1, url2], to: harness.root)
         let items = try await harness.items()
         let exportURLs = try await transfers.prepareForExport(items).urls
 
@@ -52,7 +52,7 @@ final class ExportServiceTests: XCTestCase {
     func testPrepareForExportDecryptsEncryptedFile() async throws {
         try lockVault()
         let content = "secret content"
-        try await transfers.importItems(from: [try harness.source("test.txt", content)], to: harness.root)
+        try await harness.importFiles([try harness.source("test.txt", content)], to: harness.root)
         let listed = try await harness.items().first
         let item = try XCTUnwrap(listed)
         XCTAssertTrue(item.isEncrypted)
@@ -66,7 +66,7 @@ final class ExportServiceTests: XCTestCase {
 
     func testPrepareForExportEncryptedFileHasOriginalName() async throws {
         try lockVault()
-        try await transfers.importItems(from: [try harness.source("myfile.txt", "content")], to: harness.root)
+        try await harness.importFiles([try harness.source("myfile.txt", "content")], to: harness.root)
         let listed = try await harness.items().first
         let item = try XCTUnwrap(listed)
         let exportURLs = try await transfers.prepareForExport([item]).urls
@@ -76,7 +76,7 @@ final class ExportServiceTests: XCTestCase {
 
     func testPrepareForExportEncryptedFileWithNoKeyThrows() async throws {
         try lockVault()
-        try await transfers.importItems(from: [try harness.source("test.txt", "content")], to: harness.root)
+        try await harness.importFiles([try harness.source("test.txt", "content")], to: harness.root)
         let listed = try await harness.items().first
         let item = try XCTUnwrap(listed)
 
@@ -98,7 +98,7 @@ final class ExportServiceTests: XCTestCase {
     // MARK: - Cleanup
     func testCleanupTempFilesRemovesExportedFiles() async throws {
         try lockVault()
-        try await transfers.importItems(from: [try harness.source("test.txt", "content")], to: harness.root)
+        try await harness.importFiles([try harness.source("test.txt", "content")], to: harness.root)
         let listed = try await harness.items().first
         let item = try XCTUnwrap(listed)
         let exportURLs = try await transfers.prepareForExport([item]).urls

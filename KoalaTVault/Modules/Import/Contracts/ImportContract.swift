@@ -1,7 +1,5 @@
 import Foundation
 
-// coverage-exempt-file: declarations only
-
 /// The outcome of a file or folder import.
 struct ImportResult: Sendable, Equatable {
     var imported: Int
@@ -16,8 +14,18 @@ struct PhotoImportResult: Sendable, Equatable {
 }
 
 /// Errors thrown by an import.
-enum ImportError: Error, Equatable, Sendable {
+enum ImportError: LocalizedError, Equatable, Sendable {
     case fileLimitReached(limit: Int), unreadableSource(String)
+
+    /// The text shown to the user for this error.
+    var errorDescription: String? {
+        switch self {
+        case .fileLimitReached(let limit):
+            return "This vault has reached its limit of \(limit) files."
+        case .unreadableSource(let name):
+            return "Couldn't read \"\(name)\"."
+        }
+    }
 }
 
 /// Brings files, folders and photos into the vault.
@@ -40,7 +48,7 @@ struct PhotoImportSource: Sendable {
     let assetID: String?
     /// The name to store the file under.
     let suggestedName: String
-    /// Loads the asset's file into a temporary URL.
+    /// Loads the asset's file: returns a file alone in its own store temp folder, which `importPhotos` removes afterwards.
     let loadFile: @Sendable () async throws -> URL
 }
 

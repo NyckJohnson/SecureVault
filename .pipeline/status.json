@@ -317,7 +317,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -327,23 +327,23 @@
             "LiveVaultImporter.swift",
             "PhotoLibraryAccess.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 2,
           "files": [
             "Views/ImportPresenter.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 3,
           "files": [
             "View/FileBrowser.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T15:24:49-07:00",
+  "updatedAt": "2026-10-30T18:46:53-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",

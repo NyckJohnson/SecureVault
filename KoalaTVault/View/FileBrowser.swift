@@ -105,7 +105,7 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
             // Right side
             let selectButton    = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(enterSelectMode))
             let importButton    = UIBarButtonItem(
-                image: UIImage(systemName: "square.and.arrow.down"), style: .plain, target: self, action: #selector(promptImport))
+                image: UIImage(systemName: "square.and.arrow.down"), style: .plain, target: self, action: #selector(promptImport(_:)))
             let newDocButton    = UIBarButtonItem(
                 image: UIImage(systemName: "doc.badge.plus"), style: .plain, target: self, action: #selector(promptNewDocument))
             let newFolderButton = UIBarButtonItem(
@@ -443,12 +443,20 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
     }
 
     // MARK: - Import
-    @objc private func promptImport() {
-        services.importService.promptImport(
-            into: directory, from: self, barButtonItem: navigationItem.rightBarButtonItems?.last
-        ) { [weak self] in
-            self?.loadContents()
-        }
+    @objc private func promptImport(_ sender: UIBarButtonItem) {
+        services.importPresenter.presentImportSheet(
+            into: directory,
+            from: self,
+            anchor: .barButton(sender),
+            onLimitReached: { [weak self] in
+                let paywall = LegacyPaywallViewController()
+                paywall.modalPresentationStyle = .formSheet
+                self?.present(paywall, animated: true)
+            },
+            completion: { [weak self] in
+                self?.loadContents()
+            }
+        )
     }
 }
 

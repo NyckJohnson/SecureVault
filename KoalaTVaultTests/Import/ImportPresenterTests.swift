@@ -1,0 +1,759 @@
+import Foundation
+
+import Testing
+
+@testable import KoalaTVault
+
+// Assumed seam (all in Views/ImportPresenter.swift): see the test-writer report for the full list.
+
+/// One thing that happened during an import flow, in order.
+private enum FlowEvent: Equatable, Sendable {
+    case requestedPhotoAccess
+    case presentedPicker(ImportPickerKind)
+    case dismissedPicker
+    case overlay(title: String, progress: Double?)
+    case overlayHidden
+    case message(String)
+    case error(String)
+    case limitReached
+    case finished
+    case importedItems([URL])
+    case importedPhotos(Int)
+    case deletedAssets([String])
+}
+
+private final class FlowLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [FlowEvent] = []
+
+    var events: [FlowEvent] { lock.withLock { storage } }
+    func add(_ event: FlowEvent) { lock.withLock { storage.append(event) } }
+
+    func index(of event: FlowEvent) -> Int? { events.firstIndex(of: event) }
+
+    var overlays: [(title: String, progress: Double?)] {
+        events.compactMap { event in
+            if case .overlay(let title, let progress) = event { return (title, progress) }
+            return nil
+        }
+    }
+
+    var messages: [String] {
+        events.compactMap { event in
+            if case .message(let text) = event { return text }
+            return nil
+        }
+    }
+
+    var errors: [String] {
+        events.compactMap { event in
+            if case .error(let text) = event { return text }
+            return nil
+        }
+    }
+
+    var deletes: [[String]] {
+        events.compactMap { event in
+            if case .deletedAssets(let ids) = event { return ids }
+            return nil
+        }
+    }
+}
+
+@MainActor
+private final class RecordingFlowView: ImportFlowViewing {
+    let log: FlowLog
+    private(set) var openPicker: ImportPickerKind?
+
+    init(log: FlowLog) { self.log = log }
+
+    func presentPicker(_ kind: ImportPickerKind) {
+        openPicker = kind
+        log.add(.presentedPicker(kind))
+    }
+
+    func dismissPicker() async {
+        openPicker = nil
+        log.add(.dismissedPicker)
+    }
+
+    func showOverlay(title: String, progress: Double?) { log.add(.overlay(title: title, progress: progress)) }
+    func hideOverlay() { log.add(.overlayHidden) }
+    var holdsMessages = false
+    private var heldMessage: CheckedContinuation<Void, Never>?
+
+    func showMessage(_ text: String) async {
+        log.add(.message(text))
+        guard holdsMessages else { return }
+        await withCheckedContinuation { heldMessage = $0 }
+    }
+
+    /// Lets a held `showMessage` return, as when the user taps OK.
+    func releaseMessage() {
+        heldMessage?.resume()
+        heldMessage = nil
+    }
+    func showError(_ text: String) { log.add(.error(text)) }
+}
+
+private final class ScriptedImporter: VaultImporting, @unchecked Sendable {
+    private let log: FlowLog
+    private let lock = NSLock()
+    private var _progressValues: [Double] = []
+    private var _fileResult = ImportResult(imported: 0, skippedDuplicates: 0, failed: 0)
+    private var _photoResult = PhotoImportResult(importedAssetIDs: [], failed: 0)
+    private var _error: (any Error)?
+    private var _loadsPhotoFiles = false
+
+    init(log: FlowLog) { self.log = log }
+
+    func script(
+        progress: [Double] = [], files: ImportResult? = nil, photos: PhotoImportResult? = nil,
+        error: (any Error)? = nil, loadsPhotoFiles: Bool = false
+    ) {
+        lock.withLock {
+            _progressValues = progress
+            if let files { _fileResult = files }
+            if let photos { _photoResult = photos }
+            _error = error
+            _loadsPhotoFiles = loadsPhotoFiles
+        }
+    }
+
+    func checkAllowed(adding count: Int) async throws {}
+
+    func importItems(
+        _ urls: [URL], into directory: VaultDirectory, progress: @Sendable (Double) -> Void
+    ) async throws -> ImportResult {
+        log.add(.importedItems(urls))
+        let values = lock.withLock { _progressValues }
+        for value in values { progress(value) }
+        if let error = lock.withLock({ _error }) { throw error }
+        return lock.withLock { _fileResult }
+    }
+
+    func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult {
+        log.add(.importedPhotos(assets.count))
+        if lock.withLock({ _loadsPhotoFiles }) {
+            for asset in assets { _ = try await asset.loadFile() }
+        }
+        if let error = lock.withLock({ _error }) { throw error }
+        return lock.withLock { _photoResult }
+    }
+}
+
+/// An importer that loads every photo like the real one: a photo that fails to load counts as failed and the
+/// next one is still loaded.
+private final class FailureTolerantImporter: VaultImporting, @unchecked Sendable {
+    func checkAllowed(adding count: Int) async throws {}
+
+    func importItems(
+        _ urls: [URL], into directory: VaultDirectory, progress: @Sendable (Double) -> Void
+    ) async throws -> ImportResult {
+        ImportResult(imported: 0, skippedDuplicates: 0, failed: 0)
+    }
+
+    func importPhotos(_ assets: [PhotoImportSource], into directory: VaultDirectory) async throws -> PhotoImportResult {
+        var loaded: [String] = []
+        for asset in assets {
+            if (try? await asset.loadFile()) != nil, let id = asset.assetID { loaded.append(id) }
+        }
+        return PhotoImportResult(importedAssetIDs: loaded, failed: assets.count - loaded.count)
+    }
+}
+
+private final class LoggingCameraRoll: CameraRollDeleting {
+    private let log: FlowLog
+    init(log: FlowLog) { self.log = log }
+    func deleteAssets(withIdentifiers ids: [String]) async { log.add(.deletedAssets(ids)) }
+}
+
+private final class LoggingPhotoAccess: ImportPhotoAccessRequesting {
+    private let log: FlowLog
+    init(log: FlowLog) { self.log = log }
+    func requestReadWriteAccess() async { log.add(.requestedPhotoAccess) }
+}
+
+@MainActor
+private struct Fixture {
+    let log = FlowLog()
+    let store: DiskBackedVaultStore
+    let view: RecordingFlowView
+    let importer: ScriptedImporter
+    let model: ImportFlowModel
+
+    init() throws {
+        store = try DiskBackedVaultStore()
+        view = RecordingFlowView(log: log)
+        importer = ScriptedImporter(log: log)
+        model = Self.makeModel(importer: importer, store: store, view: view, log: log)
+    }
+
+    /// A fixture whose importer is the shared `MockVaultImporting`.
+    init(mock: MockVaultImporting) throws {
+        store = try DiskBackedVaultStore()
+        view = RecordingFlowView(log: log)
+        importer = ScriptedImporter(log: log)
+        model = Self.makeModel(importer: mock, store: store, view: view, log: log)
+    }
+
+    private static func makeModel(
+        importer: any VaultImporting, store: DiskBackedVaultStore, view: RecordingFlowView, log: FlowLog
+    ) -> ImportFlowModel {
+        ImportFlowModel(
+            importer: importer, cameraRoll: LoggingCameraRoll(log: log), photoAccess: LoggingPhotoAccess(log: log),
+            store: store, view: view, onLimitReached: { log.add(.limitReached) },
+            onFinished: { log.add(.finished) })
+    }
+
+    var directory: VaultDirectory { store.root }
+}
+
+private func pick(_ assetID: String?, name: String = "photo.jpg") -> ImportPickedPhoto {
+    ImportPickedPhoto(
+        assetID: assetID, suggestedName: name,
+        writeFile: { destination in try Data("photo-bytes".utf8).write(to: destination) })
+}
+
+private func sampleURL(_ name: String) -> URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent(name)
+}
+
+private struct PresenterTestError: LocalizedError {
+    var errorDescription: String? { "Something odd happened." }
+}
+
+@MainActor
+@Suite struct ImportPresenterTests {
+
+    // MARK: Sheet and pickers
+
+    @Test("The import sheet offers Choose Files, Choose Folder, Choose Photos and Cancel in that order")
+    func sheetTitles() {
+        #expect(ImportFlowModel.sheetTitles == ["Choose Files", "Choose Folder", "Choose Photos", "Cancel"])
+    }
+
+    @Test("Choosing files opens the files picker, choosing a folder opens the folder picker")
+    func choosingOpensMatchingPicker() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+
+        await fixture.model.choose(.files)
+        #expect(fixture.view.openPicker == .files)
+        await fixture.model.choose(.folder)
+        #expect(fixture.view.openPicker == .folder)
+        #expect(fixture.log.index(of: .requestedPhotoAccess) == nil)
+    }
+
+    @Test("Choosing photos requests read-write photo access before the photo picker opens")
+    func photoAccessBeforePicker() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+
+        await fixture.model.choose(.photos)
+
+        let request = try #require(fixture.log.index(of: .requestedPhotoAccess))
+        let opened = try #require(fixture.log.index(of: .presentedPicker(.photos)))
+        #expect(request < opened)
+    }
+
+    @Test("Cancel in any picker closes it and imports nothing", arguments: [ImportPickerKind.files, .folder, .photos])
+    func cancelClosesPickerAndImportsNothing(kind: ImportPickerKind) async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let choice: ImportSourceChoice = kind == .files ? .files : (kind == .folder ? .folder : .photos)
+        await fixture.model.choose(choice)
+        #expect(fixture.view.openPicker == kind)
+
+        await fixture.model.cancelPicker()
+
+        #expect(fixture.view.openPicker == nil)
+        let events = fixture.log.events
+        #expect(!events.contains { if case .importedItems = $0 { return true } else { return false } })
+        #expect(!events.contains { if case .importedPhotos = $0 { return true } else { return false } })
+        #expect(fixture.log.deletes.isEmpty)
+        #expect(fixture.log.errors.isEmpty)
+        #expect(!events.contains(.limitReached))
+    }
+
+    // MARK: Files and folders
+
+    @Test("Picked files are imported into the directory and the picker is closed")
+    func pickedFilesImported() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let urls = [sampleURL("one.txt"), sampleURL("two.txt")]
+        fixture.importer.script(files: ImportResult(imported: 2, skippedDuplicates: 0, failed: 0))
+        await fixture.model.choose(.files)
+
+        await fixture.model.pickedItems(urls, into: fixture.directory)
+
+        #expect(fixture.log.events.contains(.importedItems(urls)))
+        #expect(fixture.view.openPicker == nil)
+    }
+
+    @Test("A picked folder is imported as one item")
+    func pickedFolderImported() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let folder = sampleURL("Album")
+        await fixture.model.choose(.folder)
+
+        await fixture.model.pickedItems([folder], into: fixture.directory)
+
+        #expect(fixture.log.events.contains(.importedItems([folder])))
+    }
+
+    @Test("The Importing... overlay shows the importer's progress and goes away afterwards")
+    func filesOverlayShowsProgress() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let result = ImportResult(imported: 1, skippedDuplicates: 0, failed: 0)
+        fixture.importer.script(progress: [0, 0.5, 1], files: result)
+
+        await fixture.model.pickedItems([sampleURL("one.txt")], into: fixture.directory)
+
+        let overlays = fixture.log.overlays
+        #expect(!overlays.isEmpty)
+        #expect(overlays.allSatisfy { $0.title == "Importing..." })
+        let values = overlays.compactMap(\.progress)
+        #expect(values.contains(0.5))
+        #expect(values.last == 1)
+        #expect(values == values.sorted())
+        let hidden = try #require(fixture.log.index(of: .overlayHidden))
+        let imported = try #require(fixture.log.index(of: .importedItems([sampleURL("one.txt")])))
+        #expect(hidden > imported)
+    }
+
+    @Test("No message is shown when every file imported")
+    func noMessageWithoutFailures() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(files: ImportResult(imported: 3, skippedDuplicates: 1, failed: 0))
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.messages.isEmpty)
+        #expect(fixture.log.errors.isEmpty)
+    }
+
+    @Test("A file import with failures shows N imported, M failed")
+    func filesFailureMessage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(files: ImportResult(imported: 2, skippedDuplicates: 0, failed: 1))
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.messages == ["2 imported, 1 failed"])
+    }
+
+    @Test("Hitting the free limit closes the picker first, then runs onLimitReached, with no error alert")
+    func fileLimitClosesPickerThenPaywall() async throws {
+        let fixture = try Fixture(mock: MockVaultImporting(fileCount: 100, isPro: false))
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(.files)
+
+        await fixture.model.pickedItems([sampleURL("one.txt")], into: fixture.directory)
+
+        let closed = try #require(fixture.log.index(of: .dismissedPicker))
+        let limit = try #require(fixture.log.index(of: .limitReached))
+        #expect(closed < limit)
+        #expect(fixture.log.events.filter { $0 == .limitReached }.count == 1)
+        #expect(fixture.log.errors.isEmpty)
+        #expect(fixture.view.openPicker == nil)
+        #expect(fixture.log.messages.isEmpty)
+    }
+
+    @Test("Another error is shown with its own text, only after the picker has closed")
+    func otherErrorShownAfterPickerCloses() async throws {
+        let mock = MockVaultImporting(fileCount: 12)
+        mock.errorToThrow = .unreadableSource("notes.txt")
+        let fixture = try Fixture(mock: mock)
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(.files)
+
+        await fixture.model.pickedItems([sampleURL("notes.txt")], into: fixture.directory)
+
+        let expected = "Couldn't read \"notes.txt\"."
+        #expect(fixture.log.errors == [expected])
+        let closed = try #require(fixture.log.index(of: .dismissedPicker))
+        let shown = try #require(fixture.log.index(of: .error(expected)))
+        #expect(closed < shown)
+        #expect(!fixture.log.events.contains(.limitReached))
+    }
+
+    @Test("A non-import error is shown using its localized description")
+    func genericErrorText() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(error: PresenterTestError())
+        await fixture.model.choose(.folder)
+
+        await fixture.model.pickedItems([sampleURL("Album")], into: fixture.directory)
+
+        #expect(fixture.log.errors == ["Something odd happened."])
+        let closed = try #require(fixture.log.index(of: .dismissedPicker))
+        let shown = try #require(fixture.log.index(of: .error("Something odd happened.")))
+        #expect(closed < shown)
+    }
+
+    @Test("The overlay is hidden after a failed import")
+    func overlayHiddenAfterError() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(error: PresenterTestError())
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.index(of: .overlayHidden) != nil)
+        #expect(fixture.log.errors == ["Something odd happened."])
+    }
+
+    // MARK: Photos
+
+    @Test("Picked photos are imported with the Importing Photos... overlay")
+    func photosOverlayTitle() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["x"], failed: 0))
+
+        await fixture.model.pickedPhotos([pick("x")], into: fixture.directory)
+
+        #expect(fixture.log.events.contains(.importedPhotos(1)))
+        #expect(!fixture.log.overlays.isEmpty)
+        #expect(fixture.log.overlays.allSatisfy { $0.title == "Importing Photos..." })
+        #expect(fixture.log.index(of: .overlayHidden) != nil)
+    }
+
+    @Test("The photo overlay progress rises as each photo is loaded and ends at 1")
+    func photoOverlayUpdates() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let ids = ["a1", "b2", "c3"]
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ids, failed: 0), loadsPhotoFiles: true)
+
+        await fixture.model.pickedPhotos(
+            [pick("a1", name: "1.jpg"), pick("b2", name: "2.jpg"), pick("c3", name: "3.jpg")], into: fixture.directory)
+
+        let values = fixture.log.overlays.compactMap(\.progress)
+        #expect(values == values.sorted())
+        #expect(values.last == 1)
+        #expect(values.contains { $0 > 0 && $0 < 1 })
+    }
+
+    @Test("A photo import with failures shows N imported, M failed")
+    func photosFailureMessage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1", "b2"], failed: 1))
+
+        await fixture.model.pickedPhotos([pick("a1"), pick("b2"), pick("c3")], into: fixture.directory)
+
+        #expect(fixture.log.messages == ["2 imported, 1 failed"])
+    }
+
+    @Test("No message is shown when every photo imported")
+    func photosNoMessage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1"], failed: 0))
+
+        await fixture.model.pickedPhotos([pick("a1")], into: fixture.directory)
+
+        #expect(fixture.log.messages.isEmpty)
+    }
+
+    @Test("The camera-roll delete is asked for exactly the imported asset IDs, after the import")
+    func cameraRollDeleteAfterImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1", "c3"], failed: 1))
+
+        await fixture.model.pickedPhotos([pick("a1"), pick("b2"), pick("c3")], into: fixture.directory)
+
+        #expect(fixture.log.deletes == [["a1", "c3"]])
+        let imported = try #require(fixture.log.index(of: .importedPhotos(3)))
+        let deleted = try #require(fixture.log.index(of: .deletedAssets(["a1", "c3"])))
+        #expect(imported < deleted)
+    }
+
+    @Test("The failure message is shown before the camera-roll delete is asked for")
+    func messageBeforeDelete() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1"], failed: 1))
+
+        await fixture.model.pickedPhotos([pick("a1"), pick("b2")], into: fixture.directory)
+
+        let message = try #require(fixture.log.index(of: .message("1 imported, 1 failed")))
+        let deleted = try #require(fixture.log.index(of: .deletedAssets(["a1"])))
+        #expect(message < deleted)
+    }
+
+    @Test("The camera-roll delete is not asked for when no photo was imported")
+    func noDeleteWithoutImportedAssets() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: [], failed: 2))
+
+        await fixture.model.pickedPhotos([pick(nil), pick(nil)], into: fixture.directory)
+
+        #expect(fixture.log.deletes.isEmpty)
+        #expect(fixture.log.messages == ["0 imported, 2 failed"])
+    }
+
+    @Test("The photo limit closes the picker first, then runs onLimitReached, and deletes nothing")
+    func photoLimitClosesPickerThenPaywall() async throws {
+        let fixture = try Fixture(mock: MockVaultImporting(fileCount: 100, isPro: false))
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(.photos)
+
+        await fixture.model.pickedPhotos([pick("a1")], into: fixture.directory)
+
+        let closed = try #require(fixture.log.index(of: .dismissedPicker))
+        let limit = try #require(fixture.log.index(of: .limitReached))
+        #expect(closed < limit)
+        #expect(fixture.log.errors.isEmpty)
+        #expect(fixture.log.deletes.isEmpty)
+        #expect(fixture.view.openPicker == nil)
+    }
+
+    @Test("A photo import error is shown with its own text after the photo picker closes")
+    func photoErrorAfterPickerCloses() async throws {
+        let mock = MockVaultImporting(fileCount: 12)
+        mock.errorToThrow = .unreadableSource("beach.jpg")
+        let fixture = try Fixture(mock: mock)
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(.photos)
+
+        await fixture.model.pickedPhotos([pick("a1", name: "beach.jpg")], into: fixture.directory)
+
+        let expected = "Couldn't read \"beach.jpg\"."
+        let closed = try #require(fixture.log.index(of: .dismissedPicker))
+        let shown = try #require(fixture.log.index(of: .error(expected)))
+        #expect(closed < shown)
+        #expect(fixture.log.deletes.isEmpty)
+    }
+
+    // MARK: Photo loaders
+
+    @Test("Each photo source's loader puts its file alone in its own store temp folder")
+    func loaderUsesOwnTempFolder() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let first = fixture.model.photoSource(for: pick("a1", name: "first.jpg"))
+        let second = fixture.model.photoSource(for: pick("b2", name: "second.jpg"))
+
+        let firstURL = try await first.loadFile()
+        let secondURL = try await second.loadFile()
+
+        let areaPath = fixture.store.tempArea.standardizedFileURL.path
+        for url in [firstURL, secondURL] {
+            let folder = url.deletingLastPathComponent()
+            #expect(folder.standardizedFileURL.path.hasPrefix(areaPath + "/"))
+            let siblings = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            #expect(siblings == [url.lastPathComponent])
+            #expect(try Data(contentsOf: url) == Data("photo-bytes".utf8))
+        }
+        #expect(firstURL.deletingLastPathComponent() != secondURL.deletingLastPathComponent())
+        #expect(fixture.store.tempDirectoriesCreated == 2)
+    }
+
+    @Test("A photo source keeps the pick's asset ID and suggested name, and its file is named after it")
+    func sourceKeepsIdentity() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+
+        let source = fixture.model.photoSource(for: pick("a1", name: "beach.jpg"))
+        let nameless = fixture.model.photoSource(for: pick(nil, name: "clip.mov"))
+
+        #expect(source.assetID == "a1")
+        #expect(source.suggestedName == "beach.jpg")
+        #expect(nameless.assetID == nil)
+        #expect(try await source.loadFile().lastPathComponent == "beach.jpg")
+    }
+
+    @Test("A loader whose photo cannot be written throws")
+    func loaderThrowsWhenWriteFails() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        let broken = ImportPickedPhoto(
+            assetID: "z9", suggestedName: "bad.jpg", writeFile: { _ in throw PresenterTestError() })
+
+        let source = fixture.model.photoSource(for: broken)
+
+        await #expect(throws: (any Error).self) { _ = try await source.loadFile() }
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: fixture.store.tempArea.path)) ?? []
+        #expect(leftovers.isEmpty)
+    }
+
+    @Test("A pick whose write fails still advances the photo progress, which never decreases and ends at 1")
+    func failedLoadStillAdvancesProgress() async throws {
+        let log = FlowLog()
+        let store = try DiskBackedVaultStore()
+        defer { store.cleanup() }
+        let view = RecordingFlowView(log: log)
+        let model = ImportFlowModel(
+            importer: FailureTolerantImporter(), cameraRoll: LoggingCameraRoll(log: log),
+            photoAccess: LoggingPhotoAccess(log: log), store: store, view: view,
+            onLimitReached: { log.add(.limitReached) }, onFinished: { log.add(.finished) })
+        let broken = ImportPickedPhoto(
+            assetID: "b2", suggestedName: "bad.jpg", writeFile: { _ in throw PresenterTestError() })
+
+        await model.pickedPhotos([pick("a1", name: "1.jpg"), broken, pick("c3", name: "3.jpg")], into: store.root)
+
+        let values = log.overlays.compactMap(\.progress)
+        #expect(values == values.sorted())
+        #expect(values.last == 1)
+        #expect(values.contains { abs($0 - 2.0 / 3.0) < 0.0001 })
+        #expect(log.messages == ["2 imported, 1 failed"])
+    }
+
+    @Test("The limit path runs onFinished exactly once, before onLimitReached")
+    func limitPathFinishesOnceBeforePaywall() async throws {
+        let fixture = try Fixture(mock: MockVaultImporting(fileCount: 100, isPro: false))
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(.photos)
+
+        await fixture.model.pickedPhotos([pick("a1")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+        let finished = try #require(fixture.log.index(of: .finished))
+        let limit = try #require(fixture.log.index(of: .limitReached))
+        #expect(finished < limit)
+    }
+
+    // MARK: Photo naming
+
+    struct NameCase: Sendable {
+        let base: String?
+        let type: String?
+        let want: String
+    }
+
+    nonisolated static let row0 = NameCase(base: "IMG_1", type: "public.heic", want: "IMG_1.heic")
+    nonisolated static let row1 = NameCase(base: "IMG_1", type: "public.jpeg", want: "IMG_1.jpg")
+    nonisolated static let row2 = NameCase(base: "a.JPG", type: "public.jpeg", want: "a.JPG")
+    nonisolated static let row3 = NameCase(base: "a.jpeg", type: "public.jpeg", want: "a.jpeg")
+    nonisolated static let row4 = NameCase(base: "IMG_2.HEIC", type: "public.heic", want: "IMG_2.HEIC")
+    nonisolated static let row5 = NameCase(base: "Photo 2024.10.01", type: "public.heic", want: "Photo 2024.10.01.heic")
+    nonisolated static let row6 = NameCase(base: "IMG 1.5", type: "public.jpeg", want: "IMG 1.5.jpg")
+    nonisolated static let row7 = NameCase(base: "clip", type: "com.apple.quicktime-movie", want: "clip.mov")
+    nonisolated static let row8 = NameCase(base: nil, type: "public.heic", want: "photo.heic")
+    nonisolated static let row9 = NameCase(base: "IMG_1", type: nil, want: "IMG_1")
+    nonisolated static let row10 = NameCase(base: nil, type: nil, want: "photo")
+    nonisolated static let row11 = NameCase(base: "IMG_1", type: "public.image", want: "IMG_1")
+    nonisolated static let row12 = NameCase(base: nil, type: "public.image", want: "photo")
+    nonisolated static let row13 = NameCase(base: "IMG_1", type: "not a type", want: "IMG_1")
+    nonisolated static let firstNameCases = [row0, row1, row2, row3, row4, row5]
+    nonisolated static let secondNameCases = [row6, row7, row8, row9, row10]
+    nonisolated static let thirdNameCases = [row11, row12, row13]
+    nonisolated static let nameCases = firstNameCases + secondNameCases + thirdNameCases
+
+    @Test("A photo is stored under its real name plus its type's extension", arguments: nameCases)
+    func storedNameFollowsRealNameAndType(testCase: NameCase) {
+        let name = ImportPickedPhoto.storedName(baseName: testCase.base, typeIdentifier: testCase.type)
+
+        #expect(name == testCase.want)
+    }
+
+    @Test("The type choice skips a leading non-image type and takes the first image or movie type")
+    func typeChoiceSkipsNonImageLead() {
+        let chosen = ImportPickedPhoto.chooseTypeIdentifier(from: ["public.data", "public.heic", "public.jpeg"])
+
+        #expect(chosen == "public.heic")
+    }
+
+    @Test("The type choice takes the first of an all-image list")
+    func typeChoiceTakesFirstImage() {
+        let chosen = ImportPickedPhoto.chooseTypeIdentifier(from: ["public.jpeg", "public.heic"])
+
+        #expect(chosen == "public.jpeg")
+    }
+
+    @Test("The type choice accepts a movie type")
+    func typeChoiceAcceptsMovie() {
+        let chosen = ImportPickedPhoto.chooseTypeIdentifier(from: ["public.data", "com.apple.quicktime-movie"])
+
+        #expect(chosen == "com.apple.quicktime-movie")
+    }
+
+    @Test("The type choice is nil without an image or movie type, and for an empty list")
+    func typeChoiceNilWithoutMedia() {
+        #expect(ImportPickedPhoto.chooseTypeIdentifier(from: ["public.data", "public.text"]) == nil)
+        #expect(ImportPickedPhoto.chooseTypeIdentifier(from: []) == nil)
+    }
+
+    // MARK: Finishing
+
+    @Test("onFinished runs once after a successful files import")
+    func finishedAfterFilesImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(files: ImportResult(imported: 1, skippedDuplicates: 0, failed: 0))
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+    }
+
+    @Test("onFinished runs once after a successful photo import")
+    func finishedAfterPhotoImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1"], failed: 0))
+
+        await fixture.model.pickedPhotos([pick("a1")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+    }
+
+    @Test("onFinished runs once after an import that throws")
+    func finishedAfterFailedImport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.importer.script(error: PresenterTestError())
+
+        await fixture.model.pickedItems([sampleURL("a.txt")], into: fixture.directory)
+
+        #expect(fixture.log.events.filter { $0 == .finished }.count == 1)
+    }
+
+    @Test("onFinished never runs after a cancel", arguments: [ImportSourceChoice.files, .folder, .photos])
+    func notFinishedAfterCancel(choice: ImportSourceChoice) async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        await fixture.model.choose(choice)
+
+        await fixture.model.cancelPicker()
+
+        #expect(!fixture.log.events.contains(.finished))
+    }
+
+    @Test("The camera-roll delete does not start until the failure message has been acknowledged")
+    func deleteWaitsForMessage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.store.cleanup() }
+        fixture.view.holdsMessages = true
+        fixture.importer.script(photos: PhotoImportResult(importedAssetIDs: ["a1"], failed: 1))
+        let model = fixture.model
+        let directory = fixture.directory
+        let photos = [pick("a1"), pick("b2")]
+
+        let running = Task { @MainActor in await model.pickedPhotos(photos, into: directory) }
+        var attempts = 0
+        while fixture.log.messages.isEmpty && attempts < 1000 {
+            await Task.yield()
+            attempts += 1
+        }
+        #expect(fixture.log.messages == ["1 imported, 1 failed"])
+        for _ in 0..<50 { await Task.yield() }
+        #expect(fixture.log.deletes.isEmpty)
+
+        fixture.view.releaseMessage()
+        await running.value
+
+        #expect(fixture.log.deletes == [["a1"]])
+    }
+}

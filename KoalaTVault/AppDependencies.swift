@@ -323,7 +323,7 @@ struct LegacyBrowserServices {
     /// Streaming playback of encrypted videos in the viewer.
     let videoAssets: any VideoAssetProviding
     /// The import sheet and pickers.
-    let importService: ImportService
+    let importPresenter: ImportPresenter
     /// The export sheet.
     let exportService: ExportService
     /// The app's one vault lock (lock state, lock mode, settings).
@@ -352,14 +352,15 @@ final class AppDependencies {
     /// The app's one vault store over `storage.vaultRootURL` (Documents normally; the temporary vault in
     /// `-uiTesting` mode, where `UITEST_MIGRATION_FILE_DELAY` wraps it in `SlowMigrationVaultStore`).
     let vaultStore: any VaultStoring
-    /// Legacy import and export over `vaultStore`, until the Import and Export modules replace them.
+    /// Legacy export over `vaultStore`, until the Export module replaces it.
     let legacyTransfers: FileSystem
     /// The app's one video loader: streams encrypted videos to AVPlayer, over the file cipher.
     let videoAssets: any VideoAssetProviding
     /// The app's one thumbnail provider, over `vaultStore`, the file cipher, `videoAssets` and the preferences.
     let thumbnails: any ThumbnailProviding
-    /// The legacy import sheet and pickers.
-    let importService: ImportService
+    /// The app's one import presenter. It lives as long as the app because it holds the last picker until
+    /// the next one replaces it, which keeps cancelling the document picker from crashing on iOS 18.
+    let importPresenter: ImportPresenter
     /// The legacy export sheet.
     let exportService: ExportService
     /// The app's one vault lock: the key lifecycle and the lock state, over the master key store, the
@@ -374,7 +375,7 @@ final class AppDependencies {
     var browserServices: LegacyBrowserServices {
         LegacyBrowserServices(
             vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails, videoAssets: videoAssets,
-            importService: importService, exportService: exportService, vaultLock: vaultLock,
+            importPresenter: importPresenter, exportService: exportService, vaultLock: vaultLock,
             lockMigrator: lockMigrator)
     }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
@@ -404,14 +405,18 @@ final class AppDependencies {
             vaultStore = liveStore
         }
         self.vaultStore = vaultStore
-        let legacyTransfers = FileSystem(store: vaultStore, proUnlock: proUnlock)
+        let legacyTransfers = FileSystem(store: vaultStore)
         self.legacyTransfers = legacyTransfers
         let videoAssets = EncryptedVideoLoader(cipher: storage.fileCipher)
         self.videoAssets = videoAssets
         thumbnails = LiveThumbnailProvider(
             store: vaultStore, cipher: storage.fileCipher, videoAssets: videoAssets,
             renderer: LiveThumbnailRenderer(), preferences: storage.preferences)
-        importService = ImportService(fileSystem: legacyTransfers)
+        importPresenter = ImportPresenter(
+            importer: LiveVaultImporter(store: vaultStore, proUnlock: proUnlock),
+            cameraRoll: PhotoLibraryAccess(),
+            store: vaultStore,
+            photoAccess: LiveImportPhotoAccess())
         exportService = ExportService(fileSystem: legacyTransfers, vaultStore: vaultStore)
 
         // The seeded lock must be in place before the vault lock reads the lock mode.
