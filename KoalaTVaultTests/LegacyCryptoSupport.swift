@@ -81,7 +81,7 @@ final class LegacyVaultHarness: @unchecked Sendable {
         try? FileManager.default.removeItem(at: base)
     }
 
-    /// Legacy import and export over this vault's store.
+    /// Legacy export over this vault's store.
     func transfers() -> FileSystem {
         FileSystem(store: store)
     }
