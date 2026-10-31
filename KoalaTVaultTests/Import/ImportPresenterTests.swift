@@ -629,28 +629,33 @@ private struct PresenterTestError: LocalizedError {
     struct NameCase: Sendable {
         let base: String?
         let type: String?
-        let expected: String
+        let want: String
     }
 
-    static let nameCase0 = NameCase(base: "IMG_1", type: "public.heic", expected: "IMG_1.heic")
-    static let nameCase1 = NameCase(base: "IMG_1", type: "public.jpeg", expected: "IMG_1.jpg")
-    static let nameCase2 = NameCase(base: "a.JPG", type: "public.jpeg", expected: "a.JPG")
-    static let nameCase3 = NameCase(base: "a.jpeg", type: "public.jpeg", expected: "a.jpeg")
-    static let nameCase4 = NameCase(base: "IMG_2.HEIC", type: "public.heic", expected: "IMG_2.HEIC")
-    static let nameCase5 = NameCase(base: "Photo 2024.10.01", type: "public.heic", expected: "Photo 2024.10.01.heic")
-    static let nameCase6 = NameCase(base: "IMG 1.5", type: "public.jpeg", expected: "IMG 1.5.jpg")
-    static let nameCase7 = NameCase(base: "clip", type: "com.apple.quicktime-movie", expected: "clip.mov")
-    static let nameCase8 = NameCase(base: nil, type: "public.heic", expected: "photo.heic")
-    static let nameCase9 = NameCase(base: "IMG_1", type: nil, expected: "IMG_1")
-    static let nameCase10 = NameCase(base: nil, type: nil, expected: "photo")
-    static let nameCases = [nameCase0, nameCase1, nameCase2, nameCase3, nameCase4, nameCase5]
-        + [nameCase6, nameCase7, nameCase8, nameCase9, nameCase10]
+    nonisolated static let row0 = NameCase(base: "IMG_1", type: "public.heic", want: "IMG_1.heic")
+    nonisolated static let row1 = NameCase(base: "IMG_1", type: "public.jpeg", want: "IMG_1.jpg")
+    nonisolated static let row2 = NameCase(base: "a.JPG", type: "public.jpeg", want: "a.JPG")
+    nonisolated static let row3 = NameCase(base: "a.jpeg", type: "public.jpeg", want: "a.jpeg")
+    nonisolated static let row4 = NameCase(base: "IMG_2.HEIC", type: "public.heic", want: "IMG_2.HEIC")
+    nonisolated static let row5 = NameCase(base: "Photo 2024.10.01", type: "public.heic", want: "Photo 2024.10.01.heic")
+    nonisolated static let row6 = NameCase(base: "IMG 1.5", type: "public.jpeg", want: "IMG 1.5.jpg")
+    nonisolated static let row7 = NameCase(base: "clip", type: "com.apple.quicktime-movie", want: "clip.mov")
+    nonisolated static let row8 = NameCase(base: nil, type: "public.heic", want: "photo.heic")
+    nonisolated static let row9 = NameCase(base: "IMG_1", type: nil, want: "IMG_1")
+    nonisolated static let row10 = NameCase(base: nil, type: nil, want: "photo")
+    nonisolated static let row11 = NameCase(base: "IMG_1", type: "public.image", want: "IMG_1")
+    nonisolated static let row12 = NameCase(base: nil, type: "public.image", want: "photo")
+    nonisolated static let row13 = NameCase(base: "IMG_1", type: "not a type", want: "IMG_1")
+    nonisolated static let firstNameCases = [row0, row1, row2, row3, row4, row5]
+    nonisolated static let secondNameCases = [row6, row7, row8, row9, row10]
+    nonisolated static let thirdNameCases = [row11, row12, row13]
+    nonisolated static let nameCases = firstNameCases + secondNameCases + thirdNameCases
 
     @Test("A photo is stored under its real name plus its type's extension", arguments: nameCases)
     func storedNameFollowsRealNameAndType(testCase: NameCase) {
         let name = ImportPickedPhoto.storedName(baseName: testCase.base, typeIdentifier: testCase.type)
 
-        #expect(name == testCase.expected)
+        #expect(name == testCase.want)
     }
 
     @Test("The type choice skips a leading non-image type and takes the first image or movie type")

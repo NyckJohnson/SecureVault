@@ -52,6 +52,28 @@ struct ImportPickedPhoto: Sendable {
     let suggestedName: String
     /// Writes the photo's file to the given URL, which must not exist yet.
     let writeFile: @Sendable (URL) async throws -> Void
+
+    /// The name a pick is stored under: iOS's name for it ("photo" if it gives none) plus its type's extension,
+    /// unless the name already has an extension of that type. A dot alone doesn't make one: the "01" of
+    /// "Photo 2024.10.01" is not a HEIC extension.
+    static func storedName(baseName: String?, typeIdentifier: String?) -> String {
+        let name = baseName ?? "photo"
+        guard let typeIdentifier, let type = UTType(typeIdentifier) else { return name }
+        let existing = (name as NSString).pathExtension
+        if !existing.isEmpty, UTType(filenameExtension: existing)?.conforms(to: type) == true { return name }
+        // The system prefers "jpeg"; the vault's photos use "jpg".
+        let preferred = type.conforms(to: .jpeg) ? "jpg" : type.preferredFilenameExtension
+        guard let preferred else { return name }
+        return "\(name).\(preferred)"
+    }
+
+    /// The first image or movie type in an item's registered types, or nil if it has none.
+    static func chooseTypeIdentifier(from identifiers: [String]) -> String? {
+        identifiers.first { identifier in
+            guard let type = UTType(identifier) else { return false }
+            return type.conforms(to: .image) || type.conforms(to: .movie)
+        }
+    }
 }
 
 /// The import flow's logic: which picker opens, what a pick imports, and the order things happen in.
@@ -461,25 +483,12 @@ extension ImportPickedPhoto {
     @MainActor
     fileprivate init(result: PHPickerResult) {
         let provider = result.itemProvider
-        let typeID = provider.registeredTypeIdentifiers.first { identifier in
-            guard let type = UTType(identifier) else { return false }
-            return type.conforms(to: .image) || type.conforms(to: .movie)
-        }
-        let name = Self.fileName(baseName: provider.suggestedName, typeID: typeID)
+        let typeID = Self.chooseTypeIdentifier(from: provider.registeredTypeIdentifiers)
+        let name = Self.storedName(baseName: provider.suggestedName, typeIdentifier: typeID)
         let file = PickedItemFile(provider: provider)
         self.init(assetID: result.assetIdentifier, suggestedName: name) { destination in
             guard let typeID else { throw ImportError.unreadableSource(name) }
             try await file.write(typeID: typeID, name: name, to: destination)
         }
-    }
-
-    /// The provider's name usually has no extension; the file's type supplies it.
-    private static func fileName(baseName: String?, typeID: String?) -> String {
-        let name = baseName ?? "photo"
-        guard (name as NSString).pathExtension.isEmpty,
-            let typeID,
-            let fileExtension = UTType(typeID)?.preferredFilenameExtension
-        else { return name }
-        return (name as NSString).appendingPathExtension(fileExtension) ?? name
     }
 }
