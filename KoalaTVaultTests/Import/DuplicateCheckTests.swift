@@ -72,8 +72,9 @@ import Testing
         #expect(try await check.isDuplicate(source: file, named: "a.txt", in: store.root) == true)
     }
 
-    @Test("In an encrypted vault the existing file is decrypted to a temp folder and removed afterwards",
-          arguments: ["secret", "different"])
+    @Test(
+        "In an encrypted vault the existing file is decrypted to a temp folder and removed afterwards",
+        arguments: ["secret", "different"])
     func encryptedVaultCleansUpTempFolder(sourceContent: String) async throws {
         let store = try DiskBackedVaultStore(encrypted: true)
         let source = try SourceFolder()

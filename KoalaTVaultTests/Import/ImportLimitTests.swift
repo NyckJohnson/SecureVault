@@ -33,8 +33,9 @@ import Testing
         try await limit.checkAllowed(adding: 0)
     }
 
-    @Test("A free user passing 100 files throws fileLimitReached with limit 100",
-          arguments: [(99, 2), (100, 1), (0, 101)])
+    @Test(
+        "A free user passing 100 files throws fileLimitReached with limit 100",
+        arguments: [(99, 2), (100, 1), (0, 101)])
     func freeOverLimitThrows(existing: Int, adding: Int) async throws {
         let (limit, store) = try limit(fileCount: existing, isPro: false)
         defer { store.cleanup() }

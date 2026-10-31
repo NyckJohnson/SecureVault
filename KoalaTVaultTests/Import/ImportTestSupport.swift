@@ -132,7 +132,8 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func contents(
         of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
     ) async throws -> [VaultItem] {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
+        let urls =
+            (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
         return urls.map { item(at: $0) }.sorted { $0.name < $1.name }
     }
 
@@ -163,7 +164,9 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     // MARK: VaultStoring (unused by imports)
 
     func write(_ data: Data, to item: VaultItem) async throws { throw unsupported }
-    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem { throw unsupported }
+    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        throw unsupported
+    }
     func move(_ item: VaultItem, to directory: VaultDirectory) async throws { throw unsupported }
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem { throw unsupported }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw unsupported }
