@@ -135,6 +135,7 @@ private func makeItem(_ name: String) -> VaultItem {
 @MainActor
 private final class EndCounter {
     private(set) var count = 0
+    var hasEnded: Bool { count >= 1 }
     func record() { count += 1 }
 }
 
@@ -353,7 +354,7 @@ private struct Fixture {
     func notEndedWhilePickerOpen() async {
         let fixture = Fixture()
         await fixture.model.choose(.saveToFiles, for: fixture.items)
-        #expect(fixture.ends.count == 0)
+        #expect(!fixture.ends.hasEnded)
     }
 
     @Test("Picking a destination ends the export once")

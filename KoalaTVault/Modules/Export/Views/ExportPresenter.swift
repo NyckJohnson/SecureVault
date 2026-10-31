@@ -21,7 +21,7 @@ protocol ExportFlowViewing: AnyObject {
     /// Removes the overlay.
     func hideOverlay()
     /// Opens the document picker for saving copies of `urls`. If it can't open, the view must call
-    /// `documentPickerCancelled()` before returning, so the decrypted copies are removed.
+    /// `pickerRefused()`, so the decrypted copies are removed.
     func presentDocumentPicker(urls: [URL])
     /// Shows a message.
     func showMessage(_ text: String)
@@ -36,11 +36,17 @@ final class ExportFlowModel {
     private weak var view: (any ExportFlowViewing)?
     /// Removes the decrypted copies the open document picker is saving from; nil when no picker is open.
     private var pendingCleanUp: (@Sendable () -> Void)?
+    private var pickerIsOpen = false
+    /// Cleared when it runs, which makes it run only once.
+    private var onEnded: (@MainActor () -> Void)?
 
-    /// - Parameter view: held weakly; whoever owns the screen keeps it alive.
-    init(exporter: any VaultExporting, view: any ExportFlowViewing) {
+    /// - Parameters:
+    ///   - view: held weakly; whoever owns the screen keeps it alive.
+    ///   - onEnded: runs once when the export has ended, however it ended, Cancel included.
+    init(exporter: any VaultExporting, view: any ExportFlowViewing, onEnded: @escaping @MainActor () -> Void = {}) {
         self.exporter = exporter
         self.view = view
+        self.onEnded = onEnded
     }
 
     /// The sheet's buttons for a selection, in order.
@@ -48,7 +54,8 @@ final class ExportFlowModel {
         exporter.canSaveToPhotos(items) ? [.saveToFiles, .saveToCameraRoll, .cancel] : [.saveToFiles, .cancel]
     }
 
-    /// Carries out a choice in the sheet. Returns once the document picker is open or the export has ended.
+    /// Carries out a choice in the sheet. Returns once the document picker is open or the export has ended;
+    /// the export ends here unless a picker is open.
     func choose(_ choice: ExportSheetChoice, for items: [VaultItem]) async {
         switch choice {
         case .saveToFiles:
@@ -58,16 +65,26 @@ final class ExportFlowModel {
         case .cancel:
             break
         }
+        if !pickerIsOpen { end() }
     }
 
     /// The document picker returned: its copies were saved.
     func documentPicked() {
-        cleanUpPending()
+        closePicker()
     }
 
-    /// The document picker was dismissed without saving, or could not open.
+    /// The document picker closed without saving.
     func documentPickerCancelled() {
+        closePicker()
+    }
+
+    /// The document picker could not open: removes the copies, says so and ends the export.
+    func pickerRefused() {
+        guard pickerIsOpen else { return }
         cleanUpPending()
+        pickerIsOpen = false
+        view?.showError("Couldn't open the Files picker.")
+        end()
     }
 
     private func saveToFiles(_ items: [VaultItem]) async {
@@ -78,9 +95,11 @@ final class ExportFlowModel {
             guard let view else {
                 // The screen went away during preparing, so no picker will ever close to remove the copies.
                 bundle.cleanUp()
+                pickerIsOpen = false
                 return
             }
             pendingCleanUp = bundle.cleanUp
+            pickerIsOpen = true
             view.hideOverlay()
             view.presentDocumentPicker(urls: bundle.urls)
         } catch {
@@ -101,10 +120,24 @@ final class ExportFlowModel {
         }
     }
 
+    /// Does nothing unless a picker is open, so a second report of one close changes nothing.
+    private func closePicker() {
+        guard pickerIsOpen else { return }
+        cleanUpPending()
+        pickerIsOpen = false
+        end()
+    }
+
     private func cleanUpPending() {
         let cleanUp = pendingCleanUp
         pendingCleanUp = nil
         cleanUp?()
+    }
+
+    private func end() {
+        let ended = onEnded
+        onEnded = nil
+        ended?()
     }
 
     /// Shows a failed export's error. A cancelled export shows nothing.
@@ -188,18 +221,26 @@ final class ExportPresenter {
     }
 }
 
-/// One export, from the sheet to the end, and the UIKit views it shows.
+/// One export, from the sheet to the end, and the UIKit views it shows. The rule for when it ends is the model's.
 @MainActor
 private final class ExportFlowController: NSObject {
+    /// How often an open sheet or picker is checked for having left the screen.
+    private static let closeCheckInterval = Duration.seconds(1)
+    /// How long a sheet or picker that has left the screen gets to report why. UIKit documents no order between
+    /// a picker closing and its delegate's pick callback, and the copies must outlast the copying, so this errs
+    /// long: it only delays clean-up when nothing reports at all, which is the app dismissing the picker.
+    private static let closeReportGrace = Duration.seconds(30)
+
     private let items: [VaultItem]
     private let anchor: ExportSheetAnchor
     private let onPickerCreated: @MainActor (UIViewController) -> Void
-    private var onEnded: (@MainActor (ExportFlowController) -> Void)?
+    private let onEnded: @MainActor (ExportFlowController) -> Void
     private weak var presenting: (UIViewController & AlertPresenting)?
     private let exporter: any VaultExporting
-    private lazy var model = ExportFlowModel(exporter: exporter, view: self)
+    private lazy var model = ExportFlowModel(exporter: exporter, view: self) { [weak self] in self?.flowEnded() }
     private var overlay: ProgressOverlayView?
-    private var pickerIsOpen = false
+    private var sheetWatch: Task<Void, Never>?
+    private var pickerWatch: Task<Void, Never>?
 
     init(
         exporter: any VaultExporting,
@@ -228,21 +269,43 @@ private final class ExportFlowController: NSObject {
         }
         anchor.apply(to: sheet.popoverPresentationController)
         presenting?.present(sheet, animated: true)
-        if sheet.presentingViewController == nil { end() }
-    }
-
-    private func run(_ choice: ExportSheetChoice) {
-        Task {
-            await model.choose(choice, for: items)
-            if !pickerIsOpen { end() }
+        if sheet.presentingViewController == nil {
+            run(.cancel)
+        } else {
+            sheetWatch = watchForClose(of: sheet) { [self] in run(.cancel) }
         }
     }
 
-    /// Runs once: later calls do nothing, since a swipe and a delegate callback can both report one close.
-    private func end() {
-        let ended = onEnded
-        onEnded = nil
-        ended?(self)
+    private func run(_ choice: ExportSheetChoice) {
+        sheetWatch?.cancel()
+        Task {
+            await model.choose(choice, for: items)
+        }
+    }
+
+    private func flowEnded() {
+        pickerWatch?.cancel()
+        onEnded(self)
+    }
+
+    /// Runs `closed` some time after `controller` has left the screen, however it left. UIKit tells no delegate
+    /// when the app dismisses a controller, and a controller covered by a lock screen gets no appearance callback
+    /// when the stack under it goes, so its presenter is what is checked. Cancel the task to stop watching.
+    private func watchForClose(
+        of controller: UIViewController,
+        closed: @escaping @MainActor () -> Void
+    ) -> Task<Void, Never> {
+        Task {
+            do {
+                while controller.presentingViewController != nil {
+                    try await Task.sleep(for: Self.closeCheckInterval)
+                }
+                try await Task.sleep(for: Self.closeReportGrace)
+                closed()
+            } catch {
+                // Sleeping only throws on cancellation: the close was reported some other way.
+            }
+        }
     }
 }
 
@@ -271,8 +334,11 @@ extension ExportFlowController: ExportFlowViewing {
         }
         // UIKit refuses a presentation only with a console warning (the screen has gone, or something else is
         // on it). No picker means no callback will ever come, so the decrypted copies are removed now.
-        pickerIsOpen = picker.presentingViewController != nil
-        if !pickerIsOpen { model.documentPickerCancelled() }
+        if picker.presentingViewController == nil {
+            model.pickerRefused()
+        } else {
+            pickerWatch = watchForClose(of: picker) { [self] in model.documentPickerCancelled() }
+        }
     }
 
     func showMessage(_ text: String) {
@@ -289,18 +355,15 @@ extension ExportFlowController: ExportFlowViewing {
 extension ExportFlowController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         model.documentPicked()
-        end()
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         model.documentPickerCancelled()
-        end()
     }
 }
 
 extension ExportFlowController: UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         model.documentPickerCancelled()
-        end()
     }
 }
