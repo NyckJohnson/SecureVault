@@ -8,11 +8,11 @@
 import UIKit
 import AVKit
 
-final class LegacyFileViewerViewController: UIViewController {
+final class LegacyFileViewerViewController: UIViewController, AlertPresenting {
     private let items: [VaultItem]
     private let vaultStore: any VaultStoring
     private let videoAssets: any VideoAssetProviding
-    private let exportService: ExportService
+    private let exportPresenter: ExportPresenter
     private var currentIndex: Int
     private var pageViewController: UIPageViewController!
     private var isNavBarHidden      = false
@@ -50,15 +50,15 @@ final class LegacyFileViewerViewController: UIViewController {
     /// - Parameters:
     ///   - vaultStore: the app's vault store, which opens the items and removes their decrypted copies.
     ///   - videoAssets: the app's one video loader, which streams encrypted videos.
-    ///   - exportService: the export sheet for the Share button.
+    ///   - exportPresenter: the app's one export presenter, for the Share button.
     init(
         items: [VaultItem], startingAt index: Int, vaultStore: any VaultStoring,
-        videoAssets: any VideoAssetProviding, exportService: ExportService
+        videoAssets: any VideoAssetProviding, exportPresenter: ExportPresenter
     ) {
         self.items = items
         self.vaultStore = vaultStore
         self.videoAssets = videoAssets
-        self.exportService = exportService
+        self.exportPresenter = exportPresenter
         self.currentIndex = index
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -306,7 +306,7 @@ final class LegacyFileViewerViewController: UIViewController {
     
     @objc private func exportCurrent() {
         let item = items[currentIndex]
-        exportService.export(item, from: self, sourceView: navBar)
+        exportPresenter.presentExportSheet(for: [item], from: self, anchor: .sourceView(navBar))
     }
     
     @objc func togglePlayPause() {

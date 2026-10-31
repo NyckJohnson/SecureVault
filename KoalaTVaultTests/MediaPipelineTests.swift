@@ -43,11 +43,10 @@ final class FileViewerViewControllerTests: XCTestCase {
     /// A viewer over a mock vault store.
     private func makeViewer() -> LegacyFileViewerViewController {
         let store = MockVaultStoring()
-        let transfers = FileSystem(store: store)
         return LegacyFileViewerViewController(
             items: [makeItem()], startingAt: 0, vaultStore: store,
             videoAssets: MockVideoAssetProviding(),
-            exportService: ExportService(fileSystem: transfers, vaultStore: store))
+            exportPresenter: ExportPresenter(exporter: MockVaultExporting()))
     }
 
     // MARK: - Nil-player guard coverage

@@ -356,7 +356,7 @@
         "VaultStore",
         "SharedUI"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -364,16 +364,16 @@
             "LiveVaultExporter.swift",
             "PhotoLibrarySaver.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 2,
           "files": [
             "Views/ExportPresenter.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 3,
@@ -381,7 +381,7 @@
             "View/FileBrowser.swift",
             "View/FileViewer.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-30T20:01:57-07:00",
+  "updatedAt": "2026-10-31T00:27:15-07:00",
   "features": [
     {
       "slug": "minimum-password-strength",
