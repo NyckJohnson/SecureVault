@@ -742,7 +742,7 @@ extension matching ignores case.
   - canSaveToPhotos: true when any item is an image or video.
   - ExportPresenter (view): sheet "Save to Files", "Save to Camera Roll" (when allowed), "Cancel"; "Exporting..." overlay; document picker for export as copies, `cleanUp` on pick or cancel; after a camera-roll save, "N item(s) saved to Camera Roll" ("1 item", "4 items") when nothing failed and "N saved, M failed" when any failed, skipped items not mentioned; `.nothingToExport` → "Nothing to export."; a camera-roll save shows a title-only "Saving to Camera Roll..." overlay; a picker that can't open removes the copies and shows "Couldn't open the Files picker."; a picker closed by anything, the user or the app, removes the copies; the caller's `completion` runs exactly once however the export ends, Cancel included; access denied → "Allow KoalaTVault to add photos in Settings."; errors shown.
 - Contract: see `docs/api/Export.md` (generated; do not edit by hand)
-- Legacy files: Model/ExportService.swift; Model/FileSystem.swift (part: prepareForExport, needsDecryptedCopy, copyDecrypted, exportToCameraRoll; `needsDecryptedCopy` reads the `.vault_map` file name on disk, which the module must replace with a contract call)
+- Legacy files: Model/ExportService.swift; Model/FileSystem.swift (part: prepareForExport, needsDecryptedCopy, copyDecrypted, exportToCameraRoll; `needsDecryptedCopy` is not replaced: the drag rule below takes its place)
 - Legacy tests: KoalaTVaultTests/ExportServiceTests.swift
 - Callers to repoint: View/FileBrowser.swift, View/FileViewer.swift
 
@@ -853,6 +853,7 @@ extension matching ignores case.
   - Move: one pending move at a time; cancelling the picker clears it; the picker's choice moves exactly the pending items.
   - Context menu: Export, Move, Copy, Rename (prefilled), Delete (confirm; message mentions Recently Deleted).
   - Drag a cell onto a folder cell → move; onto a file cell → not a drop target; drops from other apps ignored.
+  - A drag stays inside the app when `lockMode != .none`, `pendingMigration` is set, or the item `isEncrypted`; only a no-lock vault with no migration pending can drag items out (the on-disk file of an encrypted item is ciphertext).
   - Refresh after restore, import, editor close and unlock.
   - FolderPickerViewModel: lists subfolders of the current folder, starting at the root; excludes the items being moved (and so their subfolders); "Move Here" returns the current folder; load error shown.
   - FileCellModel: name, size text (`ByteCountFormatter` file style; empty for folders), icon from `FileIconMapping`, thumbnail requested and cancelled on reuse, and ignored if the cell now shows another item.
@@ -981,3 +982,5 @@ extension matching ignores case.
 - 2026-10-30: Export makes copy names safe and handles cancellation, so decrypted data can never land outside the temp folder or outlive a cancelled export (`VaultItem.name` from an index is unvalidated on read) — Export unit 1 review — orchestrator, recorded
 - 2026-10-30: Export messages follow today's app: "N item(s) saved to Camera Roll" with no failures (the memo gave only the failure wording); the "Exporting..." overlay loses its percentage, because the agreed contract has no progress callback — Export unit 2 tests — orchestrator, recorded
 - 2026-10-30: ExportPresenter: the camera-roll overlay is title-only (the contract has no progress callback), a refused picker shows a message, any picker close removes the copies, and `completion` runs once on every ending — Export unit 2 review — orchestrator, recorded
+- 2026-10-31: The drag-out check is a simple rule in the browser (a lock, a pending migration, or an encrypted item keeps the drag in the app), with no contract change; `needsDecryptedCopy` is deleted — Export switch-over — decided by the human
+- 2026-10-31: Exporting an empty selection throws `.nothingToExport` (the old test expected an empty result; the screens block it) — Export legacy-test scan — decided by the human
