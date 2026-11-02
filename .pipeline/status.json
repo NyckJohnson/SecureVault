@@ -403,8 +403,8 @@
             "LockScreenViewModel.swift",
             "AppLockCoordinator.swift"
           ],
-          "state": "blocked",
-          "attempts": 3
+          "state": "tests",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T07:49:09-08:00",
+  "updatedAt": "2026-11-02T07:52:16-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
