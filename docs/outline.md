@@ -949,6 +949,7 @@ extension matching ignores case.
 - A temp folder emptied by the viewer's `removeTemporary` of a file stays until `removeAllTemporaryFiles` — FileViewerViewModel.swift — open, cosmetic
 - The editor's `{\rtf` check opens an RTF with a leading BOM or whitespace read-only; today's app would open it editable (safe: nothing is overwritten) — TextEditorViewModel.swift — open, minor
 - Encoding on save drops what the RTF text-system parser doesn't keep, such as embedded images, on a plain open and close, same as today's app — TextEditorViewModel.swift — open, same as legacy
+- `FilePageViewModel.reportFailure()` allows a later `load()`, which re-opens the file, while a failed open stays final; the views never reload a failed page, so nothing uses this — FilePageViewModel.swift:74-80 — open, minor
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
 ## Features
