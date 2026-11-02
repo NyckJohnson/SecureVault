@@ -8,15 +8,20 @@ import Testing
     private let store = MockVaultStoring(withSampleContent: false)
     private let sleeper = ViewerManualSleeper()
 
+    private static func files(_ names: String...) -> [VaultItem] {
+        names.map { ViewerTestSupport.makeItem($0) }
+    }
+
+    nonisolated private static let timeCases: [(Double, String)] =
+        [(65.0, "1:05"), (0.0, "0:00"), (9.0, "0:09"), (59.0, "0:59")]
+        + [(60.0, "1:00"), (600.0, "10:00"), (3599.0, "59:59"), (65.9, "1:05")]
+
     private func makeViewModel(
         _ items: [VaultItem]? = nil, startingAt index: Int = 0
     ) -> FileViewerViewModel {
         let sleeper = self.sleeper
         return FileViewerViewModel(
-            items: items ?? [
-                ViewerTestSupport.makeItem("a.jpg"), ViewerTestSupport.makeItem("b.mp4"),
-                ViewerTestSupport.makeItem("c.png"),
-            ],
+            items: items ?? Self.files("a.jpg", "b.mp4", "c.png"),
             startingAt: index, store: store, sleep: { try await sleeper.sleep($0) })
     }
 
@@ -24,90 +29,82 @@ import Testing
 
     @Test("Folders are excluded from the viewer's items")
     func foldersExcluded() {
-        let vm = makeViewModel([
-            ViewerTestSupport.makeItem("Folder", isDirectory: true), ViewerTestSupport.makeItem("a.jpg"),
-            ViewerTestSupport.makeItem("Other", isDirectory: true), ViewerTestSupport.makeItem("b.png"),
-        ])
-        #expect(vm.items.map(\.name) == ["a.jpg", "b.png"])
+        let folderA = ViewerTestSupport.makeItem("Folder", isDirectory: true)
+        let folderB = ViewerTestSupport.makeItem("Other", isDirectory: true)
+        let files = Self.files("a.jpg", "b.png")
+        let viewModel = makeViewModel([folderA, files[0], folderB, files[1]])
+        #expect(viewModel.items.map(\.name) == ["a.jpg", "b.png"])
     }
 
     @Test("The starting index follows the same item after folders are removed")
     func startingIndexMapsToSameItem() {
-        let vm = makeViewModel(
-            [
-                ViewerTestSupport.makeItem("Folder", isDirectory: true), ViewerTestSupport.makeItem("a.jpg"),
-                ViewerTestSupport.makeItem("b.mp4"),
-            ], startingAt: 2)
-        #expect(vm.currentIndex == 1)
-        #expect(vm.title == "b.mp4")
+        let folder = ViewerTestSupport.makeItem("Folder", isDirectory: true)
+        let files = Self.files("a.jpg", "b.mp4")
+        let viewModel = makeViewModel([folder, files[0], files[1]], startingAt: 2)
+        #expect(viewModel.currentIndex == 1)
+        #expect(viewModel.title == "b.mp4")
     }
 
     @Test("The current index and title start at the requested item")
     func startsAtRequestedItem() {
-        let vm = makeViewModel(startingAt: 1)
-        #expect(vm.currentIndex == 1)
-        #expect(vm.title == "b.mp4")
+        let viewModel = makeViewModel(startingAt: 1)
+        #expect(viewModel.currentIndex == 1)
+        #expect(viewModel.title == "b.mp4")
     }
 
     @Test("Paging updates the current index and title")
     func pagingUpdatesIndexAndTitle() {
-        let vm = makeViewModel()
-        vm.pageDidChange(to: 2)
-        #expect(vm.currentIndex == 2)
-        #expect(vm.title == "c.png")
-        vm.pageDidChange(to: 0)
-        #expect(vm.currentIndex == 0)
-        #expect(vm.title == "a.jpg")
+        let viewModel = makeViewModel()
+        viewModel.pageDidChange(to: 2)
+        #expect(viewModel.currentIndex == 2)
+        #expect(viewModel.title == "c.png")
+        viewModel.pageDidChange(to: 0)
+        #expect(viewModel.currentIndex == 0)
+        #expect(viewModel.title == "a.jpg")
     }
 
     @Test("Neighbours are computed from the page asked about, not the current page")
     func neighboursFromAskedPage() {
-        let vm = makeViewModel(startingAt: 0)
-        #expect(vm.previousIndex(of: 1) == 0)
-        #expect(vm.nextIndex(of: 1) == 2)
-        #expect(vm.previousIndex(of: 2) == 1)
+        let viewModel = makeViewModel(startingAt: 0)
+        #expect(viewModel.previousIndex(of: 1) == 0)
+        #expect(viewModel.nextIndex(of: 1) == 2)
+        #expect(viewModel.previousIndex(of: 2) == 1)
     }
 
     @Test("There is no previous neighbour before the first page and no next after the last")
     func neighboursDoNotWrap() {
-        let vm = makeViewModel()
-        #expect(vm.previousIndex(of: 0) == nil)
-        #expect(vm.nextIndex(of: 2) == nil)
+        let viewModel = makeViewModel()
+        #expect(viewModel.previousIndex(of: 0) == nil)
+        #expect(viewModel.nextIndex(of: 2) == nil)
     }
 
     // MARK: - Video controls
 
     @Test("Video controls show only for a video item")
     func videoControlsOnlyForVideo() {
-        let vm = makeViewModel(startingAt: 0)
-        #expect(!vm.showsVideoControls)
-        vm.pageDidChange(to: 1)
-        #expect(vm.showsVideoControls)
-        vm.pageDidChange(to: 2)
-        #expect(!vm.showsVideoControls)
+        let viewModel = makeViewModel(startingAt: 0)
+        #expect(!viewModel.showsVideoControls)
+        viewModel.pageDidChange(to: 1)
+        #expect(viewModel.showsVideoControls)
+        viewModel.pageDidChange(to: 2)
+        #expect(!viewModel.showsVideoControls)
     }
 
     @Test("Audio and other kinds do not get video controls")
     func nonVideoKindsHaveNoVideoControls() {
-        let vm = makeViewModel([
-            ViewerTestSupport.makeItem("a.mp3"), ViewerTestSupport.makeItem("b.pdf"),
-            ViewerTestSupport.makeItem("c.MOV"),
-        ])
-        #expect(!vm.showsVideoControls)
-        vm.pageDidChange(to: 1)
-        #expect(!vm.showsVideoControls)
-        vm.pageDidChange(to: 2)
-        #expect(vm.showsVideoControls)
+        let viewModel = makeViewModel(Self.files("a.mp3", "b.pdf", "c.MOV"))
+        #expect(!viewModel.showsVideoControls)
+        viewModel.pageDidChange(to: 1)
+        #expect(!viewModel.showsVideoControls)
+        viewModel.pageDidChange(to: 2)
+        #expect(viewModel.showsVideoControls)
     }
 
     // MARK: - Time formatting
 
     @Test(
         "formatTime writes m:ss",
-        arguments: [
-            (65.0, "1:05"), (0.0, "0:00"), (9.0, "0:09"), (59.0, "0:59"), (60.0, "1:00"),
-            (600.0, "10:00"), (3599.0, "59:59"), (65.9, "1:05"),
-        ])
+        arguments: Self.timeCases)
     func formatTimeOrdinary(seconds: Double, expected: String) {
         #expect(FileViewerViewModel.formatTime(seconds) == expected)
     }
@@ -123,48 +120,48 @@ import Testing
 
     @Test("Progress is the fraction of the duration played")
     func progressFraction() {
-        let vm = makeViewModel()
-        vm.updatePlayback(currentTime: 25, duration: 100)
-        #expect(vm.progress == 0.25)
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 25, duration: 100)
+        #expect(viewModel.progress == 0.25)
     }
 
     @Test("Progress is 0 when the duration is 0")
     func progressZeroDuration() {
-        let vm = makeViewModel()
-        vm.updatePlayback(currentTime: 5, duration: 0)
-        #expect(vm.progress == 0)
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 5, duration: 0)
+        #expect(viewModel.progress == 0)
     }
 
     @Test("Skipping forward adds 10 seconds")
     func skipForward() {
-        let vm = makeViewModel()
-        vm.updatePlayback(currentTime: 20, duration: 100)
-        #expect(vm.skipForward() == 30)
-        #expect(vm.currentTime == 30)
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 20, duration: 100)
+        #expect(viewModel.skipForward() == 30)
+        #expect(viewModel.currentTime == 30)
     }
 
     @Test("Skipping backward subtracts 10 seconds")
     func skipBackward() {
-        let vm = makeViewModel()
-        vm.updatePlayback(currentTime: 20, duration: 100)
-        #expect(vm.skipBackward() == 10)
-        #expect(vm.currentTime == 10)
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 20, duration: 100)
+        #expect(viewModel.skipBackward() == 10)
+        #expect(viewModel.currentTime == 10)
     }
 
     @Test("Skipping forward is clamped to the duration")
     func skipForwardClamped() {
-        let vm = makeViewModel()
-        vm.updatePlayback(currentTime: 95, duration: 100)
-        #expect(vm.skipForward() == 100)
-        #expect(vm.currentTime == 100)
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 95, duration: 100)
+        #expect(viewModel.skipForward() == 100)
+        #expect(viewModel.currentTime == 100)
     }
 
     @Test("Skipping backward is clamped to 0")
     func skipBackwardClamped() {
-        let vm = makeViewModel()
-        vm.updatePlayback(currentTime: 4, duration: 100)
-        #expect(vm.skipBackward() == 0)
-        #expect(vm.currentTime == 0)
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 4, duration: 100)
+        #expect(viewModel.skipBackward() == 0)
+        #expect(viewModel.currentTime == 0)
     }
 
     // MARK: - Auto-hiding bars
@@ -176,98 +173,98 @@ import Testing
 
     @Test("The bars hide 3 seconds after play starts")
     func barsHideAfterPlayStarts() async {
-        let vm = makeViewModel()
-        vm.playbackStateChanged(isPlaying: true)
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
         #expect(sleeper.requestedDurations == [.seconds(3)])
-        #expect(vm.barsVisible)
+        #expect(viewModel.barsVisible)
         sleeper.advance()
-        await ViewerTestSupport.waitUntil { !vm.barsVisible }
-        #expect(!vm.barsVisible)
+        await ViewerTestSupport.waitUntil { !viewModel.barsVisible }
+        #expect(!viewModel.barsVisible)
     }
 
     @Test("Pausing cancels the pending hide and keeps the bars visible")
     func pausingKeepsBars() async {
-        let vm = makeViewModel()
-        vm.playbackStateChanged(isPlaying: true)
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
-        vm.playbackStateChanged(isPlaying: false)
+        viewModel.playbackStateChanged(isPlaying: false)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 0 }
         sleeper.advance()
         await ViewerTestSupport.settle()
-        #expect(vm.barsVisible)
+        #expect(viewModel.barsVisible)
     }
 
     @Test("Bars do not hide while paused")
     func barsNeverHideWhilePaused() async {
-        let vm = makeViewModel()
+        let viewModel = makeViewModel()
         await ViewerTestSupport.settle()
         #expect(sleeper.requestedDurations.isEmpty)
-        #expect(vm.barsVisible)
+        #expect(viewModel.barsVisible)
     }
 
     @Test("Scrubbing cancels the hide and the bars stay visible")
     func scrubbingKeepsBars() async {
-        let vm = makeViewModel()
-        vm.playbackStateChanged(isPlaying: true)
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
-        vm.scrubbingChanged(true)
+        viewModel.scrubbingChanged(true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 0 }
         sleeper.advance()
         await ViewerTestSupport.settle()
-        #expect(vm.barsVisible)
+        #expect(viewModel.barsVisible)
     }
 
     @Test("Finishing a scrub while playing starts a new 3 second hide")
     func scrubEndRestartsHide() async {
-        let vm = makeViewModel()
-        vm.playbackStateChanged(isPlaying: true)
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
-        vm.scrubbingChanged(true)
+        viewModel.scrubbingChanged(true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 0 }
-        vm.scrubbingChanged(false)
+        viewModel.scrubbingChanged(false)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
         #expect(sleeper.requestedDurations.last == .seconds(3))
         sleeper.advance()
-        await ViewerTestSupport.waitUntil { !vm.barsVisible }
-        #expect(!vm.barsVisible)
+        await ViewerTestSupport.waitUntil { !viewModel.barsVisible }
+        #expect(!viewModel.barsVisible)
     }
 
     @Test("Finishing a scrub while paused starts no hide")
     func scrubEndWhilePausedNoHide() async {
-        let vm = makeViewModel()
-        vm.scrubbingChanged(true)
-        vm.scrubbingChanged(false)
+        let viewModel = makeViewModel()
+        viewModel.scrubbingChanged(true)
+        viewModel.scrubbingChanged(false)
         await ViewerTestSupport.settle()
         #expect(sleeper.requestedDurations.isEmpty)
-        #expect(vm.barsVisible)
+        #expect(viewModel.barsVisible)
     }
 
     @Test("Showing the bars again while playing restarts the hide")
     func showBarsRestartsHide() async {
-        let vm = makeViewModel()
-        vm.playbackStateChanged(isPlaying: true)
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
         sleeper.advance()
-        await ViewerTestSupport.waitUntil { !vm.barsVisible }
-        vm.showBars()
-        #expect(vm.barsVisible)
+        await ViewerTestSupport.waitUntil { !viewModel.barsVisible }
+        viewModel.showBars()
+        #expect(viewModel.barsVisible)
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
         sleeper.advance()
-        await ViewerTestSupport.waitUntil { !vm.barsVisible }
-        #expect(!vm.barsVisible)
+        await ViewerTestSupport.waitUntil { !viewModel.barsVisible }
+        #expect(!viewModel.barsVisible)
     }
 
     // MARK: - Close
 
     @Test("Closing removes each temp file this viewer registered")
     func closeRemovesOwnTempFiles() {
-        let vm = makeViewModel()
+        let viewModel = makeViewModel()
         let first = URL(fileURLWithPath: "/tmp/ViewerTestsRoot/temp-1/a.jpg")
         let second = URL(fileURLWithPath: "/tmp/ViewerTestsRoot/temp-2/c.png")
-        vm.registerTemporaryFile(first)
-        vm.registerTemporaryFile(second)
-        vm.close()
+        viewModel.registerTemporaryFile(first)
+        viewModel.registerTemporaryFile(second)
+        viewModel.close()
         let removed = store.calls.compactMap { call -> URL? in
             if case .removeTemporary(let url) = call { return url }
             return nil
@@ -277,16 +274,42 @@ import Testing
 
     @Test("Closing never removes all temporary files")
     func closeNeverRemovesAll() {
-        let vm = makeViewModel()
-        vm.registerTemporaryFile(URL(fileURLWithPath: "/tmp/ViewerTestsRoot/temp-1/a.jpg"))
-        vm.close()
+        let viewModel = makeViewModel()
+        viewModel.registerTemporaryFile(URL(fileURLWithPath: "/tmp/ViewerTestsRoot/temp-1/a.jpg"))
+        viewModel.close()
         #expect(!store.calls.contains(.removeAllTemporaryFiles))
     }
 
     @Test("Closing a viewer with no temp files removes nothing")
     func closeWithNoTempFiles() {
-        let vm = makeViewModel()
-        vm.close()
+        let viewModel = makeViewModel()
+        viewModel.close()
         #expect(store.calls.isEmpty)
+    }
+
+    @Test("A temp file registered after close is removed at once")
+    func lateTempFileRemovedAtOnce() {
+        let viewModel = makeViewModel()
+        viewModel.close()
+        let late = URL(fileURLWithPath: "/tmp/ViewerTestsRoot/temp-late/a.jpg")
+        viewModel.registerTemporaryFile(late)
+        #expect(store.calls.contains(.removeTemporary(late)))
+    }
+
+    @Test("A page that finishes opening after the viewer closed has its copy removed, not left behind")
+    func pageOpeningAfterCloseCopyRemoved() async throws {
+        let stored = try await store.addFile(
+            from: URL(fileURLWithPath: "/tmp/ViewerTestsSource"), named: "Late.jpg", to: store.root)
+        let encrypted = VaultItem(
+            id: stored.id, name: stored.name, isDirectory: false, dateModified: stored.dateModified,
+            fileSize: stored.fileSize, deletedAt: nil, diskURL: stored.diskURL, rootURL: stored.rootURL,
+            isEncrypted: true)
+        let viewModel = makeViewModel([encrypted])
+        let page = FilePageViewModel(
+            item: encrypted, store: store, videoAssets: MockVideoAssetProviding(),
+            onTemporaryFile: { viewModel.registerTemporaryFile($0) })
+        viewModel.close()
+        await page.load()
+        #expect(store.calls.contains(.removeTemporary(encrypted.diskURL)))
     }
 }

@@ -43,9 +43,9 @@ import UIKit
     /// A loaded, editable view model over a stored document.
     private func makeLoadedViewModel() async throws -> (TextEditorViewModel, VaultItem) {
         let item = try await makeStoredDocument(containing: rtf("Hello"))
-        let vm = makeViewModel(item)
-        await vm.load()
-        return (vm, item)
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        return (viewModel, item)
     }
 
     private func attributes(_ font: UIFont = .systemFont(ofSize: 12)) -> [NSAttributedString.Key: Any] {
@@ -53,32 +53,32 @@ import UIKit
     }
 
     /// A view model whose text is `Hello` in `font`, fully selected. (Formatting needs no load.)
-    private func makeFormattingViewModel(font: UIFont = .systemFont(ofSize: 12), selecting: Bool = true)
-        -> TextEditorViewModel
-    {
-        let vm = makeViewModel(ViewerTestSupport.makeItem("Doc.rtf"))
-        vm.textDidChange(NSAttributedString(string: "Hello", attributes: attributes(font)))
-        vm.typingAttributes = attributes(font)
-        vm.selectedRange = selecting ? NSRange(location: 0, length: 5) : NSRange(location: 5, length: 0)
-        return vm
+    private func makeFormattingViewModel(
+        font: UIFont = .systemFont(ofSize: 12), selecting: Bool = true
+    ) -> TextEditorViewModel {
+        let viewModel = makeViewModel(ViewerTestSupport.makeItem("Doc.rtf"))
+        viewModel.textDidChange(NSAttributedString(string: "Hello", attributes: attributes(font)))
+        viewModel.typingAttributes = attributes(font)
+        viewModel.selectedRange = selecting ? NSRange(location: 0, length: 5) : NSRange(location: 5, length: 0)
+        return viewModel
     }
 
-    private func font(of vm: TextEditorViewModel, at index: Int = 0) -> UIFont? {
-        vm.attributedText.attribute(.font, at: index, effectiveRange: nil) as? UIFont
+    private func font(of viewModel: TextEditorViewModel, at index: Int = 0) -> UIFont? {
+        viewModel.attributedText.attribute(.font, at: index, effectiveRange: nil) as? UIFont
     }
 
-    private func typingFont(of vm: TextEditorViewModel) -> UIFont? {
-        vm.typingAttributes[.font] as? UIFont
+    private func typingFont(of viewModel: TextEditorViewModel) -> UIFont? {
+        viewModel.typingAttributes[.font] as? UIFont
     }
 
     // MARK: - Loading
 
     @Test("Loading an RTF file shows its text")
     func loadsRTF() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        #expect(vm.attributedText.string == "Hello")
-        #expect(!vm.isReadOnly)
+        #expect(viewModel.attributedText.string == "Hello")
+        #expect(!viewModel.isReadOnly)
         #expect(alerts.alerts.isEmpty)
     }
 
@@ -86,42 +86,81 @@ import UIKit
     func emptyDataLoadsEmpty() async throws {
         let item = try await makeStoredDocument(containing: Data())
         defer { cleanUp(item) }
-        let vm = makeViewModel(item)
-        await vm.load()
-        #expect(vm.attributedText.string.isEmpty)
-        #expect(!vm.isReadOnly)
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        #expect(viewModel.attributedText.string.isEmpty)
+        #expect(!viewModel.isReadOnly)
         #expect(alerts.alerts.isEmpty)
     }
 
     @Test("A load failure shows an error and makes the editor read-only")
     func loadFailureReadOnly() async {
-        let vm = makeViewModel(ViewerTestSupport.makeItem("Missing.rtf"))
-        await vm.load()
-        #expect(vm.isReadOnly)
+        let viewModel = makeViewModel(ViewerTestSupport.makeItem("Missing.rtf"))
+        await viewModel.load()
+        #expect(viewModel.isReadOnly)
         #expect(alerts.alerts.count == 1)
         if case .error = alerts.alerts.first {} else { Issue.record("expected an error alert") }
     }
 
     @Test("After a load failure no save ever runs")
     func loadFailureNeverSaves() async {
-        let vm = makeViewModel(ViewerTestSupport.makeItem("Missing.rtf"))
-        await vm.load()
-        vm.textDidChange(NSAttributedString(string: "typed anyway"))
+        let viewModel = makeViewModel(ViewerTestSupport.makeItem("Missing.rtf"))
+        await viewModel.load()
+        viewModel.textDidChange(NSAttributedString(string: "typed anyway"))
         sleeper.advance()
-        await vm.done()
-        await vm.viewDidDisappear()
+        await viewModel.done()
+        await viewModel.viewDidDisappear()
         await ViewerTestSupport.settle()
         #expect(writeCount == 0)
         #expect(sleeper.requestedDurations.isEmpty)
+    }
+
+    @Test(
+        "Non-empty data that does not start with {\\rtf is a load failure",
+        arguments: ["plain text, not rich text", "{\"a\": 1}", "{ braces but not rtf }"])
+    func nonRTFDataIsLoadFailure(text: String) async throws {
+        let item = try await makeStoredDocument(containing: Data(text.utf8))
+        defer { cleanUp(item) }
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        #expect(viewModel.isReadOnly)
+        #expect(alerts.alerts.count == 1)
+        if case .error = alerts.alerts.first {} else { Issue.record("expected an error alert") }
+    }
+
+    @Test("After a non-RTF load failure a change, Done and disappear write nothing")
+    func nonRTFLoadFailureNeverSaves() async throws {
+        let item = try await makeStoredDocument(containing: Data("{\"a\": 1}".utf8))
+        defer { cleanUp(item) }
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        viewModel.textDidChange(NSAttributedString(string: "typed anyway"))
+        sleeper.advance()
+        await viewModel.done()
+        await viewModel.viewDidDisappear()
+        await ViewerTestSupport.settle()
+        #expect(writeCount == 0)
+        #expect(sleeper.requestedDurations.isEmpty)
+    }
+
+    @Test("Valid RTF data still loads after the RTF check")
+    func validRTFStillLoads() async throws {
+        let item = try await makeStoredDocument(containing: rtf("Valid"))
+        defer { cleanUp(item) }
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        #expect(viewModel.attributedText.string == "Valid")
+        #expect(!viewModel.isReadOnly)
+        #expect(alerts.alerts.isEmpty)
     }
 
     // MARK: - Autosave
 
     @Test("A change saves 1 second after it")
     func autosaveAfterOneSecond() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Hello!"))
+        viewModel.textDidChange(NSAttributedString(string: "Hello!"))
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
         #expect(sleeper.requestedDurations == [.seconds(1)])
         #expect(writeCount == 0)
@@ -132,11 +171,11 @@ import UIKit
 
     @Test("A further change resets the delay so only one save happens")
     func furtherChangeResetsDelay() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Hello!"))
+        viewModel.textDidChange(NSAttributedString(string: "Hello!"))
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
-        vm.textDidChange(NSAttributedString(string: "Hello!!"))
+        viewModel.textDidChange(NSAttributedString(string: "Hello!!"))
         await ViewerTestSupport.waitUntil { sleeper.requestedDurations.count == 2 }
         #expect(sleeper.pendingCount == 1)
         #expect(writeCount == 0)
@@ -160,31 +199,31 @@ import UIKit
 
     @Test("Disappearing saves the pending change")
     func saveOnDisappear() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Changed"))
-        await vm.viewDidDisappear()
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        await viewModel.viewDidDisappear()
         #expect(writeCount == 1)
         #expect(store.calls.contains(.write(item.id)))
     }
 
     @Test("Done saves once, and the later disappear does not save again")
     func doneSavesOnce() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Changed"))
-        await vm.done()
-        await vm.viewDidDisappear()
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        await viewModel.done()
+        await viewModel.viewDidDisappear()
         #expect(writeCount == 1)
     }
 
     @Test("Done cancels the pending autosave so it adds no second save")
     func doneCancelsAutosave() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Changed"))
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
-        await vm.done()
+        await viewModel.done()
         sleeper.advance()
         await ViewerTestSupport.settle()
         #expect(writeCount == 1)
@@ -192,33 +231,90 @@ import UIKit
 
     @Test("Done asks the screen to dismiss")
     func doneDismisses() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
         let counter = DismissCounter()
-        vm.onDismiss = { counter.count += 1 }
-        vm.textDidChange(NSAttributedString(string: "Changed"))
-        await vm.done()
+        viewModel.onDismiss = { counter.count += 1 }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        await viewModel.done()
         #expect(counter.count == 1)
+    }
+
+    @Test("A failed save on Done shows the error and keeps the editor open")
+    func failedDoneKeepsEditorOpen() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        let counter = DismissCounter()
+        viewModel.onDismiss = { counter.count += 1 }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        #expect(alerts.alerts.count == 1)
+        if case .error = alerts.alerts.first {} else { Issue.record("expected an error alert") }
+        #expect(counter.count < 1)
+    }
+
+    @Test("A later successful Done after a failed one writes and dismisses")
+    func doneSucceedsAfterFailure() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        let counter = DismissCounter()
+        viewModel.onDismiss = { counter.count += 1 }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        store.errorToThrow = nil
+        await viewModel.done()
+        #expect(store.calls.contains(.write(item.id)))
+        #expect(counter.count == 1)
+    }
+
+    @Test("Done writes even with no change")
+    func doneSavesWithoutChange() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        let counter = DismissCounter()
+        viewModel.onDismiss = { counter.count += 1 }
+        await viewModel.done()
+        #expect(writeCount == 1)
+        #expect(counter.count == 1)
+    }
+
+    @Test("Disappearing writes even with no change")
+    func disappearSavesWithoutChange() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        await viewModel.viewDidDisappear()
+        #expect(writeCount == 1)
+    }
+
+    @Test("Loading without a change schedules no autosave")
+    func loadSchedulesNoAutosave() async throws {
+        let (_, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        await ViewerTestSupport.settle()
+        #expect(sleeper.requestedDurations.isEmpty)
+        #expect(sleeper.pendingCount == 0)
     }
 
     // MARK: - Save failure
 
     @Test("A save failure shows an error")
     func saveFailureShowsError() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Changed"))
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
         store.errorToThrow = .io("Disk full")
-        await vm.viewDidDisappear()
+        await viewModel.viewDidDisappear()
         #expect(alerts.alerts.count == 1)
         if case .error = alerts.alerts.first {} else { Issue.record("expected an error alert") }
     }
 
     @Test("A failed autosave shows an error")
     func autosaveFailureShowsError() async throws {
-        let (vm, item) = try await makeLoadedViewModel()
+        let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
-        vm.textDidChange(NSAttributedString(string: "Changed"))
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
         await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
         store.errorToThrow = .io("Disk full")
         sleeper.advance()
@@ -230,119 +326,121 @@ import UIKit
 
     @Test("Bold applies to the selection and the typing attributes")
     func boldApplies() {
-        let vm = makeFormattingViewModel()
-        vm.toggleBold()
-        #expect(font(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
-        #expect(font(of: vm, at: 4)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
-        #expect(typingFont(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+        let viewModel = makeFormattingViewModel()
+        viewModel.toggleBold()
+        #expect(font(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+        #expect(font(of: viewModel, at: 4)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+        #expect(typingFont(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
     }
 
     @Test("Toggling bold twice removes it")
     func boldToggles() {
-        let vm = makeFormattingViewModel()
-        vm.toggleBold()
-        vm.toggleBold()
-        #expect(font(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitBold) == false)
-        #expect(typingFont(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitBold) == false)
+        let viewModel = makeFormattingViewModel()
+        viewModel.toggleBold()
+        viewModel.toggleBold()
+        #expect(font(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitBold) == false)
+        #expect(typingFont(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitBold) == false)
     }
 
     @Test("Italic applies and toggles off")
     func italicToggles() {
-        let vm = makeFormattingViewModel()
-        vm.toggleItalic()
-        #expect(font(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true)
-        #expect(typingFont(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true)
-        vm.toggleItalic()
-        #expect(font(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == false)
-        #expect(typingFont(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == false)
+        let viewModel = makeFormattingViewModel()
+        viewModel.toggleItalic()
+        #expect(font(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true)
+        #expect(typingFont(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true)
+        viewModel.toggleItalic()
+        #expect(font(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == false)
+        #expect(typingFont(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == false)
     }
 
     @Test("Bold and italic combine")
     func boldAndItalicCombine() {
-        let vm = makeFormattingViewModel()
-        vm.toggleBold()
-        vm.toggleItalic()
-        let traits = font(of: vm)?.fontDescriptor.symbolicTraits
+        let viewModel = makeFormattingViewModel()
+        viewModel.toggleBold()
+        viewModel.toggleItalic()
+        let traits = font(of: viewModel)?.fontDescriptor.symbolicTraits
         #expect(traits?.contains(.traitBold) == true)
         #expect(traits?.contains(.traitItalic) == true)
     }
 
     @Test("Bold with no selection changes only the typing attributes")
     func boldWithoutSelection() {
-        let vm = makeFormattingViewModel(selecting: false)
-        vm.toggleBold()
-        #expect(typingFont(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
-        #expect(font(of: vm)?.fontDescriptor.symbolicTraits.contains(.traitBold) == false)
+        let viewModel = makeFormattingViewModel(selecting: false)
+        viewModel.toggleBold()
+        #expect(typingFont(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+        #expect(font(of: viewModel)?.fontDescriptor.symbolicTraits.contains(.traitBold) == false)
     }
 
     @Test("Underline toggles on and off")
     func underlineToggles() {
-        let vm = makeFormattingViewModel()
-        vm.toggleUnderline()
-        let on = vm.attributedText.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int ?? 0
-        let typingOn = vm.typingAttributes[.underlineStyle] as? Int ?? 0
-        #expect(on != 0)
+        let viewModel = makeFormattingViewModel()
+        viewModel.toggleUnderline()
+        let underlined = viewModel.attributedText.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int ?? 0
+        let typingOn = viewModel.typingAttributes[.underlineStyle] as? Int ?? 0
+        #expect(underlined != 0)
         #expect(typingOn != 0)
-        vm.toggleUnderline()
-        let off = vm.attributedText.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int ?? 0
-        let typingOff = vm.typingAttributes[.underlineStyle] as? Int ?? 0
+        viewModel.toggleUnderline()
+        let off = viewModel.attributedText.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int ?? 0
+        let typingOff = viewModel.typingAttributes[.underlineStyle] as? Int ?? 0
         #expect(off == 0)
         #expect(typingOff == 0)
     }
 
     @Test("Increasing the size adds 2 points")
     func increaseSize() {
-        let vm = makeFormattingViewModel(font: .systemFont(ofSize: 12))
-        vm.increaseFontSize()
-        #expect(font(of: vm)?.pointSize == 14)
-        #expect(typingFont(of: vm)?.pointSize == 14)
+        let viewModel = makeFormattingViewModel(font: .systemFont(ofSize: 12))
+        viewModel.increaseFontSize()
+        #expect(font(of: viewModel)?.pointSize == 14)
+        #expect(typingFont(of: viewModel)?.pointSize == 14)
     }
 
     @Test("Decreasing the size subtracts 2 points")
     func decreaseSize() {
-        let vm = makeFormattingViewModel(font: .systemFont(ofSize: 12))
-        vm.decreaseFontSize()
-        #expect(font(of: vm)?.pointSize == 10)
-        #expect(typingFont(of: vm)?.pointSize == 10)
+        let viewModel = makeFormattingViewModel(font: .systemFont(ofSize: 12))
+        viewModel.decreaseFontSize()
+        #expect(font(of: viewModel)?.pointSize == 10)
+        #expect(typingFont(of: viewModel)?.pointSize == 10)
     }
 
     @Test("The size never goes below 8")
     func sizeMinimum() {
-        let vm = makeFormattingViewModel(font: .systemFont(ofSize: 9))
-        vm.decreaseFontSize()
-        #expect(font(of: vm)?.pointSize == 8)
-        vm.decreaseFontSize()
-        #expect(font(of: vm)?.pointSize == 8)
-        #expect(typingFont(of: vm)?.pointSize == 8)
+        let viewModel = makeFormattingViewModel(font: .systemFont(ofSize: 9))
+        viewModel.decreaseFontSize()
+        #expect(font(of: viewModel)?.pointSize == 8)
+        viewModel.decreaseFontSize()
+        #expect(font(of: viewModel)?.pointSize == 8)
+        #expect(typingFont(of: viewModel)?.pointSize == 8)
     }
 
     @Test("Size changes with no selection change only the typing attributes")
     func sizeWithoutSelection() {
-        let vm = makeFormattingViewModel(font: .systemFont(ofSize: 12), selecting: false)
-        vm.increaseFontSize()
-        #expect(typingFont(of: vm)?.pointSize == 14)
-        #expect(font(of: vm)?.pointSize == 12)
+        let viewModel = makeFormattingViewModel(font: .systemFont(ofSize: 12), selecting: false)
+        viewModel.increaseFontSize()
+        #expect(typingFont(of: viewModel)?.pointSize == 14)
+        #expect(font(of: viewModel)?.pointSize == 12)
     }
 
     @Test(
         "Alignment applies to the selection and the typing attributes",
         arguments: [NSTextAlignment.left, .center, .right, .justified])
     func alignment(alignment: NSTextAlignment) {
-        let vm = makeFormattingViewModel()
-        vm.setAlignment(alignment)
-        let applied = vm.attributedText.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        let typing = vm.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+        let viewModel = makeFormattingViewModel()
+        viewModel.setAlignment(alignment)
+        let styleAttribute = viewModel.attributedText.attribute(.paragraphStyle, at: 0, effectiveRange: nil)
+        let applied = styleAttribute as? NSParagraphStyle
+        let typing = viewModel.typingAttributes[.paragraphStyle] as? NSParagraphStyle
         #expect(applied?.alignment == alignment)
         #expect(typing?.alignment == alignment)
     }
 
     @Test("Alignment with no selection changes only the typing attributes")
     func alignmentWithoutSelection() {
-        let vm = makeFormattingViewModel(selecting: false)
-        vm.setAlignment(.center)
-        let typing = vm.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+        let viewModel = makeFormattingViewModel(selecting: false)
+        viewModel.setAlignment(.center)
+        let typing = viewModel.typingAttributes[.paragraphStyle] as? NSParagraphStyle
         #expect(typing?.alignment == .center)
-        let applied = vm.attributedText.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        let styleAttribute = viewModel.attributedText.attribute(.paragraphStyle, at: 0, effectiveRange: nil)
+        let applied = styleAttribute as? NSParagraphStyle
         #expect(applied?.alignment != .center)
     }
 }
