@@ -240,7 +240,7 @@ import UIKit
         #expect(counter.count == 1)
     }
 
-    @Test("A failed save on Done shows the error and keeps the editor open")
+    @Test("A failed save on Done sets the failed-Done message, shows no error alert and keeps the editor open")
     func failedDoneKeepsEditorOpen() async throws {
         let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
@@ -249,12 +249,12 @@ import UIKit
         viewModel.textDidChange(NSAttributedString(string: "Changed"))
         store.errorToThrow = .io("Disk full")
         await viewModel.done()
-        #expect(alerts.alerts.count == 1)
-        if case .error = alerts.alerts.first {} else { Issue.record("expected an error alert") }
-        #expect(counter.count < 1)
+        #expect(viewModel.failedDoneMessage == VaultStoreError.io("Disk full").localizedDescription)
+        #expect(alerts.alerts.isEmpty)
+        #expect(counter.count == 0)
     }
 
-    @Test("A later successful Done after a failed one writes and dismisses")
+    @Test("Try Again after a failed Done writes, clears the message and dismisses once")
     func doneSucceedsAfterFailure() async throws {
         let (viewModel, item) = try await makeLoadedViewModel()
         defer { cleanUp(item) }
@@ -266,7 +266,124 @@ import UIKit
         store.errorToThrow = nil
         await viewModel.done()
         #expect(store.calls.contains(.write(item.id)))
+        #expect(viewModel.failedDoneMessage == nil)
         #expect(counter.count == 1)
+    }
+
+    @Test("Try Again with the store still failing sets the message again and does not dismiss")
+    func tryAgainStillFailing() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        let counter = DismissCounter()
+        viewModel.onDismiss = { counter.count += 1 }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        await viewModel.done()
+        #expect(viewModel.failedDoneMessage == VaultStoreError.io("Disk full").localizedDescription)
+        #expect(alerts.alerts.isEmpty)
+        #expect(counter.count == 0)
+    }
+
+    @Test("Starting Done again clears the failed-Done message before the new result")
+    func doneClearsMessageWhenItStarts() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        #expect(viewModel.failedDoneMessage != nil)
+        store.errorToThrow = .io("Other failure")
+        await viewModel.done()
+        #expect(viewModel.failedDoneMessage == VaultStoreError.io("Other failure").localizedDescription)
+    }
+
+    @Test("A change typed after a failed Done is included in Try Again's write")
+    func changeAfterFailedDoneIsRetried() async throws {
+        let gated = ViewerGatedStore(inner: store)
+        let item = try await makeStoredDocument(containing: rtf("Hello"))
+        defer { cleanUp(item) }
+        let sleeper = self.sleeper
+        let editor = TextEditorViewModel(
+            item: item, store: gated, alerts: alerts, sleep: { try await sleeper.sleep($0) })
+        await editor.load()
+        gated.releaseFirstWrite()
+        editor.textDidChange(NSAttributedString(string: "First"))
+        store.errorToThrow = .io("Disk full")
+        await editor.done()
+        editor.textDidChange(NSAttributedString(string: "Second"))
+        store.errorToThrow = nil
+        await editor.done()
+        #expect(savedText(gated.storedWrites.last ?? Data()) == "Second")
+    }
+
+    @Test("A failed save from disappear still shows the error alert and sets no failed-Done message")
+    func failedDisappearUsesAlert() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.viewDidDisappear()
+        #expect(alerts.alerts.count == 1)
+        #expect(viewModel.failedDoneMessage == nil)
+    }
+
+    @Test("A failed autosave still shows the error alert and sets no failed-Done message")
+    func failedAutosaveUsesAlert() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
+        store.errorToThrow = .io("Disk full")
+        sleeper.advance()
+        await ViewerTestSupport.waitUntil { !alerts.alerts.isEmpty }
+        #expect(alerts.alerts.count == 1)
+        #expect(viewModel.failedDoneMessage == nil)
+    }
+
+    @Test("Discard Changes after a failed Done dismisses once")
+    func discardDismissesOnce() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        let counter = DismissCounter()
+        viewModel.onDismiss = { counter.count += 1 }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        viewModel.discardChanges()
+        #expect(counter.count == 1)
+    }
+
+    @Test("After Discard Changes a following disappear writes nothing")
+    func discardThenDisappearWritesNothing() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        store.errorToThrow = nil
+        viewModel.discardChanges()
+        await viewModel.viewDidDisappear()
+        #expect(writeCount == 0)
+        #expect(alerts.alerts.isEmpty)
+    }
+
+    @Test("Discard Changes cancels a pending autosave so nothing is written")
+    func discardCancelsPendingAutosave() async throws {
+        let (viewModel, item) = try await makeLoadedViewModel()
+        defer { cleanUp(item) }
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        store.errorToThrow = .io("Disk full")
+        await viewModel.done()
+        store.errorToThrow = nil
+        viewModel.textDidChange(NSAttributedString(string: "Changed again"))
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
+        viewModel.discardChanges()
+        await ViewerTestSupport.settle()
+        #expect(sleeper.pendingCount == 0)
+        sleeper.advance()
+        await ViewerTestSupport.settle()
+        #expect(writeCount == 0)
     }
 
     @Test("Done writes even with no change")
