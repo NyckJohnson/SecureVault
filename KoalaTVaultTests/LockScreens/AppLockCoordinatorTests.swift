@@ -149,17 +149,18 @@ import UIKit
     }
 
     @Test("Becoming active while locked, after the cover was shown, hides the cover and presents the lock screen")
-    func activeWhileLockedAfterCoverHidesCoverAndPresentsLockScreen() async throws {
+    func activeWhileLockedAfterCoverHidesCoverAndPresentsLockScreen() async {
         let harness = makeHarness()
         harness.coordinator.sceneDidConnect(window: harness.window, needsSetup: false)
-        try await harness.lock.unlock(password: "correct horse")
+        await unlockThroughLockScreen(harness)
         harness.coordinator.sceneWillResignActive()
         #expect(harness.presenter.count(of: .showPrivacyCover) == 1)
         harness.coordinator.sceneDidEnterBackground()
         #expect(harness.lock.state == .locked)
         let presentationsBefore = harness.presenter.count(of: .presentLockScreen)
+        let hidesBefore = harness.presenter.count(of: .hidePrivacyCover)
         harness.coordinator.sceneDidBecomeActive()
-        #expect(harness.presenter.count(of: .hidePrivacyCover) == 1)
+        #expect(harness.presenter.count(of: .hidePrivacyCover) == hidesBefore + 1)
         #expect(harness.presenter.count(of: .presentLockScreen) == presentationsBefore + 1)
     }
 

@@ -15,6 +15,7 @@ final class ScriptedVaultLock: VaultLocking {
     let inner: MockVaultLocking
     var setUpError: (any Error)?
     var unlockError: (any Error)?
+    var prepareToAddLockError: (any Error)?
     var holdsSetUp = false
     var holdsUnlock = false
     /// True while a held call waits for `releaseHeldCall()`.
@@ -65,6 +66,7 @@ final class ScriptedVaultLock: VaultLocking {
     func switchMode(to mode: LockMode) async throws { try await inner.switchMode(to: mode) }
 
     func prepareToAddLock(mode: LockMode, password: String) async throws {
+        if let prepareToAddLockError { throw prepareToAddLockError }
         try await inner.prepareToAddLock(mode: mode, password: password)
     }
 

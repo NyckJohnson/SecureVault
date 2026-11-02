@@ -333,10 +333,10 @@ private struct BiometricErrorCase: Sendable {
     }
 
     @Test(
-        "With lockMode .none and a pending encrypt, the lock is added as .password first, then unlocked",
+        "With lockMode .none and a pending encrypt, the vault is unlocked first, then the lock is added as .password",
         arguments: [LockMode.password, .passwordAndBiometrics]
     )
-    func pendingLockAddedAsPasswordFirst(target: LockMode) async {
+    func pendingLockUnlocksThenAddsPassword(target: LockMode) async {
         let lock = MockVaultLocking(lockMode: .none)
         let preferences = MockPreferencesStoring(lockMode: .none, pendingMigration: pendingEncrypt(target: target))
         let viewModel = makeViewModel(lock: lock, preferences: preferences)
@@ -344,21 +344,21 @@ private struct BiometricErrorCase: Sendable {
         viewModel.onUnlocked = { unlockedCount += 1 }
         type("correct horse", into: viewModel)
         await viewModel.unlockTapped()
-        #expect(lock.calls == [.prepareToAddLock(.password), .unlock])
+        #expect(lock.calls == [.unlock, .prepareToAddLock(.password)])
         #expect(unlockedCount == 1)
     }
 
-    @Test("A pending encrypt with no target still adds the lock as .password first")
+    @Test("A pending encrypt with no target still unlocks first, then adds the lock as .password")
     func pendingLockWithoutTarget() async {
         let lock = MockVaultLocking(lockMode: .none)
         let preferences = MockPreferencesStoring(lockMode: .none, pendingMigration: pendingEncrypt(target: nil))
         let viewModel = makeViewModel(lock: lock, preferences: preferences)
         type("correct horse", into: viewModel)
         await viewModel.unlockTapped()
-        #expect(lock.calls == [.prepareToAddLock(.password), .unlock])
+        #expect(lock.calls == [.unlock, .prepareToAddLock(.password)])
     }
 
-    @Test("A wrong password in the pending-lock step shows an error and does not call onUnlocked")
+    @Test("A wrong password with a pending lock shows Incorrect password, adds no lock and does not call onUnlocked")
     func pendingLockWrongPassword() async {
         let lock = MockVaultLocking(lockMode: .none)
         let preferences = MockPreferencesStoring(
@@ -369,9 +369,43 @@ private struct BiometricErrorCase: Sendable {
         type("wrong", into: viewModel)
         await viewModel.unlockTapped()
         #expect(unlockedCount == 0)
-        #expect(viewModel.errorMessage == "A vault password already exists on this device. Enter that password.")
+        #expect(viewModel.errorMessage == "Incorrect password")
         #expect(viewModel.password.isEmpty)
-        #expect(!lock.calls.contains(.unlock))
+        #expect(!lock.calls.contains(.prepareToAddLock(.password)))
+        #expect(!lock.calls.contains { if case .prepareToAddLock = $0 { true } else { false } })
+    }
+
+    @Test("A failure adding the lock after a good unlock shows its message and does not call onUnlocked")
+    func pendingLockAddFailure() async {
+        let inner = MockVaultLocking(lockMode: .none)
+        let lock = ScriptedVaultLock(inner: inner)
+        lock.prepareToAddLockError = VaultLockError.keychain(-25300)
+        let preferences = MockPreferencesStoring(
+            lockMode: .none, pendingMigration: pendingEncrypt(target: .password))
+        let viewModel = makeViewModel(lock: lock, preferences: preferences)
+        var unlockedCount = 0
+        viewModel.onUnlocked = { unlockedCount += 1 }
+        type("correct horse", into: viewModel)
+        await viewModel.unlockTapped()
+        #expect(inner.calls.contains(.unlock))
+        #expect(viewModel.errorMessage == VaultLockError.keychain(-25300).errorDescription)
+        #expect(viewModel.errorMessage == "A Keychain error occurred (-25300).")
+        #expect(viewModel.password.isEmpty)
+        #expect(unlockedCount == 0)
+    }
+
+    @Test("When both the unlock and the lock addition succeed, onUnlocked runs exactly once")
+    func pendingLockBothSucceedRunsOnUnlockedOnce() async {
+        let lock = MockVaultLocking(lockMode: .none)
+        let preferences = MockPreferencesStoring(
+            lockMode: .none, pendingMigration: pendingEncrypt(target: .password))
+        let viewModel = makeViewModel(lock: lock, preferences: preferences)
+        var unlockedCount = 0
+        viewModel.onUnlocked = { unlockedCount += 1 }
+        type("correct horse", into: viewModel)
+        await viewModel.unlockTapped()
+        #expect(unlockedCount == 1)
+        #expect(viewModel.errorMessage == nil)
     }
 
     @Test("With a lock set and a pending encrypt, no lock is added")
