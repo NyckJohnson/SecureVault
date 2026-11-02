@@ -60,6 +60,14 @@ import UIKit
         #expect(harness.presenter.count(of: .presentSetupWizard) == 0)
     }
 
+    @Test("Connecting again with a new window while locked presents a fresh lock screen")
+    func reconnectWhileLockedPresentsLockScreenAgain() {
+        let harness = makeHarness()
+        harness.coordinator.sceneDidConnect(window: harness.window, needsSetup: false)
+        harness.coordinator.sceneDidConnect(window: UIWindow(), needsSetup: false)
+        #expect(harness.presenter.count(of: .presentLockScreen) == 2)
+    }
+
     @Test("Connecting with no lock and setup done presents nothing")
     func connectWithoutLockPresentsNothing() {
         let harness = makeHarness(lockMode: .none)

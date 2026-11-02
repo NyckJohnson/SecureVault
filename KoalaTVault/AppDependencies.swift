@@ -365,8 +365,9 @@ final class AppDependencies {
     /// The app's one vault lock: the key lifecycle and the lock state, over the master key store, the
     /// preferences and `vaultStore`.
     let vaultLock: any VaultLocking
-    /// The legacy lock screen and privacy cover presenter, over `vaultLock`, until LockScreens replaces it.
-    let authService: AuthService
+    /// Presents the setup wizard, the lock screen and the privacy cover, over `vaultLock`, the preferences
+    /// and the master key store.
+    let lockCoordinator: any AppLockCoordinating
     /// The app's one lock migration, over `vaultStore`, `vaultLock` and the preferences. In `-uiTesting` mode
     /// `UITEST_FAIL_MIGRATION_FILE` names the file it fails.
     let lockMigrator: any LockMigrating
@@ -435,8 +436,9 @@ final class AppDependencies {
             }
         )
         self.vaultLock = vaultLock
-        authService = AuthService(
-            vaultLock: vaultLock, preferences: storage.preferences, keyStore: storage.masterKeyStore)
+        lockCoordinator = AppLockCoordinator(
+            lock: vaultLock, preferences: storage.preferences, masterKeys: storage.masterKeyStore,
+            presenter: LockPresenter())
         // `uiTestSettings` is non-nil only in `-uiTesting` mode, so the failing file is a UI-test hook only.
         lockMigrator = LiveLockMigrator(
             store: vaultStore, lock: vaultLock, preferences: storage.preferences,

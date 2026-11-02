@@ -10,8 +10,10 @@ import os
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
-    /// Follows the vault lock's state to run the post-unlock steps.
+    /// Follows the vault lock's state to run the housekeeping on every change to `.unlocked`.
     private var lockStateObservation: Task<Void, Never>?
+    /// The latest post-unlock housekeeping; a pending migration waits for it.
+    private var maintenance: Task<Void, Never>?
     /// Set on a genuine backgrounding, so a return (not the cold launch) purges the trash with no lock.
     private var didEnterBackground = false
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "SceneDelegate")
@@ -29,8 +31,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private var vaultStore: any VaultStoring { dependencies.vaultStore }
     /// The app's one vault lock.
     private var vaultLock: any VaultLocking { dependencies.vaultLock }
-    /// The legacy lock screen and privacy cover presenter.
-    private var authService: AuthService { dependencies.authService }
+    /// Presents the setup wizard, the lock screen and the privacy cover.
+    private var lockCoordinator: any AppLockCoordinating { dependencies.lockCoordinator }
     /// The app's one lock migration.
     private var lockMigrator: any LockMigrating { dependencies.lockMigrator }
 
@@ -53,25 +55,24 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         // Subscribe before anything can unlock, so no change is missed.
         observeLockState()
-        if !dependencies.preferences.hasCompletedSetup {
-            let wizard = LegacySetupWizardViewController(vaultLock: vaultLock)
-            wizard.modalPresentationStyle = .fullScreen
-            nav.present(wizard, animated: false)
-        } else {
-            // Runs the launch recovery of a pending encrypt first, so `resumeIfPending` (in the post-unlock
-            // steps, which never run before this) sees the record it left.
-            let showedLockScreen = authService.handleInitialLaunch(in: window)
-            // The stream yields changes only: a vault that is already usable (no lock) runs the steps now.
-            if !showedLockScreen && vaultLock.state != .locked {
-                handleVaultUnlocked()
-            }
+        lockCoordinator.onUnlocked = { [weak self] in self?.lockScreenDidUnlock() }
+        let needsSetup = !dependencies.preferences.hasCompletedSetup
+        // Runs the launch recovery of a pending encrypt first, so `resumeIfPending` (in the post-unlock
+        // steps, which never run before this) sees the record it left.
+        lockCoordinator.sceneDidConnect(window: window, needsSetup: needsSetup)
+        // The stream yields changes only: a vault that is already usable (no lock) runs the steps now. A
+        // pending encrypt that outlived the recovery is waiting for the password on the lock screen.
+        if !needsSetup && vaultLock.state != .locked
+            && dependencies.preferences.pendingMigration?.kind != .encrypt {
+            startMaintenance()
+            presentPendingMigrationAfterMaintenance()
         }
 
         vaultStore.removeAllTemporaryFiles()
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
-        authService.handleForeground(in: window)
+        lockCoordinator.sceneDidBecomeActive()
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {
@@ -84,13 +85,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneWillResignActive(_ scene: UIScene) {
-        authService.handleWillResignActive(in: window)
+        lockCoordinator.sceneWillResignActive()
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         didEnterBackground = true
         // With a lock: the key is wiped and the store's temporary files removed; the thumbnails go too.
-        vaultLock.appDidEnterBackground()
+        lockCoordinator.sceneDidEnterBackground()
         if vaultLock.lockMode != .none {
             dependencies.thumbnails.clearCache()
         }
@@ -103,26 +104,48 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     // MARK: - Vault Unlock
 
-    /// Runs the post-unlock steps on every change to `.unlocked`.
+    /// Runs the housekeeping on every change to `.unlocked`, whatever caused it: the lock screen, the setup
+    /// wizard's password, or adding a lock in Settings.
     private func observeLockState() {
         guard lockStateObservation == nil else { return }
         let updates = vaultLock.stateUpdates()
         lockStateObservation = Task { [weak self] in
             for await state in updates where state == .unlocked {
-                self?.handleVaultUnlocked()
+                self?.startMaintenance()
             }
         }
     }
 
-    private func handleVaultUnlocked() {
-        Task {
-            // After unlock, so the key is loaded and the folder indexes can be read.
-            await PostUnlockMaintenance.run(
-                vaultStore: vaultStore, preferences: dependencies.preferences, now: Date())
-            // Anything presented over the lock screen would be dismissed with it.
-            authService.afterLockScreenDismissed(in: window) { [weak self] in
-                self?.presentPendingMigration()
-            }
+    private func startMaintenance() {
+        // After unlock, so the key is loaded and the folder indexes can be read.
+        maintenance = Task { [vaultStore, preferences = dependencies.preferences] in
+            await PostUnlockMaintenance.run(vaultStore: vaultStore, preferences: preferences, now: Date())
+        }
+    }
+
+    /// The lock screen has gone: anything presented from here on stays on screen.
+    private func lockScreenDidUnlock() {
+        reloadFileBrowser()
+        presentPendingMigrationAfterMaintenance()
+    }
+
+    private func reloadFileBrowser() {
+        // Assumes root is always UINavigationController with LegacyFileBrowserViewController as the first VC.
+        // Update this if the root view controller hierarchy ever changes (e.g. tab bar added).
+        if let nav = window?.rootViewController as? UINavigationController,
+           let browser = nav.viewControllers.first as? LegacyFileBrowserViewController {
+            browser.reloadAfterAuth()
+        }
+    }
+
+    /// Presents a pending migration once the housekeeping has finished. If the vault locked again in the
+    /// meantime, the next unlock does it, so nothing is presented over the lock screen.
+    private func presentPendingMigrationAfterMaintenance() {
+        // Queued behind the state update of the same unlock, which started the housekeeping.
+        Task { [weak self] in
+            await self?.maintenance?.value
+            guard let self, self.vaultLock.state != .locked else { return }
+            self.presentPendingMigration()
         }
     }
 

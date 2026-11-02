@@ -36,6 +36,14 @@ private struct BiometricErrorCase: Sendable {
         #expect(viewModel.showsBiometricButton)
     }
 
+    @Test(
+        "The biometric button title names the biometric kind",
+        arguments: [(BiometricKind.faceID, "Use Face ID"), (.touchID, "Use Touch ID"), (.none, "Use Biometrics")])
+    func biometricButtonTitleNamesKind(kind: BiometricKind, title: String) {
+        let viewModel = makeViewModel(lock: biometricLock(kind: kind))
+        #expect(viewModel.biometricButtonTitle == title)
+    }
+
     @Test("The biometric button is hidden in password mode")
     func biometricButtonHiddenInPasswordMode() {
         let viewModel = makeViewModel(lock: MockVaultLocking(lockMode: .password))

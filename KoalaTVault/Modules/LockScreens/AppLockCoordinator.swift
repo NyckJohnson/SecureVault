@@ -53,6 +53,8 @@ final class AppLockCoordinator: AppLockCoordinating {
 
     func sceneDidConnect(window: UIWindow, needsSetup: Bool) {
         self.window = window
+        // A reconnected scene has a new window: a lock screen in the old one went with it.
+        lockScreen = nil
         if needsSetup {
             presentSetupWizard(in: window)
             return
