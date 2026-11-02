@@ -213,6 +213,45 @@ private struct BiometricErrorCase: Sendable {
         #expect(!viewModel.isBusy)
     }
 
+    @Test("A successful unlock empties the password field")
+    func successfulUnlockClearsField() async {
+        let viewModel = makeViewModel(lock: MockVaultLocking(lockMode: .password))
+        type("correct horse", into: viewModel)
+        await viewModel.unlockTapped()
+        #expect(viewModel.password.isEmpty)
+    }
+
+    @Test("Another unlock error (.keychain) empties the password field")
+    func keychainErrorClearsField() async {
+        let lock = ScriptedVaultLock(inner: MockVaultLocking(lockMode: .password))
+        lock.unlockError = VaultLockError.keychain(-25300)
+        let viewModel = makeViewModel(lock: lock)
+        type("correct horse", into: viewModel)
+        await viewModel.unlockTapped()
+        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.password.isEmpty)
+    }
+
+    @Test("A biometric error empties the password field")
+    func biometricErrorClearsField() async {
+        let lock = biometricLock()
+        lock.biometricError = .biometricChanged
+        let viewModel = makeViewModel(lock: lock)
+        type("half typed", into: viewModel)
+        await viewModel.biometricTapped()
+        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.password.isEmpty)
+    }
+
+    @Test("On a device without biometric hardware the lock screen messages say Biometrics")
+    func biometricMessagesUseBiometricsNameWhenKindIsNone() async {
+        let lock = biometricLock(kind: BiometricKind.none)
+        lock.biometricError = .biometricChanged
+        let viewModel = makeViewModel(lock: lock)
+        await viewModel.biometricTapped()
+        #expect(viewModel.errorMessage == "Biometrics changed. Use your password.")
+    }
+
     @Test("Wrong passwords never lock the user out: a later correct one unlocks")
     func noLockoutAfterWrongPasswords() async {
         let lock = MockVaultLocking(lockMode: .password)
@@ -330,7 +369,8 @@ private struct BiometricErrorCase: Sendable {
         type("wrong", into: viewModel)
         await viewModel.unlockTapped()
         #expect(unlockedCount == 0)
-        #expect(viewModel.errorMessage != nil)
+        #expect(viewModel.errorMessage == "A vault password already exists on this device. Enter that password.")
+        #expect(viewModel.password.isEmpty)
         #expect(!lock.calls.contains(.unlock))
     }
 

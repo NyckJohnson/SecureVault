@@ -148,15 +148,19 @@ import UIKit
         #expect(harness.presenter.count(of: .presentLockScreen) == 1)
     }
 
-    @Test("Becoming active while unlocked hides the cover and presents no lock screen")
-    func activeWhileUnlockedHidesCover() async throws {
+    @Test("Becoming active while locked, after the cover was shown, hides the cover and presents the lock screen")
+    func activeWhileLockedAfterCoverHidesCoverAndPresentsLockScreen() async throws {
         let harness = makeHarness()
         harness.coordinator.sceneDidConnect(window: harness.window, needsSetup: false)
         try await harness.lock.unlock(password: "correct horse")
         harness.coordinator.sceneWillResignActive()
+        #expect(harness.presenter.count(of: .showPrivacyCover) == 1)
+        harness.coordinator.sceneDidEnterBackground()
+        #expect(harness.lock.state == .locked)
+        let presentationsBefore = harness.presenter.count(of: .presentLockScreen)
         harness.coordinator.sceneDidBecomeActive()
         #expect(harness.presenter.count(of: .hidePrivacyCover) == 1)
-        #expect(harness.presenter.count(of: .presentLockScreen) == 1)
+        #expect(harness.presenter.count(of: .presentLockScreen) == presentationsBefore + 1)
     }
 
     @Test("Becoming active with no lock hides the cover and presents nothing")
@@ -201,6 +205,30 @@ import UIKit
         #expect(harness.presenter.count(of: .dismissSetupWizard) == 0)
         #expect(harness.presenter.count(of: .hidePrivacyCover) >= 1)
         #expect(unlockedCount == 1)
+    }
+
+    @Test("After unlock, the cover and onUnlocked wait until the lock screen dismissal completes")
+    func afterUnlockWaitsForDismissalCompletion() async {
+        let harness = makeHarness()
+        harness.presenter.holdsDismissalCompletion = true
+        var unlockedCount = 0
+        harness.coordinator.onUnlocked = { unlockedCount += 1 }
+        harness.coordinator.sceneDidConnect(window: harness.window, needsSetup: false)
+        await unlockThroughLockScreen(harness)
+        #expect(harness.presenter.count(of: .dismissLockScreen) == 1)
+        #expect(harness.presenter.hasPendingDismissal)
+        #expect(harness.presenter.count(of: .hidePrivacyCover) == 0)
+        #expect(unlockedCount == 0)
+        harness.presenter.completeDismissal()
+        #expect(harness.presenter.count(of: .hidePrivacyCover) >= 1)
+        #expect(unlockedCount == 1)
+        let dismissIndex = harness.presenter.requests.firstIndex(of: .dismissLockScreen)
+        let hideIndex = harness.presenter.requests.firstIndex(of: .hidePrivacyCover)
+        if let dismissIndex, let hideIndex {
+            #expect(dismissIndex < hideIndex)
+        } else {
+            Issue.record("Expected both a dismissal and a cover hide")
+        }
     }
 
     @Test("onUnlocked does not run before the user unlocks")

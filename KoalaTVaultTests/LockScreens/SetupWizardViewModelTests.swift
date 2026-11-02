@@ -32,6 +32,23 @@ import Testing
         #expect(touchID.title(for: .passwordAndBiometrics) == "Password + Touch ID")
     }
 
+    @Test("With no biometric kind the biometric option is titled Password + Biometrics")
+    func biometricOptionTitleWithoutKind() {
+        let viewModel = makeViewModel(
+            lock: MockVaultLocking(lockMode: .none, biometricKind: BiometricKind.none, biometricsAvailable: false))
+        #expect(viewModel.title(for: .passwordAndBiometrics) == "Password + Biometrics")
+    }
+
+    @Test("Cancelling the password prompt hides it")
+    func cancelPasswordPromptHidesPrompt() async {
+        let viewModel = makeViewModel()
+        viewModel.select(.password)
+        await viewModel.continueTapped()
+        #expect(viewModel.isPasswordPromptVisible)
+        viewModel.cancelPasswordPrompt()
+        #expect(!viewModel.isPasswordPromptVisible)
+    }
+
     @Test("The biometric option is disabled without biometrics and cannot be selected")
     func biometricOptionDisabledWithoutBiometrics() {
         let viewModel = makeViewModel(lock: MockVaultLocking(lockMode: .none, biometricsAvailable: false))

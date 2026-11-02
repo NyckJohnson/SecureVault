@@ -113,7 +113,29 @@ final class RecordingLockPresenter: LockPresenting {
     }
 
     func dismissSetupWizard() { requests.append(.dismissSetupWizard) }
-    func dismissLockScreen() { requests.append(.dismissLockScreen) }
+    /// When true, `dismissLockScreen` holds its completion until `completeDismissal()`; otherwise it
+    /// completes immediately.
+    var holdsDismissalCompletion = false
+    private var pendingDismissalCompletions: [@MainActor () -> Void] = []
+    /// True while a dismissal's completion waits for `completeDismissal()`.
+    var hasPendingDismissal: Bool { !pendingDismissalCompletions.isEmpty }
+
+    func dismissLockScreen(completion: @escaping @MainActor () -> Void) {
+        requests.append(.dismissLockScreen)
+        if holdsDismissalCompletion {
+            pendingDismissalCompletions.append(completion)
+        } else {
+            completion()
+        }
+    }
+
+    /// Fires every held dismissal completion.
+    func completeDismissal() {
+        let completions = pendingDismissalCompletions
+        pendingDismissalCompletions = []
+        for completion in completions { completion() }
+    }
+
     func showPrivacyCover(in window: UIWindow) { requests.append(.showPrivacyCover) }
     func hidePrivacyCover() { requests.append(.hidePrivacyCover) }
 }
