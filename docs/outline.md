@@ -942,6 +942,7 @@ extension matching ignores case.
 - The setup wizard's option cards are title-less buttons whose labels sit in a non-interactive stack, so VoiceOver has nothing to read (same as legacy) — SetupWizardViewController.swift:75-81 — open, accessibility
 - `SetupWizardViewController.showBusy` decides in the view whether the overlay shows (`selectedOption != .none`), a small view decision with no test (same as legacy) — SetupWizardViewController.swift:175 — open, minor
 - The first on-screen check of the lock screens is the journey run after LockScreens' switch-over; layout, dark mode and Dynamic Type are unverified until then — LockScreens/Views — open until unit 3
+- `LockPresenter.dismissLockScreen` guards a second call with `transitionCoordinator`: if UIKit silently refused a dismissal and a retry arrived during an unrelated transition, the retry is dropped (the user can enter the password again), and if `presentingViewController` clears early in the animation a second call could fire `onUnlocked` twice; neither has been seen, and a throwaway simulator test found UIKit queues rather than refuses — LockPresenter.swift:38-44 — open, theoretical
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
 ## Features

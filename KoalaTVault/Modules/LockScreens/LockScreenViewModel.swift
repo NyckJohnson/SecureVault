@@ -30,6 +30,11 @@ final class LockScreenViewModel: ObservableObject {
         lock.lockMode == .passwordAndBiometrics && lock.biometricsAvailable
     }
 
+    /// The biometric button's title, naming the device's biometric kind.
+    var biometricButtonTitle: String {
+        "Use \(lock.biometricKind.lockScreensDisplayName)"
+    }
+
     /// True unless the biometric prompt is going to start.
     var focusesPasswordField: Bool {
         !showsBiometricButton

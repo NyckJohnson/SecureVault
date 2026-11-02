@@ -413,7 +413,7 @@
             "Views/LockScreenViewController.swift",
             "Views/PrivacyCoverView.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T08:14:09-08:00",
+  "updatedAt": "2026-11-02T08:19:05-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
