@@ -397,4 +397,91 @@ import Testing
         await page.load()
         #expect(store.calls.contains(.removeTemporary(encrypted.diskURL)))
     }
+
+    // MARK: - Returning from the editor
+
+    private func makeRTFViewModel(startingAt index: Int = 1) -> FileViewerViewModel {
+        makeViewModel(Self.files("a.jpg", "b.rtf", "c.png"), startingAt: index)
+    }
+
+    private func swipe(_ model: FileViewerViewModel, from: Int, to: Int) {
+        model.swipeCompleted(from: from)
+        model.pageDidChange(to: to)
+    }
+
+    @Test("After a swipe from page 1, closing the editor returns to page 1 and the index and title follow")
+    func editorCloseReturnsToSwipedFromPage() {
+        let model = makeRTFViewModel()
+        swipe(model, from: 1, to: 2)
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .showPage(1))
+        #expect(model.currentIndex == 1)
+        #expect(model.title == "b.rtf")
+    }
+
+    @Test("With no swipe, closing the editor closes the viewer")
+    func editorCloseWithoutSwipeCloses() {
+        let model = makeRTFViewModel()
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .close)
+    }
+
+    @Test("A second swipe replaces the stored page")
+    func secondSwipeReplacesStoredPage() {
+        let model = makeRTFViewModel(startingAt: 0)
+        swipe(model, from: 0, to: 1)
+        swipe(model, from: 1, to: 2)
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .showPage(1))
+        #expect(model.currentIndex == 1)
+    }
+
+    @Test("Nothing stays stored after a return: another close gives nil")
+    func nothingStoredAfterReturnClose() {
+        let model = makeRTFViewModel()
+        swipe(model, from: 1, to: 2)
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .showPage(1))
+        #expect(model.editorClosed() == nil)
+    }
+
+    @Test("Nothing stays stored after a return: a new open with no new swipe closes the viewer")
+    func nothingStoredAfterReturnReopen() {
+        let model = makeRTFViewModel()
+        swipe(model, from: 1, to: 2)
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .showPage(1))
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .close)
+    }
+
+    @Test("Opening an editor twice refuses the second")
+    func openingTwiceRefusesSecond() {
+        let model = makeRTFViewModel()
+        #expect(model.editorOpened())
+        #expect(!model.editorOpened())
+    }
+
+    @Test("A failed presentation clears the mark so the close is nil and a later open succeeds")
+    func presentationFailureClearsMark() {
+        let model = makeRTFViewModel()
+        #expect(model.editorOpened())
+        model.editorPresentationFailed()
+        #expect(model.editorClosed() == nil)
+        #expect(model.editorOpened())
+    }
+
+    @Test("Closing with no editor open gives nil")
+    func closeWithNoEditorOpen() {
+        let model = makeRTFViewModel()
+        #expect(model.editorClosed() == nil)
+    }
+
+    @Test("A second close after a close gives nil")
+    func secondCloseIsNil() {
+        let model = makeRTFViewModel()
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .close)
+        #expect(model.editorClosed() == nil)
+    }
 }
