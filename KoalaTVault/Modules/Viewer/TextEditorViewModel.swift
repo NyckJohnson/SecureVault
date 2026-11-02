@@ -11,12 +11,19 @@ final class TextEditorViewModel: ObservableObject {
     @Published private(set) var attributedText = NSAttributedString()
     /// True until the document has loaded, and for good after a load failure.
     @Published private(set) var isReadOnly = true
+    /// True from the start of Done until it fails, and for good once Done succeeded or the changes were discarded.
+    /// The screen doesn't allow editing meanwhile, as an edit made now wouldn't be saved. Also keeps the disappear
+    /// that follows from saving.
+    @Published private(set) var isFinishing = false
+    /// The user-facing reason the last Done couldn't save, for the screen to offer Try Again or Discard Changes.
+    /// Set every time a Done fails, and nil from the moment a Done starts.
+    @Published private(set) var failedDoneMessage: String?
 
     /// The screen's text view's selection.
     var selectedRange = NSRange(location: 0, length: 0)
     /// The screen's text view's typing attributes.
     var typingAttributes: [NSAttributedString.Key: Any] = [:]
-    /// Asks the screen to go away, after Done.
+    /// Asks the screen to go away, after Done or Discard Changes.
     var onDismiss: (@MainActor () -> Void)?
 
     private let item: VaultItem
@@ -24,14 +31,12 @@ final class TextEditorViewModel: ObservableObject {
     private weak var alerts: (any AlertPresenting)?
     private let sleep: @Sendable (Duration) async throws -> Void
     private var didStartLoading = false
-    /// Set while Done is finishing (and after), so the disappear that follows doesn't save a second time.
-    private var isFinishing = false
     private var autosaveTask: Task<Void, Never>?
     /// The latest save; each waits for the one before, so the newest content lands last.
     private var saveTask: Task<Void, Error>?
 
     /// - Parameters:
-    ///   - alerts: shows load and save errors; held weakly, as it is normally the screen that owns this model.
+    ///   - alerts: shows load errors and failed autosave and disappear saves; held weakly, as it is normally the screen that owns this model.
     ///   - sleep: waits out the autosave delay.
     init(
         item: VaultItem, store: any VaultStoring, alerts: any AlertPresenting,
@@ -89,15 +94,29 @@ final class TextEditorViewModel: ObservableObject {
     }
 
     /// Saves (also with no change, as the editor always has), then dismisses. If the save fails the screen
-    /// stays, so the error can be seen and the edits aren't lost; Done can be tried again.
+    /// stays and `failedDoneMessage` is set, so only an explicit choice can lose the edits.
     func done() async {
-        autosaveTask?.cancel()
         guard !isFinishing else { return }
         isFinishing = true
-        guard await save() else {
+        failedDoneMessage = nil
+        autosaveTask?.cancel()
+        do {
+            try await write()
+        } catch {
+            failedDoneMessage = error.localizedDescription
             isFinishing = false
             return
         }
+        onDismiss?()
+    }
+
+    /// Dismisses without saving: cancels the autosave, and `isFinishing` keeps the disappear from writing the edit.
+    /// A write already under way isn't undone, and if a lock dismissed the screen while the alert was up, the save
+    /// on that disappear may already have saved the edit.
+    func discardChanges() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        autosaveTask?.cancel()
         onDismiss?()
     }
 
@@ -122,36 +141,37 @@ final class TextEditorViewModel: ObservableObject {
         }
     }
 
-    /// Writes the current text after any earlier save, through the store and off the main thread. Shows the
-    /// error on failure.
+    /// Writes the current text and shows the error on failure.
+    private func save() async {
+        do {
+            try await write()
+        } catch {
+            alerts?.showError(error)
+        }
+    }
+
+    /// Writes the current text after any earlier save, through the store and off the main thread. Does nothing when
+    /// read-only.
     ///
     /// The conversion to RTF stays on the main thread, as it always was: `NSAttributedString` isn't Sendable on
     /// iOS, and the live text belongs to the main actor, so it can't be handed to another thread.
-    /// - Returns: false if a save was attempted and failed.
-    @discardableResult
-    private func save() async -> Bool {
-        guard !isReadOnly else { return true }
+    private func write() async throws {
+        guard !isReadOnly else { return }
         let item = item
         let store = store
         let previous = saveTask
-        do {
-            let data = try attributedText.data(
-                from: NSRange(location: 0, length: attributedText.length),
-                documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
-            // Detached: this project's `nonisolated async` functions run on the caller's actor (approachable
-            // concurrency), so a plain `await store.write` could encrypt on the main thread. It holds no
-            // reference to self, so a save started as the screen goes away still completes.
-            let task = Task.detached {
-                _ = await previous?.result
-                try await store.write(data, to: item)
-            }
-            saveTask = task
-            try await task.value
-            return true
-        } catch {
-            alerts?.showError(error)
-            return false
+        let data = try attributedText.data(
+            from: NSRange(location: 0, length: attributedText.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        // Detached: this project's `nonisolated async` functions run on the caller's actor (approachable
+        // concurrency), so a plain `await store.write` could encrypt on the main thread. It holds no
+        // reference to self, so a save started as the screen goes away still completes.
+        let task = Task.detached {
+            _ = await previous?.result
+            try await store.write(data, to: item)
         }
+        saveTask = task
+        try await task.value
     }
 
     // MARK: - Formatting
