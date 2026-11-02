@@ -553,6 +553,7 @@ extension matching ignores case.
       case biometricsUnavailable, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet
       case biometricChanged, keychain(Int32)
   }
+  extension VaultLockError: LocalizedError { var errorDescription: String? { get } }
 
   @MainActor
   protocol VaultLocking: AnyObject, Sendable {
@@ -590,6 +591,7 @@ extension matching ignores case.
   - prepareToAddLock(mode, password) from .none: no blob → key created; blob exists → as in setUp (empty vault: replaced; otherwise the password must unlock it, `.existingPasswordRequired`); biometric item stored for biometric mode (failure → rollback as in setUp); then lockMode = mode. Ends `.unlocked`.
   - removeKeysAfterDecryption: in order: biometric item deleted, lockMode .none, blob deleted, key wiped; each step is safe to repeat; a failure throws and leaves the later steps for the next call. Ends `.open`.
   - removeKeysAfterDecryption also deletes the legacy plaintext "com.KoalaTVault.password" Keychain item (through `KeychainAccessing.delete(account:)`, errors ignored), so a device that never password-unlocked since upgrading doesn't keep it.
+  - errorDescription (logic in `Contracts/VaultLockContract.swift`, next to `VaultLockError`; tested with one asserting test per case): wrongPassword "Incorrect password"; existingPasswordRequired "A vault password already exists on this device. Enter that password."; emptyPassword "Password cannot be empty"; passwordMissing "Your vault password is missing from this device."; notUnlocked "Unlock the vault first."; biometricsUnavailable "Biometric authentication isn't available on this device."; biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet, biometricChanged "Biometric authentication failed"; keychain(status) "A Keychain error occurred (<status>)." (the status number appears in the text). Screens show `localizedDescription` for errors they don't map themselves, so this is the text the user sees.
 - Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
 - Legacy files: Model/AuthService.swift (part: lock mode, password create/verify/change/remove, biometric enable/remove/authenticate, isLocked/hasAuthenticated, scene lifecycle wipe and temp clean-up)
 - Legacy tests: KoalaTVaultTests/AuthServiceTests.swift (part: AuthServiceTests, AuthServiceForegroundTests)
@@ -771,7 +773,7 @@ extension matching ignores case.
   - LockScreenViewModel, unlocking with `lockMode` .none and a pending encrypt: first `prepareToAddLock(mode: .password, password:)`, whatever the record's target (the migration switches to the target at its end), then unlock.
   - Views: identifiers `continueButton`, `passwordField`, `unlockButton`, `biometricButton`, `lockErrorLabel`, `setupOptionNone`, `setupOptionPassword`, `setupOptionBiometric`. (Views; covered by journey tests.)
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
-- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch with `resolveUnfinishableEncryption` (an encrypt pending with no password is dropped and the app opens; with a password the lock screen shows and the record is kept), didAuthenticate, reloadFileBrowser, afterLockScreenDismissed; `BiometricKind.legacyDisplayName`, `VaultLockError.legacyMessage`)
+- Legacy files: View/SetupWizard.swift, View/LockScreen.swift; Model/AuthService.swift (part: privacy screen, showLockScreen, handleInitialLaunch with `resolveUnfinishableEncryption` (an encrypt pending with no password is dropped and the app opens; with a password the lock screen shows and the record is kept), didAuthenticate, reloadFileBrowser, afterLockScreenDismissed; `BiometricKind.legacyDisplayName`; `VaultLockError.legacyMessage` stays for SecuritySettings until Settings)
 - Legacy tests: KoalaTVaultTests/BaselineFix20_23Tests.swift (part: PendingEncryptionLaunchTests)
 - Callers to repoint: SceneDelegate.swift
 
@@ -933,7 +935,8 @@ extension matching ignores case.
 - If the app (not the user) closes the export picker, copies are removed after a 30 s grace for a late pick report; a pick reporting later than that would lose its source and fail with no message, and no plaintext leaks — ExportPresenter.swift — open, rare
 - Viewer close still calls `removeAllTemporaryFiles`, deleting export copies in progress (safe: data is gone, not leaked; Files then fails with no message); the Viewer unit's acceptance removes that call — FileViewer.swift:303 — open until module Viewer
 - The drag-out rule trusts `lockMode` and `pendingMigration` to match the disk; no path in the app reaches a no-lock vault still holding ciphertext, only something outside it (a restored backup) could — FileBrowser.swift — open, accepted
-- Open before LockScreens unit 1's code: `VaultLockError` has no user-facing text (the legacy `legacyMessage` in AuthService.swift:31 supplies it, and SecuritySettings still uses it until Settings), while the LockScreens spec says "other errors → their message" and its tests assume `localizedDescription`, which reads "The operation couldn't be completed" for `.keychain` and `.notUnlocked`. Today's text is "A Keychain error occurred (<status>)." and "Unlock the vault first." Needs the human: an `errorDescription` in VaultLock's contract (as VaultStoreError and ImportError did), or a mapping in the view models — VaultLock/Contracts — open
+- `VaultLockError` had no user-facing text of its own, so "other errors → their message" would read "The operation couldn't be completed" for `.keychain` and `.notUnlocked` — VaultLock/Contracts — fixed during LockScreens unit 1 (`errorDescription`, approved 2026-11-02)
+- `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
 ## Features
 <!-- Accepted features, oldest first. -->
@@ -991,3 +994,4 @@ extension matching ignores case.
 - 2026-10-31: The drag-out check is a simple rule in the browser (a lock, a pending migration, or an encrypted item keeps the drag in the app), with no contract change; `needsDecryptedCopy` is deleted — Export switch-over — decided by the human
 - 2026-10-31: Exporting an empty selection throws `.nothingToExport` (the old test expected an empty result; the screens block it) — Export legacy-test scan — decided by the human
 - 2026-10-31: LockScreens spec gains the launch recovery assigned to it on 2026-10-29 and the pending-lock step on unlock (always `.password`, per the 2026-10-29 review note); it also depends on VaultCrypto and Preferences — LockScreens start — orchestrator, recorded
+- 2026-11-02: `VaultLockError` conforms to `LocalizedError` with the legacy `legacyMessage` wording, as `VaultStoreError` and `ImportError` do; the LockScreens spec shows "their message" for unmapped errors and would otherwise show the system fallback text — contract change found before LockScreens unit 1's code — approved by the human

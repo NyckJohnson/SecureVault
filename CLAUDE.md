@@ -18,3 +18,5 @@ managed block above.
   unit 1, approved 2026-10-29). Same rules: tested, never `coverage-exempt`.
 - `Import/Contracts/ImportContract.swift` also holds real code (`ImportError.errorDescription`, added during Import unit 1, approved
   2026-10-30). Same rules: tested, never `coverage-exempt`.
+- `VaultLock/Contracts/VaultLockContract.swift` also holds real code (`VaultLockError.errorDescription`, added during LockScreens
+  unit 1, approved 2026-11-02). Same rules: tested, never `coverage-exempt`.
