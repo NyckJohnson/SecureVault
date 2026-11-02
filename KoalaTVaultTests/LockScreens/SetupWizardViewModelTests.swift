@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import KoalaTVault
@@ -5,10 +6,10 @@ import Testing
 @MainActor
 @Suite struct SetupWizardViewModelTests {
     private func makeViewModel(
-        lock: any VaultLocking = MockVaultLocking(lockMode: .none),
+        lock: (any VaultLocking)? = nil,
         preferences: MockPreferencesStoring = MockPreferencesStoring()
     ) -> SetupWizardViewModel {
-        SetupWizardViewModel(lock: lock, preferences: preferences)
+        SetupWizardViewModel(lock: lock ?? MockVaultLocking(lockMode: .none), preferences: preferences)
     }
 
     @Test("No Lock is selected by default")

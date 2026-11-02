@@ -23,8 +23,8 @@ final class ScriptedVaultLock: VaultLocking {
     private(set) var setUpPasswords: [String?] = []
     private var heldContinuation: CheckedContinuation<Void, Never>?
 
-    init(inner: MockVaultLocking = MockVaultLocking(lockMode: .none)) {
-        self.inner = inner
+    init(inner: MockVaultLocking? = nil) {
+        self.inner = inner ?? MockVaultLocking(lockMode: .none)
     }
 
     var state: LockState { inner.state }
