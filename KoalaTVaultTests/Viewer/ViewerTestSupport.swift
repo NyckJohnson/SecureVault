@@ -80,3 +80,131 @@ enum ViewerTestSupport {
             isEncrypted: isEncrypted)
     }
 }
+
+/// A `VaultStoring` that forwards everything to a `MockVaultStoring`, except that the first `write`
+/// suspends until `releaseFirstWrite()` and every write's data is recorded, in the order it reaches the mock.
+final class ViewerGatedStore: VaultStoring {
+    private struct State {
+        var writeCalls = 0
+        var firstWriteWaiter: CheckedContinuation<Void, Never>?
+        var firstWriteReleased = false
+        var storedWrites: [Data] = []
+    }
+
+    let inner: MockVaultStoring
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(inner: MockVaultStoring) {
+        self.inner = inner
+    }
+
+    var root: VaultDirectory { inner.root }
+
+    /// How many writes have been requested, including the one waiting at the gate.
+    var writeCallCount: Int { state.withLock { $0.writeCalls } }
+
+    /// The data of each write that reached the mock, in order.
+    var storedWrites: [Data] { state.withLock { $0.storedWrites } }
+
+    func releaseFirstWrite() {
+        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            state.firstWriteReleased = true
+            defer { state.firstWriteWaiter = nil }
+            return state.firstWriteWaiter
+        }
+        waiter?.resume()
+    }
+
+    func write(_ data: Data, to item: VaultItem) async throws {
+        let isFirst = state.withLock { state -> Bool in
+            state.writeCalls += 1
+            return state.writeCalls == 1
+        }
+        if isFirst {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let alreadyReleased = state.withLock { state -> Bool in
+                    if state.firstWriteReleased { return true }
+                    state.firstWriteWaiter = continuation
+                    return false
+                }
+                if alreadyReleased { continuation.resume() }
+            }
+        }
+        try await inner.write(data, to: item)
+        state.withLock { $0.storedWrites.append(data) }
+    }
+
+    func contents(
+        of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
+    ) async throws -> [VaultItem] {
+        try await inner.contents(of: directory, sortedBy: option, direction)
+    }
+
+    func open(_ item: VaultItem) async throws -> URL { try await inner.open(item) }
+
+    func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.createFolder(named: name, in: directory)
+    }
+
+    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.createDocument(named: name, in: directory)
+    }
+
+    func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.addFile(from: source, named: name, to: directory)
+    }
+
+    func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        try await inner.findItem(named: name, in: directory)
+    }
+
+    func move(_ item: VaultItem, to directory: VaultDirectory) async throws {
+        try await inner.move(item, to: directory)
+    }
+
+    func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.copy(item, to: directory)
+    }
+
+    func rename(_ item: VaultItem, to name: String) async throws -> VaultItem {
+        try await inner.rename(item, to: name)
+    }
+
+    func moveToTrash(_ item: VaultItem) async throws { try await inner.moveToTrash(item) }
+
+    func trashContents() async throws -> [VaultItem] { try await inner.trashContents() }
+
+    func restore(_ trashed: VaultItem) async throws -> VaultItem { try await inner.restore(trashed) }
+
+    func deletePermanently(_ trashed: VaultItem) async throws { try await inner.deletePermanently(trashed) }
+
+    func emptyTrash() async { await inner.emptyTrash() }
+
+    func purgeExpiredTrash(now: Date) async throws -> Int { try await inner.purgeExpiredTrash(now: now) }
+
+    func countFiles() async throws -> Int { try await inner.countFiles() }
+
+    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
+        try await inner.itemsToMigrate(toEncrypted: toEncrypted)
+    }
+
+    func migrateToEncrypted(_ item: VaultItem) async throws { try await inner.migrateToEncrypted(item) }
+
+    func migrateToDecrypted(_ item: VaultItem) async throws { try await inner.migrateToDecrypted(item) }
+
+    func finishDecryption() async throws { try await inner.finishDecryption() }
+
+    func finishEncryption() async throws { try await inner.finishEncryption() }
+
+    func hasUnencryptedFiles() async throws -> Bool { try await inner.hasUnencryptedFiles() }
+
+    func keyMatchesVault() async -> Bool { await inner.keyMatchesVault() }
+
+    func sweepOrphans() async { await inner.sweepOrphans() }
+
+    func makeTempDirectory() throws -> URL { try inner.makeTempDirectory() }
+
+    func removeTemporary(_ url: URL) { inner.removeTemporary(url) }
+
+    func removeAllTemporaryFiles() { inner.removeAllTemporaryFiles() }
+}

@@ -159,6 +159,38 @@ final class ReportedURLs {
         #expect(viewModel.content == .failed("This file can't be opened."))
     }
 
+    @Test("Reporting a failure shows the can't-be-opened message and lets go of the player")
+    func reportFailureShowsMessage() async throws {
+        let item = try await makeStoredItem("Clip.mp4")
+        let viewModel = makeViewModel(item)
+        viewModel.setVisible(true)
+        await viewModel.load()
+        #expect(viewModel.playerAsset != nil)
+        viewModel.reportFailure()
+        #expect(viewModel.content == .failed("This file can't be opened."))
+        #expect(viewModel.playerAsset == nil)
+    }
+
+    @Test("Reporting a failure twice is safe")
+    func reportFailureTwice() async throws {
+        let item = try await makeStoredItem("Photo.jpg")
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        viewModel.reportFailure()
+        viewModel.reportFailure()
+        #expect(viewModel.content == .failed("This file can't be opened."))
+        #expect(viewModel.playerAsset == nil)
+    }
+
+    @Test("A later load replaces a reported failure")
+    func loadReplacesReportedFailure() async throws {
+        let item = try await makeStoredItem("Photo.jpg")
+        let viewModel = makeViewModel(item)
+        viewModel.reportFailure()
+        await viewModel.load()
+        #expect(viewModel.content == .image(item.diskURL))
+    }
+
     // MARK: - Temp files
 
     @Test("The opened copy of an encrypted file is reported as a temp file")

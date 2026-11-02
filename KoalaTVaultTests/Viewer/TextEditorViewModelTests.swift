@@ -322,6 +322,90 @@ import UIKit
         #expect(alerts.alerts.count == 1)
     }
 
+    // MARK: - Write order
+
+    @Test("A Done during an in-flight autosave writes after it, with the newest text last")
+    func writesLandInOrder() async throws {
+        let gated = ViewerGatedStore(inner: store)
+        let sleeper = self.sleeper
+        let item = try await makeStoredDocument(containing: rtf("Hello"))
+        defer { cleanUp(item) }
+        let editor = TextEditorViewModel(
+            item: item, store: gated, alerts: alerts, sleep: { try await sleeper.sleep($0) })
+        await editor.load()
+        editor.textDidChange(NSAttributedString(string: "First"))
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
+        sleeper.advance()
+        await ViewerTestSupport.waitUntil { gated.writeCallCount == 1 }
+        editor.textDidChange(NSAttributedString(string: "Newest"))
+        let finishing = Task { await editor.done() }
+        await ViewerTestSupport.settle()
+        gated.releaseFirstWrite()
+        await finishing.value
+        let texts = gated.storedWrites.map { savedText($0) }
+        #expect(texts.count >= 2)
+        #expect(texts.last == "Newest")
+        #expect(texts.first == "First")
+    }
+
+    private func savedText(_ data: Data) -> String? {
+        let rtfType = NSAttributedString.DocumentType.rtf
+        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: rtfType]
+        let parsed = try? NSAttributedString(data: data, options: options, documentAttributes: nil)
+        return parsed?.string
+    }
+
+    // MARK: - Decrypted copy
+
+    private func encryptedCopy(of item: VaultItem) -> VaultItem {
+        VaultItem(
+            id: item.id, name: item.name, isDirectory: false, dateModified: item.dateModified,
+            fileSize: item.fileSize, deletedAt: nil, diskURL: item.diskURL, rootURL: item.rootURL,
+            isEncrypted: true)
+    }
+
+    private func removedURLs() -> [URL] {
+        store.calls.compactMap { call -> URL? in
+            if case .removeTemporary(let url) = call { return url }
+            return nil
+        }
+    }
+
+    @Test("The decrypted copy of an encrypted item is removed once it loads")
+    func encryptedCopyRemovedAfterLoad() async throws {
+        let stored = try await makeStoredDocument(containing: rtf("Secret"))
+        defer { cleanUp(stored) }
+        let item = encryptedCopy(of: stored)
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        #expect(viewModel.attributedText.string == "Secret")
+        #expect(removedURLs() == [item.diskURL])
+    }
+
+    @Test("The decrypted copy of an encrypted item with non-RTF data is removed too")
+    func encryptedCopyRemovedAfterFailure() async throws {
+        let stored = try await makeStoredDocument(containing: Data("not rich text".utf8))
+        defer { cleanUp(stored) }
+        let item = encryptedCopy(of: stored)
+        let viewModel = makeViewModel(item)
+        await viewModel.load()
+        #expect(viewModel.isReadOnly)
+        #expect(removedURLs() == [item.diskURL])
+    }
+
+    @Test("A plaintext item's real file is never removed, on success or failure")
+    func plaintextFileNeverRemoved() async throws {
+        let good = try await makeStoredDocument(containing: rtf("Plain"))
+        defer { cleanUp(good) }
+        let bad = try await makeStoredDocument(containing: Data("not rich text".utf8))
+        defer { cleanUp(bad) }
+        await makeViewModel(good).load()
+        await makeViewModel(bad).load()
+        #expect(removedURLs().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: good.diskURL.path))
+        #expect(FileManager.default.fileExists(atPath: bad.diskURL.path))
+    }
+
     // MARK: - Formatting
 
     @Test("Bold applies to the selection and the typing attributes")

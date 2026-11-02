@@ -164,6 +164,16 @@ import Testing
         #expect(viewModel.currentTime == 0)
     }
 
+    @Test("Skipping with an unknown duration leaves the time alone and returns it")
+    func skipWithZeroDuration() {
+        let viewModel = makeViewModel()
+        viewModel.updatePlayback(currentTime: 5, duration: 0)
+        #expect(viewModel.skipForward() == 5)
+        #expect(viewModel.currentTime == 5)
+        #expect(viewModel.skipBackward() == 5)
+        #expect(viewModel.currentTime == 5)
+    }
+
     // MARK: - Auto-hiding bars
 
     @Test("The bars are visible at first")
@@ -253,6 +263,81 @@ import Testing
         sleeper.advance()
         await ViewerTestSupport.waitUntil { !viewModel.barsVisible }
         #expect(!viewModel.barsVisible)
+    }
+
+    @Test("Closing while playing keeps the bars visible when the hide delay passes")
+    func closeCancelsPendingHide() async {
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
+        viewModel.close()
+        sleeper.advance()
+        await ViewerTestSupport.settle()
+        #expect(viewModel.barsVisible)
+    }
+
+    @Test("Playback starting after close requests no hide")
+    func playAfterCloseStartsNoHide() async {
+        let viewModel = makeViewModel()
+        viewModel.close()
+        viewModel.playbackStateChanged(isPlaying: true)
+        await ViewerTestSupport.settle()
+        #expect(sleeper.requestedDurations.isEmpty)
+        #expect(viewModel.barsVisible)
+    }
+
+    // MARK: - Toggling the bars
+
+    @Test("Toggling visible bars hides them")
+    func toggleHidesVisibleBars() {
+        let viewModel = makeViewModel()
+        viewModel.toggleBars()
+        #expect(!viewModel.barsVisible)
+    }
+
+    @Test("Toggling hidden bars shows them")
+    func toggleShowsHiddenBars() {
+        let viewModel = makeViewModel()
+        viewModel.toggleBars()
+        viewModel.toggleBars()
+        #expect(viewModel.barsVisible)
+    }
+
+    @Test("Showing the bars by toggle while playing restarts the 3 second hide")
+    func toggleShowWhilePlayingRestartsHide() async {
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
+        viewModel.toggleBars()
+        viewModel.toggleBars()
+        #expect(viewModel.barsVisible)
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 && sleeper.requestedDurations.count >= 2 }
+        #expect(sleeper.requestedDurations.last == .seconds(3))
+        sleeper.advance()
+        await ViewerTestSupport.waitUntil { !viewModel.barsVisible }
+        #expect(!viewModel.barsVisible)
+    }
+
+    @Test("Hiding the bars by toggle cancels the pending hide")
+    func toggleHideCancelsPendingHide() async {
+        let viewModel = makeViewModel()
+        viewModel.playbackStateChanged(isPlaying: true)
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 1 }
+        viewModel.toggleBars()
+        #expect(!viewModel.barsVisible)
+        await ViewerTestSupport.waitUntil { sleeper.pendingCount == 0 }
+        #expect(sleeper.pendingCount == 0)
+        #expect(sleeper.requestedDurations.count == 1)
+    }
+
+    @Test("Showing the bars by toggle while paused starts no timer")
+    func toggleShowWhilePausedStartsNoTimer() async {
+        let viewModel = makeViewModel()
+        viewModel.toggleBars()
+        viewModel.toggleBars()
+        await ViewerTestSupport.settle()
+        #expect(viewModel.barsVisible)
+        #expect(sleeper.requestedDurations.isEmpty)
     }
 
     // MARK: - Close
