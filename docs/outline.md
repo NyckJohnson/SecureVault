@@ -955,6 +955,8 @@ extension matching ignores case.
 - The buffered-fraction arithmetic lives in the controller, copied from legacy, untested — FileViewerViewController.swift:171-186 — open, minor
 - Viewer and editor buttons have no `accessibilityLabel` and time labels use a fixed font, same as today — Viewer/Views — open, accessibility
 - After backgrounding with a lock in the viewer, an encrypted video shows "This file can't be opened." and doesn't recover after unlock (the page isn't reloaded); what QuickLook shows there is unverified — Viewer/Views — open, check on screen
+- If an autosave error alert is up when Done fails, the Try Again alert appears over it; both stay reachable and Discard clears everything — TextEditorViewController.swift:95-101 — open, minor
+- If a lock dismisses the editor while the Try Again alert is up, the disappear save still runs, so the edit is saved if the disk has recovered, even if the user meant to discard — TextEditorViewModel.swift — open, accepted
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
 ## Features
@@ -1017,6 +1019,7 @@ extension matching ignores case.
 - 2026-11-02: LockScreens spec records what unit 1's review confirmed against legacy: the "Biometrics" fallback name, a prompt cancel, every error clearing the field, the cover hiding when active and locked, and `onUnlocked` waiting for the lock screen's dismissal — LockScreens unit 1 review — orchestrator, recorded
 - 2026-11-02: Unlocking with `lockMode` .none and a pending encrypt unlocks first, then adds the lock, as today's app does. This replaces the 2026-10-31 order: `prepareToAddLock` first would let a mistyped password replace the saved one when nothing is encrypted yet, and the migration would then encrypt the files under the typo — LockScreens unit 1 — decided by the human
 - 2026-11-02: LockScreens' views may use SharedUI's `ProgressOverlayView` and `topmostPresentedController` directly, as the 2026-10-30 decision lets presenters — LockScreens unit 2 review — orchestrator, recorded
+- 2026-11-02: Viewer unit 2 gets one more try after the retry cap, to fix one test that couldn't catch its own bug — Viewer unit 2 review — decided by the human
 - 2026-11-02: A failed save on Done offers Try Again or Discard Changes, so a lasting failure can't trap the user and only an explicit choice loses an edit — Viewer unit 2 review — decided by the human
 - 2026-11-02: Viewer and Browser may use `ExportPresenter` and `ExportSheetAnchor` directly, though they are outside Export's `Contracts/`; it's a UIKit flow, and a contract would gain little — Viewer unit 2 review — decided by the human
 - 2026-11-02: An encrypted video that can't set up streaming shows "This file can't be opened." with no decrypted-copy fallback; the fallback parses the same header with the same key, so it would fail too — Viewer unit 2 review — orchestrator, recorded
