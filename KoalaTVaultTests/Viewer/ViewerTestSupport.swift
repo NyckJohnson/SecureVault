@@ -86,6 +86,7 @@ enum ViewerTestSupport {
 final class ViewerGatedStore: VaultStoring {
     private struct State {
         var writeCalls = 0
+        var gatedCall = 1
         var firstWriteWaiter: CheckedContinuation<Void, Never>?
         var firstWriteReleased = false
         var storedWrites: [Data] = []
@@ -115,10 +116,19 @@ final class ViewerGatedStore: VaultStoring {
         waiter?.resume()
     }
 
+    /// Holds the next write that has not been requested yet at the gate, like the first one.
+    func holdNextWrite() {
+        state.withLock { state in
+            state.gatedCall = state.writeCalls + 1
+            state.firstWriteReleased = false
+            state.firstWriteWaiter = nil
+        }
+    }
+
     func write(_ data: Data, to item: VaultItem) async throws {
         let isFirst = state.withLock { state -> Bool in
             state.writeCalls += 1
-            return state.writeCalls == 1
+            return state.writeCalls == state.gatedCall
         }
         if isFirst {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

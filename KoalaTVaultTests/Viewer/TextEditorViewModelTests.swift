@@ -287,15 +287,26 @@ import UIKit
 
     @Test("Starting Done again clears the failed-Done message before the new result")
     func doneClearsMessageWhenItStarts() async throws {
-        let (viewModel, item) = try await makeLoadedViewModel()
+        let gated = ViewerGatedStore(inner: store)
+        let item = try await makeStoredDocument(containing: rtf("Hello"))
         defer { cleanUp(item) }
-        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        let sleeper = self.sleeper
+        let editor = TextEditorViewModel(
+            item: item, store: gated, alerts: alerts, sleep: { try await sleeper.sleep($0) })
+        await editor.load()
+        gated.releaseFirstWrite()
+        editor.textDidChange(NSAttributedString(string: "Changed"))
         store.errorToThrow = .io("Disk full")
-        await viewModel.done()
-        #expect(viewModel.failedDoneMessage != nil)
+        await editor.done()
+        #expect(editor.failedDoneMessage != nil)
+        gated.holdNextWrite()
         store.errorToThrow = .io("Other failure")
-        await viewModel.done()
-        #expect(viewModel.failedDoneMessage == VaultStoreError.io("Other failure").localizedDescription)
+        let retrying = Task { await editor.done() }
+        await ViewerTestSupport.waitUntil { gated.writeCallCount == 2 }
+        #expect(editor.failedDoneMessage == nil)
+        gated.releaseFirstWrite()
+        await retrying.value
+        #expect(editor.failedDoneMessage == VaultStoreError.io("Other failure").localizedDescription)
     }
 
     @Test("A change typed after a failed Done is included in Try Again's write")
