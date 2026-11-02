@@ -404,9 +404,9 @@ import Testing
         makeViewModel(Self.files("a.jpg", "b.rtf", "c.png"), startingAt: index)
     }
 
-    private func swipe(_ model: FileViewerViewModel, from: Int, to: Int) {
+    private func swipe(_ model: FileViewerViewModel, from: Int, to destination: Int) {
         model.swipeCompleted(from: from)
-        model.pageDidChange(to: to)
+        model.pageDidChange(to: destination)
     }
 
     @Test("After a swipe from page 1, closing the editor returns to page 1 and the index and title follow")
@@ -483,5 +483,24 @@ import Testing
         #expect(model.editorOpened())
         #expect(model.editorClosed() == .close)
         #expect(model.editorClosed() == nil)
+    }
+
+    @Test("After a close return the viewer is closing: the rtf page cannot reopen the editor")
+    func closesAfterEditorBlocksReopen() {
+        let model = makeRTFViewModel()
+        #expect(!model.closesAfterEditor)
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .close)
+        #expect(model.closesAfterEditor)
+        #expect(!model.editorOpened())
+    }
+
+    @Test("A showPage return leaves closesAfterEditor false")
+    func closesAfterEditorFalseAfterShowPage() {
+        let model = makeRTFViewModel()
+        swipe(model, from: 1, to: 2)
+        #expect(model.editorOpened())
+        #expect(model.editorClosed() == .showPage(1))
+        #expect(!model.closesAfterEditor)
     }
 }
