@@ -394,7 +394,7 @@
         "VaultLock",
         "SharedUI"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T08:37:01-08:00",
+  "updatedAt": "2026-11-02T10:00:31-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
