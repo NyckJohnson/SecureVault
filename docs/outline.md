@@ -937,6 +937,8 @@ extension matching ignores case.
 - The drag-out rule trusts `lockMode` and `pendingMigration` to match the disk; no path in the app reaches a no-lock vault still holding ciphertext, only something outside it (a restored backup) could — FileBrowser.swift — open, accepted
 - `VaultLockError` had no user-facing text of its own, so "other errors → their message" would read "The operation couldn't be completed" for `.keychain` and `.notUnlocked` — VaultLock/Contracts — fixed during LockScreens unit 1 (`errorDescription`, approved 2026-11-02)
 - `onUnlocked` can still run if the app backgrounds and relocks during the lock screen's dismissal animation (the coordinator's completion doesn't recheck the state; the code-writer reports legacy doesn't guard this either) — AppLockCoordinator.swift — open, minor
+- Adding a lock when nothing is encrypted: if `deleteMasterKeyBlob` succeeds and `createMasterKey` then fails, the blob is gone with no rollback; a retry says the password is missing until relaunch, which drops the pending record and leaves the vault without a lock (nothing lost, Keychain write failure only) — LiveVaultLock.swift:134-146 — open, rare
+- After `unlock` succeeds and `prepareToAddLock` fails on the lock screen, the key stays loaded with `lockMode` .none until the process ends (`appDidEnterBackground` wipes nothing with no lock; only the lock screen is reachable meanwhile) — LiveVaultLock.swift:212-217 — open, minor
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
 ## Features
