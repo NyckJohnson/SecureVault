@@ -7,6 +7,7 @@
 - `VaultLockError: case biometricChanged, keychain(Int32)`
 - `VaultLockError: case biometricsUnavailable, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet`
 - `VaultLockError: case wrongPassword, existingPasswordRequired, emptyPassword, passwordMissing, notUnlocked`
+- `VaultLockError: var errorDescription: String?`
 - `VaultLocking: func appDidEnterBackground()`
 - `VaultLocking: func appWillEnterForeground()`
 - `VaultLocking: func appWillResignActive() -> Bool`

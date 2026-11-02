@@ -1,7 +1,5 @@
 import Foundation
 
-// coverage-exempt-file: declarations only
-
 /// Whether the vault is open (no lock), locked (no key) or unlocked (key loaded).
 enum LockState: Sendable, Equatable {
     case open, locked, unlocked
@@ -17,6 +15,23 @@ enum VaultLockError: Error, Equatable, Sendable {
     case wrongPassword, existingPasswordRequired, emptyPassword, passwordMissing, notUnlocked
     case biometricsUnavailable, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet
     case biometricChanged, keychain(Int32)
+}
+
+extension VaultLockError: LocalizedError {
+    /// The error's user-facing description; `.keychain` includes the status number.
+    var errorDescription: String? {
+        switch self {
+        case .wrongPassword: "Incorrect password"
+        case .existingPasswordRequired: "A vault password already exists on this device. Enter that password."
+        case .emptyPassword: "Password cannot be empty"
+        case .passwordMissing: "Your vault password is missing from this device."
+        case .notUnlocked: "Unlock the vault first."
+        case .biometricsUnavailable: "Biometric authentication isn't available on this device."
+        case .biometricCancelled, .biometryLockedOut, .biometryNotEnrolled, .passcodeNotSet, .biometricChanged:
+            "Biometric authentication failed"
+        case .keychain(let status): "A Keychain error occurred (\(status))."
+        }
+    }
 }
 
 /// The key lifecycle and lock state.

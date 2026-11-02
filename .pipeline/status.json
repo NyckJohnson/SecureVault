@@ -394,7 +394,7 @@
         "VaultLock",
         "SharedUI"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -403,8 +403,8 @@
             "LockScreenViewModel.swift",
             "AppLockCoordinator.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -413,15 +413,15 @@
             "Views/LockScreenViewController.swift",
             "Views/PrivacyCoverView.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 3,
           "files": [
             "SceneDelegate.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-10-31T01:04:26-07:00",
+  "updatedAt": "2026-11-02T08:37:01-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
