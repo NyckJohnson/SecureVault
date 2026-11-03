@@ -90,6 +90,32 @@ import Testing
         #expect(rig.viewModel.statusText == "50% complete")
     }
 
+    // MARK: - Background time
+
+    @Test("Background time is wanted while the migration is running")
+    func wantsBackgroundTimeWhileRunning() async {
+        let rig = makeRig(phase: .running(done: 1, total: 4))
+        #expect(rig.viewModel.wantsBackgroundTime)
+        let task = await startRunning(rig)
+        rig.migrator.send(.running(done: 2, total: 4))
+        await SettingsTestSupport.waitUntil { rig.viewModel.statusText == "50% complete" }
+        #expect(rig.viewModel.wantsBackgroundTime)
+        task.cancel()
+    }
+
+    @Test(
+        "Background time is not wanted once the migration is paused, failed or completed",
+        arguments: [MigrationPhase.paused(done: 1, total: 4), .failed(names: ["a.jpg"]), .completed(fully: true)]
+    )
+    func noBackgroundTimeAfterStopping(phase: MigrationPhase) async {
+        let rig = makeRig(phase: .running(done: 1, total: 4))
+        let task = await startRunning(rig)
+        rig.migrator.send(phase)
+        await SettingsTestSupport.waitUntil { !rig.viewModel.wantsBackgroundTime }
+        #expect(!rig.viewModel.wantsBackgroundTime)
+        task.cancel()
+    }
+
     // MARK: - Failures
 
     @Test("No failure is shown while the migration is not failed")

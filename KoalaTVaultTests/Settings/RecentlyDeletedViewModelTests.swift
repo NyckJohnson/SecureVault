@@ -29,7 +29,9 @@ import Testing
 
     /// A view model over a vault whose trash holds `files` (names ending in "/" are folders), with the
     /// clock set `daysSince` days after the last deletion.
-    private func makeRig(trashing files: [String] = [], daysSince: Double = 0) async throws -> Rig {
+    private func makeRig(
+        trashing files: [String] = [], daysSince: Double = 0, spacedOut: Bool = false
+    ) async throws -> Rig {
         let store = MockVaultStoring(withSampleContent: false)
         var lastDeleted = Date.distantPast
         for name in files {
@@ -41,6 +43,7 @@ import Testing
                 item = try await store.addFile(from: source, named: name, to: store.root)
             }
             try await store.moveToTrash(item)
+            if spacedOut { try await Task.sleep(for: .milliseconds(10)) }
         }
         for trashed in try await store.trashContents() {
             if let deletedAt = trashed.deletedAt { lastDeleted = max(lastDeleted, deletedAt) }
@@ -62,6 +65,13 @@ import Testing
         let rig = try await makeRig(trashing: ["Beach.jpg", "Notes.pdf"])
         await rig.viewModel.load()
         #expect(rig.viewModel.rows.map(\.name).sorted() == ["Beach.jpg", "Notes.pdf"])
+    }
+
+    @Test("Rows are ordered most recently deleted first, not by name or by listing order")
+    func rowsNewestFirst() async throws {
+        let rig = try await makeRig(trashing: ["B.pdf", "C.pdf", "A.pdf"], spacedOut: true)
+        await rig.viewModel.load()
+        #expect(rig.viewModel.rows.map(\.name) == ["A.pdf", "C.pdf", "B.pdf"])
     }
 
     @Test("A row's icon follows the shared file icon mapping")

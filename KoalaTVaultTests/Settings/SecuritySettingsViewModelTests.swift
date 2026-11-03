@@ -141,6 +141,17 @@ import Testing
         #expect(!rig.viewModel.showsReencrypt)
     }
 
+    @Test("A store read error hides Re-encrypt Everything and shows no error")
+    func reencryptHiddenWhenStoreReadFails() async throws {
+        let rig = try await makeRig(lockMode: .password, withFiles: true)
+        await rig.viewModel.reload()
+        #expect(rig.viewModel.showsReencrypt)
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.reload()
+        #expect(!rig.viewModel.showsReencrypt)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
     @Test("Reloading refreshes the current mode from the lock")
     func reloadRefreshesCurrentMode() async throws {
         let rig = try await makeRig(lockMode: .password)
@@ -186,6 +197,25 @@ import Testing
         #expect(rig.migrator.calls.contains(.start(.decrypt, target: nil)))
         #expect(rig.migrationShown.values.count == 1)
         #expect(rig.viewModel.prompt == nil)
+    }
+
+    @Test("Confirming Remove Lock records a decrypt migration kind")
+    func confirmingRemoveLockRecordsDecrypt() async throws {
+        let rig = try await makeRig(lockMode: .password)
+        await rig.viewModel.select(.none)
+        await rig.viewModel.confirmRemoveLock()
+        #expect(rig.viewModel.migrationKind == .decrypt)
+    }
+
+    @Test(
+        "Adding a lock records an encrypt migration kind",
+        arguments: [LockMode.password, .passwordAndBiometrics]
+    )
+    func addingLockRecordsEncrypt(target: LockMode) async throws {
+        let rig = try await makeRig(lockMode: .none, password: nil)
+        await rig.viewModel.select(target)
+        await rig.viewModel.submitNewPassword("secret", confirm: "secret")
+        #expect(rig.viewModel.migrationKind == .encrypt)
     }
 
     @Test("Cancelling Remove Lock starts nothing and keeps the mode")
@@ -396,6 +426,13 @@ import Testing
         let rig = try await makeRig()
         await rig.viewModel.changePassword(current: "nope", new: "fresh", confirm: "fresh")
         #expect(!rig.viewModel.isBusy)
+    }
+
+    @Test("Re-encrypt Everything records an encrypt migration kind")
+    func reencryptRecordsEncrypt() async throws {
+        let rig = try await makeRig(lockMode: .password)
+        await rig.viewModel.reencryptEverything()
+        #expect(rig.viewModel.migrationKind == .encrypt)
     }
 
     // MARK: - Scripted migrator rig
