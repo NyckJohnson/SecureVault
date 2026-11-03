@@ -500,7 +500,7 @@
             "Views/PaywallViewController.swift",
             "Views/RecentlyDeletedViewController.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-03T10:00:18-08:00",
+  "updatedAt": "2026-11-03T10:02:21-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
