@@ -77,6 +77,37 @@ import UIKit
         #expect(title("upgradeToProCell", rig) == "Pro Unlocked")
     }
 
+    @Test("The Pro row shows a disclosure indicator while locked and a checkmark once unlocked")
+    func proRowAccessory() async throws {
+        let free = try await makeRig(proUnlocked: false)
+        let paid = try await makeRig(proUnlocked: true)
+        #expect(cell("upgradeToProCell", free)?.accessoryType == .disclosureIndicator)
+        #expect(cell("upgradeToProCell", paid)?.accessoryType == .checkmark)
+    }
+
+    @Test("The Pro row accessory changes live from disclosure indicator to checkmark")
+    func proRowAccessoryIsLive() async throws {
+        let rig = try await makeRig(proUnlocked: false)
+        #expect(cell("upgradeToProCell", rig)?.accessoryType == .disclosureIndicator)
+        rig.pro.isUnlocked = true
+        await SettingsTestSupport.waitUntil { self.cell("upgradeToProCell", rig)?.accessoryType == .checkmark }
+        #expect(cell("upgradeToProCell", rig)?.accessoryType == .checkmark)
+    }
+
+    @Test("Tapping Pro Unlocked presents nothing and changes nothing")
+    func unlockedProRowDoesNothing() async throws {
+        let rig = try await makeRig(proUnlocked: true)
+        select("upgradeToProCell", rig)
+        await SettingsTestSupport.settle()
+        #expect(rig.host.topmost === rig.host.root)
+        #expect(rig.host.element("paywallUnlockButton") == nil)
+        #expect(await rig.host.noAlert())
+        #expect(rig.host.navigationTop is SecuritySettingsViewController)
+        #expect(rig.pro.isUnlocked)
+        #expect(title("upgradeToProCell", rig) == "Pro Unlocked")
+        #expect(!SettingsTestSupport.changedLock(rig.mock))
+    }
+
     @Test("The lock mode rows are titled No Lock, Password and Password + Face ID")
     func lockModeTitles() async throws {
         let rig = try await makeRig()
