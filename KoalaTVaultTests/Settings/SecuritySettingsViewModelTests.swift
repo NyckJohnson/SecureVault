@@ -543,7 +543,7 @@ import Testing
             }
         }
 
-        var to: LockMode {
+        var target: LockMode {
             switch self {
             case .removeLock: .none
             case .passwordToBiometric: .passwordAndBiometrics
@@ -559,7 +559,7 @@ import Testing
     func lockModeChangeRefused(underWay: MigrationUnderWay, change: LockModeChange) async throws {
         let rig = try await makeScriptedRig(lockMode: change.from, password: change.from == .none ? nil : Self.blob)
         underWay.apply(to: rig.migrator)
-        await rig.viewModel.select(change.to)
+        await rig.viewModel.select(change.target)
         expectRefused(rig)
         #expect(rig.viewModel.currentMode == change.from)
     }

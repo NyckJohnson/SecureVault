@@ -1,7 +1,7 @@
 {
   "stage": 5,
-  "paused": true,
-  "pauseReason": "5-hour usage at 85%; resets Mon 18:40. Settings unit 1 code committed, review pending; test-writer renames LockModeChange.to to target (SecuritySettingsViewModelTests.swift:546, :562), then gates Settings --fast, then reviewer",
+  "paused": false,
+  "pauseReason": null,
   "checkpoints": {
     "outline-approved": "2026-10-24T13:06:36-07:00",
     "setup": "2026-10-24T13:39:18-07:00",
@@ -489,7 +489,7 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "tests",
+          "state": "code",
           "attempts": 2
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T17:22:01-08:00",
+  "updatedAt": "2026-11-03T09:07:35-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
