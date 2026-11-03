@@ -36,25 +36,6 @@ nonisolated final class InMemoryKeychain: KeychainAccessing {
     }
 }
 
-// MARK: - Pro unlock slot
-
-/// Holds the app's one `ProUnlocking`, which `AppDependencies` builds on the main actor at launch and
-/// installs here, so legacy singletons (view controllers built by legacy code) can reach it
-/// through `LegacyStorage.current.proUnlock` until each takes it by injection.
-nonisolated final class LegacyProUnlockSlot: Sendable {
-    private let value = OSAllocatedUnfairLock<(any ProUnlocking)?>(initialState: nil)
-
-    init() {}
-
-    /// Installs (or replaces) the entitlement legacy code reads.
-    func install(_ proUnlock: any ProUnlocking) {
-        value.withLock { $0 = proUnlock }
-    }
-
-    /// The installed entitlement, or nil before `AppDependencies` has installed one.
-    var installed: (any ProUnlocking)? { value.withLock { $0 } }
-}
-
 // MARK: - Inert pro unlock (unit-test host)
 
 /// The entitlement installed in the hosted unit-test process (`-unitTestHost`): always locked, makes no
@@ -148,8 +129,6 @@ nonisolated struct LegacyStorage: Sendable {
     let defaultsSuiteName: String?
     /// Non-nil only in `-uiTesting` mode.
     let uiTestSettings: UITestSettings?
-    /// Where `AppDependencies` installs the app's one `ProUnlocking` for legacy code.
-    let proUnlockSlot = LegacyProUnlockSlot()
 
     /// The storage for this process, decided from its launch arguments on first use.
     static let current = LegacyStorage(
@@ -159,16 +138,6 @@ nonisolated struct LegacyStorage: Sendable {
 
     /// Preferences store (`.standard` normally; a cleared dedicated suite in `-uiTesting` mode).
     var defaults: UserDefaults { Self.openDefaults(suiteName: defaultsSuiteName) }
-
-    /// The app's "Unlock Pro" entitlement, built and installed by `AppDependencies` at launch.
-    /// Legacy singletons reach it here; new code takes it by injection from `AppDependencies`.
-    var proUnlock: any ProUnlocking {
-        guard let proUnlock = proUnlockSlot.installed else {
-            // Unreachable: AppDelegate builds AppDependencies (which installs it) before any scene or import.
-            fatalError("LegacyStorage.proUnlock read before AppDependencies installed it")
-        }
-        return proUnlock
-    }
 
     /// `.standard` for a nil `suiteName`, else that suite.
     private static func openDefaults(suiteName: String?) -> UserDefaults {
@@ -333,6 +302,8 @@ struct LegacyBrowserServices {
     let vaultLock: any VaultLocking
     /// The app's one lock migration (Settings adds and removes the lock through it).
     let lockMigrator: any LockMigrating
+    /// Makes the security settings and the paywall.
+    let settingsFactory: any SettingsFactory
 }
 
 // MARK: - Composition root
@@ -376,12 +347,16 @@ final class AppDependencies {
     /// The app's one lock migration, over `vaultStore`, `vaultLock` and the preferences. In `-uiTesting` mode
     /// `UITEST_FAIL_MIGRATION_FILE` names the file it fails.
     let lockMigrator: any LockMigrating
+    /// Makes the security settings, the paywall and the migration screen, over `vaultLock`, `lockMigrator`,
+    /// `vaultStore` and `proUnlock`. A restore in Recently Deleted posts `.fileRestored`, which the legacy
+    /// browser observes to refresh.
+    let settingsFactory: any SettingsFactory
     /// What the legacy browser screens are built with.
     var browserServices: LegacyBrowserServices {
         LegacyBrowserServices(
             vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails, viewerFactory: viewerFactory,
             importPresenter: importPresenter, exportPresenter: exportPresenter, vaultLock: vaultLock,
-            lockMigrator: lockMigrator)
+            lockMigrator: lockMigrator, settingsFactory: settingsFactory)
     }
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
@@ -394,7 +369,6 @@ final class AppDependencies {
             proUnlock = StoreKitProUnlock(defaults: storage.defaults)
         }
         self.proUnlock = proUnlock
-        storage.proUnlockSlot.install(proUnlock)
 
         let liveStore = LiveVaultStore(
             root: storage.vaultRootURL,
@@ -447,9 +421,13 @@ final class AppDependencies {
             lock: vaultLock, preferences: storage.preferences, masterKeys: storage.masterKeyStore,
             presenter: LockPresenter())
         // `uiTestSettings` is non-nil only in `-uiTesting` mode, so the failing file is a UI-test hook only.
-        lockMigrator = LiveLockMigrator(
+        let lockMigrator = LiveLockMigrator(
             store: vaultStore, lock: vaultLock, preferences: storage.preferences,
             uiTestFailFileName: storage.uiTestSettings?.failMigrationFileName)
+        self.lockMigrator = lockMigrator
+        settingsFactory = LiveSettingsFactory(
+            lock: vaultLock, migrator: lockMigrator, store: vaultStore, pro: proUnlock,
+            onRestore: { NotificationCenter.default.post(name: .fileRestored, object: nil) })
     }
 
     /// `UITEST_PASSWORD`: the empty test vault starts set up with `password` and lock mode password, as after

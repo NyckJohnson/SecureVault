@@ -149,26 +149,27 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 
-    /// Resumes a pending migration: presents the Migration screen, which resumes it, or, when one is already
+    /// Resumes a pending migration: presents the Migration screen and resumes it once shown, or, when one is already
     /// showing (a migration paused under the lock screen), resumes it under that screen.
     private func presentPendingMigration() {
         let lockMigrator = lockMigrator
-        guard let pending = lockMigrator.pending,
+        guard lockMigrator.pending != nil,
               let root = window?.rootViewController else { return }
         // Check the whole presentation stack, not just its top.
         let stack = sequence(first: root, next: \.presentedViewController)
-        guard !stack.contains(where: { $0 is LegacyMigrationViewController }) else {
+        guard !stack.contains(where: { $0 is MigrationViewController }) else {
             Task { await lockMigrator.resumeIfPending() }
             return
         }
         let topVC = root.topmostPresentedController
         // The migrator finishes the lock and keys itself; nothing is left to do when the screen closes.
-        let migration = LegacyMigrationViewController(
-            type: pending.kind, migrator: lockMigrator, begin: { await $0.resumeIfPending() },
-            onComplete: { [logger] completedFully in
-                logger.info("Resumed migration closed (completed fully: \(completedFully, privacy: .public))")
-            })
-        topVC.present(migration, animated: true)
+        let migration = dependencies.settingsFactory.makeMigration(onFinish: { [logger] completedFully in
+            logger.info("Resumed migration closed (completed fully: \(completedFully, privacy: .public))")
+        })
+        // Resumed once the screen is up, as the screen used to do on first appearing.
+        topVC.present(migration, animated: true) {
+            Task { await lockMigrator.resumeIfPending() }
+        }
     }
 
     /// Removes trash items older than 30 days. Only with no lock, or with the key loaded:

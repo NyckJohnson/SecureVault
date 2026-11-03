@@ -225,11 +225,7 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
 
     // MARK: - Actions
     @objc private func openSettings() {
-        let settings = LegacySecuritySettingsViewController(
-            vaultStore: vaultStore, vaultLock: services.vaultLock, lockMigrator: services.lockMigrator)
-        let nav = UINavigationController(rootViewController: settings)
-        nav.modalPresentationStyle = .formSheet
-        present(nav, animated: true)
+        present(services.settingsFactory.makeSettings(), animated: true)
     }
 
     @objc private func promptNewFolder() {
@@ -446,9 +442,8 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
             from: self,
             anchor: .barButton(sender),
             onLimitReached: { [weak self] in
-                let paywall = LegacyPaywallViewController()
-                paywall.modalPresentationStyle = .formSheet
-                self?.present(paywall, animated: true)
+                guard let self else { return }
+                self.present(self.services.settingsFactory.makePaywall(onUnlock: {}), animated: true)
             },
             completion: { [weak self] in
                 self?.loadContents()
