@@ -91,6 +91,8 @@ nonisolated struct UITestSettings: Sendable, Equatable {
     var seedFileName: String?
     /// `UITEST_SEED_FILE_COUNT`: this many `uitest-seed-<i>.txt` files are created in the vault root.
     var seedFileCount: Int?
+    /// `UITEST_SEED_IMAGE_COUNT`: this many valid plaintext `uitest-image-<i>.png` files are created in the vault root.
+    var seedImageCount: Int?
     /// `UITEST_PASSWORD`: the vault starts set up with this password and lock mode password.
     var password: String?
     /// `UITEST_FAIL_MIGRATION_FILE`: migrating a file with this name fails.
@@ -108,6 +110,7 @@ nonisolated struct UITestSettings: Sendable, Equatable {
     init(environment: [String: String]) {
         seedFileName = environment["UITEST_SEED_FILE_NAME"]
         seedFileCount = environment["UITEST_SEED_FILE_COUNT"].flatMap { Int($0) }
+        seedImageCount = environment["UITEST_SEED_IMAGE_COUNT"].flatMap { Int($0) }
         password = environment["UITEST_PASSWORD"]
         failMigrationFileName = environment["UITEST_FAIL_MIGRATION_FILE"]
         migrationFileDelay = environment["UITEST_MIGRATION_FILE_DELAY"].flatMap { Double($0) }
@@ -320,8 +323,8 @@ struct LegacyBrowserServices {
     let preferences: any PreferencesStoring
     /// Thumbnails for the browser's cells.
     let thumbnails: any ThumbnailProviding
-    /// Streaming playback of encrypted videos in the viewer.
-    let videoAssets: any VideoAssetProviding
+    /// Makes the file viewer and the rich-text editor.
+    let viewerFactory: any ViewerFactory
     /// The import sheet and pickers.
     let importPresenter: ImportPresenter
     /// The app's one export presenter (the export sheet and document picker).
@@ -362,6 +365,8 @@ final class AppDependencies {
     /// The app's one export presenter. It lives as long as the app because it holds the last picker until
     /// the next one replaces it, which keeps cancelling the document picker from crashing on iOS 18.
     let exportPresenter: ExportPresenter
+    /// Makes the file viewer and the rich-text editor, over `vaultStore`, `videoAssets` and `exportPresenter`.
+    let viewerFactory: any ViewerFactory
     /// The app's one vault lock: the key lifecycle and the lock state, over the master key store, the
     /// preferences and `vaultStore`.
     let vaultLock: any VaultLocking
@@ -374,7 +379,7 @@ final class AppDependencies {
     /// What the legacy browser screens are built with.
     var browserServices: LegacyBrowserServices {
         LegacyBrowserServices(
-            vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails, videoAssets: videoAssets,
+            vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails, viewerFactory: viewerFactory,
             importPresenter: importPresenter, exportPresenter: exportPresenter, vaultLock: vaultLock,
             lockMigrator: lockMigrator)
     }
@@ -415,10 +420,12 @@ final class AppDependencies {
             cameraRoll: PhotoLibraryAccess(),
             store: vaultStore,
             photoAccess: LiveImportPhotoAccess())
-        exportPresenter = ExportPresenter(
+        let exportPresenter = ExportPresenter(
             exporter: LiveVaultExporter(
                 store: vaultStore,
                 photoSaver: PhotoLibrarySaver(store: vaultStore, library: SystemPhotoLibraryAdder())))
+        self.exportPresenter = exportPresenter
+        viewerFactory = LiveViewerFactory(store: vaultStore, videoAssets: videoAssets, exportPresenter: exportPresenter)
 
         // The seeded lock must be in place before the vault lock reads the lock mode.
         if let password = storage.uiTestSettings?.password {
@@ -476,6 +483,15 @@ final class AppDependencies {
         if let count = settings.seedFileCount {
             for index in 0..<max(count, 0) {
                 seedFile(at: root.appendingPathComponent("uitest-seed-\(index).txt"), content: content)
+            }
+        }
+        if let count = settings.seedImageCount {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).pngData { context in
+                UIColor.systemTeal.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+            }
+            for index in 0..<max(count, 0) {
+                seedFile(at: root.appendingPathComponent("uitest-image-\(index).png"), content: image)
             }
         }
 

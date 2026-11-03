@@ -436,7 +436,7 @@
         "Export",
         "SharedUI"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -445,8 +445,8 @@
             "FilePageViewModel.swift",
             "TextEditorViewModel.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -455,16 +455,16 @@
             "Views/FilePageViewController.swift",
             "Views/TextEditorViewController.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 3,
           "files": [
             "View/FileBrowser.swift"
           ],
-          "state": "pending",
-          "attempts": 0,
+          "state": "done",
+          "attempts": 2,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T10:00:31-08:00",
+  "updatedAt": "2026-11-02T16:21:24-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
