@@ -367,6 +367,7 @@ extension matching ignores case.
   }
   enum PurchaseOutcome: Sendable, Equatable { case unlocked, cancelled, pending }
   enum ProUnlockError: Error, Equatable, Sendable { case productUnavailable, verificationFailed, purchaseFailed }
+  extension ProUnlockError: LocalizedError { var errorDescription: String? { get } }
 
   @MainActor
   protocol ProUnlocking: AnyObject, Sendable {
@@ -390,6 +391,7 @@ extension matching ignores case.
   - restore: syncs with the App Store, refreshes, returns whether unlocked; user cancel rethrows the StoreKit cancel error.
   - Transaction updates: a verified update is finished and triggers a refresh (a purchase made elsewhere unlocks live); unverified updates are ignored.
   - Tests use `SKTestSession` with `premiumTesting.storekit` and an injected UserDefaults suite. The initializer takes two seams that default to the real calls: `purchase: (Product, UIScene?) async throws -> Product.PurchaseResult` (on iOS 17+ with a scene, `purchase(confirmIn:)`; else `purchase()`) and `sync: () async throws -> Void` (`AppStore.sync()`). Unit tests drive purchase outcomes and the restore cancel through them, because purchases in the hosted unit-test process always fail on the simulator (AMS 305).
+  - errorDescription (logic in `Contracts/`, next to `ProUnlockError`; one asserting test per case): productUnavailable "Pro upgrade is currently unavailable."; verificationFailed "Could not verify purchase."; purchaseFailed "Purchase could not be completed."
 - Contract: see `docs/api/Entitlements.md` (generated; do not edit by hand)
 - Legacy files: Model/EntitlementService.swift
 - Legacy tests: KoalaTVaultTests/StoreKitConfigurationTests.swift
@@ -817,20 +819,23 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" / "Pro Unlocked", live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
+  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" with a disclosure indicator, opens the paywall / "Pro Unlocked" with a checkmark, tapping does nothing; live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
   - Choosing the current mode does nothing.
   - No Lock from a lock → confirm "Remove Lock?" → decrypt migration.
-  - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock` → encrypt migration with the target.
+  - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock(.password)` → encrypt migration under `.password`; for Password + biometric, a full migration then calls `switchMode` (a failure shows the error and keeps Password), and an incomplete one (Skip, Close) shows "Face ID wasn't turned on because some files aren't encrypted yet. Use Re-encrypt Everything, then turn on Face ID."
   - Password ↔ Password + biometric → `switchMode`; errors shown; the row reflects the real mode afterwards.
-  - Re-encrypt Everything → encrypt migration with no target.
+  - Re-encrypt Everything → encrypt migration with no target, keeping a pending encrypt's target.
+  - A store that can't be read (locked or failing) hides Re-encrypt Everything rather than showing an error.
+  - The view model records the kind (`.decrypt` after Remove Lock, `.encrypt` after adding a lock or re-encrypting) of the migration it starts, for the Migration screen.
+  - Changing the lock mode or re-encrypting is refused during a migration (running, paused, failed or pending): "A migration is still in progress. Let it finish, then try again."
   - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; success → "Password changed successfully"; busy while working.
-  - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully.
+  - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; the screen reappearing while a migration is paused (back from the lock screen) does not start it again; `wantsBackgroundTime` is true while running and false when paused, failed or completed.
   - PaywallViewModel: "Store more than 100 files."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
-  - RecentlyDeletedViewModel: rows with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
+  - RecentlyDeletedViewModel: rows, most recently deleted first, with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
   - Views: identifiers `upgradeToProCell`, `lockModeNoneCell`, `lockModePasswordCell`, `lockModeBiometricCell`, `reencryptCell`, `changePasswordCell`, `recentlyDeletedCell`, `paywallUnlockButton`, `restoreButton`, `paywallCloseButton`, `migrationStatusLabel`, `emptyTrashButton`. (Views.)
 - Contract: see `docs/api/Settings.md` (generated; do not edit by hand)
 - Legacy files: View/SecuritySettings.swift, View/LegacyPaywallViewController.swift, View/RecentlyDeleted.swift, View/Migration.swift (part: the view)
-- Legacy tests: KoalaTVaultTests/SecuritySettingsProTests.swift, KoalaTVaultTests/SecuritySettingsViewControllerTests.swift
+- Legacy tests: KoalaTVaultTests/SecuritySettingsProTests.swift, KoalaTVaultTests/SecuritySettingsViewControllerTests.swift, KoalaTVaultTests/MigrationScreenTests.swift
 - Callers to repoint: SceneDelegate.swift, View/FileBrowser.swift
 
 ### Browser
@@ -1021,6 +1026,8 @@ extension matching ignores case.
 - 2026-11-02: LockScreens spec records what unit 1's review confirmed against legacy: the "Biometrics" fallback name, a prompt cancel, every error clearing the field, the cover hiding when active and locked, and `onUnlocked` waiting for the lock screen's dismissal — LockScreens unit 1 review — orchestrator, recorded
 - 2026-11-02: Unlocking with `lockMode` .none and a pending encrypt unlocks first, then adds the lock, as today's app does. This replaces the 2026-10-31 order: `prepareToAddLock` first would let a mistyped password replace the saved one when nothing is encrypted yet, and the migration would then encrypt the files under the typo — LockScreens unit 1 — decided by the human
 - 2026-11-02: LockScreens' views may use SharedUI's `ProgressOverlayView` and `topmostPresentedController` directly, as the 2026-10-30 decision lets presenters — LockScreens unit 2 review — orchestrator, recorded
+- 2026-11-02: Adding Password + biometric encrypts under `.password` and turns biometrics on only after a full migration, as journey 8 and today's app do; the Settings bullet's "with the target" was wrong — Settings unit 1 — decided by the human
+- 2026-11-02: `ProUnlockError` conforms to `LocalizedError` with today's three messages, as the other error types do — contract change found in Settings unit 1 — approved by the human
 - 2026-11-02: Viewer unit 2 gets one more try after the retry cap, to fix one test that couldn't catch its own bug — Viewer unit 2 review — decided by the human
 - 2026-11-02: A failed save on Done offers Try Again or Discard Changes, so a lasting failure can't trap the user and only an explicit choice loses an edit — Viewer unit 2 review — decided by the human
 - 2026-11-02: Viewer and Browser may use `ExportPresenter` and `ExportSheetAnchor` directly, though they are outside Export's `Contracts/`; it's a UIKit flow, and a contract would gain little — Viewer unit 2 review — decided by the human
@@ -1028,3 +1035,7 @@ extension matching ignores case.
 - 2026-11-02: Viewer views keep today's identifiers as LockScreens' did, and `LiveViewerFactory` in `Views/` implements the contract's `ViewerFactory` — Viewer unit 2 — orchestrator, recorded
 - 2026-11-02: LockScreens views use the identifiers the journey tests already use (`lockScreen.*`, `setupWizard.*`), not the five the memo named; the adoption keeps today's app and the journeys are its baseline, and no test named the memo's — LockScreens unit 2 — orchestrator, recorded
 - 2026-11-02: LockScreens unit 1 gets one more try after the retry cap; the third failure was a test defect (a test expecting a second lock screen, against the spec's "once") — LockScreens unit 1 — decided by the human
+- 2026-11-03: Settings spec gains three legacy behaviors the code already had: a store read error hides Re-encrypt Everything, the settings view model records the migration kind and the Migration screen's `wantsBackgroundTime`, and Recently Deleted lists newest deletions first — Settings unit 1 review — decided by the human
+- 2026-11-03: Settings views use the identifiers the journey tests already use (`settings.lockMode.noLockRow`, `settings.changePasswordRow`, `paywall.closeButton`, `migration.statusLabel`, `recentlyDeleted.emptyTrashButton`, …), not the memo's names where they differ; same reasoning as LockScreens — Settings unit 2 — orchestrator, recorded
+- 2026-11-03: The existing-password prompt (adding a lock over an old password blob; not in today's app) is titled "Enter Existing Password", uses `VaultLockError.existingPasswordRequired`'s text as its message, a "Continue" button and field `settings.existingPasswordField` — Settings unit 2 review — orchestrator, recorded
+- 2026-11-03: Settings spec keeps three checks from the legacy tests: tapping "Pro Unlocked" does nothing; the Pro row shows a disclosure indicator when free and a checkmark when unlocked; the Migration screen reappearing while paused does not start the migration again. MigrationScreenTests.swift added to Settings' legacy tests — Settings switch-over scan — decided by the human

@@ -110,10 +110,25 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         openRecentlyDeleted()
         trashRow(seedName).tap()
         tapSheetButton("Delete Permanently")
+        let alert = app.alerts["Delete Permanently?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "Delete Permanently needs a confirm")
+        tapAlertButton("Delete", in: alert)
         XCTAssertTrue(trashRow(seedName).waitForNonExistence(timeout: 5), "Item should be gone from the trash")
         XCTAssertTrue(app.staticTexts["recentlyDeleted.emptyStateLabel"].waitForExistence(timeout: 5))
         leaveTrash()
         XCTAssertFalse(cell(seedName).exists)
+    }
+
+    func testJourney6_DeletePermanentlyAsksToConfirmAndCancelKeepsItem() {
+        deleteViaContextMenu(seedName)
+        openRecentlyDeleted()
+        trashRow(seedName).tap()
+        tapSheetButton("Delete Permanently")
+        let alert = app.alerts["Delete Permanently?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "Delete Permanently needs a confirm")
+        tapAlertButton("Cancel", in: alert)
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(trashRow(seedName).exists, "Cancel keeps the item in the trash")
     }
 
     func testJourney6_EmptyTrashAsksToConfirmAndCancelKeepsItems() {
