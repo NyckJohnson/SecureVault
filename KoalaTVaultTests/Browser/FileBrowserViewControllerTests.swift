@@ -1,0 +1,508 @@
+import Testing
+import UIKit
+
+@testable import KoalaTVault
+
+/// View tests for the browser grid. Seams assumed are listed in `BrowserViewTestSupport.swift`.
+/// Assumptions about the UI beyond the memo: Sort opens an action sheet whose titles start with "Name", "Type"
+/// and "Date Modified"; New Folder / New Document / Rename are alerts with one text field and a confirm
+/// action (any non-Cancel action); the Select button (`selectButton`) toggles select mode and the
+/// `bulk*Button`s exist only in select mode; the nav title is the view model's `title`.
+@MainActor
+@Suite struct FileBrowserViewControllerTests {
+    struct Rig {
+        let host: BrowserViewHost
+        let controller: FileBrowserViewController
+        let store: MockVaultStoring
+        let preferences: MockPreferencesStoring
+        let thumbnails: BrowserFakeThumbnails
+        let viewer: MockViewerFactory
+        let settings: MockSettingsFactory
+
+        var grid: UICollectionView? { host.element("fileGrid") as? UICollectionView }
+
+        var cells: [FileCell] {
+            guard let grid, grid.numberOfSections > 0 else { return [] }
+            return (0..<grid.numberOfItems(inSection: 0)).compactMap { item in
+                grid.dataSource?.collectionView(grid, cellForItemAt: IndexPath(item: item, section: 0)) as? FileCell
+            }
+        }
+
+        var names: [String] { cells.compactMap { $0.accessibilityIdentifier?.replacingOccurrences(of: "fileCell_", with: "") } }
+
+        func indexPath(_ name: String) -> IndexPath? {
+            names.firstIndex(of: name).map { IndexPath(item: $0, section: 0) }
+        }
+
+        func tapCell(_ name: String) {
+            guard let grid, let path = indexPath(name) else { return }
+            grid.delegate?.collectionView?(grid, didSelectItemAt: path)
+        }
+
+        /// The actions of the item's context menu, by title.
+        func menuActions(for name: String) -> [UIAction] {
+            guard let grid, let path = indexPath(name),
+                let configuration = grid.delegate?.collectionView?(
+                    grid, contextMenuConfigurationForItemAt: path, point: .zero),
+                let menu = configuration.actionProvider?([])
+            else { return [] }
+            return menu.children.compactMap { $0 as? UIAction }
+        }
+
+        func choose(_ title: String, in name: String) {
+            menuActions(for: name).first { $0.title == title }?.performWithSender(nil, target: nil)
+        }
+    }
+
+    private func makeRig(
+        folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false, waitForCells: Bool = true
+    ) async throws -> Rig {
+        let store = MockVaultStoring(withSampleContent: withSampleContent)
+        let directory: VaultDirectory
+        if let folder {
+            let item = try #require(store.allItems.first { $0.name == folder && $0.isDirectory })
+            directory = try #require(item.asDirectory)
+        } else {
+            directory = store.root
+        }
+        let preferences = MockPreferencesStoring()
+        let thumbnails = BrowserFakeThumbnails()
+        let exporter = MockVaultExporting()
+        let viewer = MockViewerFactory()
+        let settings = MockSettingsFactory()
+        if failing { store.errorToThrow = .notFound }
+        let controller = FileBrowserViewController(
+            directory: directory, store: store, preferences: preferences, thumbnails: thumbnails,
+            exporter: exporter, exportPresenter: ExportPresenter(exporter: exporter),
+            importPresenter: ImportPresenter(
+                importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
+            viewerFactory: viewer, settingsFactory: settings)
+        let host = BrowserViewHost(content: UINavigationController(rootViewController: controller))
+        let rig = Rig(
+            host: host, controller: controller, store: store, preferences: preferences, thumbnails: thumbnails,
+            viewer: viewer, settings: settings)
+        if waitForCells && withSampleContent && !failing {
+            await BrowserViewSupport.waitUntil { !rig.cells.isEmpty }
+        }
+        return rig
+    }
+
+    private func enterSelectMode(_ rig: Rig, selecting names: [String]) async {
+        rig.host.tap("selectButton")
+        for name in names { rig.tapCell(name) }
+        await BrowserViewSupport.settle()
+    }
+
+    // MARK: - Identifiers and layout
+
+    @Test("The root browser has the grid and every bar button identified, including the settings gear")
+    func rootIdentifiers() async throws {
+        let rig = try await makeRig()
+        for id in ["fileGrid", "settingsButton", "sortButton", "newFolderButton", "newDocumentButton", "importButton", "selectButton"] {
+            #expect(rig.host.element(id) != nil, "missing \(id)")
+        }
+    }
+
+    @Test("A subfolder's browser has no settings button")
+    func subfolderHasNoSettingsButton() async throws {
+        let rig = try await makeRig(folder: "Photos")
+        #expect(rig.host.element("settingsButton") == nil)
+        #expect(rig.host.element("sortButton") != nil)
+    }
+
+    @Test("The grid shows the folder's items in order, folders first")
+    func gridItems() async throws {
+        let rig = try await makeRig()
+        #expect(rig.names == ["Documents", "Photos", "Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf"])
+    }
+
+    @Test("Each cell shows the item's name and size text")
+    func cellContent() async throws {
+        let rig = try await makeRig()
+        let cell = try #require(rig.cells.first { $0.accessibilityIdentifier == "fileCell_Beach.jpg" })
+        let texts = BrowserViewHost.texts(in: cell)
+        #expect(texts.contains("Beach.jpg"))
+        #expect(texts.contains(ByteCountFormatter.string(fromByteCount: 2_481_152, countStyle: .file)))
+    }
+
+    @Test("Cells ask for their item's thumbnail")
+    func cellsRequestThumbnails() async throws {
+        let rig = try await makeRig()
+        let beach = try #require(rig.store.allItems.first { $0.name == "Beach.jpg" })
+        await BrowserViewSupport.waitUntil { rig.thumbnails.requested().contains(beach.id) }
+        #expect(rig.thumbnails.requested().contains(beach.id))
+    }
+
+    @Test("An empty folder shows No files yet")
+    func emptyState() async throws {
+        let rig = try await makeRig(withSampleContent: false)
+        let label = try #require(await rig.host.waitForElement("emptyStateLabel") as? UILabel)
+        await BrowserViewSupport.waitUntil { label.text == "No files yet" && !label.isHidden }
+        #expect(label.text == "No files yet")
+        #expect(label.isHidden == false)
+    }
+
+    @Test("A folder with items hides the empty message")
+    func nonEmptyHidesMessage() async throws {
+        let rig = try await makeRig()
+        let label = rig.host.element("emptyStateLabel") as? UILabel
+        #expect(label == nil || label?.isHidden == true)
+    }
+
+    @Test("A load error is presented as an alert")
+    func loadErrorAlert() async throws {
+        let rig = try await makeRig(failing: true, waitForCells: false)
+        let alert = await rig.host.alert()
+        #expect(alert?.message == VaultStoreError.notFound.localizedDescription)
+    }
+
+    // MARK: - Open
+
+    @Test("Tapping a folder cell pushes a browser for that folder")
+    func tapFolderPushes() async throws {
+        let rig = try await makeRig()
+        rig.tapCell("Photos")
+        await BrowserViewSupport.waitUntil { (rig.host.navigation?.viewControllers.count ?? 0) == 2 }
+        #expect(rig.host.navigation?.viewControllers.count == 2)
+        let pushed = try #require(rig.host.navigation?.topViewController as? FileBrowserViewController)
+        #expect(pushed.navigationItem.title == "Photos" || pushed.title == "Photos")
+    }
+
+    @Test("Tapping a file opens the viewer on the folder's files, starting at the tapped one")
+    func tapFileOpensViewer() async throws {
+        let rig = try await makeRig()
+        rig.tapCell("Holiday.mov")
+        let files = rig.store.allItems.filter { $0.name != "Photos" && $0.name != "Documents" && $0.id.split(separator: "/").count == 1 }
+        let sortedNames = ["Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf"]
+        let ids = sortedNames.compactMap { name in files.first { $0.name == name }?.id }
+        await BrowserViewSupport.waitUntil { !rig.viewer.calls.isEmpty }
+        #expect(rig.viewer.calls == [.makeViewer(itemIDs: ids, startingAt: 1)])
+    }
+
+    @Test("Tapping an .rtf file opens the editor")
+    func tapRtfOpensEditor() async throws {
+        let rig = try await makeRig()
+        let notes = try #require(rig.store.allItems.first { $0.name == "Notes.rtf" })
+        rig.tapCell("Notes.rtf")
+        await BrowserViewSupport.waitUntil { !rig.viewer.calls.isEmpty }
+        #expect(rig.viewer.calls == [.makeEditor(notes.id)])
+    }
+
+    @Test("The settings button opens Settings")
+    func settingsButtonOpensSettings() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("settingsButton")
+        await BrowserViewSupport.waitUntil { !rig.settings.calls.isEmpty }
+        #expect(rig.settings.calls == [.makeSettings])
+    }
+
+    // MARK: - Sort, New Folder, New Document
+
+    @Test("Sort offers Name, Type and Date Modified, and a choice is saved")
+    func sortSheet() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("sortButton")
+        let sheet = try #require(await rig.host.alert())
+        let titles = sheet.actionTitles
+        #expect(titles.contains { $0.hasPrefix("Name") })
+        #expect(titles.contains { $0.hasPrefix("Type") })
+        #expect(titles.contains { $0.hasPrefix("Date Modified") })
+        let type = try #require(sheet.actions.first { $0.title?.hasPrefix("Type") == true })
+        type.fire()
+        await BrowserViewSupport.waitUntil { rig.preferences.sortOption == .type }
+        #expect(rig.preferences.sortOption == .type)
+        #expect(rig.preferences.sortDirection == .ascending)
+    }
+
+    @Test("New Folder asks for a name and creates the folder")
+    func newFolder() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("newFolderButton")
+        let alert = try #require(await rig.host.alert())
+        let field = try #require(alert.textFields?.first)
+        field.text = "  Trips "
+        alert.fireConfirm()
+        await BrowserViewSupport.waitUntil { rig.names.contains("Trips") }
+        #expect(rig.names.contains("Trips"))
+    }
+
+    @Test("New Folder with a blank name does nothing")
+    func newFolderBlank() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("newFolderButton")
+        let alert = try #require(await rig.host.alert())
+        alert.textFields?.first?.text = "   "
+        alert.fireConfirm()
+        await BrowserViewSupport.settle()
+        #expect(!rig.store.calls.contains { if case .createFolder = $0 { return true } else { return false } })
+    }
+
+    @Test("New Document creates the file and opens the editor on it")
+    func newDocument() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("newDocumentButton")
+        let alert = try #require(await rig.host.alert())
+        alert.textFields?.first?.text = "Draft"
+        alert.fireConfirm()
+        await BrowserViewSupport.waitUntil { !rig.viewer.calls.isEmpty }
+        let created = rig.store.allItems.first { $0.name.hasPrefix("Draft") }
+        #expect(created != nil)
+        #expect(rig.viewer.calls == [.makeEditor(try #require(created).id)])
+    }
+
+    // MARK: - Select mode
+
+    @Test("Select mode shows Select Items, then the count, and its bulk buttons")
+    func selectMode() async throws {
+        let rig = try await makeRig()
+        #expect(rig.host.element("bulkDeleteButton") == nil)
+        rig.host.tap("selectButton")
+        await BrowserViewSupport.waitUntil { rig.host.shownTitle == "Select Items" }
+        #expect(rig.host.shownTitle == "Select Items")
+        for id in ["bulkDeleteButton", "bulkMoveButton", "bulkExportButton", "bulkCopyButton"] {
+            #expect(rig.host.element(id) != nil, "missing \(id)")
+        }
+        rig.tapCell("Beach.jpg")
+        rig.tapCell("Notes.rtf")
+        await BrowserViewSupport.waitUntil { rig.host.shownTitle == "2 Selected" }
+        #expect(rig.host.shownTitle == "2 Selected")
+    }
+
+    @Test("In select mode a tap selects instead of opening")
+    func selectModeTapDoesNotOpen() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("selectButton")
+        rig.tapCell("Notes.rtf")
+        rig.tapCell("Photos")
+        await BrowserViewSupport.settle()
+        #expect(rig.viewer.calls.isEmpty)
+        #expect(rig.host.navigation?.viewControllers.count == 1)
+    }
+
+    @Test("Leaving select mode restores the folder title and removes the bulk buttons")
+    func leaveSelectMode() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("selectButton")
+        await BrowserViewSupport.waitUntil { rig.host.element("bulkDeleteButton") == nil }
+        #expect(rig.host.element("bulkDeleteButton") == nil)
+        #expect(rig.host.shownTitle != "1 Selected")
+        #expect(rig.host.shownTitle != "Select Items")
+    }
+
+    @Test("Bulk Delete confirms with Delete N items? and then trashes the selection")
+    func bulkDelete() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg", "Notes.rtf"])
+        rig.host.tap("bulkDeleteButton")
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.title == "Delete 2 items?")
+        #expect(alert.message?.contains("Recently Deleted") == true)
+        #expect(!rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
+        alert.fire("Delete")
+        await BrowserViewSupport.waitUntil { !rig.names.contains("Beach.jpg") }
+        #expect(!rig.names.contains("Beach.jpg"))
+        #expect(!rig.names.contains("Notes.rtf"))
+    }
+
+    @Test("Cancelling the bulk delete confirmation trashes nothing")
+    func bulkDeleteCancel() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("bulkDeleteButton")
+        let alert = try #require(await rig.host.alert())
+        alert.fire("Cancel")
+        await BrowserViewSupport.settle()
+        #expect(!rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
+    }
+
+    @Test("Bulk Copy copies the selection into the current folder")
+    func bulkCopy() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("bulkCopyButton")
+        await BrowserViewSupport.waitUntil { rig.names.contains("Beach.jpg 1") }
+        #expect(rig.names.contains("Beach.jpg 1"))
+    }
+
+    @Test("Bulk Move opens the folder picker, and the picker's choice moves the selection")
+    func bulkMove() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("bulkMoveButton")
+        await BrowserViewSupport.waitUntil { rig.host.topmost is UINavigationController }
+        let nav = try #require(rig.host.topmost as? UINavigationController)
+        #expect(nav.topViewController is FolderPickerViewController)
+        rig.host.tap("folderPickerMoveHere")
+        // Moving into the folder the item already lives in does nothing, so the item stays.
+        await BrowserViewSupport.settle()
+        #expect(rig.names.contains("Beach.jpg"))
+    }
+
+    @Test("Cancelling the folder picker moves nothing")
+    func pickerCancelMovesNothing() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("bulkMoveButton")
+        await BrowserViewSupport.waitUntil { rig.host.topmost is UINavigationController }
+        rig.host.tap("folderPickerCancel")
+        await BrowserViewSupport.settle()
+        #expect(!rig.store.calls.contains { if case .move = $0 { return true } else { return false } })
+        #expect(rig.names.contains("Beach.jpg"))
+    }
+
+    @Test("Bulk Export anchors its iPad popover on the bulk Export button")
+    func bulkExportAnchor() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("bulkExportButton")
+        let sheet = try #require(await rig.host.alert())
+        #expect(sheet.actionTitles.contains("Save to Files"))
+        let anchor = sheet.popoverPresentationController?.barButtonItem
+        #expect(anchor != nil)
+        #expect(anchor === rig.host.element("bulkExportButton") as? UIBarButtonItem)
+    }
+
+    @Test("Import anchors its iPad popover on the Import button and offers the four choices")
+    func importAnchor() async throws {
+        let rig = try await makeRig()
+        rig.host.tap("importButton")
+        let sheet = try #require(await rig.host.alert())
+        #expect(sheet.actionTitles.contains("Choose Files"))
+        #expect(sheet.actionTitles.contains("Choose Folder"))
+        #expect(sheet.actionTitles.contains("Choose Photos"))
+        let anchor = sheet.popoverPresentationController?.barButtonItem
+        #expect(anchor != nil)
+        #expect(anchor === rig.host.element("importButton") as? UIBarButtonItem)
+    }
+
+    // MARK: - Context menu
+
+    @Test("The context menu offers Export, Move, Copy, Rename and Delete")
+    func contextMenuActions() async throws {
+        let rig = try await makeRig()
+        #expect(rig.menuActions(for: "Beach.jpg").map(\.title) == ["Export", "Move", "Copy", "Rename", "Delete"])
+    }
+
+    @Test("Rename starts with the current name and renames through the store")
+    func contextRename() async throws {
+        let rig = try await makeRig()
+        rig.choose("Rename", in: "Beach.jpg")
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.textFields?.first?.text == "Beach.jpg")
+        alert.textFields?.first?.text = "Shore.jpg"
+        alert.fireConfirm()
+        await BrowserViewSupport.waitUntil { rig.names.contains("Shore.jpg") }
+        #expect(rig.names.contains("Shore.jpg"))
+        #expect(!rig.names.contains("Beach.jpg"))
+    }
+
+    @Test("Delete asks first, naming the item and mentioning Recently Deleted")
+    func contextDelete() async throws {
+        let rig = try await makeRig()
+        rig.choose("Delete", in: "Beach.jpg")
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.title == "Delete \"Beach.jpg\"?")
+        #expect(alert.message?.contains("Recently Deleted") == true)
+        alert.fire("Delete")
+        await BrowserViewSupport.waitUntil { !rig.names.contains("Beach.jpg") }
+        #expect(!rig.names.contains("Beach.jpg"))
+    }
+
+    @Test("Copy from the context menu copies the item into the folder")
+    func contextCopy() async throws {
+        let rig = try await makeRig()
+        rig.choose("Copy", in: "Notes.rtf")
+        await BrowserViewSupport.waitUntil { rig.names.contains("Notes.rtf 1") }
+        #expect(rig.names.contains("Notes.rtf 1"))
+    }
+
+    @Test("Move from the context menu opens the folder picker, and choosing a folder moves the item")
+    func contextMove() async throws {
+        let rig = try await makeRig()
+        rig.choose("Move", in: "Beach.jpg")
+        await BrowserViewSupport.waitUntil { rig.host.topmost is UINavigationController }
+        let nav = try #require(rig.host.topmost as? UINavigationController)
+        let picker = try #require(nav.topViewController as? FolderPickerViewController)
+        let table = try #require(Self.findTable(in: picker.view))
+        await BrowserViewSupport.waitUntil { table.numberOfSections > 0 && table.numberOfRows(inSection: 0) == 2 }
+        // Rows are Documents, Photos: pick Photos.
+        table.delegate?.tableView?(table, didSelectRowAt: IndexPath(row: 1, section: 0))
+        await BrowserViewSupport.waitUntil { nav.viewControllers.count == 2 }
+        rig.host.tap("folderPickerMoveHere")
+        await BrowserViewSupport.waitUntil { !rig.names.contains("Beach.jpg") }
+        #expect(!rig.names.contains("Beach.jpg"))
+    }
+
+    @Test("Export from the context menu shows the export sheet")
+    func contextExport() async throws {
+        let rig = try await makeRig()
+        rig.choose("Export", in: "Beach.jpg")
+        let sheet = try #require(await rig.host.alert())
+        #expect(sheet.actionTitles.contains("Save to Files"))
+        #expect(sheet.popoverPresentationController?.sourceView != nil)
+    }
+
+    private static func findTable(in view: UIView) -> UITableView? {
+        if let table = view as? UITableView { return table }
+        for subview in view.subviews { if let found = findTable(in: subview) { return found } }
+        return nil
+    }
+
+    // MARK: - Drag and drop
+
+    @Test("A folder cell is a drop target")
+    func folderIsDropTarget() async throws {
+        let rig = try await makeRig()
+        #expect(rig.controller.dropTargetAllowed(at: rig.indexPath("Photos")) == true)
+    }
+
+    @Test("A file cell and empty space are not drop targets")
+    func fileIsNotDropTarget() async throws {
+        let rig = try await makeRig()
+        #expect(rig.controller.dropTargetAllowed(at: rig.indexPath("Beach.jpg")) == false)
+        #expect(rig.controller.dropTargetAllowed(at: nil) == false)
+    }
+
+    @Test("Dropping an item of this app onto a folder cell moves it into the folder")
+    func dropOntoFolderMoves() async throws {
+        let rig = try await makeRig()
+        let beach = try #require(rig.store.allItems.first { $0.name == "Beach.jpg" })
+        await rig.controller.drop(beach, at: try #require(rig.indexPath("Photos")))
+        await BrowserViewSupport.waitUntil { !rig.names.contains("Beach.jpg") }
+        #expect(!rig.names.contains("Beach.jpg"))
+    }
+
+    @Test("Dropping onto a file cell moves nothing")
+    func dropOntoFileDoesNothing() async throws {
+        let rig = try await makeRig()
+        let beach = try #require(rig.store.allItems.first { $0.name == "Beach.jpg" })
+        await rig.controller.drop(beach, at: try #require(rig.indexPath("Notes.rtf")))
+        #expect(!rig.store.calls.contains { if case .move = $0 { return true } else { return false } })
+    }
+
+    @Test("A drop from another app (no item of ours) is ignored")
+    func externalDropIgnored() async throws {
+        let rig = try await makeRig()
+        await rig.controller.drop(nil, at: try #require(rig.indexPath("Photos")))
+        #expect(!rig.store.calls.contains { if case .move = $0 { return true } else { return false } })
+    }
+
+    @Test("In a no-lock vault an unencrypted item can be dragged out to other apps")
+    func dragOutAllowed() async throws {
+        let rig = try await makeRig()
+        let items = rig.controller.dragItems(at: try #require(rig.indexPath("Beach.jpg")))
+        #expect(items.count == 1)
+        #expect(items.first?.itemProvider.registeredTypeIdentifiers.isEmpty == false)
+    }
+
+    @Test("With a lock set the drag stays inside the app")
+    func dragOutRefusedWithLock() async throws {
+        let rig = try await makeRig()
+        rig.preferences.lockMode = .password
+        let items = rig.controller.dragItems(at: try #require(rig.indexPath("Beach.jpg")))
+        #expect(items.count == 1)
+        #expect(items.first?.itemProvider.registeredTypeIdentifiers.isEmpty == true)
+        #expect((items.first?.localObject as? VaultItem)?.name == "Beach.jpg")
+    }
+}
