@@ -819,7 +819,7 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" / "Pro Unlocked", live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
+  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" with a disclosure indicator, opens the paywall / "Pro Unlocked" with a checkmark, tapping does nothing; live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
   - Choosing the current mode does nothing.
   - No Lock from a lock → confirm "Remove Lock?" → decrypt migration.
   - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock(.password)` → encrypt migration under `.password`; for Password + biometric, a full migration then calls `switchMode` (a failure shows the error and keeps Password), and an incomplete one (Skip, Close) shows "Face ID wasn't turned on because some files aren't encrypted yet. Use Re-encrypt Everything, then turn on Face ID."
@@ -829,13 +829,13 @@ extension matching ignores case.
   - The view model records the kind (`.decrypt` after Remove Lock, `.encrypt` after adding a lock or re-encrypting) of the migration it starts, for the Migration screen.
   - Changing the lock mode or re-encrypting is refused during a migration (running, paused, failed or pending): "A migration is still in progress. Let it finish, then try again."
   - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; success → "Password changed successfully"; busy while working.
-  - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; `wantsBackgroundTime` is true while running and false when paused, failed or completed.
+  - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; the screen reappearing while a migration is paused (back from the lock screen) does not start it again; `wantsBackgroundTime` is true while running and false when paused, failed or completed.
   - PaywallViewModel: "Store more than 100 files."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
   - RecentlyDeletedViewModel: rows, most recently deleted first, with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
   - Views: identifiers `upgradeToProCell`, `lockModeNoneCell`, `lockModePasswordCell`, `lockModeBiometricCell`, `reencryptCell`, `changePasswordCell`, `recentlyDeletedCell`, `paywallUnlockButton`, `restoreButton`, `paywallCloseButton`, `migrationStatusLabel`, `emptyTrashButton`. (Views.)
 - Contract: see `docs/api/Settings.md` (generated; do not edit by hand)
 - Legacy files: View/SecuritySettings.swift, View/LegacyPaywallViewController.swift, View/RecentlyDeleted.swift, View/Migration.swift (part: the view)
-- Legacy tests: KoalaTVaultTests/SecuritySettingsProTests.swift, KoalaTVaultTests/SecuritySettingsViewControllerTests.swift
+- Legacy tests: KoalaTVaultTests/SecuritySettingsProTests.swift, KoalaTVaultTests/SecuritySettingsViewControllerTests.swift, KoalaTVaultTests/MigrationScreenTests.swift
 - Callers to repoint: SceneDelegate.swift, View/FileBrowser.swift
 
 ### Browser
@@ -1038,3 +1038,4 @@ extension matching ignores case.
 - 2026-11-03: Settings spec gains three legacy behaviors the code already had: a store read error hides Re-encrypt Everything, the settings view model records the migration kind and the Migration screen's `wantsBackgroundTime`, and Recently Deleted lists newest deletions first — Settings unit 1 review — decided by the human
 - 2026-11-03: Settings views use the identifiers the journey tests already use (`settings.lockMode.noLockRow`, `settings.changePasswordRow`, `paywall.closeButton`, `migration.statusLabel`, `recentlyDeleted.emptyTrashButton`, …), not the memo's names where they differ; same reasoning as LockScreens — Settings unit 2 — orchestrator, recorded
 - 2026-11-03: The existing-password prompt (adding a lock over an old password blob; not in today's app) is titled "Enter Existing Password", uses `VaultLockError.existingPasswordRequired`'s text as its message, a "Continue" button and field `settings.existingPasswordField` — Settings unit 2 review — orchestrator, recorded
+- 2026-11-03: Settings spec keeps three checks from the legacy tests: tapping "Pro Unlocked" does nothing; the Pro row shows a disclosure indicator when free and a checkmark when unlocked; the Migration screen reappearing while paused does not start the migration again. MigrationScreenTests.swift added to Settings' legacy tests — Settings switch-over scan — decided by the human
