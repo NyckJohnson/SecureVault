@@ -20,5 +20,5 @@ managed block above.
   2026-10-30). Same rules: tested, never `coverage-exempt`.
 - `VaultLock/Contracts/VaultLockContract.swift` also holds real code (`VaultLockError.errorDescription`, added during LockScreens
   unit 1, approved 2026-11-02). Same rules: tested, never `coverage-exempt`.
-- The Entitlements contract file holding `ProUnlockError` also holds real code (`ProUnlockError.errorDescription`, added during Settings
+- `Entitlements/Contracts/EntitlementsContract.swift` also holds real code (`ProUnlockError.errorDescription`, added during Settings
   unit 1, approved 2026-11-02). Same rules: tested, never `coverage-exempt`.
