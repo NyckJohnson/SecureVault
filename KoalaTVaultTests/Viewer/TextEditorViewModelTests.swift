@@ -664,3 +664,21 @@ import UIKit
 final class DismissCounter {
     var count = 0
 }
+
+// MARK: - Default sleep
+
+extension TextEditorViewModelTests {
+    @Test("With the real sleep, done during the 1 s autosave delay saves exactly once and no autosave follows")
+    func doneDuringRealAutosaveDelay() async throws {
+        let item = try await makeStoredDocument(containing: rtf("Hello"))
+        defer { cleanUp(item) }
+        let viewModel = TextEditorViewModel(item: item, store: store, alerts: alerts)
+        await viewModel.load()
+        viewModel.textDidChange(NSAttributedString(string: "Changed"))
+        for _ in 0..<50 { await Task.yield() }
+        await viewModel.done()
+        #expect(writeCount == 1)
+        await ViewerTestSupport.settle()
+        #expect(writeCount == 1)
+    }
+}

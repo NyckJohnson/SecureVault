@@ -504,3 +504,18 @@ import Testing
         #expect(!model.closesAfterEditor)
     }
 }
+
+// MARK: - Default sleep
+
+extension FileViewerViewModelTests {
+    @Test("With the real sleep, closing during the 3 s hide delay keeps the bars visible without waiting")
+    func closeDuringRealHideDelay() async {
+        let viewModel = FileViewerViewModel(
+            items: Self.files("a.mp4"), startingAt: 0, store: MockVaultStoring(withSampleContent: false))
+        viewModel.playbackStateChanged(isPlaying: true)
+        for _ in 0..<50 { await Task.yield() }
+        viewModel.close()
+        await ViewerTestSupport.settle()
+        #expect(viewModel.barsVisible)
+    }
+}
