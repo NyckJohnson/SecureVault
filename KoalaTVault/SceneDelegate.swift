@@ -12,6 +12,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     /// Follows the vault lock's state to run the housekeeping on every change to `.unlocked`.
     private var lockStateObservation: Task<Void, Never>?
+    /// Follows the lock migration's phase to reload the browsers when a migration completes.
+    private var migrationObservation: Task<Void, Never>?
     /// The latest post-unlock housekeeping; a pending migration waits for it.
     private var maintenance: Task<Void, Never>?
     /// Set on a genuine backgrounding, so a return (not the cold launch) purges the trash with no lock.
@@ -35,9 +37,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private var lockCoordinator: any AppLockCoordinating { dependencies.lockCoordinator }
     /// The app's one lock migration.
     private var lockMigrator: any LockMigrating { dependencies.lockMigrator }
+    /// Makes the root browser and reloads the browsers on screen.
+    private var browserFactory: any BrowserFactory { dependencies.browserFactory }
 
     deinit {
         lockStateObservation?.cancel()
+        migrationObservation?.cancel()
     }
 
     // MARK: - UIWindowSceneDelegate
@@ -45,16 +50,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
-        let root = LegacyFileBrowserViewController(directory: vaultStore.root, services: dependencies.browserServices)
-        let nav = UINavigationController(rootViewController: root)
-        nav.navigationBar.prefersLargeTitles = true
         let window = UIWindow(windowScene: windowScene)
-        window.rootViewController = nav
+        window.rootViewController = browserFactory.makeRootBrowser()
         window.makeKeyAndVisible()
         self.window = window
 
         // Subscribe before anything can unlock, so no change is missed.
         observeLockState()
+        observeMigrationPhase()
         lockCoordinator.onUnlocked = { [weak self] in self?.lockScreenDidUnlock() }
         let needsSetup = !dependencies.preferences.hasCompletedSetup
         // Runs the launch recovery of a pending encrypt first, so `resumeIfPending` (in the post-unlock
@@ -100,6 +103,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidDisconnect(_ scene: UIScene) {
         lockStateObservation?.cancel()
         lockStateObservation = nil
+        migrationObservation?.cancel()
+        migrationObservation = nil
     }
 
     // MARK: - Vault Unlock
@@ -112,6 +117,21 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         lockStateObservation = Task { [weak self] in
             for await state in updates where state == .unlocked {
                 self?.startMaintenance()
+            }
+        }
+    }
+
+    /// Reloads the browsers when a lock migration completes (adding or removing a lock in Settings, or a
+    /// resumed one): their items still describe the files as they were before (`isEncrypted`, URL), so
+    /// opening one would fail until the grid lists the folder again.
+    private func observeMigrationPhase() {
+        guard migrationObservation == nil else { return }
+        let updates = lockMigrator.phaseUpdates()
+        migrationObservation = Task { [weak self] in
+            for await phase in updates {
+                if case .completed = phase {
+                    self?.browserFactory.reloadAll()
+                }
             }
         }
     }
@@ -130,12 +150,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     private func reloadFileBrowser() {
-        // Assumes root is always UINavigationController with LegacyFileBrowserViewController as the first VC.
-        // Update this if the root view controller hierarchy ever changes (e.g. tab bar added).
-        if let nav = window?.rootViewController as? UINavigationController,
-           let browser = nav.viewControllers.first as? LegacyFileBrowserViewController {
-            browser.reloadAfterAuth()
-        }
+        browserFactory.reloadAll()
     }
 
     /// Presents a pending migration once the housekeeping has finished. If the vault locked again in the

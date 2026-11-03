@@ -281,29 +281,18 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     func removeAllTemporaryFiles() { base.removeAllTemporaryFiles() }
 }
 
-// MARK: - Legacy screen services
+// MARK: - Browser reload relay
 
-/// What the legacy browser screens need from the composition root, handed from screen to screen.
+/// Forwards a reload request to the browser factory, which is built after the settings factory that asks for
+/// it (Recently Deleted's restore): the browser factory needs the settings factory, so the settings factory's
+/// `onRestore` reaches it through this relay. Held weakly, so the relay keeps nothing alive.
 @MainActor
-struct LegacyBrowserServices {
-    /// The app's one vault store.
-    let vaultStore: any VaultStoring
-    /// The app's settings (sort order).
-    let preferences: any PreferencesStoring
-    /// Thumbnails for the browser's cells.
-    let thumbnails: any ThumbnailProviding
-    /// Makes the file viewer and the rich-text editor.
-    let viewerFactory: any ViewerFactory
-    /// The import sheet and pickers.
-    let importPresenter: ImportPresenter
-    /// The app's one export presenter (the export sheet and document picker).
-    let exportPresenter: ExportPresenter
-    /// The app's one vault lock (lock state, lock mode, settings).
-    let vaultLock: any VaultLocking
-    /// The app's one lock migration (Settings adds and removes the lock through it).
-    let lockMigrator: any LockMigrating
-    /// Makes the security settings and the paywall.
-    let settingsFactory: any SettingsFactory
+private final class BrowserReloadRelay {
+    weak var browserFactory: (any BrowserFactory)?
+
+    func reloadAll() {
+        browserFactory?.reloadAll()
+    }
 }
 
 // MARK: - Composition root
@@ -348,16 +337,11 @@ final class AppDependencies {
     /// `UITEST_FAIL_MIGRATION_FILE` names the file it fails.
     let lockMigrator: any LockMigrating
     /// Makes the security settings, the paywall and the migration screen, over `vaultLock`, `lockMigrator`,
-    /// `vaultStore` and `proUnlock`. A restore in Recently Deleted posts `.fileRestored`, which the legacy
-    /// browser observes to refresh.
+    /// `vaultStore` and `proUnlock`. A restore in Recently Deleted reloads every browser (`browserFactory.reloadAll()`).
     let settingsFactory: any SettingsFactory
-    /// What the legacy browser screens are built with.
-    var browserServices: LegacyBrowserServices {
-        LegacyBrowserServices(
-            vaultStore: vaultStore, preferences: preferences, thumbnails: thumbnails, viewerFactory: viewerFactory,
-            importPresenter: importPresenter, exportPresenter: exportPresenter, vaultLock: vaultLock,
-            lockMigrator: lockMigrator, settingsFactory: settingsFactory)
-    }
+    /// Makes the root file browser and reloads the browsers on screen, over `vaultStore`, the preferences,
+    /// `thumbnails`, the exporter, both presenters, `viewerFactory` and `settingsFactory`.
+    let browserFactory: any BrowserFactory
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
 
     init(storage: LegacyStorage = .current, arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -394,12 +378,13 @@ final class AppDependencies {
             cameraRoll: PhotoLibraryAccess(),
             store: vaultStore,
             photoAccess: LiveImportPhotoAccess())
-        let exportPresenter = ExportPresenter(
-            exporter: LiveVaultExporter(
-                store: vaultStore,
-                photoSaver: PhotoLibrarySaver(store: vaultStore, library: SystemPhotoLibraryAdder())))
+        let exporter = LiveVaultExporter(
+            store: vaultStore,
+            photoSaver: PhotoLibrarySaver(store: vaultStore, library: SystemPhotoLibraryAdder()))
+        let exportPresenter = ExportPresenter(exporter: exporter)
         self.exportPresenter = exportPresenter
-        viewerFactory = LiveViewerFactory(store: vaultStore, videoAssets: videoAssets, exportPresenter: exportPresenter)
+        let viewerFactory = LiveViewerFactory(store: vaultStore, videoAssets: videoAssets, exportPresenter: exportPresenter)
+        self.viewerFactory = viewerFactory
 
         // The seeded lock must be in place before the vault lock reads the lock mode.
         if let password = storage.uiTestSettings?.password {
@@ -425,9 +410,17 @@ final class AppDependencies {
             store: vaultStore, lock: vaultLock, preferences: storage.preferences,
             uiTestFailFileName: storage.uiTestSettings?.failMigrationFileName)
         self.lockMigrator = lockMigrator
-        settingsFactory = LiveSettingsFactory(
+        let reloadRelay = BrowserReloadRelay()
+        let settingsFactory = LiveSettingsFactory(
             lock: vaultLock, migrator: lockMigrator, store: vaultStore, pro: proUnlock,
-            onRestore: { NotificationCenter.default.post(name: .fileRestored, object: nil) })
+            onRestore: { reloadRelay.reloadAll() })
+        self.settingsFactory = settingsFactory
+        let browserFactory = LiveBrowserFactory(
+            store: vaultStore, preferences: storage.preferences, thumbnails: thumbnails, exporter: exporter,
+            exportPresenter: exportPresenter, importPresenter: importPresenter, viewerFactory: viewerFactory,
+            settingsFactory: settingsFactory)
+        reloadRelay.browserFactory = browserFactory
+        self.browserFactory = browserFactory
     }
 
     /// `UITEST_PASSWORD`: the empty test vault starts set up with `password` and lock mode password, as after

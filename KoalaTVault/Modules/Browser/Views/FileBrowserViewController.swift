@@ -126,7 +126,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
-    /// Lists the folder again; the browser factory calls this after unlock and after a restore.
+    /// Lists the folder again; the browser factory calls this after unlock, a restore and a completed migration.
     func reload() {
         Task { [weak self] in await self?.viewModel.vaultUnlocked() }
     }
