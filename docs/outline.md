@@ -367,6 +367,7 @@ extension matching ignores case.
   }
   enum PurchaseOutcome: Sendable, Equatable { case unlocked, cancelled, pending }
   enum ProUnlockError: Error, Equatable, Sendable { case productUnavailable, verificationFailed, purchaseFailed }
+  extension ProUnlockError: LocalizedError { var errorDescription: String? { get } }
 
   @MainActor
   protocol ProUnlocking: AnyObject, Sendable {
@@ -390,6 +391,7 @@ extension matching ignores case.
   - restore: syncs with the App Store, refreshes, returns whether unlocked; user cancel rethrows the StoreKit cancel error.
   - Transaction updates: a verified update is finished and triggers a refresh (a purchase made elsewhere unlocks live); unverified updates are ignored.
   - Tests use `SKTestSession` with `premiumTesting.storekit` and an injected UserDefaults suite. The initializer takes two seams that default to the real calls: `purchase: (Product, UIScene?) async throws -> Product.PurchaseResult` (on iOS 17+ with a scene, `purchase(confirmIn:)`; else `purchase()`) and `sync: () async throws -> Void` (`AppStore.sync()`). Unit tests drive purchase outcomes and the restore cancel through them, because purchases in the hosted unit-test process always fail on the simulator (AMS 305).
+  - errorDescription (logic in `Contracts/`, next to `ProUnlockError`; one asserting test per case): productUnavailable "Pro upgrade is currently unavailable."; verificationFailed "Could not verify purchase."; purchaseFailed "Purchase could not be completed."
 - Contract: see `docs/api/Entitlements.md` (generated; do not edit by hand)
 - Legacy files: Model/EntitlementService.swift
 - Legacy tests: KoalaTVaultTests/StoreKitConfigurationTests.swift
@@ -820,9 +822,10 @@ extension matching ignores case.
   - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" / "Pro Unlocked", live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
   - Choosing the current mode does nothing.
   - No Lock from a lock → confirm "Remove Lock?" → decrypt migration.
-  - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock` → encrypt migration with the target.
+  - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock(.password)` → encrypt migration under `.password`; for Password + biometric, a full migration then calls `switchMode` (a failure shows the error and keeps Password), and an incomplete one (Skip, Close) shows "Face ID wasn't turned on because some files aren't encrypted yet. Use Re-encrypt Everything, then turn on Face ID."
   - Password ↔ Password + biometric → `switchMode`; errors shown; the row reflects the real mode afterwards.
-  - Re-encrypt Everything → encrypt migration with no target.
+  - Re-encrypt Everything → encrypt migration with no target, keeping a pending encrypt's target.
+  - Changing the lock mode or re-encrypting is refused during a migration (running, paused, failed or pending): "A migration is still in progress. Let it finish, then try again."
   - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; success → "Password changed successfully"; busy while working.
   - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully.
   - PaywallViewModel: "Store more than 100 files."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
@@ -1021,6 +1024,8 @@ extension matching ignores case.
 - 2026-11-02: LockScreens spec records what unit 1's review confirmed against legacy: the "Biometrics" fallback name, a prompt cancel, every error clearing the field, the cover hiding when active and locked, and `onUnlocked` waiting for the lock screen's dismissal — LockScreens unit 1 review — orchestrator, recorded
 - 2026-11-02: Unlocking with `lockMode` .none and a pending encrypt unlocks first, then adds the lock, as today's app does. This replaces the 2026-10-31 order: `prepareToAddLock` first would let a mistyped password replace the saved one when nothing is encrypted yet, and the migration would then encrypt the files under the typo — LockScreens unit 1 — decided by the human
 - 2026-11-02: LockScreens' views may use SharedUI's `ProgressOverlayView` and `topmostPresentedController` directly, as the 2026-10-30 decision lets presenters — LockScreens unit 2 review — orchestrator, recorded
+- 2026-11-02: Adding Password + biometric encrypts under `.password` and turns biometrics on only after a full migration, as journey 8 and today's app do; the Settings bullet's "with the target" was wrong — Settings unit 1 — decided by the human
+- 2026-11-02: `ProUnlockError` conforms to `LocalizedError` with today's three messages, as the other error types do — contract change found in Settings unit 1 — approved by the human
 - 2026-11-02: Viewer unit 2 gets one more try after the retry cap, to fix one test that couldn't catch its own bug — Viewer unit 2 review — decided by the human
 - 2026-11-02: A failed save on Done offers Try Again or Discard Changes, so a lasting failure can't trap the user and only an explicit choice loses an edit — Viewer unit 2 review — decided by the human
 - 2026-11-02: Viewer and Browser may use `ExportPresenter` and `ExportSheetAnchor` directly, though they are outside Export's `Contracts/`; it's a UIKit flow, and a contract would gain little — Viewer unit 2 review — decided by the human
