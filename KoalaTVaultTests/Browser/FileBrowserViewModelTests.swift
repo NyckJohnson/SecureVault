@@ -37,6 +37,110 @@ import Testing
 //     func editorClosed() async; func vaultUnlocked() async
 // }
 
+/// A store that forwards to a `MockVaultStoring` and can hold calls until the test releases them.
+private final class GatedVaultStore: VaultStoring, @unchecked Sendable {
+    enum HeldCall { case firstContents, firstMoveToTrash }
+
+    let inner: MockVaultStoring
+    private let lock = NSLock()
+    private let held: HeldCall?
+    private let cancelAfterHold: Bool
+    private var contentsCalls = 0
+    private var trashCalls = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(_ inner: MockVaultStoring, holding held: HeldCall? = nil, cancelAfterHold: Bool = false) {
+        self.inner = inner
+        self.held = held
+        self.cancelAfterHold = cancelAfterHold
+    }
+
+    var waitingCount: Int { lock.withLock { waiting.count } }
+
+    func releaseAll() {
+        let pending = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            defer { waiting = [] }
+            return waiting
+        }
+        pending.forEach { $0.resume() }
+    }
+
+    private func hold() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock { waiting.append(continuation) }
+        }
+    }
+
+    var root: VaultDirectory { inner.root }
+
+    func contents(
+        of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
+    ) async throws -> [VaultItem] {
+        let number = lock.withLock { () -> Int in
+            contentsCalls += 1
+            return contentsCalls
+        }
+        let result = try await inner.contents(of: directory, sortedBy: option, direction)
+        if held == .firstContents, number == 1 { await hold() }
+        return result
+    }
+
+    func moveToTrash(_ item: VaultItem) async throws {
+        let number = lock.withLock { () -> Int in
+            trashCalls += 1
+            return trashCalls
+        }
+        if held == .firstMoveToTrash, number == 1 {
+            await hold()
+            if cancelAfterHold { throw CancellationError() }
+        }
+        try await inner.moveToTrash(item)
+    }
+
+    func open(_ item: VaultItem) async throws -> URL { try await inner.open(item) }
+    func write(_ data: Data, to item: VaultItem) async throws { try await inner.write(data, to: item) }
+    func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.createFolder(named: name, in: directory)
+    }
+    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.createDocument(named: name, in: directory)
+    }
+    func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.addFile(from: source, named: name, to: directory)
+    }
+    func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        try await inner.findItem(named: name, in: directory)
+    }
+    func move(_ item: VaultItem, to directory: VaultDirectory) async throws {
+        try await inner.move(item, to: directory)
+    }
+    func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
+        try await inner.copy(item, to: directory)
+    }
+    func rename(_ item: VaultItem, to name: String) async throws -> VaultItem {
+        try await inner.rename(item, to: name)
+    }
+    func trashContents() async throws -> [VaultItem] { try await inner.trashContents() }
+    func restore(_ trashed: VaultItem) async throws -> VaultItem { try await inner.restore(trashed) }
+    func deletePermanently(_ trashed: VaultItem) async throws { try await inner.deletePermanently(trashed) }
+    func emptyTrash() async { await inner.emptyTrash() }
+    func purgeExpiredTrash(now: Date) async throws -> Int { try await inner.purgeExpiredTrash(now: now) }
+    func countFiles() async throws -> Int { try await inner.countFiles() }
+    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
+        try await inner.itemsToMigrate(toEncrypted: toEncrypted)
+    }
+    func migrateToEncrypted(_ item: VaultItem) async throws { try await inner.migrateToEncrypted(item) }
+    func migrateToDecrypted(_ item: VaultItem) async throws { try await inner.migrateToDecrypted(item) }
+    func finishDecryption() async throws { try await inner.finishDecryption() }
+    func finishEncryption() async throws { try await inner.finishEncryption() }
+    func hasUnencryptedFiles() async throws -> Bool { try await inner.hasUnencryptedFiles() }
+    func keyMatchesVault() async -> Bool { await inner.keyMatchesVault() }
+    func sweepOrphans() async { await inner.sweepOrphans() }
+    func makeTempDirectory() throws -> URL { try inner.makeTempDirectory() }
+    func removeTemporary(_ url: URL) { inner.removeTemporary(url) }
+    func removeAllTemporaryFiles() { inner.removeAllTemporaryFiles() }
+}
+
 @MainActor
 @Suite struct FileBrowserViewModelTests {
     @MainActor
@@ -716,5 +820,201 @@ import Testing
     @Test("The browser reloads after unlock, replacing stale items")
     func refreshAfterUnlock() async throws {
         try await expectRefresh { await $0.vaultUnlocked() }
+    }
+
+    // MARK: - Locked load, load ordering, selection pruning
+
+    @Test("A load while the vault is locked shows no alert and leaves the state unchanged")
+    func lockedLoadIsSilent() async throws {
+        let rig = try makeRig()
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        #expect(rig.alerts.alerts.isEmpty)
+        #expect(rig.viewModel.items.isEmpty)
+        #expect(rig.viewModel.emptyStateMessage == nil)
+    }
+
+    @Test("A locked load keeps the items listed before")
+    func lockedLoadKeepsItems() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let before = rig.viewModel.items
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        #expect(rig.alerts.alerts.isEmpty)
+        #expect(rig.viewModel.items == before)
+    }
+
+    @Test("Unlocking after a locked load lists the items")
+    func unlockAfterLockedLoadLists() async throws {
+        let rig = try makeRig()
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        rig.store.errorToThrow = nil
+        await rig.viewModel.vaultUnlocked()
+        #expect(rig.viewModel.items.count == 6)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A slow older load cannot overwrite a newer one")
+    func olderLoadDoesNotOverwriteNewer() async throws {
+        let mock = MockVaultStoring()
+        let gated = GatedVaultStore(mock, holding: .firstContents)
+        let alerts = MockAlertPresenting()
+        let viewModel = FileBrowserViewModel(
+            directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
+            exporter: MockVaultExporting(), alerts: alerts)
+        let older = Task { await viewModel.load() }
+        while gated.waitingCount == 0 { await Task.yield() }
+        _ = try await mock.createFolder(named: "Newer", in: mock.root)
+        await viewModel.load()
+        #expect(viewModel.items.map(\.name).contains("Newer"))
+        gated.releaseAll()
+        await older.value
+        #expect(viewModel.items.map(\.name).contains("Newer"))
+    }
+
+    @Test("Load drops selected items that are no longer listed")
+    func loadDropsMissingSelection() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let beach = try item("Beach.jpg", in: rig.store)
+        let notes = try item("Notes.rtf", in: rig.store)
+        rig.viewModel.toggleSelectMode()
+        rig.viewModel.toggleSelection(of: beach)
+        rig.viewModel.toggleSelection(of: notes)
+        try await rig.store.moveToTrash(beach)
+        await rig.viewModel.load()
+        #expect(rig.viewModel.selectedItems.map(\.name) == ["Notes.rtf"])
+        #expect(rig.viewModel.title == "1 Selected")
+    }
+
+    // MARK: - Drop on itself
+
+    @Test("Dropping a folder onto itself is ignored")
+    func dropFolderOnItselfIgnored() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let photos = try item("Photos", in: rig.store)
+        await rig.viewModel.drop(photos, onto: photos)
+        #expect(!rig.store.calls.contains { if case .move = $0 { true } else { false } })
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    // MARK: - Single-item failures show the item's own error
+
+    @Test("A single failing delete shows that item's own error")
+    func singleDeleteShowsOwnError() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.delete([ghost("Gone.txt", store: rig.store)])
+        #expect(errorMessages(rig.alerts) == [VaultStoreError.notFound.localizedDescription])
+    }
+
+    @Test("A single failing copy shows that item's own error")
+    func singleCopyShowsOwnError() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.copy([ghost("Gone.txt", store: rig.store)])
+        #expect(errorMessages(rig.alerts) == [VaultStoreError.notFound.localizedDescription])
+    }
+
+    @Test("A single failing move shows that item's own error")
+    func singleMoveShowsOwnError() async throws {
+        let rig = try makeRig()
+        let documents = try #require(try item("Documents", in: rig.store).asDirectory)
+        rig.viewModel.beginMove([ghost("Gone.txt", store: rig.store)])
+        await rig.viewModel.pickerChose(documents)
+        #expect(errorMessages(rig.alerts) == [VaultStoreError.notFound.localizedDescription])
+    }
+
+    @Test("A single failure with a store error shows its message without N of M")
+    func singleFailureHasNoCounts() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let beach = try item("Beach.jpg", in: rig.store)
+        rig.store.errorToThrow = .io("disk full")
+        await rig.viewModel.delete([beach])
+        let messages = errorMessages(rig.alerts)
+        #expect(messages == ["disk full"])
+        #expect(!messages.contains { $0.contains("of 1 failed") })
+    }
+
+    // MARK: - Bulk operations end select mode
+
+    private func selectTwo(_ rig: Rig) async throws -> [VaultItem] {
+        await rig.viewModel.load()
+        let chosen = [try item("Beach.jpg", in: rig.store), try item("Notes.rtf", in: rig.store)]
+        rig.viewModel.toggleSelectMode()
+        chosen.forEach { rig.viewModel.toggleSelection(of: $0) }
+        return chosen
+    }
+
+    @Test("Bulk delete ends select mode and clears the selection")
+    func deleteEndsSelectMode() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.delete(try await selectTwo(rig))
+        #expect(!rig.viewModel.isSelecting)
+        #expect(rig.viewModel.selectedItems.isEmpty)
+    }
+
+    @Test("Bulk copy ends select mode and clears the selection")
+    func copyEndsSelectMode() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.copy(try await selectTwo(rig))
+        #expect(!rig.viewModel.isSelecting)
+        #expect(rig.viewModel.selectedItems.isEmpty)
+    }
+
+    @Test("Bulk move ends select mode and clears the selection")
+    func moveEndsSelectMode() async throws {
+        let rig = try makeRig()
+        let documents = try #require(try item("Documents", in: rig.store).asDirectory)
+        rig.viewModel.beginMove(try await selectTwo(rig))
+        await rig.viewModel.pickerChose(documents)
+        #expect(!rig.viewModel.isSelecting)
+        #expect(rig.viewModel.selectedItems.isEmpty)
+    }
+
+    // MARK: - Cancellation
+
+    private func trashCalls(_ store: MockVaultStoring) -> Int {
+        store.calls.filter { if case .moveToTrash = $0 { true } else { false } }.count
+    }
+
+    @Test("Cancelling a bulk delete stops before the remaining items and shows no failure")
+    func cancelledBulkDeleteStops() async throws {
+        let mock = MockVaultStoring()
+        let gated = GatedVaultStore(mock, holding: .firstMoveToTrash)
+        let alerts = MockAlertPresenting()
+        let viewModel = FileBrowserViewModel(
+            directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
+            exporter: MockVaultExporting(), alerts: alerts)
+        await viewModel.load()
+        let three = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: mock) }
+        let task = Task { await viewModel.delete(three) }
+        while gated.waitingCount == 0 { await Task.yield() }
+        task.cancel()
+        gated.releaseAll()
+        await task.value
+        #expect(trashCalls(mock) == 1)
+        #expect(alerts.alerts.isEmpty)
+    }
+
+    @Test("A cancellation error from the store is not counted as a failure and stops the rest")
+    func cancellationErrorNotAFailure() async throws {
+        let mock = MockVaultStoring()
+        let gated = GatedVaultStore(mock, holding: .firstMoveToTrash, cancelAfterHold: true)
+        let alerts = MockAlertPresenting()
+        let viewModel = FileBrowserViewModel(
+            directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
+            exporter: MockVaultExporting(), alerts: alerts)
+        await viewModel.load()
+        let three = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: mock) }
+        let task = Task { await viewModel.delete(three) }
+        while gated.waitingCount == 0 { await Task.yield() }
+        task.cancel()
+        gated.releaseAll()
+        await task.value
+        #expect(trashCalls(mock) == 0)
+        #expect(alerts.alerts.isEmpty)
     }
 }
