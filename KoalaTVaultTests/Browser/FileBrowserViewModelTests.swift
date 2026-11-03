@@ -242,7 +242,8 @@ import Testing
         await rig.viewModel.load()
         let holiday = try item("Holiday.mov", in: rig.store)
         rig.viewModel.open(holiday)
-        let files = try ["Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf"].map { try item($0, in: rig.store) }
+        let names = ["Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf"]
+        let files = try names.map { try item($0, in: rig.store) }
         #expect(rig.recorder.routes == [.viewer(items: files, startingAt: 1)])
     }
 
@@ -646,7 +647,9 @@ import Testing
         #expect(rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))
     }
 
-    @Test("Dragging out is refused when the vault has a password lock", arguments: [LockMode.password, .passwordAndBiometrics])
+    @Test(
+        "Dragging out is refused when the vault has a password lock",
+        arguments: [LockMode.password, .passwordAndBiometrics])
     func dragOutRefusedWithLock(mode: LockMode) async throws {
         let rig = try makeRig(lockMode: mode)
         #expect(!rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))

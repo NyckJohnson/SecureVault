@@ -36,7 +36,7 @@ import Testing
         let model = FolderPickerViewModel(store: store, excluding: [], alerts: MockAlertPresenting())
         await model.load()
         #expect(model.folders.map(\.name) == ["Documents", "Photos"])
-        #expect(model.folders.allSatisfy(\.isDirectory))
+        #expect(model.folders.allSatisfy { $0.isDirectory })
     }
 
     @Test("Load lists the subfolders of a nested folder")

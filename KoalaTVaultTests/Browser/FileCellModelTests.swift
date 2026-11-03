@@ -55,12 +55,18 @@ import UIKit
         func clearCache(for item: VaultItem) {}
     }
 
-    private func sampleItems() throws -> (store: MockVaultStoring, file: VaultItem, folder: VaultItem, other: VaultItem) {
+    private struct Samples {
+        let file: VaultItem
+        let folder: VaultItem
+        let other: VaultItem
+    }
+
+    private func sampleItems() throws -> Samples {
         let store = MockVaultStoring()
         let file = try #require(store.allItems.first { $0.name == "Beach.jpg" })
         let folder = try #require(store.allItems.first { $0.name == "Photos" })
         let other = try #require(store.allItems.first { $0.name == "Notes.rtf" })
-        return (store, file, folder, other)
+        return Samples(file: file, folder: folder, other: other)
     }
 
     @Test("The cell shows the item's name")
@@ -93,7 +99,7 @@ import UIKit
         let samples = try sampleItems()
         let model = FileCellModel(thumbnails: MockThumbnailProviding(), folderAssetAvailable: true)
         model.configure(with: samples.folder)
-        #expect(model.sizeText == "")
+        #expect(model.sizeText.isEmpty)
     }
 
     @Test("A file's icon comes from FileIconMapping", arguments: [true, false])
