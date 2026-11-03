@@ -1,7 +1,5 @@
 import UIKit
 
-// coverage-exempt-file: declarations only
-
 /// Constants of the "Unlock Pro" purchase.
 enum ProUnlock {
     /// The non-consumable's App Store product identifier.
@@ -18,6 +16,17 @@ enum PurchaseOutcome: Sendable, Equatable {
 /// Errors thrown by a purchase.
 enum ProUnlockError: Error, Equatable, Sendable {
     case productUnavailable, verificationFailed, purchaseFailed
+}
+
+extension ProUnlockError: LocalizedError {
+    /// The text the user sees; alerts show `localizedDescription`.
+    var errorDescription: String? {
+        switch self {
+        case .productUnavailable: "Pro upgrade is currently unavailable."
+        case .verificationFailed: "Could not verify purchase."
+        case .purchaseFailed: "Purchase could not be completed."
+        }
+    }
 }
 
 /// The "Unlock Pro" entitlement through StoreKit 2.

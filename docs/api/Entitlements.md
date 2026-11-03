@@ -5,6 +5,7 @@
 - `ProUnlock: static let freeFileLimit`
 - `ProUnlock: static let productID`
 - `ProUnlockError: case productUnavailable, verificationFailed, purchaseFailed`
+- `ProUnlockError: var errorDescription: String?`
 - `ProUnlocking: func displayPrice() async -> String?`
 - `ProUnlocking: func purchase(confirmIn scene: UIScene?) async throws -> PurchaseOutcome`
 - `ProUnlocking: func refresh() async`
