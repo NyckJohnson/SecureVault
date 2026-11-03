@@ -272,10 +272,7 @@ final class LegacyFileBrowserViewController: UIViewController, AlertPresenting {
                     self.showError(error)
                     return
                 }
-                let editor = LegacyTextEditorViewController(item: vaultItem, vaultStore: self.vaultStore)
-                let nav = UINavigationController(rootViewController: editor)
-                nav.modalPresentationStyle = .fullScreen
-                self.present(nav, animated: true) {
+                self.present(self.services.viewerFactory.makeEditor(for: vaultItem), animated: true) {
                     self.loadContents()
                 }
             }
@@ -485,18 +482,11 @@ extension LegacyFileBrowserViewController: UICollectionViewDelegate {
         } else {
             let ext = (item.name as NSString).pathExtension.lowercased()
             if ext == "rtf" {
-                let editor = LegacyTextEditorViewController(item: item, vaultStore: vaultStore)
-                let nav = UINavigationController(rootViewController: editor)
-                nav.modalPresentationStyle = .fullScreen
-                present(nav, animated: true)
+                present(services.viewerFactory.makeEditor(for: item), animated: true)
             } else {
                 let nonDirectories = items.filter { !$0.isDirectory }
                 let startIndex = nonDirectories.firstIndex(where: { $0.id == item.id }) ?? 0
-                let viewer = LegacyFileViewerViewController(
-                    items: nonDirectories, startingAt: startIndex,
-                    vaultStore: vaultStore, videoAssets: services.videoAssets,
-                    exportPresenter: services.exportPresenter)
-                present(viewer, animated: true)
+                present(services.viewerFactory.makeViewer(items: nonDirectories, startingAt: startIndex), animated: true)
             }
         }
     }

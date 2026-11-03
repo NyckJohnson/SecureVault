@@ -463,8 +463,8 @@
           "files": [
             "View/FileBrowser.swift"
           ],
-          "state": "code",
-          "attempts": 1,
+          "state": "done",
+          "attempts": 2,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T15:15:23-08:00",
+  "updatedAt": "2026-11-02T16:19:29-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",

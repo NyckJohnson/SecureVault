@@ -21,6 +21,9 @@ final class FileViewerViewController: UIViewController, AlertPresenting {
     private var timeObservation: PeriodicTimeObservation?
     private var isScrubbing = false
     private var didTearDown = false
+    /// The page object the last completed swipe left, so that going back to it continues a video from where it was
+    /// and keeps an image's zoom. The view model decides whether anything goes back to it.
+    private var swipedFromPage: FilePageViewController?
 
     // Top bar
     private let navBar = UIView()
@@ -78,6 +81,16 @@ final class FileViewerViewController: UIViewController, AlertPresenting {
     }
 
     override var prefersStatusBarHidden: Bool { true }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        returnFromEditorIfNeeded()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if viewModel.closesAfterEditor { close() }
+    }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -233,6 +246,32 @@ final class FileViewerViewController: UIViewController, AlertPresenting {
         seek(toSeconds: viewModel.skipForward())
     }
 
+    private func openEditor(for item: VaultItem) {
+        guard viewModel.editorOpened() else { return }
+        guard presentedViewController == nil else {
+            viewModel.editorPresentationFailed()
+            return
+        }
+        let editor = makeEditor(item)
+        present(editor, animated: true)
+        // UIKit refuses a present with only a log line, and doesn't run a completion for it. The check waits a turn
+        // because UIKit defers a present made while this screen is still arriving (a viewer opened on an `.rtf` page),
+        // which at this point looks the same as a refusal.
+        DispatchQueue.main.async { [weak self, weak editor] in
+            if editor?.presentingViewController == nil { self?.viewModel.editorPresentationFailed() }
+        }
+    }
+
+    /// Runs as the editor starts to leave, so what it uncovers is already the page the user swiped from.
+    private func returnFromEditorIfNeeded() {
+        guard case .showPage(let index) = viewModel.editorClosed() else { return }
+        let kept = swipedFromPage?.index == index ? swipedFromPage : nil
+        swipedFromPage = nil
+        guard let page = kept ?? makePage(at: index) else { return }
+        // Not animated, so the direction shows nothing.
+        pager.setViewControllers([page], direction: .forward, animated: false)
+    }
+
     private func seek(toSeconds seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
     }
@@ -290,7 +329,9 @@ final class FileViewerViewController: UIViewController, AlertPresenting {
         let pageModel = FilePageViewModel(
             item: viewModel.items[index], store: store, videoAssets: videoAssets,
             onTemporaryFile: { url in viewerModel.registerTemporaryFile(url) })
-        return FilePageViewController(index: index, viewModel: pageModel, player: player, makeEditor: makeEditor)
+        return FilePageViewController(
+            index: index, viewModel: pageModel, player: player,
+            openEditor: { [weak self] item in self?.openEditor(for: item) })
     }
 
     private func setupNavBar() {
@@ -501,6 +542,10 @@ extension FileViewerViewController: UIPageViewControllerDelegate {
         previousViewControllers: [UIViewController], transitionCompleted completed: Bool
     ) {
         guard completed, let page = pageViewController.viewControllers?.first as? FilePageViewController else { return }
+        if let swipedFrom = previousViewControllers.first as? FilePageViewController, swipedFrom !== page {
+            swipedFromPage = swipedFrom
+            viewModel.swipeCompleted(from: swipedFrom.index)
+        }
         viewModel.pageDidChange(to: page.index)
     }
 }

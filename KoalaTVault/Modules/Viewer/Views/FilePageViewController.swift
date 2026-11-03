@@ -13,7 +13,7 @@ final class FilePageViewController: UIViewController {
     private let viewModel: FilePageViewModel
     /// The viewer's one player. This page's item is on it only while the page is visible.
     private let player: AVPlayer
-    private let makeEditor: @MainActor (VaultItem) -> UIViewController
+    private let openEditor: @MainActor (VaultItem) -> Void
     private var subscriptions: Set<AnyCancellable> = []
     private var itemStatus: AnyCancellable?
     private var playerLayer: AVPlayerLayer?
@@ -25,17 +25,17 @@ final class FilePageViewController: UIViewController {
     private var scrollView: UIScrollView?
     private var errorLabel: UILabel?
     private var isOnScreen = false
-    private var didOpenEditor = false
 
-    /// - Parameter makeEditor: makes the screen an `.rtf` page opens.
+    /// - Parameter openEditor: opens the editor for this `.rtf` page's item. The viewer does it, because what
+    ///   happens after the editor closes is a change of page.
     init(
         index: Int, viewModel: FilePageViewModel, player: AVPlayer,
-        makeEditor: @escaping @MainActor (VaultItem) -> UIViewController
+        openEditor: @escaping @MainActor (VaultItem) -> Void
     ) {
         self.index = index
         self.viewModel = viewModel
         self.player = player
-        self.makeEditor = makeEditor
+        self.openEditor = openEditor
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -106,12 +106,11 @@ final class FilePageViewController: UIViewController {
         }
     }
 
-    /// Waits until the page is on screen: UIKit refuses a presentation from a view outside the window, and a
-    /// preloaded neighbour mustn't open anything. Opens once, so closing the editor doesn't reopen it.
+    /// Waits until the page is on screen: a preloaded neighbour mustn't open anything. The viewer ignores this
+    /// while an editor is open, and takes this page off the pager when the editor closes, so it doesn't reopen.
     private func openEditorIfNeeded() {
-        guard isOnScreen, viewModel.content == .editor, !didOpenEditor else { return }
-        didOpenEditor = true
-        present(makeEditor(viewModel.item), animated: true)
+        guard isOnScreen, viewModel.content == .editor else { return }
+        openEditor(viewModel.item)
     }
 
     private func showError(_ message: String) {
@@ -156,7 +155,11 @@ final class FilePageViewController: UIViewController {
         // The player keeps its rate across items, and the page before may not have let go yet.
         player.pause()
         player.replaceCurrentItem(with: item)
-        if let resumeTime { player.seek(to: resumeTime) }
+        // Exact: by default a seek may land on a keyframe, which in a short video can be the start.
+        // Only a real time: the player can report an invalid one, and seeking to that raises an exception.
+        if let resumeTime, resumeTime.isValid, resumeTime.isNumeric {
+            player.seek(to: resumeTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        }
 
         let layer = playerLayer ?? AVPlayerLayer()
         layer.videoGravity = .resizeAspect

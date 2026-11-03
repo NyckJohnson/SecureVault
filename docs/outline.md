@@ -957,6 +957,8 @@ extension matching ignores case.
 - If an autosave error alert is up when Done fails, the Try Again alert appears over it; both stay reachable and Discard clears everything — TextEditorViewController.swift:95-101 — open, minor
 - If a lock dismisses the editor while the Try Again alert is up, the disappear save still runs, so the edit is saved if the disk has recovered, even if the user meant to discard — TextEditorViewModel.swift — open, accepted
 - After Add Lock, the browser's items still hold the plaintext `VaultItem` (`isEncrypted` false, old URL), so opening a video fails with "This file can't be opened." until the grid reloads, same as today — FileBrowser.swift — open until Browser or Settings
+- The viewer checks for a refused editor present one main-queue turn later (seen working on iOS 18.6 only); if UIKit scheduled it later while the viewer opens on an `.rtf`, which no browser path does, the viewer could stay on a blank page — FileViewerViewController.swift:249-262 — open, theoretical
+- The under-lock `.rtf` page journeys assume the created document is encrypted rather than checking the file — J5ViewEditJourneyTests.swift — open, minor
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
 ## Features

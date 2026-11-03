@@ -11,6 +11,8 @@ final class FileViewerViewModel: ObservableObject {
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
     @Published private(set) var barsVisible = true
+    /// The editor closed with no page to return to; the viewer closes as soon as it is back on screen.
+    private(set) var closesAfterEditor = false
 
     private let store: any VaultStoring
     private let sleep: @Sendable (Duration) async throws -> Void
@@ -19,6 +21,8 @@ final class FileViewerViewModel: ObservableObject {
     private var isPlaying = false
     private var isScrubbing = false
     private var hideTask: Task<Void, Never>?
+    private var isEditorOpen = false
+    private var swipedFromIndex: Int?
 
     /// - Parameters:
     ///   - items: the items to page through; folders are dropped.
@@ -69,6 +73,49 @@ final class FileViewerViewModel: ObservableObject {
     func nextIndex(of index: Int) -> Int? {
         guard items.indices.contains(index), items.indices.contains(index + 1) else { return nil }
         return index + 1
+    }
+
+    // MARK: - Returning from the editor
+
+    /// Where the viewer goes once an `.rtf` page's editor has closed.
+    enum EditorReturn: Equatable {
+        /// Back to this page, which is now the current one.
+        case showPage(Int)
+        /// There is no page to go back to, so the viewer closes.
+        case close
+    }
+
+    /// Records the page a completed swipe left. An `.rtf` page is never stayed on, so this is where its editor
+    /// returns to.
+    func swipeCompleted(from index: Int) {
+        swipedFromIndex = index
+    }
+
+    /// Marks an editor as open. Returns false if the page mustn't open one: another is open, or the last one
+    /// closed the viewer, whose `.rtf` page comes back on screen for a moment first.
+    func editorOpened() -> Bool {
+        guard !isEditorOpen, !closesAfterEditor else { return false }
+        isEditorOpen = true
+        return true
+    }
+
+    /// Undoes `editorOpened` when the editor didn't go on screen. The swiped-from page stays recorded.
+    func editorPresentationFailed() {
+        isEditorOpen = false
+    }
+
+    /// Decides where the viewer goes as it comes back on screen. Nil when no editor was open, such as when a share
+    /// sheet closes. Each open gets one answer, and a returned page stays recorded no longer than that.
+    func editorClosed() -> EditorReturn? {
+        guard isEditorOpen else { return nil }
+        isEditorOpen = false
+        guard let index = swipedFromIndex else {
+            closesAfterEditor = true
+            return .close
+        }
+        swipedFromIndex = nil
+        pageDidChange(to: index)
+        return .showPage(index)
     }
 
     // MARK: - Playback
