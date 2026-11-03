@@ -547,8 +547,8 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "tests",
-          "attempts": 2
+          "state": "blocked",
+          "attempts": 3
         },
         {
           "number": 3,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-03T14:34:04-08:00",
+  "updatedAt": "2026-11-03T14:36:36-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
