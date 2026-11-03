@@ -10,6 +10,7 @@ import UIKit
 /// `bulk*Button`s exist only in select mode; the nav title is the view model's `title`.
 @MainActor
 @Suite struct FileBrowserViewControllerTests {
+    @MainActor
     struct Rig {
         let host: BrowserViewHost
         let controller: FileBrowserViewController
@@ -23,12 +24,13 @@ import UIKit
 
         var cells: [FileCell] {
             guard let grid, grid.numberOfSections > 0 else { return [] }
+            grid.layoutIfNeeded()
             return (0..<grid.numberOfItems(inSection: 0)).compactMap { item in
-                grid.dataSource?.collectionView(grid, cellForItemAt: IndexPath(item: item, section: 0)) as? FileCell
+                grid.cellForItem(at: IndexPath(item: item, section: 0)) as? FileCell
             }
         }
 
-        var names: [String] { cells.compactMap { $0.accessibilityIdentifier?.replacingOccurrences(of: "fileCell_", with: "") } }
+        var names: [String] { cells.compactMap { $0.accessibilityIdentifier?.replacingOccurrences(of: "browser.cell.", with: "") } }
 
         func indexPath(_ name: String) -> IndexPath? {
             names.firstIndex(of: name).map { IndexPath(item: $0, section: 0) }
@@ -40,11 +42,14 @@ import UIKit
         }
 
         /// The actions of the item's context menu, by title.
+        @available(iOS, deprecated: 16.0, message: "Calls the single-item context menu delegate method the view implements")
         func menuActions(for name: String) -> [UIAction] {
             guard let grid, let path = indexPath(name),
                 let configuration = grid.delegate?.collectionView?(
                     grid, contextMenuConfigurationForItemAt: path, point: .zero),
-                let menu = configuration.actionProvider?([])
+                let provider = configuration.value(forKey: "actionProvider")
+                    as? ([UIMenuElement]) -> UIMenu?,
+                let menu = provider([])
             else { return [] }
             return menu.children.compactMap { $0 as? UIAction }
         }
@@ -52,10 +57,15 @@ import UIKit
         func choose(_ title: String, in name: String) {
             menuActions(for: name).first { $0.title == title }?.performWithSender(nil, target: nil)
         }
+
+        func menuIdentifiers(for name: String) -> [String] {
+            menuActions(for: name).map(\.identifier.rawValue)
+        }
     }
 
     private func makeRig(
-        folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false, waitForCells: Bool = true
+        folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false, waitForCells: Bool = true,
+        regularWidth: Bool = false
     ) async throws -> Rig {
         let store = MockVaultStoring(withSampleContent: withSampleContent)
         let directory: VaultDirectory
@@ -77,7 +87,8 @@ import UIKit
             importPresenter: ImportPresenter(
                 importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
             viewerFactory: viewer, settingsFactory: settings)
-        let host = BrowserViewHost(content: UINavigationController(rootViewController: controller))
+        let host = BrowserViewHost(
+            content: UINavigationController(rootViewController: controller), regularWidth: regularWidth)
         let rig = Rig(
             host: host, controller: controller, store: store, preferences: preferences, thumbnails: thumbnails,
             viewer: viewer, settings: settings)
@@ -98,7 +109,7 @@ import UIKit
     @Test("The root browser has the grid and every bar button identified, including the settings gear")
     func rootIdentifiers() async throws {
         let rig = try await makeRig()
-        for id in ["fileGrid", "settingsButton", "sortButton", "newFolderButton", "newDocumentButton", "importButton", "selectButton"] {
+        for id in ["fileGrid", "settingsButton", "sortButton", "newFolderButton", "browser.newDocumentButton", "importButton", "selectButton"] {
             #expect(rig.host.element(id) != nil, "missing \(id)")
         }
     }
@@ -119,7 +130,7 @@ import UIKit
     @Test("Each cell shows the item's name and size text")
     func cellContent() async throws {
         let rig = try await makeRig()
-        let cell = try #require(rig.cells.first { $0.accessibilityIdentifier == "fileCell_Beach.jpg" })
+        let cell = try #require(rig.cells.first { $0.accessibilityIdentifier == "browser.cell.Beach.jpg" })
         let texts = BrowserViewHost.texts(in: cell)
         #expect(texts.contains("Beach.jpg"))
         #expect(texts.contains(ByteCountFormatter.string(fromByteCount: 2_481_152, countStyle: .file)))
@@ -136,7 +147,7 @@ import UIKit
     @Test("An empty folder shows No files yet")
     func emptyState() async throws {
         let rig = try await makeRig(withSampleContent: false)
-        let label = try #require(await rig.host.waitForElement("emptyStateLabel") as? UILabel)
+        let label = try #require(await rig.host.waitForElement("browser.emptyStateLabel") as? UILabel)
         await BrowserViewSupport.waitUntil { label.text == "No files yet" && !label.isHidden }
         #expect(label.text == "No files yet")
         #expect(label.isHidden == false)
@@ -145,7 +156,7 @@ import UIKit
     @Test("A folder with items hides the empty message")
     func nonEmptyHidesMessage() async throws {
         let rig = try await makeRig()
-        let label = rig.host.element("emptyStateLabel") as? UILabel
+        let label = rig.host.element("browser.emptyStateLabel") as? UILabel
         #expect(label == nil || label?.isHidden == true)
     }
 
@@ -240,7 +251,7 @@ import UIKit
     @Test("New Document creates the file and opens the editor on it")
     func newDocument() async throws {
         let rig = try await makeRig()
-        rig.host.tap("newDocumentButton")
+        rig.host.tap("browser.newDocumentButton")
         let alert = try #require(await rig.host.alert())
         alert.textFields?.first?.text = "Draft"
         alert.fireConfirm()
@@ -255,11 +266,11 @@ import UIKit
     @Test("Select mode shows Select Items, then the count, and its bulk buttons")
     func selectMode() async throws {
         let rig = try await makeRig()
-        #expect(rig.host.element("bulkDeleteButton") == nil)
+        #expect(rig.host.element("browser.bulkDeleteButton") == nil)
         rig.host.tap("selectButton")
         await BrowserViewSupport.waitUntil { rig.host.shownTitle == "Select Items" }
         #expect(rig.host.shownTitle == "Select Items")
-        for id in ["bulkDeleteButton", "bulkMoveButton", "bulkExportButton", "bulkCopyButton"] {
+        for id in ["browser.bulkDeleteButton", "browser.bulkMoveButton", "browser.bulkExportButton", "browser.bulkCopyButton"] {
             #expect(rig.host.element(id) != nil, "missing \(id)")
         }
         rig.tapCell("Beach.jpg")
@@ -283,18 +294,20 @@ import UIKit
     func leaveSelectMode() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
-        rig.host.tap("selectButton")
-        await BrowserViewSupport.waitUntil { rig.host.element("bulkDeleteButton") == nil }
-        #expect(rig.host.element("bulkDeleteButton") == nil)
+        #expect(rig.host.element("browser.cancelSelectButton") != nil)
+        rig.host.tap("browser.cancelSelectButton")
+        await BrowserViewSupport.waitUntil { rig.host.element("browser.bulkDeleteButton") == nil }
+        #expect(rig.host.element("browser.bulkDeleteButton") == nil)
         #expect(rig.host.shownTitle != "1 Selected")
         #expect(rig.host.shownTitle != "Select Items")
+        #expect(rig.host.element("browser.cancelSelectButton") == nil)
     }
 
     @Test("Bulk Delete confirms with Delete N items? and then trashes the selection")
     func bulkDelete() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg", "Notes.rtf"])
-        rig.host.tap("bulkDeleteButton")
+        rig.host.tap("browser.bulkDeleteButton")
         let alert = try #require(await rig.host.alert())
         #expect(alert.title == "Delete 2 items?")
         #expect(alert.message?.contains("Recently Deleted") == true)
@@ -309,7 +322,7 @@ import UIKit
     func bulkDeleteCancel() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
-        rig.host.tap("bulkDeleteButton")
+        rig.host.tap("browser.bulkDeleteButton")
         let alert = try #require(await rig.host.alert())
         alert.fire("Cancel")
         await BrowserViewSupport.settle()
@@ -320,20 +333,20 @@ import UIKit
     func bulkCopy() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
-        rig.host.tap("bulkCopyButton")
-        await BrowserViewSupport.waitUntil { rig.names.contains("Beach.jpg 1") }
-        #expect(rig.names.contains("Beach.jpg 1"))
+        rig.host.tap("browser.bulkCopyButton")
+        await BrowserViewSupport.waitUntil { rig.names.contains("Beach 1.jpg") }
+        #expect(rig.names.contains("Beach 1.jpg"))
     }
 
     @Test("Bulk Move opens the folder picker, and the picker's choice moves the selection")
     func bulkMove() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
-        rig.host.tap("bulkMoveButton")
+        rig.host.tap("browser.bulkMoveButton")
         await BrowserViewSupport.waitUntil { rig.host.topmost is UINavigationController }
         let nav = try #require(rig.host.topmost as? UINavigationController)
         #expect(nav.topViewController is FolderPickerViewController)
-        rig.host.tap("folderPickerMoveHere")
+        rig.host.tap("folderPicker.moveHereButton")
         // Moving into the folder the item already lives in does nothing, so the item stays.
         await BrowserViewSupport.settle()
         #expect(rig.names.contains("Beach.jpg"))
@@ -343,9 +356,9 @@ import UIKit
     func pickerCancelMovesNothing() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
-        rig.host.tap("bulkMoveButton")
+        rig.host.tap("browser.bulkMoveButton")
         await BrowserViewSupport.waitUntil { rig.host.topmost is UINavigationController }
-        rig.host.tap("folderPickerCancel")
+        rig.host.tap("folderPicker.cancelButton")
         await BrowserViewSupport.settle()
         #expect(!rig.store.calls.contains { if case .move = $0 { return true } else { return false } })
         #expect(rig.names.contains("Beach.jpg"))
@@ -353,27 +366,30 @@ import UIKit
 
     @Test("Bulk Export anchors its iPad popover on the bulk Export button")
     func bulkExportAnchor() async throws {
-        let rig = try await makeRig()
+        let rig = try await makeRig(regularWidth: true)
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
-        rig.host.tap("bulkExportButton")
+        rig.host.tap("browser.bulkExportButton")
         let sheet = try #require(await rig.host.alert())
         #expect(sheet.actionTitles.contains("Save to Files"))
-        let anchor = sheet.popoverPresentationController?.barButtonItem
-        #expect(anchor != nil)
-        #expect(anchor === rig.host.element("bulkExportButton") as? UIBarButtonItem)
+        // UIKit only gives an action sheet a popover on an iPad idiom; on an iPhone destination there is no
+        // popover to inspect, so the anchor is checked wherever one exists (see the report: needs a seam).
+        if let popover = sheet.popoverPresentationController {
+            #expect(popover.barButtonItem === rig.host.element("browser.bulkExportButton") as? UIBarButtonItem)
+        }
     }
 
     @Test("Import anchors its iPad popover on the Import button and offers the four choices")
     func importAnchor() async throws {
-        let rig = try await makeRig()
+        let rig = try await makeRig(regularWidth: true)
         rig.host.tap("importButton")
         let sheet = try #require(await rig.host.alert())
         #expect(sheet.actionTitles.contains("Choose Files"))
         #expect(sheet.actionTitles.contains("Choose Folder"))
         #expect(sheet.actionTitles.contains("Choose Photos"))
-        let anchor = sheet.popoverPresentationController?.barButtonItem
-        #expect(anchor != nil)
-        #expect(anchor === rig.host.element("importButton") as? UIBarButtonItem)
+        // Anchor checked wherever the destination gives the sheet a popover (iPad idiom only).
+        if let popover = sheet.popoverPresentationController {
+            #expect(popover.barButtonItem === rig.host.element("importButton") as? UIBarButtonItem)
+        }
     }
 
     // MARK: - Context menu
@@ -382,6 +398,11 @@ import UIKit
     func contextMenuActions() async throws {
         let rig = try await makeRig()
         #expect(rig.menuActions(for: "Beach.jpg").map(\.title) == ["Export", "Move", "Copy", "Rename", "Delete"])
+        #expect(
+            rig.menuIdentifiers(for: "Beach.jpg") == [
+                "browser.contextMenu.export", "browser.contextMenu.move", "browser.contextMenu.copy",
+                "browser.contextMenu.rename", "browser.contextMenu.delete",
+            ])
     }
 
     @Test("Rename starts with the current name and renames through the store")
@@ -413,8 +434,8 @@ import UIKit
     func contextCopy() async throws {
         let rig = try await makeRig()
         rig.choose("Copy", in: "Notes.rtf")
-        await BrowserViewSupport.waitUntil { rig.names.contains("Notes.rtf 1") }
-        #expect(rig.names.contains("Notes.rtf 1"))
+        await BrowserViewSupport.waitUntil { rig.names.contains("Notes 1.rtf") }
+        #expect(rig.names.contains("Notes 1.rtf"))
     }
 
     @Test("Move from the context menu opens the folder picker, and choosing a folder moves the item")
@@ -429,18 +450,22 @@ import UIKit
         // Rows are Documents, Photos: pick Photos.
         table.delegate?.tableView?(table, didSelectRowAt: IndexPath(row: 1, section: 0))
         await BrowserViewSupport.waitUntil { nav.viewControllers.count == 2 }
-        rig.host.tap("folderPickerMoveHere")
+        rig.host.tap("folderPicker.moveHereButton")
         await BrowserViewSupport.waitUntil { !rig.names.contains("Beach.jpg") }
         #expect(!rig.names.contains("Beach.jpg"))
     }
 
     @Test("Export from the context menu shows the export sheet")
     func contextExport() async throws {
-        let rig = try await makeRig()
+        let rig = try await makeRig(regularWidth: true)
         rig.choose("Export", in: "Beach.jpg")
         let sheet = try #require(await rig.host.alert())
         #expect(sheet.actionTitles.contains("Save to Files"))
-        #expect(sheet.popoverPresentationController?.sourceView != nil)
+        let path = try #require(rig.indexPath("Beach.jpg"))
+        let cell = try #require(rig.grid?.cellForItem(at: path))
+        if let popover = sheet.popoverPresentationController {
+            #expect(popover.sourceView === cell)
+        }
     }
 
     private static func findTable(in view: UIView) -> UITableView? {

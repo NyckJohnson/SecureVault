@@ -36,11 +36,14 @@ import UIKit
         #expect(texts == ["Photos"])
     }
 
-    @Test("The cell is identified as fileCell_<name>")
+    @Test("The cell is identified as browser.cell.<name>, with identified name, size and checkmark")
     func identifier() throws {
         let cell = makeCell()
         cell.configure(with: try sampleItem("Beach.jpg"), thumbnails: BrowserFakeThumbnails(), folderAssetAvailable: true)
-        #expect(cell.accessibilityIdentifier == "fileCell_Beach.jpg")
+        #expect(cell.accessibilityIdentifier == "browser.cell.Beach.jpg")
+        #expect(BrowserViewHost.find("browser.cell.Beach.jpg.nameLabel", in: cell) is UILabel)
+        #expect(BrowserViewHost.find("browser.cell.Beach.jpg.sizeLabel", in: cell) is UILabel)
+        #expect(BrowserViewHost.find("browser.cell.Beach.jpg.checkmark", in: cell) != nil)
     }
 
     @Test("An image's thumbnail replaces the icon once it arrives")

@@ -17,7 +17,7 @@ import UIKit
 ///
 /// `FileCell` is a `UICollectionViewCell` with `configure(with: VaultItem, thumbnails: any ThumbnailProviding,
 /// folderAssetAvailable: Bool)`, an internal `thumbnailView: UIImageView`, and `accessibilityIdentifier`
-/// `fileCell_<name>`.
+/// `browser.cell.<name>`.
 ///
 /// `FolderPickerViewController(store:preferences:excluding:directory:onChoose:onCancel:)` is shown in a
 /// navigation controller, lists subfolders in a `UITableView`, and pushes a deeper picker (same callbacks)
@@ -27,10 +27,24 @@ final class BrowserViewHost {
     let window: UIWindow
     let root: UIViewController
 
-    init(content: UIViewController) {
+    /// With `regularWidth` the content is hosted in a container that forces a regular horizontal size class,
+    /// so an action sheet is adapted to a popover (as on iPad) and its anchor can be inspected.
+    init(content: UIViewController, regularWidth: Bool = false) {
         root = content
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.rootViewController = content
+        if regularWidth {
+            let container = UIViewController()
+            container.addChild(content)
+            container.view.addSubview(content.view)
+            content.view.frame = container.view.bounds
+            content.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            content.didMove(toParent: container)
+            container.setOverrideTraitCollection(
+                UITraitCollection(horizontalSizeClass: .regular), forChild: content)
+            window.rootViewController = container
+        } else {
+            window.rootViewController = content
+        }
         window.makeKeyAndVisible()
         content.view.layoutIfNeeded()
     }
@@ -136,26 +150,11 @@ enum BrowserViewSupport {
     }
 }
 
-extension UIAlertAction {
-    @MainActor
-    func fire() {
-        typealias Handler = @convention(block) (UIAlertAction) -> Void
-        guard let handler = value(forKey: "handler") else { return }
-        unsafeBitCast(handler as AnyObject, to: Handler.self)(self)
-    }
-}
-
 extension UIAlertController {
-    func fire(_ title: String) {
-        actions.first { $0.title == title }?.fire()
-    }
-
     /// Fires the action that confirms (the first one that is not Cancel).
     func fireConfirm() {
         actions.first { $0.style != .cancel }?.fire()
     }
-
-    var actionTitles: [String] { actions.compactMap(\.title) }
 }
 
 /// Thumbnails that return a distinct image per request and can be held until the test releases them.

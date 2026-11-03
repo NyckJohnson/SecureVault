@@ -5,7 +5,7 @@ import UIKit
 
 /// Seam assumed: `FolderPickerViewController(store:preferences:excluding:directory:onChoose:onCancel:)`, shown in a
 /// navigation controller, with a `UITableView` of the subfolders (folder name as a label in each row), bar
-/// buttons `folderPickerMoveHere` and `folderPickerCancel`, and a pushed deeper picker with the same callbacks
+/// buttons `folderPicker.moveHereButton` and `folderPicker.cancelButton`, and a pushed deeper picker with the same callbacks
 /// when a row is selected.
 @MainActor
 @Suite struct FolderPickerViewControllerTests {
@@ -66,17 +66,21 @@ import UIKit
         #expect(rowNames(rig) == ["Documents"])
     }
 
-    @Test("Move Here and Cancel have their identifiers")
+    @Test("The list, its rows, Move Here and Cancel have their identifiers")
     func identifiers() async throws {
         let rig = makeRig()
-        #expect(rig.host.element("folderPickerMoveHere") != nil)
-        #expect(rig.host.element("folderPickerCancel") != nil)
+        await BrowserViewSupport.waitUntil { rowNames(rig).count == 2 }
+        #expect(rig.host.element("folderPicker.folderList") is UITableView)
+        #expect(rig.host.element("folderPicker.row.Photos") != nil)
+        #expect(rig.host.element("folderPicker.row.Documents") != nil)
+        #expect(rig.host.element("folderPicker.moveHereButton") != nil)
+        #expect(rig.host.element("folderPicker.cancelButton") != nil)
     }
 
     @Test("Move Here returns the folder the picker shows")
     func moveHereReturnsCurrentFolder() async throws {
         let rig = makeRig()
-        rig.host.tap("folderPickerMoveHere")
+        rig.host.tap("folderPicker.moveHereButton")
         #expect(rig.results.chosen == [rig.store.root])
         #expect(rig.results.cancelled == 0)
     }
@@ -90,7 +94,7 @@ import UIKit
         tableView.delegate?.tableView?(tableView, didSelectRowAt: IndexPath(row: index, section: 0))
         await BrowserViewSupport.waitUntil { (rig.host.navigation?.viewControllers.count ?? 0) == 2 }
         #expect(rig.host.navigation?.viewControllers.count == 2)
-        rig.host.tap("folderPickerMoveHere")
+        rig.host.tap("folderPicker.moveHereButton")
         let photos = try #require(
             rig.store.allItems.first { $0.name == "Photos" && $0.isDirectory }?.asDirectory)
         #expect(rig.results.chosen == [photos])
@@ -99,7 +103,7 @@ import UIKit
     @Test("Cancel reports the cancellation and chooses nothing")
     func cancelReports() async throws {
         let rig = makeRig()
-        rig.host.tap("folderPickerCancel")
+        rig.host.tap("folderPicker.cancelButton")
         #expect(rig.results.cancelled == 1)
         #expect(rig.results.chosen.isEmpty)
     }
