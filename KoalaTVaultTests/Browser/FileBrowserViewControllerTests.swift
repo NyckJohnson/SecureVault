@@ -30,7 +30,11 @@ import UIKit
             }
         }
 
-        var names: [String] { cells.compactMap { $0.accessibilityIdentifier?.replacingOccurrences(of: "browser.cell.", with: "") } }
+        var names: [String] {
+            cells.compactMap {
+                $0.accessibilityIdentifier?.replacingOccurrences(of: "browser.cell.", with: "")
+            }
+        }
 
         func indexPath(_ name: String) -> IndexPath? {
             names.firstIndex(of: name).map { IndexPath(item: $0, section: 0) }
@@ -50,7 +54,8 @@ import UIKit
         /// The grid delegate's configuration for an item, so the real menu stays wired.
         func menuConfiguration(for name: String) -> UIContextMenuConfiguration? {
             guard let grid, let path = indexPath(name) else { return nil }
-            return grid.delegate?.collectionView?(grid, contextMenuConfigurationForItemAt: path, point: .zero)
+            return grid.delegate?.collectionView?(
+                grid, contextMenuConfigurationForItemsAt: [path], point: .zero)
         }
 
         func choose(_ title: String, in name: String) {
@@ -108,7 +113,11 @@ import UIKit
     @Test("The root browser has the grid and every bar button identified, including the settings gear")
     func rootIdentifiers() async throws {
         let rig = try await makeRig()
-        for id in ["fileGrid", "settingsButton", "sortButton", "newFolderButton", "browser.newDocumentButton", "importButton", "selectButton"] {
+        let ids = [
+            "fileGrid", "settingsButton", "sortButton", "newFolderButton",
+            "browser.newDocumentButton", "importButton", "selectButton",
+        ]
+        for id in ids {
             #expect(rig.host.element(id) != nil, "missing \(id)")
         }
     }
@@ -182,7 +191,9 @@ import UIKit
     func tapFileOpensViewer() async throws {
         let rig = try await makeRig()
         rig.tapCell("Holiday.mov")
-        let files = rig.store.allItems.filter { $0.name != "Photos" && $0.name != "Documents" && $0.id.split(separator: "/").count == 1 }
+        let files = rig.store.allItems.filter {
+            $0.name != "Photos" && $0.name != "Documents" && $0.id.split(separator: "/").count == 1
+        }
         let sortedNames = ["Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf"]
         let ids = sortedNames.compactMap { name in files.first { $0.name == name }?.id }
         await BrowserViewSupport.waitUntil { !rig.viewer.calls.isEmpty }
@@ -269,7 +280,11 @@ import UIKit
         rig.host.tap("selectButton")
         await BrowserViewSupport.waitUntil { rig.host.shownTitle == "Select Items" }
         #expect(rig.host.shownTitle == "Select Items")
-        for id in ["browser.bulkDeleteButton", "browser.bulkMoveButton", "browser.bulkExportButton", "browser.bulkCopyButton"] {
+        let ids = [
+            "browser.bulkDeleteButton", "browser.bulkMoveButton",
+            "browser.bulkExportButton", "browser.bulkCopyButton",
+        ]
+        for id in ids {
             #expect(rig.host.element(id) != nil, "missing \(id)")
         }
         rig.tapCell("Beach.jpg")

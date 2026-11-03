@@ -129,7 +129,9 @@ final class BrowserViewHost {
     }
 
     /// The title shown by the top of the navigation stack.
-    var shownTitle: String? { navigation?.topViewController?.navigationItem.title ?? navigation?.topViewController?.title }
+    var shownTitle: String? {
+        navigation?.topViewController?.navigationItem.title ?? navigation?.topViewController?.title
+    }
 }
 
 enum BrowserViewSupport {

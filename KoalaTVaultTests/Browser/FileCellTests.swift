@@ -23,7 +23,8 @@ import UIKit
         cell.configure(with: item, thumbnails: BrowserFakeThumbnails(), folderAssetAvailable: true)
         let texts = BrowserViewHost.texts(in: cell)
         #expect(texts.contains("Tax Return 2025.pdf"))
-        let expectedSize = ByteCountFormatter.string(fromByteCount: Int64(try #require(item.fileSize)), countStyle: .file)
+        let sizeBytes = Int64(try #require(item.fileSize))
+        let expectedSize = ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
         #expect(texts.contains(expectedSize))
         #expect(cell.thumbnailView.image != nil)
     }
@@ -39,7 +40,8 @@ import UIKit
     @Test("The cell is identified as browser.cell.<name>, with identified name, size and checkmark")
     func identifier() throws {
         let cell = makeCell()
-        cell.configure(with: try sampleItem("Beach.jpg"), thumbnails: BrowserFakeThumbnails(), folderAssetAvailable: true)
+        cell.configure(
+            with: try sampleItem("Beach.jpg"), thumbnails: BrowserFakeThumbnails(), folderAssetAvailable: true)
         #expect(cell.accessibilityIdentifier == "browser.cell.Beach.jpg")
         #expect(BrowserViewHost.find("browser.cell.Beach.jpg.nameLabel", in: cell) is UILabel)
         #expect(BrowserViewHost.find("browser.cell.Beach.jpg.sizeLabel", in: cell) is UILabel)
