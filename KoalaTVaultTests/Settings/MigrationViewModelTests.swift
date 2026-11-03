@@ -344,4 +344,30 @@ import Testing
     func liveSleepReturns() async throws {
         try await MigrationViewModel.liveSleep(.milliseconds(1))
     }
+
+    @Test("Without a stand-in sleep, a resumed completed migration reports its end once after the real wait")
+    func defaultSleepReportsEnd() async {
+        let migrator = SettingsScriptedMigrator(phase: .completed(fully: true))
+        let finished = SettingsRecorder<Bool>()
+        let viewModel = MigrationViewModel(
+            kind: .encrypt, migrator: migrator, onFinish: { finished.record($0) })
+        let task = Task { await viewModel.run() }
+        #expect(finished.values.isEmpty)
+        await SettingsTestSupport.waitUntil { !finished.values.isEmpty }
+        await task.value
+        #expect(finished.values == [true])
+    }
+
+    @Test("Without a stand-in sleep, cancelling during the real wait means the end is never reported")
+    func defaultSleepCancelled() async {
+        let migrator = SettingsScriptedMigrator(phase: .completed(fully: true))
+        let finished = SettingsRecorder<Bool>()
+        let viewModel = MigrationViewModel(
+            kind: .encrypt, migrator: migrator, onFinish: { finished.record($0) })
+        let task = Task { await viewModel.run() }
+        for _ in 0..<20 { await Task.yield() }
+        task.cancel()
+        await task.value
+        #expect(finished.values.isEmpty)
+    }
 }

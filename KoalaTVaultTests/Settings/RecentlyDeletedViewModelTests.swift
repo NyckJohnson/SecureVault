@@ -74,6 +74,17 @@ import Testing
         #expect(rig.viewModel.rows.map(\.name) == ["A.pdf", "C.pdf", "B.pdf"])
     }
 
+    @Test("Each row's id is its item's id, in the rows' order")
+    func rowIdsMatchItems() async throws {
+        let rig = try await makeRig(trashing: ["B.pdf", "C.pdf", "A.pdf"], spacedOut: true)
+        await rig.viewModel.load()
+        let trashIds = try await rig.store.trashContents().map(\.id)
+        let rows = rig.viewModel.rows
+        #expect(rows.map(\.id) == rows.map(\.item.id))
+        #expect(Set(rows.map(\.id)) == Set(trashIds))
+        #expect(rows.count == 3)
+    }
+
     @Test("A row's icon follows the shared file icon mapping")
     func rowIcons() async throws {
         let rig = try await makeRig(trashing: ["Beach.jpg", "Photos/"])
