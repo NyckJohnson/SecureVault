@@ -426,7 +426,9 @@ extension FileBrowserViewController: UICollectionViewDataSource {
         shownItems.count
     }
 
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+    func collectionView(
+        _ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
         let dequeued = collectionView.dequeueReusableCell(withReuseIdentifier: FileCell.reuseID, for: indexPath)
         guard let cell = dequeued as? FileCell, let item = item(at: indexPath) else { return dequeued }
         cell.configure(with: item, thumbnails: thumbnails, folderAssetAvailable: folderAssetAvailable)
@@ -455,9 +457,22 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         guard let item = item(at: indexPath) else { return nil }
         let actions = viewModel.contextActions(for: item)
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            let children = actions.compactMap { self?.menuAction($0, for: item, at: indexPath) }
-            return UIMenu(title: item.name, children: children)
+            self?.menu(for: item, actions: actions, at: indexPath)
         }
+    }
+
+    /// The context menu for the item at `indexPath`, or nil when there is no item there.
+    /// The grid's context-menu configuration builds the same menu through `menu(for:actions:at:)`.
+    func contextMenu(at indexPath: IndexPath) -> UIMenu? {
+        guard let item = item(at: indexPath) else { return nil }
+        return menu(for: item, actions: viewModel.contextActions(for: item), at: indexPath)
+    }
+
+    /// Builds the context menu for `item` from the view model's actions.
+    private func menu(
+        for item: VaultItem, actions: [FileBrowserViewModel.ContextAction], at indexPath: IndexPath
+    ) -> UIMenu {
+        UIMenu(title: item.name, children: actions.map { menuAction($0, for: item, at: indexPath) })
     }
 
     func collectionView(
@@ -584,7 +599,9 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
         return UICollectionViewDropProposal(operation: .move, intent: .insertIntoDestinationIndexPath)
     }
 
-    func collectionView(_ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
+    func collectionView(
+        _ collectionView: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator
+    ) {
         guard let destination = coordinator.destinationIndexPath else { return }
         for dropItem in coordinator.items {
             let dragged = dropItem.dragItem.localObject as? VaultItem
