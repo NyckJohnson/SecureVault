@@ -555,14 +555,14 @@
           "files": [
             "SceneDelegate.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0,
           "kind": "switch-over"
         }
       ]
     }
   ],
-  "updatedAt": "2026-11-03T14:45:35-08:00",
+  "updatedAt": "2026-11-03T14:46:06-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
