@@ -864,7 +864,7 @@ extension matching ignores case.
   - Drag a cell onto a folder cell → move; onto a file cell → not a drop target; drops from other apps ignored.
   - A drag stays inside the app when `lockMode != .none`, `pendingMigration` is set, or the item `isEncrypted`; only a no-lock vault with no migration pending can drag items out (the on-disk file of an encrypted item is ciphertext). This rule lives in a tested view model, with a test for each case and an unknown drag item (stays in).
   - Refresh after restore, import, editor close and unlock.
-  - FolderPickerViewModel: lists subfolders of the current folder, starting at the root; excludes the items being moved (and so their subfolders); "Move Here" returns the current folder; load error shown.
+  - FolderPickerViewModel: lists subfolders of the current folder in the saved sort (as today), starting at the root; excludes the items being moved (and so their subfolders); "Move Here" returns the current folder; load error shown.
   - FileCellModel: name, size text (`ByteCountFormatter` file style; empty for folders), icon from `FileIconMapping`, thumbnail requested and cancelled on reuse, and ignored if the cell now shows another item.
   - Views: identifiers `fileGrid`, `settingsButton`, `sortButton`, `newFolderButton`, `newDocumentButton`, `importButton`, `selectButton`, `bulkDeleteButton`, `bulkMoveButton`, `bulkExportButton`, `bulkCopyButton`, `fileCell_<name>`, `emptyStateLabel`, `folderPickerMoveHere`, `folderPickerCancel`. (Views.)
 - Contract: see `docs/api/Browser.md` (generated; do not edit by hand)
@@ -966,6 +966,7 @@ extension matching ignores case.
 - The under-lock `.rtf` page journeys assume the created document is encrypted rather than checking the file — J5ViewEditJourneyTests.swift — open, minor
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
+- Browser hides only `VaultStoreError.locked` load errors (the unlock refresh reloads); today every load error is hidden while the vault is locked, so another error during an auto-lock (e.g. a decrypt failure after the key is wiped) could alert under the lock screen. The view model has no lock state (Browser does not depend on VaultLock) — FileBrowserViewModel.swift — open, minor
 ## Features
 <!-- Accepted features, oldest first. -->
 
@@ -1039,3 +1040,4 @@ extension matching ignores case.
 - 2026-11-03: Settings views use the identifiers the journey tests already use (`settings.lockMode.noLockRow`, `settings.changePasswordRow`, `paywall.closeButton`, `migration.statusLabel`, `recentlyDeleted.emptyTrashButton`, …), not the memo's names where they differ; same reasoning as LockScreens — Settings unit 2 — orchestrator, recorded
 - 2026-11-03: The existing-password prompt (adding a lock over an old password blob; not in today's app) is titled "Enter Existing Password", uses `VaultLockError.existingPasswordRequired`'s text as its message, a "Continue" button and field `settings.existingPasswordField` — Settings unit 2 review — orchestrator, recorded
 - 2026-11-03: Settings spec keeps three checks from the legacy tests: tapping "Pro Unlocked" does nothing; the Pro row shows a disclosure indicator when free and a checkmark when unlocked; the Migration screen reappearing while paused does not start the migration again. MigrationScreenTests.swift added to Settings' legacy tests — Settings switch-over scan — decided by the human
+- 2026-11-03: The folder picker lists folders in the saved sort, as today's app does (the spec named no order; the first implementation sorted by name) — Browser unit 1 review — orchestrator, recorded
