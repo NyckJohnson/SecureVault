@@ -489,7 +489,7 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-02T16:59:05-08:00",
+  "updatedAt": "2026-11-02T17:04:30-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
