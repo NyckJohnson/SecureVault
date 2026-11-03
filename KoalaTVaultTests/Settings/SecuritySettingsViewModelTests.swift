@@ -214,7 +214,7 @@ import Testing
     }
 
     @Test(
-        "A matching new password prepares the lock and starts an encrypt migration with the target",
+        "A matching new password prepares the lock and starts an encrypt migration under Password alone",
         arguments: [LockMode.password, .passwordAndBiometrics]
     )
     func newPasswordStartsEncrypt(target: LockMode) async throws {
@@ -222,7 +222,7 @@ import Testing
         await rig.viewModel.select(target)
         await rig.viewModel.submitNewPassword("secret", confirm: "secret")
         #expect(rig.mock.calls.contains(.prepareToAddLock(.password)))
-        #expect(rig.migrator.calls.contains(.start(.encrypt, target: target)))
+        #expect(rig.migrator.calls.contains(.start(.encrypt, target: .password)))
         #expect(rig.migrationShown.values.count == 1)
         #expect(rig.viewModel.prompt == nil)
         #expect(rig.alerts.alerts.isEmpty)
@@ -256,7 +256,7 @@ import Testing
         #expect(rig.viewModel.prompt == .existingPassword(.passwordAndBiometrics))
         #expect(rig.migrator.calls.isEmpty)
         await rig.viewModel.submitExistingPassword(Self.blob)
-        #expect(rig.migrator.calls.contains(.start(.encrypt, target: .passwordAndBiometrics)))
+        #expect(rig.migrator.calls.contains(.start(.encrypt, target: .password)))
         #expect(rig.migrationShown.values.count == 1)
         #expect(rig.viewModel.prompt == nil)
     }
@@ -396,5 +396,369 @@ import Testing
         let rig = try await makeRig()
         await rig.viewModel.changePassword(current: "nope", new: "fresh", confirm: "fresh")
         #expect(!rig.viewModel.isBusy)
+    }
+
+    // MARK: - Scripted migrator rig
+
+    private struct ScriptedRig {
+        let viewModel: SecuritySettingsViewModel
+        let lock: MockVaultLocking
+        let migrator: SettingsScriptedMigrator
+        let alerts: MockAlertPresenting
+        let migrationShown: SettingsRecorder<Void>
+    }
+
+    private static let refusal = "A migration is still in progress. Let it finish, then try again."
+    private static let faceIDNotTurnedOn =
+        "Face ID wasn't turned on because some files aren't encrypted yet. "
+        + "Use Re-encrypt Everything, then turn on Face ID."
+
+    private func makeScriptedRig(
+        lockMode: LockMode = .password,
+        password: String? = "correct horse",
+        biometricsAvailable: Bool = true,
+        unlocked: Bool = true,
+        withFiles: Bool = true
+    ) async throws -> ScriptedRig {
+        let lock = MockVaultLocking(
+            lockMode: lockMode, password: password, biometricKind: .faceID,
+            biometricsAvailable: biometricsAvailable)
+        if unlocked && lockMode != .none { try await lock.unlock(password: Self.blob) }
+        let migrator = SettingsScriptedMigrator()
+        let alerts = MockAlertPresenting()
+        let shown = SettingsRecorder<Void>()
+        let viewModel = SecuritySettingsViewModel(
+            lock: lock, migrator: migrator, store: MockVaultStoring(withSampleContent: withFiles),
+            pro: MockProUnlocking(isUnlocked: false), alerts: alerts, onShowMigration: { shown.record(()) })
+        return ScriptedRig(
+            viewModel: viewModel, lock: lock, migrator: migrator, alerts: alerts, migrationShown: shown)
+    }
+
+    private func started(_ rig: ScriptedRig) -> [SettingsScriptedMigrator.Call] {
+        rig.migrator.calls.filter { call in
+            if case .start = call { return true }
+            return false
+        }
+    }
+
+    private func prepareCalls(_ rig: ScriptedRig) -> [MockVaultLocking.Call] {
+        rig.lock.calls.filter { call in
+            if case .prepareToAddLock = call { return true }
+            return false
+        }
+    }
+
+    private func switchCalls(_ rig: ScriptedRig) -> [MockVaultLocking.Call] {
+        rig.lock.calls.filter { call in
+            if case .switchMode = call { return true }
+            return false
+        }
+    }
+
+    private func expectRefused(_ rig: ScriptedRig) {
+        #expect(rig.alerts.alerts == [.error(Self.refusal)])
+        #expect(started(rig).isEmpty)
+        #expect(rig.migrationShown.values.isEmpty)
+        #expect(switchCalls(rig).isEmpty)
+        #expect(prepareCalls(rig).isEmpty)
+        #expect(rig.viewModel.prompt == nil)
+    }
+
+    // MARK: - Biometric row without biometrics
+
+    @Test("Choosing Password + biometric without biometrics is ignored", arguments: [LockMode.password, .none])
+    func biometricRowIgnoredWithoutBiometrics(from: LockMode) async throws {
+        let rig = try await makeScriptedRig(
+            lockMode: from, password: from == .none ? nil : Self.blob, biometricsAvailable: false)
+        await rig.viewModel.select(.passwordAndBiometrics)
+        #expect(rig.viewModel.prompt == nil)
+        #expect(switchCalls(rig).isEmpty)
+        #expect(started(rig).isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+        #expect(rig.migrationShown.values.isEmpty)
+        #expect(rig.viewModel.currentMode == from)
+    }
+
+    // MARK: - Re-encrypt
+
+    @Test(
+        "Re-encrypt Everything keeps the target of a pending encrypt",
+        arguments: [LockMode.password, .passwordAndBiometrics]
+    )
+    func reencryptKeepsPendingTarget(target: LockMode) async throws {
+        let rig = try await makeScriptedRig()
+        rig.migrator.pending = PendingMigration(kind: .encrypt, targetLockMode: target)
+        await rig.viewModel.reencryptEverything()
+        #expect(rig.migrator.calls.contains(.start(.encrypt, target)))
+        #expect(rig.migrationShown.values.count == 1)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("Re-encrypt Everything with no pending migration has no target")
+    func reencryptWithoutPendingHasNoTarget() async throws {
+        let rig = try await makeScriptedRig()
+        await rig.viewModel.reencryptEverything()
+        #expect(rig.migrator.calls.contains(.start(.encrypt, nil)))
+    }
+
+    @Test("Re-encrypt Everything with no lock does nothing")
+    func reencryptWithoutLockDoesNothing() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await rig.viewModel.reencryptEverything()
+        #expect(started(rig).isEmpty)
+        #expect(rig.migrationShown.values.isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    // MARK: - Refused during a migration
+
+    enum MigrationUnderWay: CaseIterable, Sendable {
+        case running
+        case paused
+        case failed
+        case pending
+
+        @MainActor
+        func apply(to migrator: SettingsScriptedMigrator) {
+            switch self {
+            case .running: migrator.send(.running(done: 1, total: 4))
+            case .paused: migrator.send(.paused(done: 1, total: 4))
+            case .failed: migrator.send(.failed(names: ["a.jpg"]))
+            case .pending: migrator.pending = PendingMigration(kind: .decrypt, targetLockMode: nil)
+            }
+        }
+    }
+
+    enum LockModeChange: CaseIterable, Sendable {
+        case removeLock
+        case passwordToBiometric
+        case biometricToPassword
+        case addLock
+
+        var from: LockMode {
+            switch self {
+            case .removeLock, .passwordToBiometric: .password
+            case .biometricToPassword: .passwordAndBiometrics
+            case .addLock: .none
+            }
+        }
+
+        var to: LockMode {
+            switch self {
+            case .removeLock: .none
+            case .passwordToBiometric: .passwordAndBiometrics
+            case .biometricToPassword, .addLock: .password
+            }
+        }
+    }
+
+    @Test(
+        "Changing the lock mode is refused while a migration is under way",
+        arguments: MigrationUnderWay.allCases, LockModeChange.allCases
+    )
+    func lockModeChangeRefused(underWay: MigrationUnderWay, change: LockModeChange) async throws {
+        let rig = try await makeScriptedRig(lockMode: change.from, password: change.from == .none ? nil : Self.blob)
+        underWay.apply(to: rig.migrator)
+        await rig.viewModel.select(change.to)
+        expectRefused(rig)
+        #expect(rig.viewModel.currentMode == change.from)
+    }
+
+    @Test(
+        "Confirming Remove Lock is refused when a migration has started since the prompt",
+        arguments: MigrationUnderWay.allCases
+    )
+    func confirmRemoveLockRefused(underWay: MigrationUnderWay) async throws {
+        let rig = try await makeScriptedRig()
+        await rig.viewModel.select(.none)
+        #expect(rig.viewModel.prompt == .removeLock)
+        underWay.apply(to: rig.migrator)
+        await rig.viewModel.confirmRemoveLock()
+        expectRefused(rig)
+    }
+
+    @Test(
+        "Submitting a new password is refused when a migration has started since the prompt",
+        arguments: MigrationUnderWay.allCases
+    )
+    func newPasswordRefused(underWay: MigrationUnderWay) async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await rig.viewModel.select(.password)
+        underWay.apply(to: rig.migrator)
+        await rig.viewModel.submitNewPassword("secret", confirm: "secret")
+        expectRefused(rig)
+    }
+
+    @Test(
+        "Submitting the existing password is refused when a migration has started since the prompt",
+        arguments: MigrationUnderWay.allCases
+    )
+    func existingPasswordRefused(underWay: MigrationUnderWay) async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: Self.blob, unlocked: false)
+        await rig.viewModel.select(.password)
+        await rig.viewModel.submitNewPassword("another", confirm: "another")
+        #expect(rig.viewModel.prompt == .existingPassword(.password))
+        let preparedBefore = prepareCalls(rig).count
+        underWay.apply(to: rig.migrator)
+        await rig.viewModel.submitExistingPassword(Self.blob)
+        #expect(rig.alerts.alerts == [.error(Self.refusal)])
+        #expect(prepareCalls(rig).count == preparedBefore)
+        #expect(started(rig).isEmpty)
+        #expect(rig.migrationShown.values.isEmpty)
+        #expect(rig.viewModel.prompt == nil)
+    }
+
+    @Test(
+        "Re-encrypt Everything is refused while a migration is under way",
+        arguments: MigrationUnderWay.allCases
+    )
+    func reencryptRefused(underWay: MigrationUnderWay) async throws {
+        let rig = try await makeScriptedRig()
+        underWay.apply(to: rig.migrator)
+        await rig.viewModel.reencryptEverything()
+        expectRefused(rig)
+    }
+
+    // MARK: - Keychain error while adding a lock
+
+    @Test("A Keychain error preparing the lock stops: no existing-password prompt and no migration")
+    func keychainErrorStopsAddingLock() async throws {
+        let rig = try await makeRig(lockMode: .none, password: nil)
+        rig.lock.prepareToAddLockError = VaultLockError.keychain(-25300)
+        await rig.viewModel.select(.password)
+        await rig.viewModel.submitNewPassword("secret", confirm: "secret")
+        #expect(rig.alerts.alerts == [.error("A Keychain error occurred (-25300).")])
+        #expect(rig.viewModel.prompt == nil)
+        #expect(rig.migrator.calls.isEmpty)
+        #expect(rig.migrationShown.values.isEmpty)
+        #expect(!rig.viewModel.isBusy)
+    }
+
+    // MARK: - Migration finished
+
+    private func addBiometricLock(_ rig: ScriptedRig) async {
+        await rig.viewModel.select(.passwordAndBiometrics)
+        await rig.viewModel.submitNewPassword("secret", confirm: "secret")
+    }
+
+    @Test("After a full Password + biometric migration the lock switches to Password + biometric")
+    func fullMigrationTurnsBiometricsOn() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await addBiometricLock(rig)
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(rig.lock.calls.contains(.switchMode(.passwordAndBiometrics)))
+        #expect(rig.viewModel.currentMode == .passwordAndBiometrics)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A full migration after the existing password was entered also turns biometrics on")
+    func fullMigrationAfterExistingPasswordTurnsBiometricsOn() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: Self.blob, unlocked: false)
+        await rig.viewModel.select(.passwordAndBiometrics)
+        await rig.viewModel.submitNewPassword("another", confirm: "another")
+        await rig.viewModel.submitExistingPassword(Self.blob)
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(rig.lock.calls.contains(.switchMode(.passwordAndBiometrics)))
+        #expect(rig.viewModel.currentMode == .passwordAndBiometrics)
+    }
+
+    @Test("When switching to Password + biometric fails the error shows and the mode stays Password")
+    func failedSwitchAfterMigrationKeepsPassword() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await addBiometricLock(rig)
+        rig.lock.appDidEnterBackground()
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(rig.alerts.alerts == [.error(VaultLockError.notUnlocked.localizedDescription)])
+        #expect(rig.viewModel.currentMode == .password)
+        #expect(rig.lock.lockMode == .password)
+    }
+
+    @Test("An incomplete Password + biometric migration explains why Face ID wasn't turned on")
+    func incompleteMigrationExplainsFaceID() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await addBiometricLock(rig)
+        await rig.viewModel.migrationFinished(completedFully: false)
+        #expect(rig.alerts.alerts == [.error(Self.faceIDNotTurnedOn)])
+        #expect(switchCalls(rig).isEmpty)
+        #expect(rig.viewModel.currentMode == .password)
+    }
+
+    @Test("After Password alone a finished migration switches nothing and shows nothing", arguments: [true, false])
+    func passwordAloneFinishesQuietly(completedFully: Bool) async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await rig.viewModel.select(.password)
+        await rig.viewModel.submitNewPassword("secret", confirm: "secret")
+        await rig.viewModel.migrationFinished(completedFully: completedFully)
+        #expect(switchCalls(rig).isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+        #expect(rig.viewModel.currentMode == .password)
+    }
+
+    @Test("After a decrypt a finished migration switches nothing and shows nothing", arguments: [true, false])
+    func decryptFinishesQuietly(completedFully: Bool) async throws {
+        let rig = try await makeScriptedRig(lockMode: .passwordAndBiometrics)
+        await rig.viewModel.select(.none)
+        await rig.viewModel.confirmRemoveLock()
+        await rig.viewModel.migrationFinished(completedFully: completedFully)
+        #expect(switchCalls(rig).isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("After a re-encrypt a finished migration switches nothing and shows nothing", arguments: [true, false])
+    func reencryptFinishesQuietly(completedFully: Bool) async throws {
+        let rig = try await makeScriptedRig(lockMode: .password)
+        await rig.viewModel.reencryptEverything()
+        await rig.viewModel.migrationFinished(completedFully: completedFully)
+        #expect(switchCalls(rig).isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A finished migration refreshes Re-encrypt Everything: still shown when files are unencrypted")
+    func finishedShowsReencryptWhenFilesRemain() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil, withFiles: true)
+        await rig.viewModel.select(.password)
+        await rig.viewModel.submitNewPassword("secret", confirm: "secret")
+        #expect(!rig.viewModel.showsReencrypt)
+        await rig.viewModel.migrationFinished(completedFully: false)
+        #expect(rig.viewModel.showsReencrypt)
+        #expect(rig.viewModel.currentMode == .password)
+    }
+
+    @Test("A finished migration refreshes Re-encrypt Everything: hidden when the vault is empty")
+    func finishedHidesReencryptWhenNoFiles() async throws {
+        let rig = try await makeScriptedRig(lockMode: .password, withFiles: false)
+        await rig.viewModel.reencryptEverything()
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(!rig.viewModel.showsReencrypt)
+    }
+
+    @Test("A finished migration refreshes the current mode from the lock")
+    func finishedRefreshesCurrentMode() async throws {
+        let rig = try await makeScriptedRig(lockMode: .passwordAndBiometrics)
+        await rig.viewModel.select(.none)
+        await rig.viewModel.confirmRemoveLock()
+        try await rig.lock.removeKeysAfterDecryption()
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(rig.viewModel.currentMode == .none)
+    }
+
+    @Test("A second migrationFinished does nothing after a full migration")
+    func secondFinishAfterFullMigrationDoesNothing() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await addBiometricLock(rig)
+        await rig.viewModel.migrationFinished(completedFully: true)
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(switchCalls(rig) == [.switchMode(.passwordAndBiometrics)])
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A second migrationFinished does nothing after an incomplete migration")
+    func secondFinishAfterIncompleteMigrationDoesNothing() async throws {
+        let rig = try await makeScriptedRig(lockMode: .none, password: nil)
+        await addBiometricLock(rig)
+        await rig.viewModel.migrationFinished(completedFully: false)
+        await rig.viewModel.migrationFinished(completedFully: true)
+        #expect(rig.alerts.alerts == [.error(Self.faceIDNotTurnedOn)])
+        #expect(switchCalls(rig).isEmpty)
     }
 }

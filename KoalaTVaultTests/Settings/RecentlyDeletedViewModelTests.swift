@@ -6,13 +6,18 @@ import Testing
 @MainActor
 @Suite struct RecentlyDeletedViewModelTests {
     private static let day: TimeInterval = 24 * 60 * 60
-    private static let earlyCases: [(Double, String)] = [(0, "Deletes in 30 days"), (0.5, "Deletes in 30 days")]
-    private static let midCases: [(Double, String)] = [(1, "Deletes in 29 days"), (10, "Deletes in 20 days")]
-    private static let nearCases: [(Double, String)] = [(28, "Deletes in 2 days"), (29, "Deletes in 1 day")]
-    private static let overCases: [(Double, String)] = [(45, "Deletes in 0 days"), (400, "Deletes in 0 days")]
-    private static let lateCases: [(Double, String)] = [(29.9, "Deletes in 1 day"), (30, "Deletes in 0 days")]
+    nonisolated private static let earlyCases: [(Double, String)] =
+        [(0, "Deletes in 30 days"), (0.5, "Deletes in 30 days")]
+    nonisolated private static let midCases: [(Double, String)] =
+        [(1, "Deletes in 29 days"), (10, "Deletes in 20 days")]
+    nonisolated private static let nearCases: [(Double, String)] =
+        [(28, "Deletes in 2 days"), (29, "Deletes in 1 day")]
+    nonisolated private static let overCases: [(Double, String)] =
+        [(45, "Deletes in 0 days"), (400, "Deletes in 0 days")]
+    nonisolated private static let lateCases: [(Double, String)] =
+        [(29.9, "Deletes in 1 day"), (30, "Deletes in 0 days")]
 
-    private static let dayCases: [(Double, String)] =
+    nonisolated private static let dayCases: [(Double, String)] =
         earlyCases + midCases + nearCases + lateCases + overCases
 
     private struct Rig {

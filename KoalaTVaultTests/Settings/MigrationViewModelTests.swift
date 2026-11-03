@@ -14,14 +14,15 @@ import Testing
 
     private func makeRig(
         kind: MigrationKind = .encrypt,
-        phase: MigrationPhase = .idle
+        phase: MigrationPhase = .idle,
+        waitsForNewRun: Bool = false
     ) -> Rig {
         let migrator = SettingsScriptedMigrator(phase: phase)
         let sleeper = SettingsManualSleeper()
         let finished = SettingsRecorder<Bool>()
         let viewModel = MigrationViewModel(
-            kind: kind, migrator: migrator, sleep: { try await sleeper.sleep($0) },
-            onFinish: { finished.record($0) })
+            kind: kind, migrator: migrator, waitsForNewRun: waitsForNewRun,
+            sleep: { try await sleeper.sleep($0) }, onFinish: { finished.record($0) })
         return Rig(viewModel: viewModel, migrator: migrator, sleeper: sleeper, finished: finished)
     }
 
@@ -236,6 +237,81 @@ import Testing
         #expect(rig.sleeper.requestedDurations.isEmpty)
         #expect(rig.finished.values.isEmpty)
         task.cancel()
+    }
+
+    @Test("A failure with no file names shows the generic message")
+    func failureWithoutNames() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.failed(names: []))
+        await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
+        #expect(rig.viewModel.failureTitle == "Some Files Failed")
+        #expect(rig.viewModel.failureMessage == "The migration couldn't finish. Retry, or Skip to stop for now.")
+        task.cancel()
+    }
+
+    // MARK: - Running twice
+
+    @Test("A second run while the first is following the migration does nothing")
+    func secondRunWhileFollowingDoesNothing() async {
+        let rig = makeRig()
+        let first = await startRunning(rig)
+        let viewModel = rig.viewModel
+        let second = Task { await viewModel.run() }
+        await SettingsTestSupport.settle()
+        #expect(rig.migrator.calls.filter { $0 == .phaseUpdates }.count == 1)
+        rig.migrator.send(.completed(fully: true))
+        await SettingsTestSupport.waitUntil { rig.sleeper.pendingCount == 1 }
+        rig.sleeper.advance()
+        await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
+        await SettingsTestSupport.settle()
+        #expect(rig.finished.values == [true])
+        #expect(rig.sleeper.requestedDurations.count == 1)
+        first.cancel()
+        second.cancel()
+    }
+
+    @Test("A second run after the migration finished does not finish again")
+    func secondRunAfterFinishDoesNotFinishAgain() async {
+        let rig = makeRig(phase: .completed(fully: true))
+        let viewModel = rig.viewModel
+        let first = Task { await viewModel.run() }
+        await SettingsTestSupport.waitUntil { rig.sleeper.pendingCount == 1 }
+        rig.sleeper.advance()
+        await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
+        let second = Task { await viewModel.run() }
+        await SettingsTestSupport.settle()
+        #expect(rig.sleeper.pendingCount == 0)
+        #expect(rig.sleeper.requestedDurations.count == 1)
+        #expect(rig.finished.values == [true])
+        first.cancel()
+        second.cancel()
+    }
+
+    // MARK: - Waiting for a new run
+
+    @Test("When waiting for a new run, an old completed phase is ignored and the new run's ends the screen")
+    func waitsForNewRunIgnoresOldCompletion() async {
+        let rig = makeRig(phase: .completed(fully: true), waitsForNewRun: true)
+        let task = await startRunning(rig)
+        await SettingsTestSupport.settle()
+        #expect(rig.sleeper.requestedDurations.isEmpty)
+        #expect(rig.finished.values.isEmpty)
+        #expect(rig.viewModel.statusText == "Preparing…")
+        rig.migrator.send(.running(done: 1, total: 2))
+        await SettingsTestSupport.waitUntil { rig.viewModel.statusText == "50% complete" }
+        rig.migrator.send(.completed(fully: false))
+        await SettingsTestSupport.waitUntil { rig.sleeper.pendingCount == 1 }
+        rig.sleeper.advance()
+        await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
+        #expect(rig.finished.values == [false])
+        task.cancel()
+    }
+
+    @Test("When waiting for a new run, a phase already running is shown at once")
+    func waitsForNewRunShowsRunningPhase() {
+        let rig = makeRig(phase: .running(done: 1, total: 4), waitsForNewRun: true)
+        #expect(rig.viewModel.statusText == "25% complete")
     }
 
     @Test("The live sleep waits for the duration it is given")

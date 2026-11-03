@@ -97,7 +97,7 @@ import Testing
         let rig = makeRig()
         rig.mock.errorToThrow = .purchaseFailed
         await rig.viewModel.unlockTapped()
-        #expect(rig.alerts.alerts == [.error(ProUnlockError.purchaseFailed.localizedDescription)])
+        #expect(rig.alerts.alerts == [.error("Purchase could not be completed.")])
         #expect(rig.unlocked.values.isEmpty)
         #expect(rig.closed.values.isEmpty)
         #expect(!rig.viewModel.isBusy)
@@ -140,7 +140,7 @@ import Testing
         let rig = makeRig()
         rig.mock.errorToThrow = .verificationFailed
         await rig.viewModel.restoreTapped()
-        #expect(rig.alerts.alerts == [.error(ProUnlockError.verificationFailed.localizedDescription)])
+        #expect(rig.alerts.alerts == [.error("Could not verify purchase.")])
         #expect(rig.closed.values.isEmpty)
         #expect(!rig.viewModel.isBusy)
     }
