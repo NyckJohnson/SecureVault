@@ -42,16 +42,15 @@ import UIKit
         }
 
         /// The actions of the item's context menu, by title.
-        @available(iOS, deprecated: 16.0, message: "Calls the single-item context menu delegate method the view implements")
         func menuActions(for name: String) -> [UIAction] {
-            guard let grid, let path = indexPath(name),
-                let configuration = grid.delegate?.collectionView?(
-                    grid, contextMenuConfigurationForItemAt: path, point: .zero),
-                let provider = configuration.value(forKey: "actionProvider")
-                    as? ([UIMenuElement]) -> UIMenu?,
-                let menu = provider([])
-            else { return [] }
+            guard let path = indexPath(name), let menu = controller.contextMenu(at: path) else { return [] }
             return menu.children.compactMap { $0 as? UIAction }
+        }
+
+        /// The grid delegate's configuration for an item, so the real menu stays wired.
+        func menuConfiguration(for name: String) -> UIContextMenuConfiguration? {
+            guard let grid, let path = indexPath(name) else { return nil }
+            return grid.delegate?.collectionView?(grid, contextMenuConfigurationForItemAt: path, point: .zero)
         }
 
         func choose(_ title: String, in name: String) {
@@ -397,6 +396,7 @@ import UIKit
     @Test("The context menu offers Export, Move, Copy, Rename and Delete")
     func contextMenuActions() async throws {
         let rig = try await makeRig()
+        #expect(rig.menuConfiguration(for: "Beach.jpg") != nil)
         #expect(rig.menuActions(for: "Beach.jpg").map(\.title) == ["Export", "Move", "Copy", "Rename", "Delete"])
         #expect(
             rig.menuIdentifiers(for: "Beach.jpg") == [
