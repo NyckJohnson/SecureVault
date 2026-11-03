@@ -451,10 +451,15 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         }
     }
 
+    /// One item gets its context menu; an empty or multi-item press gets none (there is no
+    /// multi-item menu). The willDisplay/willEnd methods below serve this API as well.
     func collectionView(
-        _ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint
+        _ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
+        point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard let item = item(at: indexPath) else { return nil }
+        guard indexPaths.count == 1, let indexPath = indexPaths.first, let item = item(at: indexPath) else {
+            return nil
+        }
         let actions = viewModel.contextActions(for: item)
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             self?.menu(for: item, actions: actions, at: indexPath)
