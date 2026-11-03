@@ -3,7 +3,7 @@
 //  KoalaTVaultUITests
 //
 //  Journey 5: View / edit. Seeds are plain-text files, so the viewer pages are QuickLook pages.
-//  Not covered: image zoom (no image seed), video playback controls (no video seed), Share
+//  Not covered: image zoom, video playback controls (no video seed), Share
 //  (system share sheet; only the button's presence is checked), the tap-toggles-bars behaviour
 //  and the 3 s bar fade (the tap is consumed by the QuickLook page of a text seed).
 //
@@ -157,5 +157,139 @@ final class J5NewDocumentUnderLockJourneyTests: JourneyTestCase {
                       "The first document must keep its text. Value: \(String(describing: textView.value))")
         app.buttons["textEditor.doneButton"].tap()
         XCTAssertTrue(app.navigationBars["notes.rtf"].waitForNonExistence(timeout: 5))
+    }
+}
+
+/// Journey 5: swiping onto an `.rtf` page in the viewer opens the editor, and Done returns to the page
+/// the viewer was swiped from. The neighbours are seeded images (`UITEST_SEED_IMAGE_COUNT`), because synthesized
+/// swipes page on image pages but not on QuickLook (.txt) pages. Sorted by name:
+/// uitest-image-0.png, uitest-image-0x.rtf (created through New Document), uitest-image-1.png.
+class J5ViewerRtfPageJourneyBase: JourneyTestCase {
+
+    let first = "uitest-image-0.png"
+    let rtfBase = "uitest-image-0x"
+    let last = "uitest-image-1.png"
+
+    func openViewer(on name: String, file: StaticString = #filePath, line: UInt = #line) {
+        cell(name).tap()
+        XCTAssertTrue(app.otherElements["viewer"].waitForExistence(timeout: 10), "The viewer did not open",
+                      file: file, line: line)
+        expectViewerShows(name, file: file, line: line)
+    }
+
+    func expectViewerShows(_ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        let title = app.staticTexts["viewer.titleLabel"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "Viewer title missing", file: file, line: line)
+        let match = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", name), object: title)
+        XCTAssertEqual(XCTWaiter.wait(for: [match], timeout: 5), .completed,
+                       "Viewer should show \(name), shows \(title.label)", file: file, line: line)
+    }
+
+    func swipe(left: Bool, file: StaticString = #filePath, line: UInt = #line) {
+        let viewer = app.otherElements["viewer"]
+        XCTAssertTrue(viewer.exists, "No viewer to swipe", file: file, line: line)
+        let from = viewer.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.9 : 0.1, dy: 0.3))
+        let to = viewer.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.1 : 0.9, dy: 0.3))
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
+    }
+
+    func expectEditorOpen(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(app.buttons["textEditor.doneButton"].waitForExistence(timeout: 10),
+                      "Swiping onto the .rtf page should open the editor", file: file, line: line)
+    }
+
+    func tapDoneAndExpectViewer(on name: String, file: StaticString = #filePath, line: UInt = #line) {
+        app.buttons["textEditor.doneButton"].tap()
+        XCTAssertTrue(app.buttons["textEditor.doneButton"].waitForNonExistence(timeout: 5),
+                      "The editor should close on Done", file: file, line: line)
+        XCTAssertTrue(app.otherElements["viewer"].waitForExistence(timeout: 5), "Viewer should be showing again",
+                      file: file, line: line)
+        expectViewerShows(name, file: file, line: line)
+    }
+
+    func closeViewer(file: StaticString = #filePath, line: UInt = #line) {
+        app.buttons["viewer.closeButton"].tap()
+        XCTAssertTrue(app.otherElements["viewer"].waitForNonExistence(timeout: 5), "X should close the viewer",
+                      file: file, line: line)
+        waitForBrowser(file: file, line: line)
+    }
+}
+
+final class J5ViewerRtfPageJourneyTests: J5ViewerRtfPageJourneyBase {
+
+    override var launchEnvironment: [String: String] {
+        ["UITEST_SEED_IMAGE_COUNT": "2"]
+    }
+
+    override func setUp() {
+        super.setUp()
+        completeSetupWithNoLockIfShown()
+        createDocument(named: rtfBase, text: "Page text")
+    }
+
+    func testJourney5_SwipeOntoRtfOpensEditorAndDoneReturnsToPreviousPage() {
+        openViewer(on: first)
+        swipe(left: true)
+        expectEditorOpen()
+        tapDoneAndExpectViewer(on: first)
+        swipe(left: true)
+        expectEditorOpen()
+        tapDoneAndExpectViewer(on: first)
+        closeViewer()
+    }
+
+    func testJourney5_SwipeBackOntoRtfOpensEditorAndDoneReturnsToThirdItem() {
+        openViewer(on: last)
+        swipe(left: false)
+        expectEditorOpen()
+        tapDoneAndExpectViewer(on: last)
+        swipe(left: false)
+        expectEditorOpen()
+        tapDoneAndExpectViewer(on: last)
+        closeViewer()
+    }
+}
+
+/// The same return path in a password vault. The seeded images are plaintext there, so they are not decrypted
+/// images (their pages may show an error); the title and paging are what matter, and paging works. The `.rtf`
+/// is created inside the vault and so is encrypted.
+final class J5ViewerRtfPageUnderLockJourneyTests: J5ViewerRtfPageJourneyBase {
+
+    override var launchEnvironment: [String: String] {
+        ["UITEST_PASSWORD": Self.password, "UITEST_SEED_IMAGE_COUNT": "2"]
+    }
+
+    override func setUp() {
+        super.setUp()
+        unlockWithPassword()
+        createDocument(named: rtfBase, text: "Locked text")
+    }
+
+    func testJourney5_UnderLockSwipeOntoRtfEditsAndDoneReturnsToPreviousPage() {
+        openViewer(on: first)
+        swipe(left: true)
+        expectEditorOpen()
+        let textView = app.textViews["textEditor.textView"]
+        XCTAssertTrue(textView.waitForExistence(timeout: 5))
+        XCTAssertTrue((textView.value as? String ?? "").contains("Locked text"),
+                      "Saved text should load. Value: \(String(describing: textView.value))")
+        type(" more", into: textView)
+        tapDoneAndExpectViewer(on: first)
+        swipe(left: true)
+        expectEditorOpen()
+        let reopened = app.textViews["textEditor.textView"]
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5))
+        XCTAssertTrue((reopened.value as? String ?? "").contains("more"),
+                      "Text typed before Done should be kept. Value: \(String(describing: reopened.value))")
+        tapDoneAndExpectViewer(on: first)
+        closeViewer()
+    }
+
+    func testJourney5_UnderLockSwipeBackOntoRtfDoneReturnsToThirdItem() {
+        openViewer(on: last)
+        swipe(left: false)
+        expectEditorOpen()
+        tapDoneAndExpectViewer(on: last)
+        closeViewer()
     }
 }
