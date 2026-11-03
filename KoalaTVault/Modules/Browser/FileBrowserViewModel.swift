@@ -94,6 +94,12 @@ final class FileBrowserViewModel: ObservableObject {
     /// Lists the folder with the saved sort. Errors are shown, except `locked`: the lock screen covers
     /// that state, and the unlock refresh loads again.
     func load() async {
+        await load(showingErrors: true)
+    }
+
+    /// Lists the folder; `showingErrors` false keeps a reload quiet when the operation before it has
+    /// already shown its error, so one failure shows one alert.
+    private func load(showingErrors: Bool) async {
         loadGeneration += 1
         let generation = loadGeneration
         do {
@@ -106,9 +112,11 @@ final class FileBrowserViewModel: ObservableObject {
             let listedIDs = Set(listed.map(\.id))
             selectedItems = selectedItems.filter { listedIDs.contains($0.id) }
         } catch {
-            guard generation == loadGeneration else { return }
+            guard generation == loadGeneration, !(error is CancellationError) else { return }
+            // Not shown while locked: the lock screen covers that state, and the unlock refresh
+            // (`vaultUnlocked`) reloads and shows any error that remains.
             if let storeError = error as? VaultStoreError, storeError == .locked { return }
-            alerts?.showError(error)
+            if showingErrors { alerts?.showError(error) }
         }
     }
 
@@ -318,20 +326,25 @@ final class FileBrowserViewModel: ObservableObject {
     // MARK: - Helpers
 
     /// Runs `operation` on each item, then leaves select mode and reloads. One failure shows its error;
-    /// failures among several items show "N of M failed." with the first error.
+    /// failures among several items show "N of M failed." with the first error. Cancellation (of the
+    /// calling task, or a `CancellationError` from the store) stops before the remaining items and is
+    /// not counted as a failure.
     private func perform(
         on items: [VaultItem], _ operation: (VaultItem) async throws -> Void
     ) async {
         var errors: [Error] = []
         for item in items {
+            if Task.isCancelled { break }
             do {
                 try await operation(item)
+            } catch is CancellationError {
+                break
             } catch {
                 errors.append(error)
             }
         }
         cancelSelection()
-        await load()
+        await load(showingErrors: errors.isEmpty)
         guard let firstError = errors.first else { return }
         if items.count == 1 {
             alerts?.showError(firstError)
