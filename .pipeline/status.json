@@ -479,7 +479,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-03T11:03:22-08:00",
+  "updatedAt": "2026-11-03T12:39:45-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
