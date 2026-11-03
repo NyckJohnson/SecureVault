@@ -126,10 +126,10 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
         busyIndicator.hidesWhenStopped = true
         busyIndicator.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(busyIndicator)
-        NSLayoutConstraint.activate([
-            busyIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            busyIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
-        ])
+        var constraints: [NSLayoutConstraint] = []
+        constraints.append(busyIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor))
+        constraints.append(busyIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor))
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func bindViewModel() {

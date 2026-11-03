@@ -82,9 +82,13 @@ final class PaywallViewController: UIViewController, AlertPresenting {
     }
 
     private func layOutViews() {
-        let stack = UIStackView(arrangedSubviews: [
-            titleLabel, descriptionLabel, priceLabel, unlockButton, restoreButton, activityIndicator
-        ])
+        let stack = UIStackView()
+        for arranged: UIView in [titleLabel, descriptionLabel, priceLabel] {
+            stack.addArrangedSubview(arranged)
+        }
+        for arranged: UIView in [unlockButton, restoreButton, activityIndicator] {
+            stack.addArrangedSubview(arranged)
+        }
         stack.axis = .vertical
         stack.spacing = 16
         stack.setCustomSpacing(24, after: descriptionLabel)
@@ -92,13 +96,14 @@ final class PaywallViewController: UIViewController, AlertPresenting {
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         view.addSubview(closeButton)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            closeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16)
-        ])
+        let guide = view.safeAreaLayoutGuide
+        var constraints: [NSLayoutConstraint] = []
+        constraints.append(stack.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 24))
+        constraints.append(stack.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -24))
+        constraints.append(stack.centerYAnchor.constraint(equalTo: view.centerYAnchor))
+        constraints.append(closeButton.topAnchor.constraint(equalTo: guide.topAnchor, constant: 8))
+        constraints.append(closeButton.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16))
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func bindViewModel() {

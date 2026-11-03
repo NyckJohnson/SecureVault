@@ -119,15 +119,15 @@ final class MigrationViewController: UIViewController, AlertPresenting {
             subview.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(subview)
         }
-        NSLayoutConstraint.activate([
-            titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40),
-            progressBar.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 24),
-            progressBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40),
-            progressBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40),
-            statusLabel.topAnchor.constraint(equalTo: progressBar.bottomAnchor, constant: 12),
-            statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
-        ])
+        var constraints: [NSLayoutConstraint] = []
+        constraints.append(titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor))
+        constraints.append(titleLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40))
+        constraints.append(progressBar.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 24))
+        constraints.append(progressBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40))
+        constraints.append(progressBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40))
+        constraints.append(statusLabel.topAnchor.constraint(equalTo: progressBar.bottomAnchor, constant: 12))
+        constraints.append(statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor))
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func bindViewModel() {
