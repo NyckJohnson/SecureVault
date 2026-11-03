@@ -16,7 +16,7 @@ import UIKit
 /// ```
 /// Identifiers follow the journey tests: `migration.titleLabel`, `migration.statusLabel`, `migration.progressBar`.
 @MainActor
-@Suite struct MigrationViewControllerTests {
+@Suite struct SettingsMigrationViewControllerTests {
     private struct Rig {
         let host: SettingsViewHost
         let migrator: SettingsScriptedMigrator

@@ -48,8 +48,10 @@ import UIKit
         let rig = try await makeRig(trashing: ["old.txt", "new.txt"])
         await SettingsTestSupport.waitUntil { self.row("old.txt", rig) != nil && self.row("new.txt", rig) != nil }
         let table = try #require(rig.host.element("recentlyDeleted.list") as? UITableView)
-        let newPath = try #require(table.indexPath(for: try #require(row("new.txt", rig) as? UITableViewCell)))
-        let oldPath = try #require(table.indexPath(for: try #require(row("old.txt", rig) as? UITableViewCell)))
+        let newCell = try #require(row("new.txt", rig) as? UITableViewCell)
+        let oldCell = try #require(row("old.txt", rig) as? UITableViewCell)
+        let newPath = try #require(table.indexPath(for: newCell))
+        let oldPath = try #require(table.indexPath(for: oldCell))
         #expect(newPath.row < oldPath.row)
     }
 
@@ -123,8 +125,10 @@ import UIKit
         let rig = try await makeRig(trashing: ["a.txt"])
         await SettingsTestSupport.waitUntil { self.row("a.txt", rig) != nil }
         rig.host.selectRow("recentlyDeleted.row.a.txt", inTable: "recentlyDeleted.list")
-        try #require(await rig.host.alert()).fire("Delete Permanently")
-        let confirm = try #require(await rig.host.alert())
+        let sheet = try #require(await rig.host.alert())
+        sheet.fire("Delete Permanently")
+        await SettingsTestSupport.waitUntil { rig.host.topmost !== sheet && rig.host.topmost is UIAlertController }
+        let confirm = try #require(rig.host.topmost as? UIAlertController)
         let destructive = try #require(confirm.actions.first { $0.style == .destructive })
         destructive.fire()
         await SettingsTestSupport.waitUntil { self.row("a.txt", rig) == nil }

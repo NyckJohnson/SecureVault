@@ -55,7 +55,9 @@ final class SettingsViewHost {
         var controller: UIViewController? = root
         while let current = controller {
             if let view = SettingsViewHost.find(id, in: current.view) { return view }
-            for item in (current.navigationItem.leftBarButtonItems ?? []) + (current.navigationItem.rightBarButtonItems ?? [])
+            let navigationItem = current.navigationItem
+            let items = (navigationItem.leftBarButtonItems ?? []) + (navigationItem.rightBarButtonItems ?? [])
+            for item in items
             where item.accessibilityIdentifier == id {
                 return item
             }
@@ -88,17 +90,16 @@ final class SettingsViewHost {
         var result: [String] = []
         if let label = view as? UILabel, let text = label.text { result.append(text) }
         if let cell = view as? UITableViewCell, let text = cell.textLabel?.text { result.append(text) }
-        if let cell = view as? UITableViewCell,
-            let text = (cell.contentConfiguration as? UIListContentConfiguration)?.text
-        {
-            result.append(text)
+        if let cell = view as? UITableViewCell {
+            let configured = (cell.contentConfiguration as? UIListContentConfiguration)?.text
+            if let configured { result.append(configured) }
         }
         for subview in view.subviews { result += texts(in: subview) }
         return result
     }
 
     /// Whether the element is enabled (a control or a bar button item).
-    func isEnabled(_ id: String) -> Bool? {
+    func isEnabled(_ id: String) -> Bool? {  // swiftlint:disable:this discouraged_optional_boolean
         if let control = element(id) as? UIControl { return control.isEnabled }
         if let item = element(id) as? UIBarButtonItem { return item.isEnabled }
         return nil
@@ -119,7 +120,8 @@ final class SettingsViewHost {
 
     /// Selects a table row the way a tap would, by the cell's identifier.
     func selectRow(_ id: String, inTable tableID: String) {
-        guard let table = element(tableID) as? UITableView, let cell = SettingsViewHost.find(id, in: table) as? UITableViewCell,
+        guard let table = element(tableID) as? UITableView,
+            let cell = SettingsViewHost.find(id, in: table) as? UITableViewCell,
             let path = table.indexPath(for: cell)
         else { return }
         table.delegate?.tableView?(table, didSelectRowAt: path)
@@ -156,9 +158,9 @@ final class SettingsFakeBackgroundTime: BackgroundTimeProviding {
     private(set) var expirationHandlers: [() -> Void] = []
     private var next = 100
 
-    func beginBackgroundTask(withName taskName: String?, expirationHandler handler: (() -> Void)?)
-        -> UIBackgroundTaskIdentifier
-    {
+    func beginBackgroundTask(
+        withName taskName: String?, expirationHandler handler: (() -> Void)?
+    ) -> UIBackgroundTaskIdentifier {
         next += 1
         let identifier = UIBackgroundTaskIdentifier(rawValue: next)
         begun.append(identifier)

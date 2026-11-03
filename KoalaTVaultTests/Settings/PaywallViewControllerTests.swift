@@ -15,9 +15,9 @@ import UIKit
         let unlocked: SettingsRecorder<Void>
     }
 
-    private func makeRig(price: String? = "$4.99", outcome: PurchaseOutcome = .unlocked, restores: Bool = false)
-        async -> Rig
-    {
+    private func makeRig(
+        price: String? = "$4.99", outcome: PurchaseOutcome = .unlocked, restores: Bool = false
+    ) async -> Rig {
         let mock = MockProUnlocking(isUnlocked: false, price: price)
         mock.purchaseOutcome = outcome
         mock.restoreFindsPurchase = restores

@@ -13,7 +13,7 @@ import UIKit
 /// `settings.passwordField`, `settings.confirmPasswordField`, `settings.currentPasswordField`,
 /// `settings.newPasswordField`, `settings.confirmNewPasswordField`.
 @MainActor
-@Suite struct SecuritySettingsViewControllerTests {
+@Suite struct SettingsSecurityViewControllerTests {
     private struct Rig {
         let host: SettingsViewHost
         let lock: SettingsScriptedLock
@@ -32,10 +32,12 @@ import UIKit
         biometricsAvailable: Bool = true,
         proUnlocked: Bool = false,
         withFiles: Bool = true,
-        pending: PendingMigration? = nil
+        pending: PendingMigration? = nil,
+        oldBlobPassword: String? = nil
     ) async throws -> Rig {
         let mock = MockVaultLocking(
-            lockMode: lockMode, password: lockMode == .none ? nil : "correct horse", biometricKind: biometricKind,
+            lockMode: lockMode, password: lockMode == .none ? oldBlobPassword : "correct horse",
+            biometricKind: biometricKind,
             biometricsAvailable: biometricsAvailable)
         if lockMode != .none { try await mock.unlock(password: "correct horse") }
         let lock = SettingsScriptedLock(inner: mock)
@@ -199,7 +201,7 @@ import UIKit
         let rig = try await makeRig(lockMode: .password)
         select("settings.lockMode.noLockRow", rig)
         try #require(await rig.host.alert()).fire("Cancel")
-        await SettingsTestSupport.settle()
+        await SettingsTestSupport.waitUntil { !(rig.host.topmost is UIAlertController) }
         #expect(rig.migrator.calls.isEmpty)
         #expect(rig.host.topmost is UINavigationController)
     }
@@ -266,6 +268,45 @@ import UIKit
         #expect(rig.host.topmost is MigrationViewController)
     }
 
+    @Test("With an existing password blob, adding a lock asks for the existing password and then starts the encrypt")
+    func addLockWithExistingBlobAsksForExistingPassword() async throws {
+        let rig = try await makeRig(lockMode: .none, oldBlobPassword: "old blob")
+        select("settings.lockMode.passwordRow", rig)
+        let prompt = try #require(await rig.host.alert())
+        prompt.field("settings.passwordField")?.text = "another"
+        prompt.field("settings.confirmPasswordField")?.text = "another"
+        prompt.actions.first { $0.style != .cancel }?.fire()
+        await SettingsTestSupport.waitUntil { rig.host.topmost !== prompt && rig.host.topmost is UIAlertController }
+        let existing = try #require(rig.host.topmost as? UIAlertController)
+        #expect(existing.field("settings.existingPasswordField") != nil)
+        #expect(rig.migrator.calls.isEmpty)
+        existing.field("settings.existingPasswordField")?.text = "old blob"
+        existing.actions.first { $0.style != .cancel }?.fire()
+        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.start(.encrypt, target: .password)) }
+        #expect(rig.mock.calls.contains(.prepareToAddLock(.password)))
+        #expect(rig.migrator.calls.contains(.start(.encrypt, target: .password)))
+        #expect(rig.host.topmost is MigrationViewController)
+    }
+
+    @Test("A wrong existing password shows an error and starts no migration")
+    func addLockWithWrongExistingPassword() async throws {
+        let rig = try await makeRig(lockMode: .none, oldBlobPassword: "old blob")
+        select("settings.lockMode.passwordRow", rig)
+        let prompt = try #require(await rig.host.alert())
+        prompt.field("settings.passwordField")?.text = "another"
+        prompt.field("settings.confirmPasswordField")?.text = "another"
+        prompt.actions.first { $0.style != .cancel }?.fire()
+        await SettingsTestSupport.waitUntil { rig.host.topmost !== prompt && rig.host.topmost is UIAlertController }
+        let existing = try #require(rig.host.topmost as? UIAlertController)
+        existing.field("settings.existingPasswordField")?.text = "not it"
+        existing.actions.first { $0.style != .cancel }?.fire()
+        await SettingsTestSupport.waitUntil { rig.host.topmost !== existing && rig.host.topmost is UIAlertController }
+        let error = try #require(rig.host.topmost as? UIAlertController)
+        #expect(error.field("settings.existingPasswordField") == nil)
+        #expect(rig.migrator.calls.isEmpty)
+        #expect(!(rig.host.topmost is MigrationViewController))
+    }
+
     @Test("Switching Password to Password + biometric switches the mode with no prompt")
     func switchToBiometric() async throws {
         let rig = try await makeRig(lockMode: .password)
@@ -310,9 +351,9 @@ import UIKit
         #expect(alert.field("settings.confirmNewPasswordField") != nil)
     }
 
-    private func submitChange(_ rig: Rig, current: String, new: String, confirm: String) async throws
-        -> UIAlertController
-    {
+    private func submitChange(
+        _ rig: Rig, current: String, new: String, confirm: String
+    ) async throws -> UIAlertController {
         select("settings.changePasswordRow", rig)
         let prompt = try #require(await rig.host.alert())
         prompt.field("settings.currentPasswordField")?.text = current
