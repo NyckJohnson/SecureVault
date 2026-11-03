@@ -966,6 +966,8 @@ extension matching ignores case.
 - The under-lock `.rtf` page journeys assume the created document is encrypted rather than checking the file — J5ViewEditJourneyTests.swift — open, minor
 - `VaultLockError.legacyMessage` duplicates the new `errorDescription` wording; SecuritySettings still uses it, so it survives LockScreens' switch-over — AuthService.swift:31 — open until module Settings
 
+- On the iPhone simulator the Browser tests can't check where the bulk Export, Import and long-press Export popovers anchor (an action sheet has no popover there); the anchor is one line at each call site, as today. Fix: internal anchor getters on FileBrowserViewController asserted by the tests, or check on iPad in verify — FileBrowserViewController.swift — open, minor
+- The sort sheet's "Name ↑/↓" titles are built in the view from Preferences rather than by the view model, and the arrow is not asserted — FileBrowserViewController.swift (sortTapped) — open, minor
 - Browser hides only `VaultStoreError.locked` load errors (the unlock refresh reloads); today every load error is hidden while the vault is locked, so another error during an auto-lock (e.g. a decrypt failure after the key is wiped) could alert under the lock screen. The view model has no lock state (Browser does not depend on VaultLock) — FileBrowserViewModel.swift — open, minor
 ## Features
 <!-- Accepted features, oldest first. -->
