@@ -75,7 +75,9 @@ import Testing
         #expect(rig.alerts.alerts == [.error("boom")])
     }
 
-    @Test("A failed load after a good one does not keep showing the old items as current without an alert")
+    @Test(
+        "A failed load after a good one does not keep showing the old items as current without an alert"
+    )
     func loadErrorAfterGoodLoadStillAlerts() async throws {
         let rig = try makeRig()
         await rig.viewModel.load()
@@ -173,7 +175,8 @@ import Testing
         #expect(rig.recorder.routes == [.editor(notes)])
     }
 
-    @Test("Opening another file routes to the viewer with the folder's files starting at the tapped one")
+    @Test(
+        "Opening another file routes to the viewer with the folder's files starting at the tapped one")
     func openFileRoutesToViewer() async throws {
         let rig = try makeRig()
         await rig.viewModel.load()
@@ -325,7 +328,9 @@ import Testing
 
     // MARK: - Context menu
 
-    @Test("The context menu offers Export, Move, Copy, Rename and Delete", arguments: ["Beach.jpg", "Photos"])
+    @Test(
+        "The context menu offers Export, Move, Copy, Rename and Delete",
+        arguments: ["Beach.jpg", "Photos"])
     func contextActions(name: String) async throws {
         let rig = try makeRig()
         await rig.viewModel.load()
@@ -381,15 +386,30 @@ import Testing
     func dropOnFolderMoves() async throws {
         let rig = try makeRig()
         await rig.viewModel.load()
-        await rig.viewModel.drop(try item("Beach.jpg", in: rig.store), onto: try item("Photos", in: rig.store))
+        await rig.viewModel.drop(
+            try item("Beach.jpg", in: rig.store), onto: try item("Photos", in: rig.store))
         #expect(rig.store.calls.contains(.move("Beach.jpg", destination: "Photos")))
         #expect(!rig.viewModel.items.map(\.name).contains("Beach.jpg"))
+    }
+
+    @Test("A drop whose move fails shows the error once and still reloads the folder")
+    func dropMoveFailureShowsErrorAndReloads() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let loadsBefore = rig.store.calls.filter { if case .contents = $0 { true } else { false } }
+            .count
+        let missing = ghost("Missing.jpg", store: rig.store)
+        await rig.viewModel.drop(missing, onto: try item("Photos", in: rig.store))
+        #expect(errorMessages(rig.alerts).count == 1)
+        let loadsAfter = rig.store.calls.filter { if case .contents = $0 { true } else { false } }.count
+        #expect(loadsAfter == loadsBefore + 1)
     }
 
     @Test("Dropping on a file moves nothing")
     func dropOnFileIgnored() async throws {
         let rig = try makeRig()
-        await rig.viewModel.drop(try item("Beach.jpg", in: rig.store), onto: try item("Notes.rtf", in: rig.store))
+        await rig.viewModel.drop(
+            try item("Beach.jpg", in: rig.store), onto: try item("Notes.rtf", in: rig.store))
         #expect(!rig.store.calls.contains { if case .move = $0 { true } else { false } })
     }
 
@@ -401,7 +421,8 @@ import Testing
         #expect(rig.alerts.alerts.isEmpty)
     }
 
-    @Test("Dragging out is allowed only for a plain item in a no-lock vault with no migration pending")
+    @Test(
+        "Dragging out is allowed only for a plain item in a no-lock vault with no migration pending")
     func dragOutAllowed() async throws {
         let rig = try makeRig(lockMode: .none, pendingMigration: nil)
         #expect(rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))
@@ -415,7 +436,9 @@ import Testing
         #expect(!rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))
     }
 
-    @Test("Dragging out is refused while a migration is pending", arguments: [MigrationKind.encrypt, .decrypt])
+    @Test(
+        "Dragging out is refused while a migration is pending",
+        arguments: [MigrationKind.encrypt, .decrypt])
     func dragOutRefusedWithMigration(kind: MigrationKind) async throws {
         let rig = try makeRig(
             lockMode: .none, pendingMigration: PendingMigration(kind: kind, targetLockMode: nil))

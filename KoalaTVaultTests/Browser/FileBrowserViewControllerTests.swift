@@ -47,7 +47,9 @@ import UIKit
 
         /// The actions of the item's context menu, by title.
         func menuActions(for name: String) -> [UIAction] {
-            guard let path = indexPath(name), let menu = controller.contextMenu(at: path) else { return [] }
+            guard let path = indexPath(name), let menu = controller.contextMenu(at: path) else {
+                return []
+            }
             return menu.children.compactMap { $0 as? UIAction }
         }
 
@@ -68,7 +70,8 @@ import UIKit
     }
 
     private func makeRig(
-        folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false, waitForCells: Bool = true,
+        folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false,
+        waitForCells: Bool = true,
         regularWidth: Bool = false
     ) async throws -> Rig {
         let store = MockVaultStoring(withSampleContent: withSampleContent)
@@ -94,7 +97,8 @@ import UIKit
         let host = BrowserViewHost(
             content: UINavigationController(rootViewController: controller), regularWidth: regularWidth)
         let rig = Rig(
-            host: host, controller: controller, store: store, preferences: preferences, thumbnails: thumbnails,
+            host: host, controller: controller, store: store, preferences: preferences,
+            thumbnails: thumbnails,
             viewer: viewer, settings: settings)
         if waitForCells && withSampleContent && !failing {
             await BrowserViewSupport.waitUntil { !rig.cells.isEmpty }
@@ -110,7 +114,8 @@ import UIKit
 
     // MARK: - Identifiers and layout
 
-    @Test("The root browser has the grid and every bar button identified, including the settings gear")
+    @Test(
+        "The root browser has the grid and every bar button identified, including the settings gear")
     func rootIdentifiers() async throws {
         let rig = try await makeRig()
         let ids = [
@@ -132,13 +137,17 @@ import UIKit
     @Test("The grid shows the folder's items in order, folders first")
     func gridItems() async throws {
         let rig = try await makeRig()
-        #expect(rig.names == ["Documents", "Photos", "Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf"])
+        #expect(
+            rig.names == [
+                "Documents", "Photos", "Beach.jpg", "Holiday.mov", "Notes.rtf", "Tax Return 2025.pdf",
+            ])
     }
 
     @Test("Each cell shows the item's name and size text")
     func cellContent() async throws {
         let rig = try await makeRig()
-        let cell = try #require(rig.cells.first { $0.accessibilityIdentifier == "browser.cell.Beach.jpg" })
+        let cell = try #require(
+            rig.cells.first { $0.accessibilityIdentifier == "browser.cell.Beach.jpg" })
         let texts = BrowserViewHost.texts(in: cell)
         #expect(texts.contains("Beach.jpg"))
         #expect(texts.contains(ByteCountFormatter.string(fromByteCount: 2_481_152, countStyle: .file)))
@@ -255,7 +264,9 @@ import UIKit
         alert.textFields?.first?.text = "   "
         alert.fireConfirm()
         await BrowserViewSupport.settle()
-        #expect(!rig.store.calls.contains { if case .createFolder = $0 { return true } else { return false } })
+        #expect(
+            !rig.store.calls.contains { if case .createFolder = $0 { return true } else { return false } }
+        )
     }
 
     @Test("New Document creates the file and opens the editor on it")
@@ -325,7 +336,8 @@ import UIKit
         let alert = try #require(await rig.host.alert())
         #expect(alert.title == "Delete 2 items?")
         #expect(alert.message?.contains("Recently Deleted") == true)
-        #expect(!rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
+        #expect(
+            !rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
         alert.fire("Delete")
         await BrowserViewSupport.waitUntil { !rig.names.contains("Beach.jpg") }
         #expect(!rig.names.contains("Beach.jpg"))
@@ -340,7 +352,8 @@ import UIKit
         let alert = try #require(await rig.host.alert())
         alert.fire("Cancel")
         await BrowserViewSupport.settle()
-        #expect(!rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
+        #expect(
+            !rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
     }
 
     @Test("Bulk Copy copies the selection into the current folder")
@@ -366,6 +379,47 @@ import UIKit
         #expect(rig.names.contains("Beach.jpg"))
     }
 
+    @Test("Swiping the picker down counts as cancel, so a later single move moves only its own item")
+    func swipeDownPickerCountsAsCancel() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("browser.bulkMoveButton")
+        await BrowserViewSupport.waitUntil { rig.host.topmost is UINavigationController }
+        let nav = try #require(rig.host.topmost as? UINavigationController)
+        let presentation = try #require(nav.presentationController)
+        rig.controller.presentationControllerDidDismiss(presentation)
+        rig.controller.dismiss(animated: false)
+        await BrowserViewSupport.waitUntil {
+            !(rig.host.topmost is UINavigationController) || rig.host.topmost === rig.host.root
+        }
+        await BrowserViewSupport.settle()
+
+        rig.choose("Move", in: "Notes.rtf")
+        await BrowserViewSupport.waitUntil {
+            rig.host.topmost is UINavigationController && rig.host.topmost !== rig.host.root
+        }
+        let picker = try #require(
+            (rig.host.topmost as? UINavigationController)?.topViewController
+                as? FolderPickerViewController)
+        let table = try #require(Self.findTable(in: picker.view))
+        await BrowserViewSupport.waitUntil {
+            table.numberOfSections > 0 && table.numberOfRows(inSection: 0) == 2
+        }
+        table.delegate?.tableView?(table, didSelectRowAt: IndexPath(row: 1, section: 0))
+        let pickerNav = try #require(rig.host.topmost as? UINavigationController)
+        await BrowserViewSupport.waitUntil { pickerNav.viewControllers.count == 2 }
+        rig.host.tap("folderPicker.moveHereButton")
+        await BrowserViewSupport.waitUntil { !rig.names.contains("Notes.rtf") }
+
+        let beachID = try #require(rig.store.allItems.first { $0.name == "Beach.jpg" }).id
+        let moved = rig.store.calls.compactMap { call -> String? in
+            if case .move(let id, _) = call { return id }
+            return nil
+        }
+        #expect(!moved.isEmpty)
+        #expect(!moved.contains(beachID))
+    }
+
     @Test("Cancelling the folder picker moves nothing")
     func pickerCancelMovesNothing() async throws {
         let rig = try await makeRig()
@@ -388,7 +442,8 @@ import UIKit
         // UIKit only gives an action sheet a popover on an iPad idiom; on an iPhone destination there is no
         // popover to inspect, so the anchor is checked wherever one exists (see the report: needs a seam).
         if let popover = sheet.popoverPresentationController {
-            #expect(popover.barButtonItem === rig.host.element("browser.bulkExportButton") as? UIBarButtonItem)
+            #expect(
+                popover.barButtonItem === rig.host.element("browser.bulkExportButton") as? UIBarButtonItem)
         }
     }
 
@@ -412,7 +467,10 @@ import UIKit
     func contextMenuActions() async throws {
         let rig = try await makeRig()
         #expect(rig.menuConfiguration(for: "Beach.jpg") != nil)
-        #expect(rig.menuActions(for: "Beach.jpg").map(\.title) == ["Export", "Move", "Copy", "Rename", "Delete"])
+        #expect(
+            rig.menuActions(for: "Beach.jpg").map(\.title) == [
+                "Export", "Move", "Copy", "Rename", "Delete",
+            ])
         #expect(
             rig.menuIdentifiers(for: "Beach.jpg") == [
                 "browser.contextMenu.export", "browser.contextMenu.move", "browser.contextMenu.copy",
@@ -461,7 +519,9 @@ import UIKit
         let nav = try #require(rig.host.topmost as? UINavigationController)
         let picker = try #require(nav.topViewController as? FolderPickerViewController)
         let table = try #require(Self.findTable(in: picker.view))
-        await BrowserViewSupport.waitUntil { table.numberOfSections > 0 && table.numberOfRows(inSection: 0) == 2 }
+        await BrowserViewSupport.waitUntil {
+            table.numberOfSections > 0 && table.numberOfRows(inSection: 0) == 2
+        }
         // Rows are Documents, Photos: pick Photos.
         table.delegate?.tableView?(table, didSelectRowAt: IndexPath(row: 1, section: 0))
         await BrowserViewSupport.waitUntil { nav.viewControllers.count == 2 }
