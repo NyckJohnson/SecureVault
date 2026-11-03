@@ -61,8 +61,8 @@ final class FolderPickerViewController: UIViewController, AlertPresenting {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
 
-        cancelButton.accessibilityIdentifier = "folderPickerCancel"
-        moveHereButton.accessibilityIdentifier = "folderPickerMoveHere"
+        cancelButton.accessibilityIdentifier = "folderPicker.cancelButton"
+        moveHereButton.accessibilityIdentifier = "folderPicker.moveHereButton"
         navigationItem.leftItemsSupplementBackButton = true
         showBarButtons()
 
@@ -100,6 +100,8 @@ final class FolderPickerViewController: UIViewController, AlertPresenting {
     private func show(_ folders: [VaultItem]) {
         shownFolders = folders
         tableView.reloadData()
+        // Lay the rows out now so they are on screen (and findable) as soon as the list arrives.
+        tableView.layoutIfNeeded()
     }
 
     @objc private func cancelTapped() {

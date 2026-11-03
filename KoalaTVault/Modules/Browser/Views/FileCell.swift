@@ -94,7 +94,7 @@ final class FileCell: UICollectionViewCell {
             thumbnailView.contentMode = shown.isAsset ? .scaleAspectFit : .center
         }
 
-        accessibilityIdentifier = "fileCell_\(item.name)"
+        accessibilityIdentifier = "browser.cell.\(item.name)"
         nameLabel.accessibilityIdentifier = "browser.cell.\(item.name).nameLabel"
         detailLabel.accessibilityIdentifier = "browser.cell.\(item.name).sizeLabel"
         checkmark.accessibilityIdentifier = "browser.cell.\(item.name).checkmark"

@@ -29,7 +29,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private lazy var newFolderButton = makeButton(
         image: "folder.badge.plus", id: "newFolderButton", action: #selector(newFolderTapped))
     private lazy var newDocumentButton = makeButton(
-        image: "doc.badge.plus", id: "newDocumentButton", action: #selector(newDocumentTapped))
+        image: "doc.badge.plus", id: "browser.newDocumentButton", action: #selector(newDocumentTapped))
     private lazy var importButton = makeButton(
         image: "square.and.arrow.down", id: "importButton", action: #selector(importTapped))
     private lazy var selectButton: UIBarButtonItem = {
@@ -37,17 +37,24 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         button.accessibilityIdentifier = "selectButton"
         return button
     }()
+    /// Shown only in select mode, in place of the Select button; leaves select mode.
+    private lazy var cancelSelectButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(
+            title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectTapped))
+        button.accessibilityIdentifier = "browser.cancelSelectButton"
+        return button
+    }()
     private lazy var bulkDeleteButton: UIBarButtonItem = {
-        let button = makeButton(image: "trash", id: "bulkDeleteButton", action: #selector(bulkDeleteTapped))
+        let button = makeButton(image: "trash", id: "browser.bulkDeleteButton", action: #selector(bulkDeleteTapped))
         button.tintColor = .systemRed
         return button
     }()
     private lazy var bulkMoveButton = makeButton(
-        image: "arrow.right.circle", id: "bulkMoveButton", action: #selector(bulkMoveTapped))
+        image: "arrow.right.circle", id: "browser.bulkMoveButton", action: #selector(bulkMoveTapped))
     private lazy var bulkExportButton = makeButton(
-        image: "square.and.arrow.up", id: "bulkExportButton", action: #selector(bulkExportTapped))
+        image: "square.and.arrow.up", id: "browser.bulkExportButton", action: #selector(bulkExportTapped))
     private lazy var bulkCopyButton = makeButton(
-        image: "doc.on.doc", id: "bulkCopyButton", action: #selector(bulkCopyTapped))
+        image: "doc.on.doc", id: "browser.bulkCopyButton", action: #selector(bulkCopyTapped))
 
     /// The items the grid shows: the view model's items as of the last render, so the grid's counts and
     /// cells always agree with each other.
@@ -139,7 +146,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         emptyStateLabel.textAlignment = .center
         emptyStateLabel.textColor = .secondaryLabel
         emptyStateLabel.font = .preferredFont(forTextStyle: .body)
-        emptyStateLabel.accessibilityIdentifier = "emptyStateLabel"
+        emptyStateLabel.accessibilityIdentifier = "browser.emptyStateLabel"
         emptyStateLabel.isHidden = true
         collectionView.backgroundView = emptyStateLabel
 
@@ -188,15 +195,13 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private func render() {
         navigationItem.title = viewModel.title
         if viewModel.isSelecting {
-            selectButton.title = "Cancel"
-            navigationItem.leftBarButtonItems = [selectButton]
+            navigationItem.leftBarButtonItems = [cancelSelectButton]
             navigationItem.rightBarButtonItems = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton]
             let hasSelection = !viewModel.selectedItems.isEmpty
             for button in [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton] {
                 button.isEnabled = hasSelection
             }
         } else {
-            selectButton.title = "Select"
             navigationItem.leftBarButtonItems = viewModel.showsSettingsButton ? [settingsButton] : []
             navigationItem.rightBarButtonItems = [
                 newFolderButton, newDocumentButton, importButton, sortButton, selectButton,
@@ -289,6 +294,10 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 
     @objc private func selectTapped() {
         viewModel.toggleSelectMode()
+    }
+
+    @objc private func cancelSelectTapped() {
+        viewModel.cancelSelection()
     }
 
     @objc private func bulkDeleteTapped() {
