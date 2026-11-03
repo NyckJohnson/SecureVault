@@ -9,6 +9,9 @@ excluded:
 disabled_rules:
   - trailing_whitespace
   - todo
+  # swift-format requires trailing commas in multiline collection literals; SwiftLint's
+  # default rule forbids them. The formatter owns layout, so this rule is off.
+  - trailing_comma
   # "master" is standard cryptographic vocabulary (master key / key wrapping);
   # it is not used in the master/slave hardware sense. SwiftLint 0.65.1 has no
   # allowed_terms config option, so we disable the rule at the project level.
