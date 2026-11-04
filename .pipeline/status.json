@@ -528,7 +528,7 @@
         "Viewer",
         "Settings"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-03T17:32:45-08:00",
+  "updatedAt": "2026-11-03T18:12:46-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
