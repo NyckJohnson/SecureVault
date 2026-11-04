@@ -7,7 +7,7 @@ import Testing
 // Assumed seam (all in Views/ExportPresenter.swift, none in Contracts/):
 //   enum ExportSheetChoice: Equatable, Sendable { case saveToFiles, saveToCameraRoll, cancel; var title: String }
 //   @MainActor protocol ExportFlowViewing: AnyObject {
-//       func showOverlay(title: String); func hideOverlay()
+//       func showOverlay(title: String, status: String); func hideOverlay()
 //       func presentDocumentPicker(urls: [URL])
 //       func showMessage(_ text: String); func showError(_ text: String)
 //   }
@@ -22,7 +22,7 @@ import Testing
 //   }
 
 private enum ExportEvent: Equatable, Sendable {
-    case overlay(String)
+    case overlay(title: String, status: String)
     case overlayHidden
     case picker([URL])
     case message(String)
@@ -55,7 +55,14 @@ private final class ExportLog: @unchecked Sendable {
 
     var overlays: [String] {
         events.compactMap { event in
-            if case .overlay(let title) = event { return title }
+            if case .overlay(let title, _) = event { return title }
+            return nil
+        }
+    }
+
+    var overlayStatuses: [String] {
+        events.compactMap { event in
+            if case .overlay(_, let status) = event { return status }
             return nil
         }
     }
@@ -73,7 +80,7 @@ private final class RecordingExportView: ExportFlowViewing {
     let log: ExportLog
     init(log: ExportLog) { self.log = log }
 
-    func showOverlay(title: String) { log.add(.overlay(title)) }
+    func showOverlay(title: String, status: String) { log.add(.overlay(title: title, status: status)) }
     func hideOverlay() { log.add(.overlayHidden) }
     func presentDocumentPicker(urls: [URL]) { log.add(.picker(urls)) }
     func showMessage(_ text: String) { log.add(.message(text)) }
@@ -208,9 +215,33 @@ private struct Fixture {
         let fixture = Fixture()
         await fixture.model.choose(.saveToFiles, for: fixture.items)
         #expect(fixture.log.overlays == ["Exporting..."])
-        let overlay = try #require(fixture.log.index(of: .overlay("Exporting...")))
+        let overlay = try #require(
+            fixture.log.index(of: .overlay(title: "Exporting...", status: "Exporting 2 items…")))
         let prepared = try #require(fixture.log.index(of: .prepared))
         #expect(overlay < prepared)
+    }
+
+    @Test("Save to Files overlay status says Exporting 2 items… for two items")
+    func filesOverlayStatusPlural() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: fixture.items)
+        #expect(fixture.log.overlayStatuses == ["Exporting 2 items…"])
+    }
+
+    @Test("Save to Files overlay status says Exporting 1 item… for one item")
+    func filesOverlayStatusSingular() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToFiles, for: [makeItem("only.jpg")])
+        #expect(fixture.log.overlays == ["Exporting..."])
+        #expect(fixture.log.overlayStatuses == ["Exporting 1 item…"])
+    }
+
+    @Test("Save to Files overlay status counts every item for a larger selection")
+    func filesOverlayStatusLarger() async {
+        let fixture = Fixture()
+        let items = (1...5).map { makeItem("f\($0).jpg") }
+        await fixture.model.choose(.saveToFiles, for: items)
+        #expect(fixture.log.overlayStatuses == ["Exporting 5 items…"])
     }
 
     @Test("Save to Files presents the document picker with the bundle's URLs")
@@ -480,7 +511,10 @@ private struct Fixture {
         await fixture.model.choose(.saveToCameraRoll, for: fixture.items)
         #expect(fixture.log.overlays.count == 1)
         #expect(fixture.log.messages == ["3 saved, 2 failed"])
-        let overlay = try #require(fixture.log.index(of: .overlay(fixture.log.overlays[0])))
+        #expect(fixture.log.overlays == ["Saving to Camera Roll..."])
+        let overlay = try #require(
+            fixture.log.index(
+                of: .overlay(title: fixture.log.overlays[0], status: fixture.log.overlayStatuses[0])))
         let saved = try #require(fixture.log.index(of: .savedToPhotos))
         let hidden = try #require(fixture.log.index(of: .overlayHidden))
         let message = try #require(fixture.log.index(of: .message("3 saved, 2 failed")))
