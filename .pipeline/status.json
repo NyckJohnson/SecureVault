@@ -85,7 +85,7 @@
       "name": "Entitlements",
       "path": "KoalaTVault/Modules/Entitlements",
       "dependsOn": [],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T14:00:17-08:00",
+  "updatedAt": "2026-11-04T14:04:12-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -696,7 +696,7 @@
     "items": [
       {
         "name": "legacy-check",
-        "done": false
+        "done": true
       },
       {
         "name": "final-switch",
