@@ -172,6 +172,8 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
     private func showBusy(_ isBusy: Bool) {
         view.isUserInteractionEnabled = !isBusy
+        // Closing Settings mid-operation would drop its result alert or the migration screen.
+        navigationItem.rightBarButtonItem?.isEnabled = !isBusy
         if isBusy {
             view.bringSubviewToFront(busyIndicator)
             busyIndicator.startAnimating()
