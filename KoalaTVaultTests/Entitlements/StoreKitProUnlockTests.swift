@@ -387,9 +387,22 @@ private func waitUntil(_ condition: () async -> Bool) async -> Bool {
         await unlock.refresh()  // already unlocked: no change
         #expect(await waitUntil { collector.values == [true] })
 
-        let purchase = try #require(
-            fixture.session.allTransactions().first { $0.productIdentifier == ProUnlock.productID })
-        try fixture.session.refundTransaction(identifier: purchase.identifier)
+        // Refund exactly the transaction StoreKit reports for this purchase (matched by id), once the
+        // test session lists it; taking the session's first transaction could pick a stale one under load.
+        let bought = try #require(await Transaction.latest(for: ProUnlock.productID))
+        let boughtID = bought.unsafePayloadValue.id
+        var purchase: SKTestTransaction?
+        _ = await waitUntil {
+            purchase = fixture.session.allTransactions().first { UInt64($0.identifier) == boughtID }
+            return purchase != nil
+        }
+        let refunded = try #require(purchase, "the test session does not list the bought transaction")
+        try fixture.session.refundTransaction(identifier: refunded.identifier)
+        // StoreKit must report the revocation before the entitlement can read as locked.
+        let revoked = await waitUntil {
+            await Transaction.latest(for: ProUnlock.productID)?.unsafePayloadValue.revocationDate != nil
+        }
+        #expect(revoked, "StoreKit never reported the refund")
         #expect(
             await waitUntil {
                 await unlock.refresh()
