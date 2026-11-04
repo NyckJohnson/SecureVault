@@ -130,7 +130,7 @@ private func hostedWindow(root: UIViewController) -> UIWindow {
     }
 
     @Test("dismiss removes the overlay and is safe to call repeatedly")
-    func dismissRepeatedly() {
+    func dismissRepeatedly() async {
         let content = UIViewController()
         let window = hostedWindow(root: content)
         defer { window.isHidden = true }
@@ -138,6 +138,9 @@ private func hostedWindow(root: UIViewController) -> UIWindow {
         let overlay = ProgressOverlayView.show(in: content, title: "Working")
         overlay.dismiss()
         overlay.dismiss()
+        for _ in 0..<200 where overlay.superview != nil {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
         #expect(overlay.superview == nil)
         overlay.update(progress: 1, status: "Done")
     }
