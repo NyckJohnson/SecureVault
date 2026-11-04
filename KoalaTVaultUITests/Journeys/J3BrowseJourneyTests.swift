@@ -265,12 +265,21 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertEqual(names, ["browser.cell.\(seedName)"], "A move into the item's own folder must change nothing")
     }
 
-    func testJourney3_FolderCannotBeMovedIntoItself() {
+    func testJourney3_MovePickerLeavesOutTheMovedFolder() {
         createFolder(named: "Loop")
+        createFolder(named: "Other")
         openContextMenu(of: "Loop")
         tapContextAction("browser.contextMenu.move", title: "Move")
-        pickMoveTarget("Loop")
-        expectErrorAlertAndDismiss(containing: "A folder can't be moved into itself")
+        XCTAssertTrue(app.buttons["folderPicker.moveHereButton"].waitForExistence(timeout: 5),
+                      "The folder picker did not appear")
+        let list = app.tables["folderPicker.folderList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 5), "The picker has no folder list")
+        XCTAssertTrue(list.cells["folderPicker.row.Other"].waitForExistence(timeout: 5),
+                      "The picker should offer the other folder")
+        XCTAssertFalse(list.cells["folderPicker.row.Loop"].exists,
+                       "The picker must not offer the folder being moved")
+        app.buttons["folderPicker.cancelButton"].tap()
+        XCTAssertTrue(app.buttons["folderPicker.moveHereButton"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(cell("Loop").exists)
     }
 
