@@ -114,4 +114,24 @@ import UIKit
         let alert = await rig.host.alert()
         #expect(alert?.message == VaultStoreError.notFound.localizedDescription)
     }
+
+    @Test("At the root the picker's title is the root directory's name, as the browser shows")
+    func titleAtRootIsRootName() async throws {
+        let rig = makeRig()
+        await BrowserViewSupport.waitUntil { rowNames(rig).count == 2 }
+        let title = rig.host.navigation?.topViewController?.navigationItem.title
+        #expect(title == rig.store.root.name)
+        #expect(title?.isEmpty == false)
+    }
+
+    @Test("After opening a subfolder the pushed picker's title is that subfolder's name")
+    func titleAfterDrillDownIsSubfolderName() async throws {
+        let rig = makeRig()
+        await BrowserViewSupport.waitUntil { rowNames(rig).count == 2 }
+        let index = try #require(rowNames(rig).firstIndex(of: "Photos"))
+        let tableView = try #require(table(rig))
+        tableView.delegate?.tableView?(tableView, didSelectRowAt: IndexPath(row: index, section: 0))
+        await BrowserViewSupport.waitUntil { (rig.host.navigation?.viewControllers.count ?? 0) == 2 }
+        #expect(rig.host.navigation?.topViewController?.navigationItem.title == "Photos")
+    }
 }
