@@ -23,7 +23,7 @@ final class J9PaywallJourneyTests: JourneyTestCase {
 
     override var launchesInSetUp: Bool { false }
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         let url = try XCTUnwrap(
             Bundle(for: Self.self).url(forResource: "premiumTesting", withExtension: "storekit"),
             "premiumTesting.storekit is not in the KoalaTVaultUITests bundle")
@@ -31,13 +31,13 @@ final class J9PaywallJourneyTests: JourneyTestCase {
         session.resetToDefaultState()
         session.clearTransactions()
         session.disableDialogs = true
-        try super.setUpWithError()
+        try await super.setUp()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         session?.clearTransactions()
         session?.resetToDefaultState()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     private func startAndOpenPaywall() {

@@ -18,8 +18,8 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
         ["UITEST_SEED_FILE_NAME": seedName]
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         completeSetupWithNoLockIfShown()
     }
 
@@ -138,8 +138,8 @@ final class J5NewDocumentUnderLockJourneyTests: JourneyTestCase {
 
     override var launchEnvironment: [String: String] { ["UITEST_PASSWORD": Self.password] }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         unlockWithPassword()
     }
 
@@ -221,8 +221,8 @@ final class J5ViewerRtfPageJourneyTests: J5ViewerRtfPageJourneyBase {
         ["UITEST_SEED_IMAGE_COUNT": "2"]
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         completeSetupWithNoLockIfShown()
         createDocument(named: rtfBase, text: "Page text")
     }
@@ -259,8 +259,8 @@ final class J5ViewerRtfPageUnderLockJourneyTests: J5ViewerRtfPageJourneyBase {
         ["UITEST_PASSWORD": Self.password, "UITEST_SEED_IMAGE_COUNT": "2"]
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         unlockWithPassword()
         createDocument(named: rtfBase, text: "Locked text")
     }

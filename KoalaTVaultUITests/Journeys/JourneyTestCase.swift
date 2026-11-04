@@ -8,6 +8,7 @@
 
 import XCTest
 
+@MainActor
 class JourneyTestCase: XCTestCase {
 
     var app: XCUIApplication!
@@ -20,16 +21,16 @@ class JourneyTestCase: XCTestCase {
 
     static let password = "journeyPassword123"
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
         if launchesInSetUp { launch() }
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         app.terminate()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func launch(environment: [String: String]? = nil) {

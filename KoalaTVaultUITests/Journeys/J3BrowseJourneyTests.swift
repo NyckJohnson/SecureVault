@@ -15,8 +15,8 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         ["UITEST_SEED_FILE_NAME": seedName]
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         completeSetupWithNoLockIfShown()
     }
 
