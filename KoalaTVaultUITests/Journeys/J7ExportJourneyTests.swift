@@ -20,8 +20,8 @@ final class J7ExportJourneyTests: JourneyTestCase {
         ["UITEST_SEED_FILE_NAME": seedName]
     }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         completeSetupWithNoLockIfShown()
     }
 
@@ -136,8 +136,8 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
 
     override var launchesInSetUp: Bool { false }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         launch(environment: ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password])
         unlockWithPassword()
     }
