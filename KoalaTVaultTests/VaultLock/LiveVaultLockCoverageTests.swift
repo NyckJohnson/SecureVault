@@ -211,4 +211,95 @@ private let otherSecret = "battery staple"
         try Data("x".utf8).write(to: trash.appendingPathComponent(UUID().uuidString))
         #expect(VaultEncryptedDataCheck.holdsEncryptedData(at: root, fileManager: .default))
     }
+
+    private func holds(_ root: URL) -> Bool {
+        VaultEncryptedDataCheck.holdsEncryptedData(at: root, fileManager: .default)
+    }
+
+    private func write(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    @Test("A vault with only plaintext files, nested or empty, holds no encrypted data")
+    func onlyPlaintext() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("hello world", to: root.appendingPathComponent("note.txt"))
+        try write("nested plaintext", to: root.appendingPathComponent("a/b/deep.txt"))
+        try write("", to: root.appendingPathComponent("empty.dat"))
+        #expect(!holds(root))
+    }
+
+    @Test("A .vault_map index alone in a subfolder counts as encrypted data")
+    func indexAloneInSubfolder() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("anything", to: root.appendingPathComponent("Sub/.vault_map"))
+        #expect(holds(root))
+    }
+
+    @Test("A .trash_map file alone counts as encrypted data")
+    func trashMapAlone() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("anything", to: root.appendingPathComponent(".trash_map"))
+        #expect(holds(root))
+    }
+
+    @Test("A file with the SVC5 header counts as encrypted data even without an index")
+    func headerFileWithoutIndex() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write("SVC5 and then some bytes", to: root.appendingPathComponent("photo.bin"))
+        #expect(holds(root))
+    }
+
+    @Test("A missing root counts as encrypted data")
+    func missingRoot() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(holds(root))
+    }
+
+    @Test("A completely empty root holds no encrypted data")
+    func emptyRoot() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(!holds(root))
+    }
+
+    @Test("A root that can't be listed counts as encrypted data")
+    func permissionDeniedRoot() throws {
+        let root = try makeRoot()
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        #expect(holds(root))
+    }
+
+    @Test(
+        "Plain, empty and too-short files are not encrypted data; an SVC5-header file is",
+        arguments: [("plain text file", false), ("", false), ("SV", false), ("SVC5", true)])
+    func fileContentDecides(content: String, expected: Bool) throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(content, to: root.appendingPathComponent("file.bin"))
+        #expect(holds(root) == expected)
+    }
+
+    @Test("A file that can't be read counts as encrypted data")
+    func unreadableFile() throws {
+        let root = try makeRoot()
+        let file = root.appendingPathComponent("secret.txt")
+        try write("plain", to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        #expect(holds(root))
+    }
 }
