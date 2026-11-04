@@ -479,7 +479,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -509,8 +509,8 @@
             "SceneDelegate.swift",
             "View/FileBrowser.swift"
           ],
-          "state": "done",
-          "attempts": 1,
+          "state": "tests",
+          "attempts": 0,
           "kind": "switch-over"
         }
       ]
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-03T20:34:07-08:00",
+  "updatedAt": "2026-11-04T01:56:25-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
