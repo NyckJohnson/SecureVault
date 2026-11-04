@@ -465,4 +465,37 @@ import UIKit
         await SettingsTestSupport.waitUntil { host.root.presentedViewController == nil }
         #expect(host.root.presentedViewController == nil)
     }
+
+    @Test("Done is disabled while a password change is running and enabled again afterwards")
+    func doneIsDisabledWhileBusy() async throws {
+        let mock = MockVaultLocking(lockMode: .password, password: "correct horse")
+        try await mock.unlock(password: "correct horse")
+        let lock = SettingsScriptedLock(inner: mock)
+        lock.holdsChangePassword = true
+        let controller = SecuritySettingsViewController(
+            lock: lock, migrator: MockLockMigrating(pending: nil),
+            store: MockVaultStoring(withSampleContent: false), pro: MockProUnlocking(isUnlocked: false))
+        let navigation = UINavigationController(rootViewController: controller)
+        let host = SettingsViewHost(content: navigation)
+        await SettingsTestSupport.waitUntil { host.element("settings.lockMode.noLockRow") != nil }
+        await SettingsTestSupport.settle()
+        let doneEnabled = { controller.navigationItem.rightBarButtonItem?.isEnabled }
+        #expect(doneEnabled() == true)
+
+        host.selectRow("settings.changePasswordRow", inTable: "settings.table")
+        let prompt = try #require(await host.alert())
+        prompt.field("settings.currentPasswordField")?.text = "correct horse"
+        prompt.field("settings.newPasswordField")?.text = "new one"
+        prompt.field("settings.confirmNewPasswordField")?.text = "new one"
+        prompt.actions.first { $0.style != .cancel }?.fire()
+
+        await SettingsTestSupport.waitUntil { lock.changePasswordGate.isWaiting }
+        #expect(lock.changePasswordGate.isWaiting)
+        await SettingsTestSupport.waitUntil { doneEnabled() == false }
+        #expect(doneEnabled() == false)
+
+        lock.changePasswordGate.release()
+        await SettingsTestSupport.waitUntil { doneEnabled() == true }
+        #expect(doneEnabled() == true)
+    }
 }
