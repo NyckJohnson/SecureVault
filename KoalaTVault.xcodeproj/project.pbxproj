@@ -369,7 +369,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) $(TESTING_FRAMEWORK_MODULE_ALIAS_FLAGS) -Xcc -Wno-deprecated-declarations";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -Wno-deprecated-declarations";
 				PRODUCT_BUNDLE_IDENTIFIER = nej.KoalaTVaultUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -391,7 +391,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
-				OTHER_SWIFT_FLAGS = "$(inherited) $(TESTING_FRAMEWORK_MODULE_ALIAS_FLAGS) -Xcc -Wno-deprecated-declarations";
+				OTHER_SWIFT_FLAGS = "$(inherited) -Xcc -Wno-deprecated-declarations";
 				PRODUCT_BUNDLE_IDENTIFIER = nej.KoalaTVaultUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
