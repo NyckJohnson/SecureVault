@@ -44,8 +44,8 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    Here", "Cancel"); Copy always copies into the current folder with " 1", " 2" names; drag a cell onto a folder cell to
    move it. Ends when the files are where the user wants them.
    - Failure path: empty folder shows "No files yet"; empty names are ignored; a name with "/" or starting with "." → "Names can't contain / or start with .";
-     a move into the item's own folder does nothing; a folder moved into itself or a subfolder → "A folder can't be moved
-     into itself"; any failed operation shows its error (bulk operations report how many failed).
+     a move into the item's own folder does nothing; the picker doesn't offer the folders being moved or their subfolders
+     (the store still refuses such a move with "A folder can't be moved into itself"); any failed operation shows its error (bulk operations report how many failed).
 4. **Import** — the user wants to add files. Import → sheet "Choose Files", "Choose Folder", "Choose Photos", "Cancel".
    Files/Folder: document picker, multi-select → progress "Importing..." → grid reloads. Photos: photo picker (images and
    videos, unlimited) → "Importing Photos..." → if any failed, "N imported, M failed" → then iOS asks to delete the
@@ -1045,3 +1045,4 @@ extension matching ignores case.
 - 2026-11-03: The folder picker lists folders in the saved sort, as today's app does (the spec named no order; the first implementation sorted by name) — Browser unit 1 review — orchestrator, recorded
 - 2026-11-03: Browser views use the identifiers the journey tests already use where they differ from the memo's (`browser.cell.<name>`, `browser.newDocumentButton`, `browser.bulk*Button`, `browser.cancelSelectButton`, `browser.emptyStateLabel`, `folderPicker.moveHereButton`, `folderPicker.cancelButton`); same reasoning as LockScreens and Settings — Browser unit 2 — orchestrator, recorded
 - 2026-11-03: Browser unit 2 gets a fourth attempt after hitting the retry cap on test-file warnings and format errors; the browser's long-press menu moves to UIKit's multi-item `contextMenuConfigurationForItemsAt:point:` (the single-item form is deprecated) — Browser unit 2 — decided by the human
+- 2026-11-03: The folder picker doesn't offer the folders being moved (or their subfolders), as the Browser spec says, instead of offering them and showing "A folder can't be moved into itself" as today; journey 3's into-itself test checks the folder is absent from the picker — Browser full gates — decided by the human
