@@ -509,7 +509,7 @@
             "SceneDelegate.swift",
             "View/FileBrowser.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0,
           "kind": "switch-over"
         }
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T13:14:28-08:00",
+  "updatedAt": "2026-11-04T13:15:04-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
