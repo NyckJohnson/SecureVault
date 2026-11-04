@@ -523,6 +523,23 @@ private struct Fixture {
         #expect(hidden < message)
     }
 
+    @Test("Save to Camera Roll overlay says Saving 1 item… for one item")
+    func cameraRollOverlayStatusSingular() async {
+        let fixture = Fixture()
+        await fixture.model.choose(.saveToCameraRoll, for: [makeItem("only.jpg")])
+        #expect(fixture.log.overlays == ["Saving to Camera Roll..."])
+        #expect(fixture.log.overlayStatuses == ["Saving 1 item…"])
+    }
+
+    @Test("Save to Camera Roll overlay says Saving 3 items… for three items")
+    func cameraRollOverlayStatusPlural() async {
+        let fixture = Fixture()
+        let items = (1...3).map { makeItem("c\($0).jpg") }
+        await fixture.model.choose(.saveToCameraRoll, for: items)
+        #expect(fixture.log.overlays == ["Saving to Camera Roll..."])
+        #expect(fixture.log.overlayStatuses == ["Saving 3 items…"])
+    }
+
     struct NoFailureCase: Sendable {
         let saved: Int
         let expected: String
