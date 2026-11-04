@@ -528,7 +528,7 @@
         "Viewer",
         "Settings"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -537,8 +537,8 @@
             "FolderPickerViewModel.swift",
             "FileCellModel.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 2,
@@ -547,22 +547,22 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 2
         },
         {
           "number": 3,
           "files": [
             "SceneDelegate.swift"
           ],
-          "state": "pending",
-          "attempts": 0,
+          "state": "done",
+          "attempts": 1,
           "kind": "switch-over"
         }
       ]
     }
   ],
-  "updatedAt": "2026-11-03T12:53:17-08:00",
+  "updatedAt": "2026-11-03T17:32:45-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
