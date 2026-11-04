@@ -152,6 +152,10 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
 - Timed lockout for failed passwords.
 - Encrypt folder names: folder names, sizes and structure are plaintext on disk today.
 - Vault size in Settings: show the current total size of the vault (and file count) in the Storage section.
+- Orphan sweep doesn't hold up the grid: after an unlock with a large vault, the grid's listing waits behind the sweep (one synchronous pass inside the VaultStore actor, OrphanSweep.swift); sweep per folder with yields — app review 2026-11-04.
+- Remove `ThumbnailProviding.clearCache(for:)` from the Media contract: no caller (the cache key includes modification date and size) — contract change — app review 2026-11-04.
+- Harden "no sweep while a migration is pending": it relies on main-actor ordering between `prepareToAddLock` and `migrator.start` (SecuritySettingsViewModel.swift); set the pending record before the lock state changes, or re-check right before the sweep — app review 2026-11-04.
+- Dark mode: the selection checkmark sits on a hard white disc (FileCell.swift `.white`); use a semantic colour — app review 2026-11-04 (may go with the accessibility feature).
 
 ## Data models
 ### VaultDirectory
@@ -228,9 +232,9 @@ extension matching ignores case.
 8. Media (depends on: VaultStore, VaultCrypto, Preferences)
 9. Import (depends on: VaultStore, Entitlements, SharedUI)
 10. Export (depends on: VaultStore, SharedUI)
-11. LockScreens (depends on: VaultLock, SharedUI)
+11. LockScreens (depends on: VaultLock, VaultCrypto, Preferences, SharedUI)
 12. Viewer (depends on: VaultStore, Media, Export, SharedUI)
-13. Settings (depends on: VaultLock, LockMigration, VaultStore, Entitlements, SharedUI)
+13. Settings (depends on: VaultLock, LockMigration, VaultStore, Entitlements, Preferences, SharedUI)
 14. Browser (depends on: VaultStore, Preferences, Media, Import, Export, SharedUI, Viewer, Settings)
 
 ## Modules
@@ -806,7 +810,7 @@ extension matching ignores case.
 
 ### Settings
 - Purpose: security settings, the migration screen, the paywall and Recently Deleted.
-- Depends on: VaultLock, LockMigration, VaultStore, Entitlements, SharedUI
+- Depends on: VaultLock, LockMigration, VaultStore, Entitlements, Preferences, SharedUI
 - Files: SecuritySettingsViewModel.swift, MigrationViewModel.swift, PaywallViewModel.swift, RecentlyDeletedViewModel.swift | Views/SecuritySettingsViewController.swift, Views/MigrationViewController.swift, Views/PaywallViewController.swift, Views/RecentlyDeletedViewController.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
@@ -879,7 +883,7 @@ extension matching ignores case.
 - Legacy folders: Model/, View/, Base.lproj/Main.storyboard (empty; deleted in the baseline if nothing references it)
 - Renames: VaultItem → LegacyVaultItem, VaultDirectory → LegacyVaultDirectory, FileKind → LegacyFileKind, LockMode → LegacyLockMode, SortOption → LegacySortOption, SortDirection → LegacySortDirection, CameraRollDeleting → LegacyCameraRollDeleting, FileCell → LegacyFileCell, FileBrowserViewController → LegacyFileBrowserViewController, FolderPickerViewController → LegacyFolderPickerViewController, FileViewerViewController → LegacyFileViewerViewController, FilePageViewController → LegacyFilePageViewController, TextEditorViewController → LegacyTextEditorViewController, SecuritySettingsViewController → LegacySecuritySettingsViewController, MigrationViewController → LegacyMigrationViewController, PaywallViewController → LegacyPaywallViewController, RecentlyDeletedViewController → LegacyRecentlyDeletedViewController, LockScreenViewController → LegacyLockScreenViewController, SetupWizardViewController → LegacySetupWizardViewController
 - Obsolete tests: KoalaTVaultTests/KoalaTVaultTests.swift (empty template); KoalaTVaultUITests/KoalaTVaultUITests.swift, KoalaTVaultUITests/AdditionalUITests.swift, KoalaTVaultUITests/PaywallUITests.swift, KoalaTVaultUITests/KoalaTVaultUITestsLaunchTests.swift, KoalaTVaultUITests/VaultUITestCase.swift (deleted in the baseline, 2026-10-26; superseded by the baseline journey tests, which carry over their useful cases: browse flows, migration failure Retry/Skip, paywall purchase and restore)
-- Shell responsibilities after adoption: `AppDependencies` builds every live service once (real Keychain, UserDefaults.standard, Documents root; in `-uiTesting` mode the in-memory and temporary ones and the seeds); SceneDelegate wires `AppLockCoordinator`, the root browser, purges expired trash and sweeps orphans after unlock (never while a migration is pending: the sweep would delete encrypted copies not yet indexed; the post-unlock steps live in a small unit-tested shell helper), clears thumbnails and resumes a pending migration after unlock (presenting the Migration screen).
+- Shell responsibilities after adoption: `AppDependencies` builds every live service once (real Keychain, UserDefaults.standard, Documents root; in `-uiTesting` mode the in-memory and temporary ones and the seeds); SceneDelegate wires `AppLockCoordinator`, the root browser, purges expired trash and sweeps orphans after unlock (never while a migration is pending: the sweep would delete encrypted copies not yet indexed; the post-unlock steps live in a small unit-tested shell helper), resumes a pending migration after unlock, and clears the thumbnail cache when the app goes to the background with a lock set (presenting the Migration screen).
 - `Model/FileSystem.swift` and `.fileRestored` are gone (Browser switch-over): a restore in Recently Deleted calls `BrowserFactory.reloadAll()`.
 
 ## Known issues
@@ -1052,3 +1056,4 @@ extension matching ignores case.
 - 2026-11-04: VaultLock spec gains the line on what counts as encrypted data, describing today's `VaultEncryptedDataCheck` (including its safe side: anything unreadable counts as encrypted); the legacy check found 8 of BaselineFix24Tests' 9 cases not covered by VaultLock's tests, so they move into VaultLock's tests; all 10 of BaselineFix20_23Tests' cases are covered by VaultStore's tests (docs/adopt/legacy-scan-baseline-fix-20-23.md), so that file and LegacyCryptoSupport.swift are deleted — per the human's decision, recorded by the orchestrator
 - 2026-11-04: The legacy check has no app-shell allowlist for test files, so `adopt finish` would always refuse PostUnlockMaintenanceTests.swift, .swiftlint.yml and premiumTesting.storekit; the human fixes the pipeline (`legacy_left` reads `- App shell tests:` under `## Legacy code`), and the app is unchanged — decided by the human
 - 2026-11-04: `StoreKitProUnlockTests.updatesDeliverEachChangeOnce` is flaky (the refund sometimes lands after the test's wait under a full run); Entitlements' unit 1 is reopened for a test-only fix that waits robustly without changing what it checks — decided by the human
+- 2026-11-04: Whole-app review (docs/adopt/app-review.md): fix now in the adoption — the combined-screen bugs B1-B5 (overlay under the nav bar, alert on a dismissing controller, export overlay stuck on "Preparing...", no Done in Settings, unnamed folder in the picker) and the app-shell clean-ups (rename `LegacyStorage`, test-only launch paths `#if DEBUG`, launch temp clean-up off the main thread, asset catalog); accessibility and Dynamic Type become the next feature; memo corrected (LockScreens and Settings dependencies, thumbnail clearing on background); the sweep, `clearCache(for:)`, migration-ordering and checkmark-disc items go to Later features — decided by the human
