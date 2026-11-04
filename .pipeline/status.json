@@ -1,5 +1,5 @@
 {
-  "stage": 5,
+  "stage": 6,
   "paused": false,
   "pauseReason": null,
   "checkpoints": {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-03T18:12:46-08:00",
+  "updatedAt": "2026-11-03T20:34:07-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -690,5 +690,70 @@
     "state": "active",
     "startedAt": "2026-10-24T11:49:56-07:00",
     "finishedAt": null
+  },
+  "plan": {
+    "label": "verify",
+    "items": [
+      {
+        "name": "legacy-check",
+        "done": false
+      },
+      {
+        "name": "final-switch",
+        "done": false
+      },
+      {
+        "name": "j1-setup",
+        "done": false
+      },
+      {
+        "name": "j2-unlock",
+        "done": false
+      },
+      {
+        "name": "j3-browse",
+        "done": false
+      },
+      {
+        "name": "j4-import",
+        "done": false
+      },
+      {
+        "name": "j5-view-edit",
+        "done": false
+      },
+      {
+        "name": "j6-delete-restore",
+        "done": false
+      },
+      {
+        "name": "j7-export",
+        "done": false
+      },
+      {
+        "name": "j8-lock-mode",
+        "done": false
+      },
+      {
+        "name": "j9-paywall",
+        "done": false
+      },
+      {
+        "name": "app-review",
+        "done": false
+      },
+      {
+        "name": "fixes",
+        "done": false
+      },
+      {
+        "name": "device-test",
+        "done": false
+      },
+      {
+        "name": "backlog",
+        "done": false
+      }
+    ]
   }
 }
