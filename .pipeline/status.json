@@ -528,7 +528,7 @@
         "Viewer",
         "Settings"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -547,7 +547,7 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T15:50:33-08:00",
+  "updatedAt": "2026-11-04T15:50:59-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
