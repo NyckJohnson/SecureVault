@@ -44,4 +44,40 @@ private func presentAndWait(_ presenter: UIViewController, _ presented: UIViewCo
         #expect(first.topmostPresentedController === third)
         #expect(third.topmostPresentedController === third)
     }
+
+    @Test("The topmost controller stops before a presented controller that is being dismissed")
+    func stopsBeforeDismissing() async {
+        let (root, window) = hosted()
+        defer { window.isHidden = true }
+        let first = UIViewController()
+        let second = DismissingViewController()
+        await presentAndWait(root, first)
+        await presentAndWait(first, second)
+
+        second.reportsDismissing = true
+        #expect(root.topmostPresentedController === first)
+        #expect(first.topmostPresentedController === first)
+
+        second.reportsDismissing = false
+        #expect(root.topmostPresentedController === second)
+    }
+
+    @Test("A dismissing controller in the middle of the chain hides everything above it")
+    func stopsAtFirstDismissingInChain() async {
+        let (root, window) = hosted()
+        defer { window.isHidden = true }
+        let first = DismissingViewController()
+        let second = UIViewController()
+        await presentAndWait(root, first)
+        await presentAndWait(first, second)
+
+        first.reportsDismissing = true
+        #expect(root.topmostPresentedController === root)
+    }
+}
+
+@MainActor
+private final class DismissingViewController: UIViewController {
+    var reportsDismissing = false
+    override var isBeingDismissed: Bool { reportsDismissing }
 }
