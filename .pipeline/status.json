@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T14:04:12-08:00",
+  "updatedAt": "2026-11-04T14:04:26-08:00",
   "features": [
     {
       "slug": "minimum-password-strength",
@@ -704,39 +704,39 @@
       },
       {
         "name": "j1-setup",
-        "done": false
+        "done": true
       },
       {
         "name": "j2-unlock",
-        "done": false
+        "done": true
       },
       {
         "name": "j3-browse",
-        "done": false
+        "done": true
       },
       {
         "name": "j4-import",
-        "done": false
+        "done": true
       },
       {
         "name": "j5-view-edit",
-        "done": false
+        "done": true
       },
       {
         "name": "j6-delete-restore",
-        "done": false
+        "done": true
       },
       {
         "name": "j7-export",
-        "done": false
+        "done": true
       },
       {
         "name": "j8-lock-mode",
-        "done": false
+        "done": true
       },
       {
         "name": "j9-paywall",
-        "done": false
+        "done": true
       },
       {
         "name": "app-review",
