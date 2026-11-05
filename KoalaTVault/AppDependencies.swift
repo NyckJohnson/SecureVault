@@ -3,18 +3,25 @@
 //  KoalaTVault
 //
 //  Composition root. Decides, once per launch, which storage the app uses:
-//  the real Documents vault, Keychain and UserDefaults.standard, or (with the
-//  `-uiTesting` launch argument) a throwaway temporary vault, an in-memory
-//  Keychain and a dedicated UserDefaults suite. With `-unitTestHost` as well
-//  (the unit-test host only, set by the test plan), the "Unlock Pro" entitlement
-//  is an inert stand-in that never talks to StoreKit.
+//  the real Documents vault, Keychain and UserDefaults.standard, or (Debug builds
+//  only, with the `-uiTesting` launch argument) a throwaway temporary vault, an
+//  in-memory Keychain and a dedicated UserDefaults suite. With `-unitTestHost` as
+//  well (the unit-test host only, set by the test plan), the "Unlock Pro"
+//  entitlement is an inert stand-in that never talks to StoreKit.
+//
+//  Every test-only launch path (the two launch arguments, the `UITEST_*` seeds,
+//  the in-memory Keychain, the slow migration store, the inert entitlement) is
+//  compiled only in Debug: unit and UI tests build Debug, so a Release build has
+//  none of them.
 //
 
 import Foundation
 import os
 import UIKit
 
-// MARK: - In-memory Keychain
+#if DEBUG
+
+// MARK: - In-memory Keychain (Debug only)
 
 /// An in-memory stand-in for the Keychain used in `-uiTesting` mode: one item per account.
 /// Accessibility is ignored, so biometric reads succeed without a prompt.
@@ -36,7 +43,7 @@ nonisolated final class InMemoryKeychain: KeychainAccessing {
     }
 }
 
-// MARK: - Inert pro unlock (unit-test host)
+// MARK: - Inert pro unlock (unit-test host, Debug only)
 
 /// The entitlement installed in the hosted unit-test process (`-unitTestHost`): always locked, makes no
 /// StoreKit calls and starts no `Transaction.updates` listener, so the host app can't finish or observe
@@ -64,7 +71,7 @@ private final class InertProUnlock: ProUnlocking {
     }
 }
 
-// MARK: - Storage
+// MARK: - UI-test launch settings (Debug only)
 
 /// Launch settings that only take effect with `-uiTesting`, read from the environment.
 nonisolated struct UITestSettings: Sendable, Equatable {
@@ -100,38 +107,46 @@ nonisolated struct UITestSettings: Sendable, Equatable {
     }
 }
 
-/// Where the legacy services keep their data. Chosen once per launch from the
-/// launch arguments; legacy code reads it through `LegacyStorage.current` until each
-/// module takes its storage by injection.
-nonisolated struct LegacyStorage: Sendable {
-    /// The launch argument that selects the clean, isolated test state.
+#endif
+
+// MARK: - Storage
+
+/// Where the app keeps its data: the vault root, the Keychain, the master key store, the file cipher and the
+/// preferences. Chosen once per launch from the launch arguments; `AppDependencies` hands each part to the
+/// services that need it.
+nonisolated struct AppStorage: Sendable {
+    #if DEBUG
+    /// The launch argument that selects the clean, isolated test state (Debug builds only).
     static let uiTestingArgument = "-uiTesting"
     /// The launch argument the test plan gives the hosted unit-test process only (UI-test launches
-    /// don't pass it): the app then installs an inert entitlement instead of the StoreKit one.
+    /// don't pass it): the app then installs an inert entitlement instead of the StoreKit one (Debug builds only).
     static let unitTestHostArgument = "-unitTestHost"
-    /// The Keychain service of the vault's items (the legacy password item is matched without it).
+    #endif
+    /// The Keychain service of the vault's items (the old password item is matched without it).
     static let keychainService = "com.KoalaTVault"
 
     /// The vault root (Documents normally; a fresh temporary folder in `-uiTesting` mode).
     let vaultRootURL: URL
     /// Keychain access (real normally; in memory in `-uiTesting` mode).
     let keychain: any KeychainAccessing
-    /// The vault master key store, over `keychain`. Legacy singletons reach it here; new code
-    /// takes it by injection from `AppDependencies`.
+    /// The vault master key store, over `keychain`.
     let masterKeyStore: any MasterKeyStoring
     /// The file and index cipher, using `masterKeyStore`'s key.
     let fileCipher: any FileCipher
-    /// The app's settings, over `defaults` (built once here). Legacy singletons reach it here;
-    /// new code takes it by injection from `AppDependencies`.
+    /// The app's settings, over `defaults` (built once here).
     let preferences: any PreferencesStoring
     /// The UserDefaults suite in `-uiTesting` mode; `nil` means `.standard`.
     /// (A name rather than the instance, because `UserDefaults` is not `Sendable`.)
     let defaultsSuiteName: String?
-    /// Non-nil only in `-uiTesting` mode.
-    let uiTestSettings: UITestSettings?
+    #if DEBUG
+    /// Non-nil only in `-uiTesting` mode (Debug builds only).
+    private(set) var uiTestSettings: UITestSettings?
+    #endif
 
-    /// The storage for this process, decided from its launch arguments on first use.
-    static let current = LegacyStorage(
+    /// The storage for this process, decided from its launch arguments on first use. Only the default
+    /// argument of `AppDependencies.init` reads it, so the app (and the unit-test host) builds its storage
+    /// exactly once; nothing else reaches storage through it.
+    static let current = AppStorage(
         arguments: ProcessInfo.processInfo.arguments,
         environment: ProcessInfo.processInfo.environment
     )
@@ -144,14 +159,14 @@ nonisolated struct LegacyStorage: Sendable {
         guard let suiteName else { return .standard }
         guard let suite = UserDefaults(suiteName: suiteName) else {
             // Unreachable: the name was validated when this storage was made.
-            fatalError("-uiTesting: could not open the UserDefaults suite")
+            fatalError("AppStorage: could not open the UserDefaults suite")
         }
         return suite
     }
 
     /// Builds the storage, the one master key store and file cipher over `keychain`, and the
     /// one preferences store over the chosen UserDefaults suite.
-    init(vaultRootURL: URL, keychain: any KeychainAccessing, defaultsSuiteName: String?, uiTestSettings: UITestSettings?) {
+    init(vaultRootURL: URL, keychain: any KeychainAccessing, defaultsSuiteName: String?) {
         let masterKeyStore = LiveMasterKeyStore(keychain: keychain)
         self.vaultRootURL = vaultRootURL
         self.keychain = keychain
@@ -159,26 +174,29 @@ nonisolated struct LegacyStorage: Sendable {
         self.fileCipher = LiveFileCipher(keyStore: masterKeyStore)
         self.preferences = UserDefaultsPreferences(defaults: Self.openDefaults(suiteName: defaultsSuiteName))
         self.defaultsSuiteName = defaultsSuiteName
-        self.uiTestSettings = uiTestSettings
     }
 
-    /// The real storage, or the isolated test storage when `arguments` contains `-uiTesting`.
+    /// The real storage, or (Debug builds only) the isolated test storage when `arguments` contains
+    /// `-uiTesting`. A Release build ignores both parameters.
     init(arguments: [String], environment: [String: String]) {
+        #if DEBUG
         if arguments.contains(Self.uiTestingArgument) {
             self = Self.makeUITesting(environment: environment)
-        } else {
-            self.init(
-                vaultRootURL: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
-                keychain: KeychainStore(service: Self.keychainService),
-                defaultsSuiteName: nil,
-                uiTestSettings: nil
-            )
+            return
         }
+        #endif
+        self.init(
+            vaultRootURL: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
+            keychain: KeychainStore(service: Self.keychainService),
+            defaultsSuiteName: nil
+        )
     }
+
+    #if DEBUG
 
     /// Builds an empty, isolated storage. Any failure here stops the app rather than
     /// falling back to the real vault, Keychain or UserDefaults.
-    private static func makeUITesting(environment: [String: String]) -> LegacyStorage {
+    private static func makeUITesting(environment: [String: String]) -> AppStorage {
         let fileManager = FileManager.default
         // Not under tmp, which holds the vault store's temporary files.
         let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -200,19 +218,19 @@ nonisolated struct LegacyStorage: Sendable {
         }
         defaults.removePersistentDomain(forName: suiteName)
 
-        return LegacyStorage(
-            vaultRootURL: root,
-            keychain: InMemoryKeychain(),
-            defaultsSuiteName: suiteName,
-            uiTestSettings: UITestSettings(environment: environment)
-        )
+        var storage = AppStorage(vaultRootURL: root, keychain: InMemoryKeychain(), defaultsSuiteName: suiteName)
+        storage.uiTestSettings = UITestSettings(environment: environment)
+        return storage
     }
+    #endif
 }
 
-// MARK: - Slow migration store (-uiTesting)
+#if DEBUG
+
+// MARK: - Slow migration store (-uiTesting, Debug only)
 
 /// A `VaultStoring` that forwards everything to `base`, except that migrating a file (either direction)
-/// first waits `delay`, as the legacy app's `UITEST_MIGRATION_FILE_DELAY` hook did, so a UI test can
+/// first waits `delay`, as the earlier app's `UITEST_MIGRATION_FILE_DELAY` hook did, so a UI test can
 /// background or lock mid-migration. Built only in `-uiTesting` mode, never in a module.
 nonisolated struct SlowMigrationVaultStore: VaultStoring {
     let base: any VaultStoring
@@ -281,6 +299,54 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     func removeAllTemporaryFiles() { base.removeAllTemporaryFiles() }
 }
 
+#endif
+
+// MARK: - Temporary files of earlier launches
+
+/// Each launch gives the vault store its own temporary root, `<tmp>/StoreTemporaryFiles/<UUID>`, so the
+/// temporary files earlier launches left behind (after a crash, say) are exactly the other entries of
+/// `<tmp>/StoreTemporaryFiles`. At launch they are listed on the main thread, which is quick, and deleted on
+/// a background task, so the first frame never waits for a large leftover; this launch's root is never
+/// listed, so nothing created after launch is touched. The lock's wipe on entering the background
+/// (`removeAllTemporaryFiles`) works on this launch's root as before.
+nonisolated private enum LaunchTemporaryFiles {
+    /// The folder holding every launch's temporary root.
+    static var container: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("StoreTemporaryFiles", isDirectory: true)
+    }
+
+    /// Where builds before this one kept the store's temporary files (`<tmp>/VaultStore`, the store's own
+    /// folder directly under tmp). It can still hold decrypted copies of vault files after an update, so every
+    /// launch deletes it along with the earlier launches' roots. A fixed path the shell knows; nothing creates
+    /// it any more.
+    static var preUpdateFolder: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("VaultStore", isDirectory: true)
+    }
+
+    /// A fresh temporary root for this launch, inside `container`. Not created here: the store creates
+    /// its folders under it when it first needs one.
+    static func makeLaunchRoot() -> URL {
+        container.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    /// The entries of `container` other than `launchRoot`: the earlier launches' roots. A missing or
+    /// unreadable container means there is nothing to remove.
+    static func leftovers(keeping launchRoot: URL) -> [URL] {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: container, includingPropertiesForKeys: nil, options: [])) ?? []
+        return entries.filter { $0.lastPathComponent != launchRoot.lastPathComponent }
+    }
+
+    /// Deletes `entries`. Best effort, like `removeAllTemporaryFiles`: an entry that is missing (such as
+    /// `preUpdateFolder` once it is gone) is skipped, and one that can't be deleted now is deleted at the next
+    /// launch (the system also clears the temp folder eventually).
+    static func remove(_ entries: [URL]) {
+        for entry in entries {
+            try? FileManager.default.removeItem(at: entry)
+        }
+    }
+}
+
 // MARK: - Browser reload relay
 
 /// Forwards a reload request to the browser factory, which is built after the settings factory that asks for
@@ -300,7 +366,7 @@ private final class BrowserReloadRelay {
 /// Builds the app's dependencies once at launch.
 @MainActor
 final class AppDependencies {
-    let storage: LegacyStorage
+    let storage: AppStorage
     /// The vault master key store (built once, in `storage`).
     var masterKeyStore: any MasterKeyStoring { storage.masterKeyStore }
     /// The file and index cipher (built once, in `storage`).
@@ -309,12 +375,15 @@ final class AppDependencies {
     var preferences: any PreferencesStoring { storage.preferences }
     /// The "Unlock Pro" entitlement, built once at launch over the same UserDefaults as the preferences
     /// (so its `entitlement.isUnlocked` cache stays where earlier versions kept it). Building it starts the
-    /// transaction-update listener and the launch refresh. In the unit-test host (`-unitTestHost`) it is an
-    /// inert, always-locked stand-in with no StoreKit calls.
+    /// transaction-update listener and the launch refresh. In the unit-test host (`-unitTestHost`, Debug builds
+    /// only) it is an inert, always-locked stand-in with no StoreKit calls.
     let proUnlock: any ProUnlocking
     /// The app's one vault store over `storage.vaultRootURL` (Documents normally; the temporary vault in
-    /// `-uiTesting` mode, where `UITEST_MIGRATION_FILE_DELAY` wraps it in `SlowMigrationVaultStore`).
+    /// `-uiTesting` mode, where `UITEST_MIGRATION_FILE_DELAY` wraps it in `SlowMigrationVaultStore`). Its
+    /// temporary files go under `temporaryRoot`.
     let vaultStore: any VaultStoring
+    /// This launch's own temporary root for the vault store (see `LaunchTemporaryFiles`).
+    private let temporaryRoot: URL
     /// The app's one video loader: streams encrypted videos to AVPlayer, over the file cipher.
     let videoAssets: any VideoAssetProviding
     /// The app's one thumbnail provider, over `vaultStore`, the file cipher, `videoAssets` and the preferences.
@@ -334,7 +403,7 @@ final class AppDependencies {
     /// and the master key store.
     let lockCoordinator: any AppLockCoordinating
     /// The app's one lock migration, over `vaultStore`, `vaultLock` and the preferences. In `-uiTesting` mode
-    /// `UITEST_FAIL_MIGRATION_FILE` names the file it fails.
+    /// (Debug builds only) `UITEST_FAIL_MIGRATION_FILE` names the file it fails.
     let lockMigrator: any LockMigrating
     /// Makes the security settings, the paywall and the migration screen, over `vaultLock`, `lockMigrator`,
     /// `vaultStore` and `proUnlock`. A restore in Recently Deleted reloads every browser (`browserFactory.reloadAll()`).
@@ -342,31 +411,26 @@ final class AppDependencies {
     /// Makes the root file browser and reloads the browsers on screen, over `vaultStore`, the preferences,
     /// `thumbnails`, the exporter, both presenters, `viewerFactory` and `settingsFactory`.
     let browserFactory: any BrowserFactory
+    #if DEBUG
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "AppDependencies")
+    #endif
 
-    init(storage: LegacyStorage = .current, arguments: [String] = ProcessInfo.processInfo.arguments) {
+    /// Builds every service. `arguments` only matters in Debug builds (`-unitTestHost`); Release ignores it.
+    init(storage: AppStorage = .current, arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.storage = storage
-        let proUnlock: any ProUnlocking
-        if arguments.contains(LegacyStorage.unitTestHostArgument) {
-            proUnlock = InertProUnlock()
-        } else {
-            proUnlock = StoreKitProUnlock(defaults: storage.defaults)
-        }
+        let proUnlock = Self.makeProUnlock(storage: storage, arguments: arguments)
         self.proUnlock = proUnlock
 
+        let temporaryRoot = LaunchTemporaryFiles.makeLaunchRoot()
+        self.temporaryRoot = temporaryRoot
         let liveStore = LiveVaultStore(
             root: storage.vaultRootURL,
             keyStore: storage.masterKeyStore,
             cipher: storage.fileCipher,
             preferences: storage.preferences,
-            temporaryRoot: FileManager.default.temporaryDirectory
+            temporaryRoot: temporaryRoot
         )
-        let vaultStore: any VaultStoring
-        if let seconds = storage.uiTestSettings?.migrationFileDelay, seconds > 0 {
-            vaultStore = SlowMigrationVaultStore(base: liveStore, delay: .seconds(seconds))
-        } else {
-            vaultStore = liveStore
-        }
+        let vaultStore = Self.finishVaultStore(liveStore, storage: storage)
         self.vaultStore = vaultStore
         let videoAssets = EncryptedVideoLoader(cipher: storage.fileCipher)
         self.videoAssets = videoAssets
@@ -386,10 +450,12 @@ final class AppDependencies {
         let viewerFactory = LiveViewerFactory(store: vaultStore, videoAssets: videoAssets, exportPresenter: exportPresenter)
         self.viewerFactory = viewerFactory
 
+        #if DEBUG
         // The seeded lock must be in place before the vault lock reads the lock mode.
         if let password = storage.uiTestSettings?.password {
             Self.seedPassword(password, storage: storage)
         }
+        #endif
         let vaultRoot = storage.vaultRootURL
         let vaultLock = LiveVaultLock(
             masterKeys: storage.masterKeyStore,
@@ -405,10 +471,9 @@ final class AppDependencies {
         lockCoordinator = AppLockCoordinator(
             lock: vaultLock, preferences: storage.preferences, masterKeys: storage.masterKeyStore,
             presenter: LockPresenter())
-        // `uiTestSettings` is non-nil only in `-uiTesting` mode, so the failing file is a UI-test hook only.
         let lockMigrator = LiveLockMigrator(
             store: vaultStore, lock: vaultLock, preferences: storage.preferences,
-            uiTestFailFileName: storage.uiTestSettings?.failMigrationFileName)
+            uiTestFailFileName: Self.failMigrationFileName(storage: storage))
         self.lockMigrator = lockMigrator
         let reloadRelay = BrowserReloadRelay()
         let settingsFactory = LiveSettingsFactory(
@@ -423,9 +488,52 @@ final class AppDependencies {
         self.browserFactory = browserFactory
     }
 
+    /// The StoreKit entitlement; in the unit-test host (`-unitTestHost`, Debug builds only) the inert one.
+    private static func makeProUnlock(storage: AppStorage, arguments: [String]) -> any ProUnlocking {
+        #if DEBUG
+        if arguments.contains(AppStorage.unitTestHostArgument) {
+            return InertProUnlock()
+        }
+        #endif
+        return StoreKitProUnlock(defaults: storage.defaults)
+    }
+
+    /// `liveStore`, or (Debug builds only, with `UITEST_MIGRATION_FILE_DELAY`) `liveStore` wrapped in
+    /// `SlowMigrationVaultStore`.
+    private static func finishVaultStore(_ liveStore: LiveVaultStore, storage: AppStorage) -> any VaultStoring {
+        #if DEBUG
+        if let seconds = storage.uiTestSettings?.migrationFileDelay, seconds > 0 {
+            return SlowMigrationVaultStore(base: liveStore, delay: .seconds(seconds))
+        }
+        #endif
+        return liveStore
+    }
+
+    /// `UITEST_FAIL_MIGRATION_FILE`: the file the lock migration fails. `uiTestSettings` is non-nil only in
+    /// `-uiTesting` mode, so this is a UI-test hook only; always `nil` in a Release build.
+    private static func failMigrationFileName(storage: AppStorage) -> String? {
+        #if DEBUG
+        return storage.uiTestSettings?.failMigrationFileName
+        #else
+        return nil
+        #endif
+    }
+
+    /// Removes the vault store's temporary files that earlier launches left behind, and the folder where
+    /// builds before this one kept them (`LaunchTemporaryFiles.preUpdateFolder`): lists them now, on the main
+    /// thread, and deletes them on a background task, so the caller (the scene's first frame) doesn't wait.
+    /// Files this launch creates are never touched.
+    func removeTemporaryFilesOfEarlierLaunches() {
+        let leftovers = LaunchTemporaryFiles.leftovers(keeping: temporaryRoot) + [LaunchTemporaryFiles.preUpdateFolder]
+        Task.detached(priority: .utility) {
+            LaunchTemporaryFiles.remove(leftovers)
+        }
+    }
+
+    #if DEBUG
     /// `UITEST_PASSWORD`: the empty test vault starts set up with `password` and lock mode password, as after
     /// a relaunch (the key is not loaded). Runs before the vault lock is built, so it starts `.locked`.
-    private static func seedPassword(_ password: String, storage: LegacyStorage) {
+    private static func seedPassword(_ password: String, storage: AppStorage) {
         do {
             try storage.masterKeyStore.createMasterKey(password: password)
         } catch {
@@ -439,10 +547,13 @@ final class AppDependencies {
         storage.preferences.hasCompletedSetup = true
     }
 
+    #endif
+
     /// Applies the `-uiTesting` seeds (files, pending migration, plaintext index) to the empty test storage;
     /// the password seed is applied while building (see `seedPassword`).
-    /// Does nothing without `-uiTesting`.
+    /// Does nothing without `-uiTesting`, and nothing at all in a Release build.
     func prepareForLaunch() {
+        #if DEBUG
         guard let settings = storage.uiTestSettings else { return }
         UIView.setAnimationsEnabled(false)
 
@@ -474,8 +585,10 @@ final class AppDependencies {
         if settings.plaintextIndex {
             seedFile(at: root.appendingPathComponent(".vault_map"), content: Data("{}".utf8))
         }
+        #endif
     }
 
+    #if DEBUG
     private func seedFile(at url: URL, content: Data) {
         if !FileManager.default.createFile(atPath: url.path, contents: content) {
             // Test-only path (only called from `-uiTesting` seeding): fail hard rather than start half-seeded.
@@ -484,4 +597,5 @@ final class AppDependencies {
             fatalError(message)
         }
     }
+    #endif
 }
