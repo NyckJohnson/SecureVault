@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T15:50:59-08:00",
+  "updatedAt": "2026-11-04T16:09:01-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -752,11 +752,11 @@
       },
       {
         "name": "app-review",
-        "done": false
+        "done": true
       },
       {
         "name": "fixes",
-        "done": false
+        "done": true
       },
       {
         "name": "device-test",
