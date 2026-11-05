@@ -71,7 +71,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             presentPendingMigrationAfterMaintenance()
         }
 
-        vaultStore.removeAllTemporaryFiles()
+        // Listed now, deleted in the background: the first frame doesn't wait for a large leftover.
+        dependencies.removeTemporaryFilesOfEarlierLaunches()
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {

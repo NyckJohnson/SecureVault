@@ -50,6 +50,9 @@ final class FolderPickerViewController: UIViewController, AlertPresenting {
         self.onChoose = onChoose
         self.onCancel = onCancel
         super.init(nibName: nil, bundle: nil)
+        // Each level is titled with the folder it shows (the root's name at the top level). Set here, not in
+        // viewDidLoad, so a pushed level has its title before its view loads.
+        navigationItem.title = viewModel.directory.name
     }
 
     @available(*, unavailable)

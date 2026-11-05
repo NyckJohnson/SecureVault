@@ -423,3 +423,79 @@ import UIKit
         #expect(result.message == "Password cannot be empty")
     }
 }
+
+/// App-review fix B4: the Settings root screen has a Done button at the top right that closes Settings.
+@MainActor
+@Suite struct SettingsDoneButtonTests {
+    private func makeSettings() -> UINavigationController? {
+        let factory = LiveSettingsFactory(
+            lock: MockVaultLocking(), migrator: SettingsScriptedMigrator(),
+            store: MockVaultStoring(withSampleContent: false), pro: MockProUnlocking(isUnlocked: false),
+            onRestore: {})
+        return factory.makeSettings() as? UINavigationController
+    }
+
+    /// Performs the item's action as a tap would (primary action, or target/selector).
+    private func tap(_ item: UIBarButtonItem) {
+        if let action = item.primaryAction {
+            action.performWithSender(item, target: nil)
+        } else if let selector = item.action {
+            UIApplication.shared.sendAction(selector, to: item.target, from: item, for: nil)
+        }
+    }
+
+    @Test("The Settings root screen has a Done button at the top right")
+    func doneButtonExists() throws {
+        let navigation = try #require(makeSettings())
+        let root = try #require(navigation.viewControllers.first)
+        _ = root.view
+        let item = try #require(root.navigationItem.rightBarButtonItem)
+        #expect(item.title == "Done")
+        #expect(item.accessibilityIdentifier == "settingsDoneButton")
+    }
+
+    @Test("Tapping Done dismisses the presented Settings")
+    func doneDismissesSettings() async throws {
+        let navigation = try #require(makeSettings())
+        let host = SettingsViewHost.presenting(navigation)
+        let root = try #require(navigation.viewControllers.first)
+        let item = try #require(root.navigationItem.rightBarButtonItem)
+        #expect(host.root.presentedViewController === navigation)
+        tap(item)
+        await SettingsTestSupport.waitUntil { host.root.presentedViewController == nil }
+        #expect(host.root.presentedViewController == nil)
+    }
+
+    @Test("Done is disabled while a password change is running and enabled again afterwards")
+    func doneIsDisabledWhileBusy() async throws {
+        let mock = MockVaultLocking(lockMode: .password, password: "correct horse")
+        try await mock.unlock(password: "correct horse")
+        let lock = SettingsScriptedLock(inner: mock)
+        lock.holdsChangePassword = true
+        let controller = SecuritySettingsViewController(
+            lock: lock, migrator: MockLockMigrating(pending: nil),
+            store: MockVaultStoring(withSampleContent: false), pro: MockProUnlocking(isUnlocked: false))
+        let navigation = UINavigationController(rootViewController: controller)
+        let host = SettingsViewHost(content: navigation)
+        await SettingsTestSupport.waitUntil { host.element("settings.lockMode.noLockRow") != nil }
+        await SettingsTestSupport.settle()
+        let doneEnabled = { controller.navigationItem.rightBarButtonItem?.isEnabled }
+        #expect(doneEnabled() == true)
+
+        host.selectRow("settings.changePasswordRow", inTable: "settings.table")
+        let prompt = try #require(await host.alert())
+        prompt.field("settings.currentPasswordField")?.text = "correct horse"
+        prompt.field("settings.newPasswordField")?.text = "new one"
+        prompt.field("settings.confirmNewPasswordField")?.text = "new one"
+        prompt.actions.first { $0.style != .cancel }?.fire()
+
+        await SettingsTestSupport.waitUntil { lock.changePasswordGate.isWaiting }
+        #expect(lock.changePasswordGate.isWaiting)
+        await SettingsTestSupport.waitUntil { doneEnabled() == false }
+        #expect(doneEnabled() == false)
+
+        lock.changePasswordGate.release()
+        await SettingsTestSupport.waitUntil { doneEnabled() == true }
+        #expect(doneEnabled() == true)
+    }
+}

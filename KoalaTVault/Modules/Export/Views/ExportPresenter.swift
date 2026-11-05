@@ -16,8 +16,8 @@ enum ExportSheetChoice: Equatable, Sendable {
 /// What an export flow asks of its screen.
 @MainActor
 protocol ExportFlowViewing: AnyObject {
-    /// Shows the overlay.
-    func showOverlay(title: String)
+    /// Shows the overlay, without progress, with `status` under `title`.
+    func showOverlay(title: String, status: String)
     /// Removes the overlay.
     func hideOverlay()
     /// Opens the document picker for saving copies of `urls`. If it can't open, the view must call
@@ -88,7 +88,7 @@ final class ExportFlowModel {
     }
 
     private func saveToFiles(_ items: [VaultItem]) async {
-        view?.showOverlay(title: "Exporting...")
+        view?.showOverlay(title: "Exporting...", status: Self.status("Exporting", count: items.count))
         do {
             let bundle = try await exporter.prepareForSharing(items)
             cleanUpPending()
@@ -109,7 +109,7 @@ final class ExportFlowModel {
     }
 
     private func saveToCameraRoll(_ items: [VaultItem]) async {
-        view?.showOverlay(title: "Saving to Camera Roll...")
+        view?.showOverlay(title: "Saving to Camera Roll...", status: Self.status("Saving", count: items.count))
         do {
             let result = try await exporter.saveToPhotos(items)
             view?.hideOverlay()
@@ -152,6 +152,11 @@ final class ExportFlowModel {
         default:
             view?.showError(error.localizedDescription)
         }
+    }
+
+    /// The overlay's status line, e.g. "Exporting 2 items…" or "Saving 1 item…".
+    private static func status(_ verb: String, count: Int) -> String {
+        "\(verb) \(count) item\(count == 1 ? "" : "s")\u{2026}"
     }
 
     private static func message(for result: PhotoSaveResult) -> String {
@@ -312,9 +317,9 @@ private final class ExportFlowController: NSObject {
 // MARK: - ExportFlowViewing
 
 extension ExportFlowController: ExportFlowViewing {
-    func showOverlay(title: String) {
+    func showOverlay(title: String, status: String) {
         guard let presenting else { return }
-        overlay = ProgressOverlayView.show(in: presenting, title: title)
+        overlay = ProgressOverlayView.show(in: presenting, title: title, style: .activity, status: status)
     }
 
     func hideOverlay() {

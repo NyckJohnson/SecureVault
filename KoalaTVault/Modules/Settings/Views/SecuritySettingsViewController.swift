@@ -101,6 +101,7 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
         super.viewDidLoad()
         title = "Security"
         view.backgroundColor = .systemBackground
+        configureDoneButton()
         configureTable()
         configureBusyIndicator()
         bindViewModel()
@@ -110,6 +111,20 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         Task { [viewModel] in await viewModel.reload() }
+    }
+
+    /// A "Done" button at the top right closes Settings: it dismisses the navigation controller Settings is
+    /// presented in (and anything still shown over it). Swipe-down keeps working as before.
+    private func configureDoneButton() {
+        let done = UIBarButtonItem(
+            title: "Done", style: .done, target: self, action: #selector(closeSettings))
+        done.accessibilityIdentifier = "settingsDoneButton"
+        navigationItem.rightBarButtonItem = done
+    }
+
+    @objc private func closeSettings() {
+        let presented: UIViewController = navigationController ?? self
+        presented.presentingViewController?.dismiss(animated: true)
     }
 
     private func configureTable() {
@@ -157,6 +172,8 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
     private func showBusy(_ isBusy: Bool) {
         view.isUserInteractionEnabled = !isBusy
+        // Closing Settings mid-operation would drop its result alert or the migration screen.
+        navigationItem.rightBarButtonItem?.isEnabled = !isBusy
         if isBusy {
             view.bringSubviewToFront(busyIndicator)
             busyIndicator.startAnimating()
