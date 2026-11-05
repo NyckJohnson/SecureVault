@@ -309,7 +309,7 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
 /// a background task, so the first frame never waits for a large leftover; this launch's root is never
 /// listed, so nothing created after launch is touched. The lock's wipe on entering the background
 /// (`removeAllTemporaryFiles`) works on this launch's root as before.
-nonisolated private enum LaunchTemporaryFiles {
+nonisolated enum LaunchTemporaryFiles {
     /// The folder holding every launch's temporary root.
     static var container: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("StoreTemporaryFiles", isDirectory: true)
@@ -323,15 +323,17 @@ nonisolated private enum LaunchTemporaryFiles {
         FileManager.default.temporaryDirectory.appendingPathComponent("VaultStore", isDirectory: true)
     }
 
-    /// A fresh temporary root for this launch, inside `container`. Not created here: the store creates
-    /// its folders under it when it first needs one.
-    static func makeLaunchRoot() -> URL {
+    /// A fresh temporary root for this launch, inside `container` (the app's `StoreTemporaryFiles` folder
+    /// unless a test passes its own). Not created here: the store creates its folders under it when it first
+    /// needs one.
+    static func makeLaunchRoot(in container: URL = LaunchTemporaryFiles.container) -> URL {
         container.appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
-    /// The entries of `container` other than `launchRoot`: the earlier launches' roots. A missing or
-    /// unreadable container means there is nothing to remove.
-    static func leftovers(keeping launchRoot: URL) -> [URL] {
+    /// The entries of `container` (the app's `StoreTemporaryFiles` folder unless a test passes its own) other
+    /// than `launchRoot`: the earlier launches' roots. A missing or unreadable container means there is nothing
+    /// to remove.
+    static func leftovers(keeping launchRoot: URL, in container: URL = LaunchTemporaryFiles.container) -> [URL] {
         let entries = (try? FileManager.default.contentsOfDirectory(
             at: container, includingPropertiesForKeys: nil, options: [])) ?? []
         return entries.filter { $0.lastPathComponent != launchRoot.lastPathComponent }
