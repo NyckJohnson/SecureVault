@@ -110,7 +110,7 @@ struct TrashScenario: CustomTestStringConvertible, Sendable {
 // MARK: - Retry publishes running
 
 @MainActor
-@Suite struct LiveLockMigratorRetryPublishesRunningTests {
+@Suite struct MigratorRetryRunningTests {
     @Test("A listing failure repeated after Retry publishes running and then failed again")
     func repeatedListingFailureIsPublished() async {
         let harness = encryptHarness()
@@ -172,7 +172,7 @@ struct TrashScenario: CustomTestStringConvertible, Sendable {
 // MARK: - Detecting unreadable trash
 
 @MainActor
-@Suite struct LiveLockMigratorUnreadableTrashDetectionTests {
+@Suite struct MigratorTrashDetectionTests {
     @Test("Where the run would fail, unreadable trash publishes unreadableTrash instead", arguments: TrashScenario.all)
     func unreadableTrashReplacesFailed(scenario: TrashScenario) async {
         let harness = scenario.harness()
@@ -222,7 +222,7 @@ struct TrashScenario: CustomTestStringConvertible, Sendable {
 // MARK: - While unreadableTrash
 
 @MainActor
-@Suite struct LiveLockMigratorWhileUnreadableTrashTests {
+@Suite struct MigratorWhileTrashTests {
     /// A run stopped in `.unreadableTrash`, with the cause healed so that any wrongly acting call would progress.
     private func stopped(_ kind: MigrationKind) async -> MigrationHarness {
         let scenario = TrashScenario(kind: kind, point: .listing)
@@ -297,7 +297,7 @@ struct TrashScenario: CustomTestStringConvertible, Sendable {
 // MARK: - clearUnreadableTrash
 
 @MainActor
-@Suite struct LiveLockMigratorClearUnreadableTrashTests {
+@Suite struct MigratorClearTrashTests {
     @Test("clearUnreadableTrash from idle does nothing and never calls the store")
     func noOpFromIdle() async {
         let harness = encryptHarness()
