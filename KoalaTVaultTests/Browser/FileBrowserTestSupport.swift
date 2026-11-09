@@ -160,6 +160,8 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
     func deletePermanently(_ trashed: VaultItem) async throws { try await inner.deletePermanently(trashed) }
     func emptyTrash() async { await inner.emptyTrash() }
     func purgeExpiredTrash(now: Date) async throws -> Int { try await inner.purgeExpiredTrash(now: now) }
+    func hasUnreadableTrash() async -> Bool { await inner.hasUnreadableTrash() }
+    func clearUnreadableTrash() async throws { try await inner.clearUnreadableTrash() }
     func countFiles() async throws -> Int { try await inner.countFiles() }
     func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
         try await inner.itemsToMigrate(toEncrypted: toEncrypted)

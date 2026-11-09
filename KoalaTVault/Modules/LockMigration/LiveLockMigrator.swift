@@ -98,6 +98,11 @@ final class LiveLockMigrator: LockMigrating {
         complete(fully: false)
     }
 
+    /// Stub: does nothing yet.
+    func clearUnreadableTrash() async {
+        // Not implemented: LiveLockMigrator.clearUnreadableTrash (feature device-fixes)
+    }
+
     // MARK: - Running
 
     private var keyLoaded: Bool { lock.state != .locked }

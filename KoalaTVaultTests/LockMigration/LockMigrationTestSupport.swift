@@ -278,6 +278,8 @@ final class FakeMigrationStore: VaultStoring {
     func deletePermanently(_ trashed: VaultItem) async throws {}
     func emptyTrash() async {}
     func purgeExpiredTrash(now: Date) async throws -> Int { 0 }
+    func hasUnreadableTrash() async -> Bool { false }
+    func clearUnreadableTrash() async throws {}
     func countFiles() async throws -> Int { items.count }
     func hasUnencryptedFiles() async throws -> Bool { items.contains { !$0.isEncrypted } }
     func keyMatchesVault() async -> Bool { true }

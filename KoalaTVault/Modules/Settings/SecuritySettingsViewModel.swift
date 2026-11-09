@@ -229,7 +229,7 @@ final class SecuritySettingsViewModel: ObservableObject {
     /// A run exists when the migrator would ignore a new `start`.
     private var hasRunUnderWay: Bool {
         switch migrator.phase {
-        case .running, .paused, .failed: true
+        case .running, .paused, .failed, .unreadableTrash: true
         case .idle, .completed: false
         }
     }

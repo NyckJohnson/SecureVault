@@ -213,6 +213,18 @@ actor LiveVaultStore: VaultStoring {
         }
     }
 
+    // MARK: - Unreadable trash (feature device-fixes: stubs until VaultStore's change unit)
+
+    /// Stub: never reports unreadable trash yet.
+    func hasUnreadableTrash() async -> Bool {
+        false  // Not implemented: LiveVaultStore.hasUnreadableTrash (feature device-fixes)
+    }
+
+    /// Stub: removes nothing yet.
+    func clearUnreadableTrash() async throws {
+        // Not implemented: LiveVaultStore.clearUnreadableTrash (feature device-fixes)
+    }
+
     /// A file name safe to use in a temp folder: the display name, or "file" if it can't be one.
     private static func temporaryFileName(for name: String) -> String {
         let cleaned = name.replacingOccurrences(of: "/", with: "-")

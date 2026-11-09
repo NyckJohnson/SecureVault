@@ -168,6 +168,8 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     func deletePermanently(_ trashed: VaultItem) async throws { throw unsupported }
     func emptyTrash() async {}
     func purgeExpiredTrash(now: Date) async throws -> Int { throw unsupported }
+    func hasUnreadableTrash() async -> Bool { false }
+    func clearUnreadableTrash() async throws { throw unsupported }
     func countFiles() async throws -> Int { throw unsupported }
     func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] { throw unsupported }
     func migrateToEncrypted(_ item: VaultItem) async throws { throw unsupported }

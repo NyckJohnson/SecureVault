@@ -119,6 +119,8 @@ final class MigrationViewModel: ObservableObject {
             isFinishing = true
             progress = 1
             statusText = "Complete"
+        case .unreadableTrash:
+            break  // Not implemented: MigrationViewModel unreadable trash (feature device-fixes)
         }
     }
 

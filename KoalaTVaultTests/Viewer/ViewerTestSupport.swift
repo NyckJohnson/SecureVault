@@ -192,6 +192,10 @@ final class ViewerGatedStore: VaultStoring {
 
     func purgeExpiredTrash(now: Date) async throws -> Int { try await inner.purgeExpiredTrash(now: now) }
 
+    func hasUnreadableTrash() async -> Bool { await inner.hasUnreadableTrash() }
+
+    func clearUnreadableTrash() async throws { try await inner.clearUnreadableTrash() }
+
     func countFiles() async throws -> Int { try await inner.countFiles() }
 
     func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {

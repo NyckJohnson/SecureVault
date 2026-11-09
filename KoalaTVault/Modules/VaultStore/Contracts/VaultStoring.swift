@@ -76,6 +76,17 @@ protocol VaultStoring: Sendable {
     func emptyTrash() async
     /// Deletes trash items older than 30 days before `now`; returns how many.
     func purgeExpiredTrash(now: Date) async throws -> Int
+    /// Whether the trash holds items that can never be decrypted (sealed with a key the vault no longer has):
+    /// only in encrypted mode with the key loaded and matching the vault, when the data was read in full and
+    /// fails authentication. Either the trash index (the whole trash) or individual top-level trash items.
+    /// Anything uncertain (no key, read error, key mismatch, plaintext mode) is not unreadable.
+    /// - Returns: false on any error (never throws).
+    func hasUnreadableTrash() async -> Bool
+    /// Re-checks and removes only the unreadable trash: everything in the trash when its index is unreadable,
+    /// otherwise the unreadable items and their entries. Each removal is logged (no names).
+    /// Nothing unreadable → no change.
+    /// - Throws: `.locked` without the key (nothing removed); `.io` after the rest are removed if a removal fails.
+    func clearUnreadableTrash() async throws
     /// The number of files in the vault (subfolders included, trash excluded).
     func countFiles() async throws -> Int
     /// The files a lock migration must convert.

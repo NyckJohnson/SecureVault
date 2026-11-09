@@ -10,6 +10,7 @@ final class MockLockMigrating: LockMigrating {
         case resumeIfPending
         case retryFailed
         case skipFailed
+        case clearUnreadableTrash
     }
 
     /// Every call so far, in order.
@@ -18,6 +19,9 @@ final class MockLockMigrating: LockMigrating {
     var fileCount: Int
     /// Display names of the files that fail on the first pass.
     var failingNames: [String]
+    /// When true, a pass ends in `.unreadableTrash` instead of `.failed` or `.completed`;
+    /// `clearUnreadableTrash()` resets it and runs the migration again.
+    var unreadableTrash: Bool
 
     private(set) var phase: MigrationPhase = .idle {
         didSet {
@@ -30,9 +34,13 @@ final class MockLockMigrating: LockMigrating {
     private var continuations: [UUID: AsyncStream<MigrationPhase>.Continuation] = [:]
 
     /// A migration of `fileCount` files, of which `failingNames` fail, optionally already pending.
-    init(fileCount: Int = 12, failingNames: [String] = [], pending: PendingMigration? = nil) {
+    init(
+        fileCount: Int = 12, failingNames: [String] = [], unreadableTrash: Bool = false,
+        pending: PendingMigration? = nil
+    ) {
         self.fileCount = fileCount
         self.failingNames = failingNames
+        self.unreadableTrash = unreadableTrash
         self.pending = pending
     }
 
@@ -70,9 +78,19 @@ final class MockLockMigrating: LockMigrating {
 
     func skipFailed() async {
         calls.append(.skipFailed)
-        guard case .failed = phase else { return }
+        switch phase {
+        case .failed, .unreadableTrash: break
+        default: return
+        }
         phase = .completed(fully: false)
         pending = nil
+    }
+
+    func clearUnreadableTrash() async {
+        calls.append(.clearUnreadableTrash)
+        guard phase == .unreadableTrash else { return }
+        unreadableTrash = false
+        run()
     }
 
     private var isRunning: Bool {
@@ -84,7 +102,9 @@ final class MockLockMigrating: LockMigrating {
         for done in 0...fileCount {
             phase = .running(done: done, total: fileCount)
         }
-        if failingNames.isEmpty {
+        if unreadableTrash {
+            phase = .unreadableTrash
+        } else if failingNames.isEmpty {
             phase = .completed(fully: true)
             pending = nil
         } else {
