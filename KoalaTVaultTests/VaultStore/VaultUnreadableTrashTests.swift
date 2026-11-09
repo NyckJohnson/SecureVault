@@ -457,7 +457,10 @@ import Testing
         Data(), Data("garbage".utf8), Data(repeating: 0x41, count: 27),
     ]
 
-    @Test("An empty or too-short trash index is uncertain: not unreadable, and clearing removes nothing", arguments: shortIndexes)
+    @Test(
+        "An empty or too-short trash index is uncertain: not unreadable, and clearing removes nothing",
+        arguments: shortIndexes
+    )
     func shortTrashIndexIsUncertain(bytes: Data) async throws {
         let vault = try makeVault()
         defer { vault.cleanUp() }
@@ -505,7 +508,8 @@ import Testing
 
         #expect(try Data(contentsOf: outsideIndex) == Self.foreignTrashIndex)
         #expect(try Data(contentsOf: outsideFile) == Data("outside".utf8))
-        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).sorted() == [".trash_map", "item.bin"])
+        let outsideListing = try FileManager.default.contentsOfDirectory(atPath: outside.path).sorted()
+        #expect(outsideListing == [".trash_map", "item.bin"])
         let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: vault.trashURL.path)
         #expect(destination != nil)
     }

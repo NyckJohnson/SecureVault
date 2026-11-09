@@ -311,6 +311,16 @@ extension LiveVaultStore {
     }
 }
 
+/// The verdict on one piece of sealed data in the trash (unreadable-trash check).
+enum TrashSealCheck {
+    /// Opens with the loaded key, or isn't sealed at all.
+    case readable
+    /// Read by the store and fails authentication: sealed with another key.
+    case foreign
+    /// Couldn't be decided (read error, no key, any other failure).
+    case uncertain
+}
+
 /// Logs each removal of unreadable trash, without names.
 private let unreadableTrashLog = Logger(subsystem: "com.KoalaTVault", category: "VaultStore")
 
@@ -335,14 +345,7 @@ extension LiveVaultStore {
     }
 
     /// The verdict on one piece of sealed data.
-    private enum SealCheck {
-        /// Opens with the loaded key, or isn't sealed at all.
-        case readable
-        /// Read in full and fails authentication: sealed with another key.
-        case foreign
-        /// Couldn't be decided (read error, no key, any other failure).
-        case uncertain
-    }
+    private typealias SealCheck = TrashSealCheck
 
     /// The verdict on a sealed JSON file (an index), with its JSON when it opens.
     private enum JSONSealCheck {
@@ -380,8 +383,10 @@ extension LiveVaultStore {
 
     private func unreadableTrash(mode: VaultOperationMode) -> UnreadableTrash {
         guard mode.isEncrypted, mode.keyLoaded, keyMatchesVault() else { return .none }
+        // `.trash` must be a real folder: a symlink could lead anywhere, and anything else isn't trash.
+        guard Self.fileType(trashMap.folderURL) == .typeDirectory else { return .none }
         var map: [String: VaultTrashEntry] = [:]
-        if trashMap.exists {
+        if Self.fileType(trashMap.url) != nil {
             switch sealedJSONCheck(at: trashMap.url, contexts: VaultTrashMap.contexts) {
             case .foreign:
                 return .wholeTrash
@@ -397,27 +402,44 @@ extension LiveVaultStore {
         }
         let folder = trashMap.folderURL
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return .none }
-        let unreadable = names.sorted().filter { name in
-            guard VaultTrashMap.isItemName(name) else { return false }
-            return trashItemCheck(folder.appendingPathComponent(name), entry: map[name]) == .foreign
+        let itemNames = names.sorted().filter(VaultTrashMap.isItemName)
+        guard !itemNames.isEmpty else { return .none }
+        // Files are judged on private copies of their first bytes; without a place for them, nothing is decided.
+        let probe = TrashFileProbe(store: self)
+        defer { probe.close() }
+        var unreadable: [String] = []
+        for name in itemNames
+        where trashItemCheck(folder.appendingPathComponent(name), entry: map[name], probe: probe) == .foreign {
+            unreadable.append(name)
         }
         return unreadable.isEmpty ? .none : .items(unreadable, map: map)
     }
 
     /// Kind (b) for one top-level trash item: a file judged by its first chunk, a folder by its whole tree.
-    private func trashItemCheck(_ url: URL, entry: VaultTrashEntry?) -> SealCheck {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
-        else { return .uncertain }
-        if values.isSymbolicLink == true { return .uncertain }
-        if values.isRegularFile == true { return sealedFileCheck(url) }
-        if values.isDirectory == true { return trashFolderCheck(url, originalPath: entry.flatMap(originalPath(of:))) }
-        return .uncertain
+    private func trashItemCheck(_ url: URL, entry: VaultTrashEntry?, probe: TrashFileProbe) -> SealCheck {
+        switch Self.fileType(url) {
+        case .typeRegular?:
+            return probe.check(url)
+        case .typeDirectory?:
+            return trashFolderCheck(url, originalPath: entry.flatMap(originalPath(of:)), probe: probe)
+        default:
+            // A symlink, anything else, or a read error.
+            return .uncertain
+        }
+    }
+
+    /// The type of the item at `url` itself (a symlink is not followed), or nil when it can't be read.
+    private static func fileType(_ url: URL) -> FileAttributeType? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+            let type = attributes[.type] as? FileAttributeType
+        else { return nil }
+        return type
     }
 
     /// A trashed folder is foreign when any `.vault_map` or SVC5 file in its tree is foreign and nothing in the
     /// tree is uncertain (one doubt keeps the whole folder).
     /// - Parameter originalPath: the folder's root-relative path before it was trashed, for older index contexts.
-    private func trashFolderCheck(_ itemURL: URL, originalPath: String?) -> SealCheck {
+    private func trashFolderCheck(_ itemURL: URL, originalPath: String?, probe: TrashFileProbe) -> SealCheck {
         var foundForeign = false
         // (folder, its path below the trashed item: "" for the item itself)
         var pending: [(URL, String)] = [(itemURL, "")]
@@ -427,7 +449,7 @@ extension LiveVaultStore {
             }
             let original = originalPath.map { subpath.isEmpty ? $0 : $0 + "/" + subpath }
             for name in names {
-                switch folderEntryCheck(name, in: folder, originalPath: original) {
+                switch folderEntryCheck(name, in: folder, originalPath: original, probe: probe) {
                 case .foreign: foundForeign = true
                 case .uncertain: return .uncertain
                 case .readable: break
@@ -449,7 +471,9 @@ extension LiveVaultStore {
 
     /// One entry of `folder`: its `.vault_map` (sealed JSON), an SVC5 or plaintext file, or a subfolder. Other
     /// hidden files (staging leftovers) and symlinks are neither an index nor an item, so they count as readable.
-    private func folderEntryCheck(_ name: String, in folder: URL, originalPath: String?) -> FolderEntryCheck {
+    private func folderEntryCheck(
+        _ name: String, in folder: URL, originalPath: String?, probe: TrashFileProbe
+    ) -> FolderEntryCheck {
         let url = folder.appendingPathComponent(name)
         if name == VaultIndex.fileName {
             switch sealedJSONCheck(at: url, contexts: folderIndexContexts(folder, originalPath: originalPath)) {
@@ -464,42 +488,24 @@ extension LiveVaultStore {
         if values.isSymbolicLink == true { return .readable }
         if values.isDirectory == true { return .subfolder }
         guard values.isRegularFile == true else { return .readable }
-        switch sealedFileCheck(url) {
+        switch probe.check(url) {
         case .foreign: return .foreign
         case .uncertain: return .uncertain
         case .readable: return .readable
         }
     }
 
-    /// An SVC5 file whose first chunk fails authentication, after the store has read every byte of it. A file
-    /// without an SVC5 header is plaintext, never foreign.
-    private func sealedFileCheck(_ url: URL) -> SealCheck {
-        guard Self.readsInFull(url) else { return .uncertain }
-        let info: StreamInfo
-        do {
-            info = try cipher.streamInfo(of: url)
-        } catch VaultCryptoError.decryptionFailed {
-            return .readable  // No SVC5 header: a plaintext file.
-        } catch {
-            return .uncertain
-        }
-        // An empty (or malformed) layout has no first chunk to judge.
-        guard info.totalSize > 0, info.chunkSize > 0 else { return .uncertain }
-        do {
-            _ = try cipher.decryptChunk(0, of: url, info: info)
-            return .readable
-        } catch VaultCryptoError.decryptionFailed {
-            return .foreign
-        } catch {
-            return .uncertain
-        }
-    }
+    /// The shortest sealed record: a 12-byte nonce and a 16-byte authentication tag around an empty payload.
+    private static let minimumSealedLength = 12 + 16
 
     /// A JSON file read by the store: plaintext JSON or opening under one of `contexts` is readable; failing
-    /// authentication under all of them is foreign; a read error or any other cipher error is uncertain.
+    /// authentication under all of them is foreign, but only when the data is at least as long as a sealed record
+    /// (an empty or shorter file is damaged, not sealed with another key); a file that isn't a regular file, a read
+    /// error or any other cipher error is uncertain.
     private func sealedJSONCheck(at url: URL, contexts: [String]) -> JSONSealCheck {
-        guard let data = try? Data(contentsOf: url) else { return .uncertain }
+        guard Self.fileType(url) == .typeRegular, let data = try? Data(contentsOf: url) else { return .uncertain }
         if (try? JSONSerialization.jsonObject(with: data)) != nil { return .readable(data) }
+        guard data.count >= Self.minimumSealedLength else { return .uncertain }
         do {
             return .readable(try cipher.decrypt(data, contexts: contexts))
         } catch VaultCryptoError.decryptionFailed {
@@ -532,18 +538,6 @@ extension LiveVaultStore {
         return relative.isEmpty ? entry.originalDiskName : relative + "/" + entry.originalDiskName
     }
 
-    /// Whether every byte of the file at `url` can be read (streamed, so large files aren't held in memory).
-    private static func readsInFull(_ url: URL) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
-        defer { try? handle.close() }
-        do {
-            while let block = try handle.read(upToCount: 1 << 20), !block.isEmpty {}
-            return true
-        } catch {
-            return false
-        }
-    }
-
     // MARK: - Removal
 
     /// Kind (a): removes everything in `.trash`, the map included.
@@ -569,24 +563,157 @@ extension LiveVaultStore {
     }
 
     /// Kind (b): removes the named top-level items and their entries; the other items and entries stay.
-    /// - Throws: the map's write error; then `.io` when an item couldn't be removed (its entry is kept).
+    ///
+    /// The trash map is rewritten without the items' entries first, so a failed write removes nothing. An item
+    /// whose removal then fails gets its entry back (best effort) and is found again by the next check.
+    /// - Throws: the map's write error (`.locked` or `.io`), nothing removed; else `.io` after the rest are removed
+    ///   when an item couldn't be removed.
     private func removeTrashItems(
         _ names: [String], map: [String: VaultTrashEntry], mode: VaultOperationMode
     ) throws {
-        var map = map
-        var mapChanged = false
+        var remaining = map
+        for name in names { remaining.removeValue(forKey: name) }
+        if remaining.count != map.count { try trashMap.write(remaining, mode: mode) }
         var firstError: VaultStoreError?
+        var kept: [String: VaultTrashEntry] = [:]
         for name in names {
             do {
                 try FileManager.default.removeItem(at: trashMap.folderURL.appendingPathComponent(name))
             } catch {
                 firstError = firstError ?? .io(error.localizedDescription)
+                kept[name] = map[name]
                 continue
             }
             unreadableTrashLog.notice("Removed an unreadable trash item (sealed with a key the vault no longer has)")
-            if map.removeValue(forKey: name) != nil { mapChanged = true }
         }
-        if mapChanged { try trashMap.write(map, mode: mode) }
+        if !kept.isEmpty {
+            // Best effort: the removal error below is what the caller needs; a missing entry only hides an
+            // item that the next check finds and clears again.
+            try? trashMap.write(remaining.merging(kept) { current, _ in current }, mode: mode)
+        }
         if let firstError { throw firstError }
+    }
+}
+
+/// Lets the cipher judge an SVC5 file on bytes the store reads itself, never on the file.
+///
+/// The store reads a file's leading bytes (the header and, for `check`, the first chunk: at most `chunkSize`
+/// plus `headerAllowance` bytes, never the whole file), writes them to a private copy in one store temp folder
+/// (`makeTempDirectory`), and asks the cipher about that copy only. So the cipher never opens a trash item, and
+/// a read or file-protection error is the store's own read failing, never something that passes for a wrong key.
+/// A copy of the leading bytes reads exactly as the original: an SVC5 header carries the file's id and layout,
+/// and chunk 0 sits at the same offset in both, so it authenticates (or fails) the same way.
+///
+/// One probe serves one operation on the store's actor; `close()` removes its folder (and the store's temp
+/// folder when the probe created it and it is empty again).
+final class TrashFileProbe {
+    /// Bytes read before the header is known; also the room allowed above `chunkSize` for the header and the
+    /// first record's framing (an SVC5 header and a record's length prefix, nonce and tag are far smaller).
+    static let headerAllowance = 64 * 1024
+    /// Larger chunk sizes are not a real layout; such a header is uncertain.
+    private static let maximumChunkSize = 64 * 1_048_576
+
+    /// Why a copy couldn't be made.
+    enum CopyError: Error {
+        /// The store's own read of the file failed.
+        case read(any Error)
+        /// The temp folder or the copy couldn't be created or written.
+        case scratch(any Error)
+    }
+
+    private let store: LiveVaultStore
+    private var folder: URL?
+    private var createdStoreFolder = false
+
+    init(store: LiveVaultStore) { self.store = store }
+
+    /// Removes the copy's folder, and the store's temp folder when this probe created it and it is now empty.
+    func close() {
+        guard let folder else { return }
+        store.removeTemporary(folder)
+        self.folder = nil
+        // `rmdir` only removes an empty folder, so one another operation has started using stays.
+        if createdStoreFolder { _ = rmdir(store.storeTemporaryFolder.path) }
+    }
+
+    /// The header facts of the file at `url`, asked of a copy of its leading bytes.
+    /// - Returns: nil when the cipher finds no SVC5 header there (`decryptionFailed`): a plaintext file.
+    /// - Throws: `CopyError` when the store's read or the copy fails; any other cipher error as it is.
+    func streamInfo(of url: URL) throws -> StreamInfo? {
+        let copy = try copyLeadingBytes(of: url, count: Self.headerAllowance).copy
+        do {
+            return try store.cipher.streamInfo(of: copy)
+        } catch VaultCryptoError.decryptionFailed {
+            return nil
+        }
+    }
+
+    /// The verdict on one regular file: plaintext (no SVC5 header) or a first chunk that opens is readable; a
+    /// first chunk that fails authentication or is incomplete is foreign; anything else is uncertain.
+    func check(_ url: URL) -> TrashSealCheck {
+        let head: (copy: URL, length: Int)
+        let info: StreamInfo
+        do {
+            head = try copyLeadingBytes(of: url, count: Self.headerAllowance)
+            do {
+                info = try store.cipher.streamInfo(of: head.copy)
+            } catch VaultCryptoError.decryptionFailed {
+                // The header, if any, lies within the bytes copied: none parses, so the file is plaintext.
+                return .readable
+            }
+        } catch {
+            return .uncertain
+        }
+        // An empty or malformed layout has no first chunk to judge.
+        guard info.totalSize > 0, (1...Self.maximumChunkSize).contains(info.chunkSize) else { return .uncertain }
+        var copy = head.copy
+        // Fewer bytes than asked for means the copy already holds the whole file.
+        if head.length == Self.headerAllowance {
+            guard let full = try? copyLeadingBytes(of: url, count: info.chunkSize + Self.headerAllowance) else {
+                return .uncertain
+            }
+            copy = full.copy
+        }
+        do {
+            _ = try store.cipher.decryptChunk(0, of: copy, info: info)
+            return .readable
+        } catch VaultCryptoError.decryptionFailed {
+            return .foreign
+        } catch {
+            return .uncertain
+        }
+    }
+
+    /// Reads up to `count` bytes from the start of the file at `url` (fewer only at its end) and writes them to
+    /// the probe's copy, one file overwritten each time so copies don't pile up.
+    /// - Returns: the copy and how many bytes it holds.
+    private func copyLeadingBytes(of url: URL, count: Int) throws(CopyError) -> (copy: URL, length: Int) {
+        var data = Data()
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            while data.count < count {
+                guard let block = try handle.read(upToCount: count - data.count), !block.isEmpty else { break }
+                data.append(block)
+            }
+        } catch {
+            throw .read(error)
+        }
+        do {
+            let copy = try probeFolder().appendingPathComponent("probe")
+            try data.write(to: copy, options: [.completeFileProtection])
+            return (copy, data.count)
+        } catch {
+            throw .scratch(error)
+        }
+    }
+
+    private func probeFolder() throws -> URL {
+        if let folder { return folder }
+        let existed = FileManager.default.fileExists(atPath: store.storeTemporaryFolder.path)
+        let made = try store.makeTempDirectory()
+        folder = made
+        createdStoreFolder = !existed
+        return made
     }
 }
