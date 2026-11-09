@@ -284,9 +284,14 @@ final class LiveLockMigrator: LockMigrating {
     }
 
     /// Publishes `failure`, or `.unreadableTrash` when the trash holds items that can never be decrypted
-    /// (the likely cause, which only clearing the trash fixes).
+    /// (the likely cause, which only clearing the trash fixes). A key wipe during the trash query pauses
+    /// instead: without the key the store cannot tell, and the step is redone on resume.
     private func publishFailure(_ failure: MigrationPhase) async {
         let unreadable = await store.hasUnreadableTrash()
+        guard keyLoaded else {
+            pause()
+            return
+        }
         broadcast.update(unreadable ? .unreadableTrash : failure)
     }
 
