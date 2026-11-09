@@ -116,7 +116,7 @@
         "VaultCrypto",
         "Preferences"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -137,8 +137,8 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 3,
@@ -253,7 +253,7 @@
         "VaultLock",
         "Preferences"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -261,8 +261,8 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -479,7 +479,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -489,8 +489,8 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -500,8 +500,8 @@
             "Views/PaywallViewController.swift",
             "Views/RecentlyDeletedViewController.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 3,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T16:09:01-08:00",
+  "updatedAt": "2026-11-09T12:41:45-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -704,66 +704,46 @@
     "finishedAt": null
   },
   "plan": {
-    "label": "verify",
+    "label": "verify-device-fixes",
     "items": [
       {
-        "name": "legacy-check",
+        "name": "memo",
         "done": true
       },
       {
-        "name": "final-switch",
-        "done": true
-      },
-      {
-        "name": "j1-setup",
-        "done": true
-      },
-      {
-        "name": "j2-unlock",
-        "done": true
-      },
-      {
-        "name": "j3-browse",
-        "done": true
-      },
-      {
-        "name": "j4-import",
-        "done": true
-      },
-      {
-        "name": "j5-view-edit",
-        "done": true
-      },
-      {
-        "name": "j6-delete-restore",
-        "done": true
-      },
-      {
-        "name": "j7-export",
-        "done": true
-      },
-      {
-        "name": "j8-lock-mode",
-        "done": true
-      },
-      {
-        "name": "j9-paywall",
-        "done": true
-      },
-      {
-        "name": "app-review",
-        "done": true
-      },
-      {
-        "name": "fixes",
-        "done": true
-      },
-      {
-        "name": "device-test",
+        "name": "contracts",
         "done": false
       },
       {
-        "name": "backlog",
+        "name": "vaultstore-u2",
+        "done": false
+      },
+      {
+        "name": "lockmigration-u1",
+        "done": false
+      },
+      {
+        "name": "settings-u1",
+        "done": false
+      },
+      {
+        "name": "settings-u2",
+        "done": false
+      },
+      {
+        "name": "coverage",
+        "done": false
+      },
+      {
+        "name": "full-gates",
+        "done": false
+      },
+      {
+        "name": "merge",
+        "done": false
+      },
+      {
+        "name": "retest",
         "done": false
       }
     ]
