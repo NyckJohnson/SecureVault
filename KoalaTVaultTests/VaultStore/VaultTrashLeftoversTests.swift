@@ -140,6 +140,6 @@ import os
 
         #expect(listed.map(\.name) == ["big.bin"])
         let copied = try #require(size.withLock { $0 })
-        #expect(copied <= 8 * 1024)
+        #expect(copied <= 4 * 1024)
     }
 }

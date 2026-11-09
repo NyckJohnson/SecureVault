@@ -116,7 +116,7 @@
         "VaultCrypto",
         "Preferences"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -137,7 +137,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "tests",
+          "state": "done",
           "attempts": 1
         },
         {
@@ -253,7 +253,7 @@
         "VaultLock",
         "Preferences"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T15:13:12-08:00",
+  "updatedAt": "2026-11-09T15:16:00-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

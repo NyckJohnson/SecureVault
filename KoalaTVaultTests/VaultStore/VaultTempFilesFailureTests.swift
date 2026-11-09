@@ -16,6 +16,7 @@ import Testing
         restore()
         #expect(isIOError(error), "expected io, got \(String(describing: error))")
         #expect(vault.tempContents().isEmpty)
+
     }
 
     @Test("open of an encrypted item with an unwritable temporary root throws io and leaves no temp file")
@@ -31,6 +32,7 @@ import Testing
         restore()
         #expect(isIOError(error), "expected io, got \(String(describing: error))")
         #expect(vault.tempContents().isEmpty)
+
         #expect(try await vault.openedContent(item) == "pdf bytes")
     }
 
