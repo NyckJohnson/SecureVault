@@ -37,8 +37,8 @@ private final class BackgroundExpirationBox {
     }
 }
 
-/// The migration screen: binds `MigrationViewModel` to the title, progress bar, status line and failure alert,
-/// holds background time while files migrate, and goes away at the end.
+/// The migration screen: binds `MigrationViewModel` to the title, progress bar, status line and failure alert
+/// (failed files, or unreadable trash), holds background time while files migrate, and goes away at the end.
 final class MigrationViewController: UIViewController, AlertPresenting {
     private let backgroundTime: any BackgroundTimeProviding
     private let onFinish: @MainActor (Bool) -> Void
@@ -162,8 +162,15 @@ final class MigrationViewController: UIViewController, AlertPresenting {
         guard let message = viewModel.failureMessage, viewIfLoaded?.window != nil else { return }
         dismissFailureAlert()
         let alert = UIAlertController(title: viewModel.failureTitle, message: message, preferredStyle: .alert)
-        alert.addClosingAction(title: "Retry", style: .default) { [viewModel] in
-            Task { await viewModel.retry() }
+        // Unreadable trash offers Clear and Continue instead of Retry; Skip is the same in both.
+        if viewModel.isUnreadableTrash {
+            alert.addClosingAction(title: "Clear and Continue", style: .default) { [viewModel] in
+                Task { await viewModel.clearAndContinue() }
+            }
+        } else {
+            alert.addClosingAction(title: "Retry", style: .default) { [viewModel] in
+                Task { await viewModel.retry() }
+            }
         }
         alert.addClosingAction(title: "Skip", style: .default) { [viewModel] in
             Task { await viewModel.skip() }
