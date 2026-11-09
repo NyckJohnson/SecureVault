@@ -132,6 +132,9 @@ final class FakeMigrationStore: VaultStoring {
         var failing: [String: VaultStoreError] = [:]
         var stepFailures: [MigrationStoreStep: VaultStoreError] = [:]
         var finishesInFlightFile = false
+        var unreadableTrash = false
+        var clearFailure: VaultStoreError?
+        var listingFailure: (error: VaultStoreError, fromListing: Int)?
     }
 
     let root = VaultDirectory(
@@ -177,6 +180,22 @@ final class FakeMigrationStore: VaultStoring {
         state.withLock { $0.stepFailures[step] = error }
     }
 
+    /// What `hasUnreadableTrash()` answers; `clearUnreadableTrash()` resets it to false.
+    var hasUnreadableTrashFlag: Bool {
+        get { state.withLock { $0.unreadableTrash } }
+        set { state.withLock { $0.unreadableTrash = newValue } }
+    }
+
+    /// `clearUnreadableTrash()` fails with this error (and leaves the trash unreadable) until cleared.
+    func setClearFailure(_ error: VaultStoreError?) {
+        state.withLock { $0.clearFailure = error }
+    }
+
+    /// Every `itemsToMigrate` call from the given (1-based) listing on fails with this error.
+    func setListingFailure(_ error: VaultStoreError?, fromListing listing: Int = 1) {
+        state.withLock { $0.listingFailure = error.map { ($0, listing) } }
+    }
+
     /// Adds a file straight away, without waiting for a listing.
     func add(_ item: VaultItem) {
         state.withLock { $0.items.append(item) }
@@ -201,6 +220,7 @@ final class FakeMigrationStore: VaultStoring {
         }
         await gate.pass("list:\(listing)")
         if let error = state.withLock({ $0.stepFailures[.itemsToMigrate] }) { throw error }
+        if let failure = state.withLock({ $0.listingFailure }), listing >= failure.fromListing { throw failure.error }
         return items.filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
     }
 
@@ -278,8 +298,18 @@ final class FakeMigrationStore: VaultStoring {
     func deletePermanently(_ trashed: VaultItem) async throws {}
     func emptyTrash() async {}
     func purgeExpiredTrash(now: Date) async throws -> Int { 0 }
-    func hasUnreadableTrash() async -> Bool { false }
-    func clearUnreadableTrash() async throws {}
+    func hasUnreadableTrash() async -> Bool {
+        log.add("hasUnreadableTrash")
+        return state.withLock { $0.unreadableTrash }
+    }
+
+    func clearUnreadableTrash() async throws {
+        log.add("clearUnreadableTrash")
+        await gate.pass("clearUnreadableTrash")
+        guard key.isAvailable else { throw VaultStoreError.locked }
+        if let error = state.withLock({ $0.clearFailure }) { throw error }
+        state.withLock { $0.unreadableTrash = false }
+    }
     func countFiles() async throws -> Int { items.count }
     func hasUnencryptedFiles() async throws -> Bool { items.contains { !$0.isEncrypted } }
     func keyMatchesVault() async -> Bool { true }
