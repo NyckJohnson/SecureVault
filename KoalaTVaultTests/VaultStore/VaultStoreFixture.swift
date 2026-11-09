@@ -156,6 +156,7 @@ struct VaultStoreFixture {
         for top in [rootURL, tempRoot] {
             let enumerator = FileManager.default.enumerator(at: top, includingPropertiesForKeys: [.isDirectoryKey])
             while let url = enumerator?.nextObject() as? URL {
+                if isStoreTempFolder(url) { continue }
                 let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 result[url.path] = isDirectory ? Data("<dir>".utf8) : try Data(contentsOf: url)
             }
@@ -170,12 +171,25 @@ struct VaultStoreFixture {
         }
     }
 
-    /// Everything inside the temp root.
+    /// Everything inside the temp root, except the shared store temp folder itself (it may stay; what is inside it counts).
     func tempContents() -> [URL] {
         let enumerator = FileManager.default.enumerator(at: tempRoot, includingPropertiesForKeys: nil)
         var urls: [URL] = []
-        while let url = enumerator?.nextObject() as? URL { urls.append(url) }
+        while let url = enumerator?.nextObject() as? URL { if !isStoreTempFolder(url) { urls.append(url) } }
         return urls
+    }
+
+    /// The shared store temp folder (`<tempRoot>/VaultStore`).
+    var storeTempFolder: URL { tempRoot.appendingPathComponent("VaultStore", isDirectory: true) }
+
+    private func isStoreTempFolder(_ url: URL) -> Bool {
+        url.resolvingSymlinksInPath().path == storeTempFolder.resolvingSymlinksInPath().path
+    }
+
+    /// Makes the shared store temp folder unusable (created first if missing); returns what restores it.
+    func restrictStoreTempFolder(to permissions: Int = 0o555) throws -> () -> Void {
+        try FileManager.default.createDirectory(at: storeTempFolder, withIntermediateDirectories: true)
+        return try restrict(storeTempFolder, to: permissions)
     }
 
     // MARK: - Index files

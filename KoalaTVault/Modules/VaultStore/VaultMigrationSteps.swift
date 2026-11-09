@@ -397,6 +397,7 @@ extension LiveVaultStore {
         }
         let staging = Self.stagingURL(for: trashName, in: trashMap.folderURL)
         if FileManager.default.fileExists(atPath: staging.path) { try removeFile(staging) }
+        // A trash item whose file is gone has nothing to convert; checked before any cipher or probe call.
         guard Self.isRegularFile(url) else { return nil }
         let map = try correctedTrashMap(stored)
         guard let entry = map[trashName], entry.isEncrypted != toEncrypted else {
@@ -648,8 +649,11 @@ extension LiveVaultStore {
         _ = try handle.read(upToCount: 1)
     }
 
+    /// Whether `url` is a regular file right now (a symlink is not followed). Asked of the file system each
+    /// time: a `URL`'s cached resource values can still describe a file that has since been removed.
     static func isRegularFile(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes?[.type] as? FileAttributeType == .typeRegular
     }
 
     /// `name` as a single file name: "/" replaced, and `fallback` for an empty, "." or ".." name (an index

@@ -604,12 +604,14 @@ extension LiveVaultStore {
 /// A copy of the leading bytes reads exactly as the original: an SVC5 header carries the file's id and layout,
 /// and chunk 0 sits at the same offset in both, so it authenticates (or fails) the same way.
 ///
-/// One probe serves one operation on the store's actor; `close()` removes its folder (and the store's temp
-/// folder when the probe created it and it is empty again).
+/// One probe serves one operation on the store's actor; `close()` removes its own folder and never the store's
+/// shared temp folder, which a concurrent `open` or `write` may be using.
 final class TrashFileProbe {
     /// Bytes read before the header is known; also the room allowed above `chunkSize` for the header and the
     /// first record's framing (an SVC5 header and a record's length prefix, nonce and tag are far smaller).
     static let headerAllowance = 64 * 1024
+    /// Bytes copied for a header-only read (`streamInfo(of:)`): an SVC5 header is far smaller.
+    static let headerReadSize = 4 * 1024
     /// Larger chunk sizes are not a real layout; such a header is uncertain.
     private static let maximumChunkSize = 64 * 1_048_576
 
@@ -623,24 +625,21 @@ final class TrashFileProbe {
 
     private let store: LiveVaultStore
     private var folder: URL?
-    private var createdStoreFolder = false
 
     init(store: LiveVaultStore) { self.store = store }
 
-    /// Removes the copy's folder, and the store's temp folder when this probe created it and it is now empty.
+    /// Removes the copy's own folder; the store's temp folder stays.
     func close() {
         guard let folder else { return }
         store.removeTemporary(folder)
         self.folder = nil
-        // `rmdir` only removes an empty folder, so one another operation has started using stays.
-        if createdStoreFolder { _ = rmdir(store.storeTemporaryFolder.path) }
     }
 
     /// The header facts of the file at `url`, asked of a copy of its leading bytes.
     /// - Returns: nil when the cipher finds no SVC5 header there (`decryptionFailed`): a plaintext file.
     /// - Throws: `CopyError` when the store's read or the copy fails; any other cipher error as it is.
     func streamInfo(of url: URL) throws -> StreamInfo? {
-        let copy = try copyLeadingBytes(of: url, count: Self.headerAllowance).copy
+        let copy = try copyLeadingBytes(of: url, count: Self.headerReadSize).copy
         do {
             return try store.cipher.streamInfo(of: copy)
         } catch VaultCryptoError.decryptionFailed {
@@ -710,10 +709,8 @@ final class TrashFileProbe {
 
     private func probeFolder() throws -> URL {
         if let folder { return folder }
-        let existed = FileManager.default.fileExists(atPath: store.storeTemporaryFolder.path)
         let made = try store.makeTempDirectory()
         folder = made
-        createdStoreFolder = !existed
         return made
     }
 }
