@@ -116,7 +116,7 @@
         "VaultCrypto",
         "Preferences"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -253,7 +253,7 @@
         "VaultLock",
         "Preferences"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -479,7 +479,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T14:05:14-08:00",
+  "updatedAt": "2026-11-09T14:11:37-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -704,46 +704,66 @@
     "finishedAt": null
   },
   "plan": {
-    "label": "verify-device-fixes",
+    "label": "verify",
     "items": [
       {
-        "name": "memo",
+        "name": "legacy-check",
         "done": true
       },
       {
-        "name": "contracts",
+        "name": "final-switch",
         "done": true
       },
       {
-        "name": "vaultstore-u2",
+        "name": "j1-setup",
         "done": true
       },
       {
-        "name": "lockmigration-u1",
+        "name": "j2-unlock",
         "done": true
       },
       {
-        "name": "settings-u1",
+        "name": "j3-browse",
         "done": true
       },
       {
-        "name": "settings-u2",
+        "name": "j4-import",
         "done": true
       },
       {
-        "name": "coverage",
+        "name": "j5-view-edit",
         "done": true
       },
       {
-        "name": "full-gates",
+        "name": "j6-delete-restore",
+        "done": true
+      },
+      {
+        "name": "j7-export",
+        "done": true
+      },
+      {
+        "name": "j8-lock-mode",
+        "done": true
+      },
+      {
+        "name": "j9-paywall",
+        "done": true
+      },
+      {
+        "name": "app-review",
+        "done": true
+      },
+      {
+        "name": "fixes",
+        "done": true
+      },
+      {
+        "name": "device-test",
         "done": false
       },
       {
-        "name": "merge",
-        "done": false
-      },
-      {
-        "name": "retest",
+        "name": "backlog",
         "done": false
       }
     ]
