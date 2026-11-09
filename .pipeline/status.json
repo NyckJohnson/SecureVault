@@ -261,7 +261,7 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T15:05:47-08:00",
+  "updatedAt": "2026-11-09T15:06:45-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
