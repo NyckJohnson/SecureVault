@@ -30,6 +30,14 @@ final class RecentlyDeletedViewModel: ObservableObject {
     @Published private(set) var rows: [RecentlyDeletedRow] = []
     /// The action waiting for confirmation, if any.
     @Published private(set) var confirmation: RecentlyDeletedConfirmation?
+    /// True while the screen asks whether to clear trash that can never be read.
+    @Published private(set) var isAskingToClearUnreadableTrash = false
+    /// The unreadable-trash prompt's title.
+    let unreadableTrashPromptTitle = "Some Deleted Items Can't Be Read"
+    /// The unreadable-trash prompt's message.
+    let unreadableTrashPromptMessage =
+        "They were encrypted with a key this vault no longer has, so they can never be restored or opened. "
+        + "Clear them now?"
 
     private static let trashDays = 30
     private static let secondsPerDay: TimeInterval = 86_400
@@ -41,6 +49,8 @@ final class RecentlyDeletedViewModel: ObservableObject {
     private let now: @Sendable () -> Date
     private let folderAssetAvailable: Bool
     private let onRestore: @MainActor () -> Void
+    /// The store is asked about unreadable trash at most once per opening of the screen (one instance).
+    private var hasCheckedUnreadableTrash = false
 
     /// - Parameters:
     ///   - store: the vault store, which holds the trash.
@@ -71,17 +81,31 @@ final class RecentlyDeletedViewModel: ObservableObject {
     /// Whether Empty Trash can be chosen.
     var canEmptyTrash: Bool { !rows.isEmpty }
 
-    /// Reads the trash.
+    /// Reads the trash; on the first load of this screen, also asks whether to clear unreadable trash.
     func load() async {
-        do {
-            let items = try await store.trashContents().sorted {
-                ($0.deletedAt ?? $0.dateModified) > ($1.deletedAt ?? $1.dateModified)
-            }
-            rows = items.map(row(for:))
-        } catch {
-            rows = []
-            alerts?.showError(error)
+        await reloadRows()
+        guard !hasCheckedUnreadableTrash else { return }
+        hasCheckedUnreadableTrash = true
+        if await store.hasUnreadableTrash() {
+            isAskingToClearUnreadableTrash = true
         }
+    }
+
+    /// The user chose Clear on the unreadable-trash prompt: clears it, then reloads the list.
+    func clearUnreadableTrash() async {
+        isAskingToClearUnreadableTrash = false
+        do {
+            try await store.clearUnreadableTrash()
+        } catch {
+            alerts?.showError(error)
+            return
+        }
+        await reloadRows()
+    }
+
+    /// The user chose Not Now on the unreadable-trash prompt: nothing changes.
+    func declineClearingUnreadableTrash() {
+        isAskingToClearUnreadableTrash = false
     }
 
     /// Puts the item back and refreshes the browser.
@@ -130,6 +154,18 @@ final class RecentlyDeletedViewModel: ObservableObject {
     }
 
     // MARK: - Private
+
+    private func reloadRows() async {
+        do {
+            let items = try await store.trashContents().sorted {
+                ($0.deletedAt ?? $0.dateModified) > ($1.deletedAt ?? $1.dateModified)
+            }
+            rows = items.map(row(for:))
+        } catch {
+            rows = []
+            alerts?.showError(error)
+        }
+    }
 
     private func row(for item: VaultItem) -> RecentlyDeletedRow {
         RecentlyDeletedRow(

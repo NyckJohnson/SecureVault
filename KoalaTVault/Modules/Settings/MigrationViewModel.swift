@@ -15,6 +15,9 @@ final class MigrationViewModel: ObservableObject {
     @Published private(set) var failureTitle: String?
     /// The failure alert's message, while files have failed.
     @Published private(set) var failureMessage: String?
+    /// True while the failure alert is the unreadable-trash one (Clear and Continue / Skip), not the
+    /// failed-files one (Retry / Skip).
+    @Published private(set) var isUnreadableTrash = false
     /// True while files are migrating, when the app should ask for background time.
     @Published private(set) var wantsBackgroundTime = false
 
@@ -85,6 +88,11 @@ final class MigrationViewModel: ObservableObject {
         await migrator.skipFailed()
     }
 
+    /// The user chose Clear and Continue on the unreadable-trash alert.
+    func clearAndContinue() async {
+        await migrator.clearUnreadableTrash()
+    }
+
     // MARK: - Private
 
     private func apply(_ phase: MigrationPhase) {
@@ -107,6 +115,7 @@ final class MigrationViewModel: ObservableObject {
             statusText = "Paused — unlock to continue"
         case .failed(let names):
             wantsBackgroundTime = false
+            isUnreadableTrash = false
             failureTitle = "Some Files Failed"
             // No names: a step other than a file failed (listing the files, or a closing step).
             failureMessage =
@@ -120,13 +129,19 @@ final class MigrationViewModel: ObservableObject {
             progress = 1
             statusText = "Complete"
         case .unreadableTrash:
-            break  // Not implemented: MigrationViewModel unreadable trash (feature device-fixes)
+            wantsBackgroundTime = false
+            isUnreadableTrash = true
+            failureTitle = "Some Deleted Items Can't Be Read"
+            failureMessage =
+                "They were encrypted with a key this vault no longer has, so they can never be restored "
+                + "or opened. Clear them to continue."
         }
     }
 
     private func clearFailure() {
         failureTitle = nil
         failureMessage = nil
+        isUnreadableTrash = false
     }
 
     private func finish(fully: Bool) async {
