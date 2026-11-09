@@ -27,6 +27,7 @@
 - `VaultStoreError: case stillEncrypted(count: Int)`
 - `VaultStoreError: var errorDescription: String?`
 - `VaultStoring: func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem`
+- `VaultStoring: func clearUnreadableTrash() async throws`
 - `VaultStoring: func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem]`
 - `VaultStoring: func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem`
 - `VaultStoring: func countFiles() async throws -> Int`
@@ -38,6 +39,7 @@
 - `VaultStoring: func finishDecryption() async throws`
 - `VaultStoring: func finishEncryption() async throws`
 - `VaultStoring: func hasUnencryptedFiles() async throws -> Bool`
+- `VaultStoring: func hasUnreadableTrash() async -> Bool`
 - `VaultStoring: func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]`
 - `VaultStoring: func keyMatchesVault() async -> Bool`
 - `VaultStoring: func makeTempDirectory() throws -> URL`

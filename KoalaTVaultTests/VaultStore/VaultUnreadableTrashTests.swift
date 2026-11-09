@@ -15,9 +15,11 @@ import Testing
 
     /// Adds a file to the root and moves it to the trash; returns the trash item (found by name).
     @discardableResult
-    private func trashFile(_ vault: VaultStoreFixture, _ name: String, _ content: String = "data") async throws
-        -> VaultItem
-    {
+    private func trashFile(
+        _ vault: VaultStoreFixture,
+        _ name: String,
+        _ content: String = "data"
+    ) async throws -> VaultItem {
         let item = try await vault.add(name, content)
         try await vault.store.moveToTrash(item)
         let all = try await vault.store.trashContents()
