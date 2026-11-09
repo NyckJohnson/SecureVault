@@ -18,6 +18,14 @@ final class SelectiveFailingCipher: FileCipher {
         var decryptFileError: (any Error)?
         var streamInfoError: (any Error)?
         var decryptChunkError: (any Error)?
+        var streamInfoURLs: [URL] = []
+        var decryptChunkCalls: [ChunkCall] = []
+    }
+
+    /// One recorded `decryptChunk` call.
+    struct ChunkCall: Sendable, Equatable {
+        let index: Int
+        let url: URL
     }
 
     private let inner: any FileCipher
@@ -73,6 +81,12 @@ final class SelectiveFailingCipher: FileCipher {
         set { state.withLock { $0.decryptChunkError = newValue } }
     }
 
+    /// Every URL passed to `streamInfo(of:)`, in call order (recorded even when the call is made to fail).
+    var streamInfoURLs: [URL] { state.withLock { $0.streamInfoURLs } }
+
+    /// Every `decryptChunk` call, in call order (recorded even when the call is made to fail).
+    var decryptChunkCalls: [ChunkCall] { state.withLock { $0.decryptChunkCalls } }
+
     /// Fails `streamInfo` and `decryptChunk` with `.noKeyLoaded`, as a key that vanished mid-operation would.
     func loseKeyForStreaming() {
         streamInfoError = VaultCryptoError.noKeyLoaded
@@ -101,11 +115,13 @@ final class SelectiveFailingCipher: FileCipher {
     }
 
     func streamInfo(of url: URL) throws -> StreamInfo {
+        state.withLock { $0.streamInfoURLs.append(url) }
         if let error = streamInfoError { throw error }
         return try inner.streamInfo(of: url)
     }
 
     func decryptChunk(_ index: Int, of url: URL, info: StreamInfo) throws -> Data {
+        state.withLock { $0.decryptChunkCalls.append(ChunkCall(index: index, url: url)) }
         if let error = decryptChunkError { throw error }
         return try inner.decryptChunk(index, of: url, info: info)
     }

@@ -450,4 +450,166 @@ import Testing
         #expect(isIOError(error))
         #expect(!FileManager.default.fileExists(atPath: other.diskURL.path))
     }
+
+    // MARK: - Narrowed definition: uncertain index files
+
+    private static let shortIndexes: [Data] = [
+        Data(), Data("garbage".utf8), Data(repeating: 0x41, count: 27),
+    ]
+
+    @Test("An empty or too-short trash index is uncertain: not unreadable, and clearing removes nothing", arguments: shortIndexes)
+    func shortTrashIndexIsUncertain(bytes: Data) async throws {
+        let vault = try makeVault()
+        defer { vault.cleanUp() }
+        try await trashFile(vault, "a.txt")
+        _ = try await trashFolder(vault, "Docs", file: "in.txt")
+        try vault.writeRawTrashMap(bytes)
+        let before = try vault.snapshot()
+        #expect(await vault.store.hasUnreadableTrash() == false)
+        try await vault.store.clearUnreadableTrash()
+        #expect(try vault.snapshot() == before)
+        #expect(try Data(contentsOf: vault.trashMapURL) == bytes)
+    }
+
+    @Test("A trashed folder whose index is empty or too short is not unreadable and is kept", arguments: shortIndexes)
+    func shortFolderIndexIsUncertain(bytes: Data) async throws {
+        let vault = try makeVault()
+        defer { vault.cleanUp() }
+        let folder = try await trashFolder(vault, "Docs", file: "in.txt")
+        try bytes.write(to: folder.diskURL.appendingPathComponent(".vault_map"))
+        let before = try vault.snapshot()
+        #expect(await vault.store.hasUnreadableTrash() == false)
+        try await vault.store.clearUnreadableTrash()
+        #expect(try vault.snapshot() == before)
+        #expect(FileManager.default.fileExists(atPath: folder.diskURL.path))
+    }
+
+    // MARK: - Narrowed definition: .trash that is not a real folder
+
+    @Test("A .trash that is a symlink to a folder with a foreign-sealed index is not unreadable and nothing is removed")
+    func symlinkedTrashIsNeverCleared() async throws {
+        let vault = try makeVault()
+        defer { vault.cleanUp() }
+        try await trashFile(vault, "a.txt")
+        let outside = vault.base.appendingPathComponent("Outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let outsideIndex = outside.appendingPathComponent(".trash_map")
+        let outsideFile = outside.appendingPathComponent("item.bin")
+        try Self.foreignTrashIndex.write(to: outsideIndex)
+        try Data("outside".utf8).write(to: outsideFile)
+        try FileManager.default.removeItem(at: vault.trashURL)
+        try FileManager.default.createSymbolicLink(at: vault.trashURL, withDestinationURL: outside)
+
+        #expect(await vault.store.hasUnreadableTrash() == false)
+        try await vault.store.clearUnreadableTrash()
+
+        #expect(try Data(contentsOf: outsideIndex) == Self.foreignTrashIndex)
+        #expect(try Data(contentsOf: outsideFile) == Data("outside".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).sorted() == [".trash_map", "item.bin"])
+        let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: vault.trashURL.path)
+        #expect(destination != nil)
+    }
+
+    @Test("A .trash that is a regular file is not unreadable and nothing is removed")
+    func fileInPlaceOfTrashIsNeverCleared() async throws {
+        let vault = try makeVault()
+        defer { vault.cleanUp() }
+        try await vault.add("keep.txt")
+        let bytes = Self.foreignTrashIndex
+        try bytes.write(to: vault.trashURL)
+        let before = try vault.snapshot()
+        #expect(await vault.store.hasUnreadableTrash() == false)
+        try await vault.store.clearUnreadableTrash()
+        #expect(try vault.snapshot() == before)
+        #expect(try Data(contentsOf: vault.trashURL) == bytes)
+    }
+
+    // MARK: - Kind (b): the trash index is rewritten before anything is removed
+
+    @Test("When the trash index can't be rewritten, clearing kind (b) throws and removes nothing")
+    func indexWriteFailureRemovesNothing() async throws {
+        let vault = try makeVault(selective: true)
+        defer { vault.cleanUp() }
+        let bad = try await trashFile(vault, "bad.txt")
+        let badFolder = try await trashFolder(vault, "Bad", file: "in.txt")
+        try await trashFile(vault, "good.txt")
+        try sealWithOtherKey(bad.diskURL)
+        try sealWithOtherKey(try innerFile(of: badFolder))
+        vault.failing?.encryptError = CocoaError(.fileWriteUnknown)
+        vault.failing?.encryptFailureContexts = [".trash_map"]
+        let before = try vault.snapshot()
+
+        let error = await caught { try await vault.store.clearUnreadableTrash() }
+
+        #expect(error != nil)
+        #expect(try vault.snapshot() == before)
+        #expect(FileManager.default.fileExists(atPath: bad.diskURL.path))
+        #expect(FileManager.default.fileExists(atPath: badFolder.diskURL.path))
+    }
+
+    @Test("When the trash index can't be written because the key is gone at write time, nothing is removed")
+    func indexWriteWithoutKeyRemovesNothing() async throws {
+        let vault = try makeVault(selective: true)
+        defer { vault.cleanUp() }
+        let bad = try await trashFile(vault, "bad.txt")
+        try await trashFile(vault, "good.txt")
+        try sealWithOtherKey(bad.diskURL)
+        vault.failing?.encryptError = VaultCryptoError.noKeyLoaded
+        vault.failing?.encryptFailureContexts = [".trash_map"]
+        let before = try vault.snapshot()
+
+        let error = await caught { try await vault.store.clearUnreadableTrash() }
+
+        #expect(error != nil)
+        #expect(try vault.snapshot() == before)
+    }
+
+    // MARK: - Judging uses the store's own bytes
+
+    @Test("The cipher is never asked to read a trash item itself when judging it")
+    func cipherNeverReadsTrashItems() async throws {
+        let vault = try makeVault(selective: true)
+        defer { vault.cleanUp() }
+        let healthy = try await trashFile(vault, "ok.txt", "fine")
+        let bad = try await trashFile(vault, "bad.txt")
+        let folder = try await trashFolder(vault, "Docs", file: "in.txt")
+        try sealWithOtherKey(bad.diskURL)
+        let inner = try innerFile(of: folder)
+
+        #expect(await vault.store.hasUnreadableTrash())
+        try await vault.store.clearUnreadableTrash()
+
+        let failing = try #require(vault.failing)
+        let touched = (failing.streamInfoURLs + failing.decryptChunkCalls.map(\.url)).map(\.standardizedFileURL.path)
+        let forbidden = [healthy.diskURL, bad.diskURL, inner].map(\.standardizedFileURL.path)
+        for path in forbidden { #expect(!touched.contains(path)) }
+    }
+
+    @Test("A healthy multi-chunk trash file is judged on its first chunk only")
+    func largeHealthyFileJudgedOnFirstChunk() async throws {
+        let vault = try makeVault(selective: true)
+        defer { vault.cleanUp() }
+        let content = String(repeating: "a", count: MockFileCipher.chunkSize * 3 + 5)
+        let item = try await trashFile(vault, "big.bin", content)
+        #expect(try Data(contentsOf: item.diskURL).count > MockFileCipher.chunkSize * 3)
+
+        #expect(await vault.store.hasUnreadableTrash() == false)
+
+        let calls = try #require(vault.failing).decryptChunkCalls
+        #expect(calls.allSatisfy { $0.index == 0 })
+    }
+
+    @Test("A multi-chunk trash file with a bad first chunk is unreadable, judged on the first chunk only")
+    func largeBadFileJudgedOnFirstChunk() async throws {
+        let vault = try makeVault(selective: true)
+        defer { vault.cleanUp() }
+        let item = try await trashFile(vault, "big.bin", "x")
+        let size = MockFileCipher.chunkSize * 3
+        try HeaderAwareTestCipher.sealed(Data("zz".utf8), declaredSize: size).write(to: item.diskURL)
+
+        #expect(await vault.store.hasUnreadableTrash())
+
+        let calls = try #require(vault.failing).decryptChunkCalls
+        #expect(calls.allSatisfy { $0.index == 0 })
+    }
 }
