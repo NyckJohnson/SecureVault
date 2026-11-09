@@ -240,4 +240,48 @@ import UIKit
         #expect(await rig.host.noAlert())
         #expect(clearCalls(rig) == 0)
     }
+
+    private func makeFailingRig(presented: Bool) -> Rig {
+        let store = MockVaultStoring(withSampleContent: false)
+        store.unreadableTrash = true
+        store.errorToThrow = .indexUnreadable(folder: ".trash")
+        let controller = RecentlyDeletedViewController(store: store, onRestore: {})
+        let host =
+            presented
+            ? SettingsViewHost.presenting(controller)
+            : SettingsViewHost(content: UINavigationController(rootViewController: controller))
+        return Rig(host: host, store: store)
+    }
+
+    @Test("An unreadable trash index shows the error alert first and the prompt only after it is dismissed")
+    func promptWaitsForErrorAlert() async throws {
+        let rig = makeFailingRig(presented: false)
+        await SettingsTestSupport.waitUntil { rig.store.calls.contains(.hasUnreadableTrash) }
+        let errorAlert = try #require(await rig.host.alert())
+        #expect(errorAlert.title != Self.title)
+        #expect(errorAlert.presentedViewController == nil)
+        let dismiss = try #require(errorAlert.actions.first)
+        dismiss.fire()
+        errorAlert.dismiss(animated: false)
+        await SettingsTestSupport.waitUntil { (rig.host.topmost as? UIAlertController)?.title == Self.title }
+        let prompt = try #require(rig.host.topmost as? UIAlertController)
+        #expect(prompt.title == Self.title)
+        #expect(prompt.message == Self.message)
+    }
+
+    @Test("A screen closed while the prompt waits behind the error alert never presents it or clears")
+    func closedScreenNeverPrompts() async throws {
+        let rig = makeFailingRig(presented: true)
+        await SettingsTestSupport.waitUntil { rig.store.calls.contains(.hasUnreadableTrash) }
+        let errorAlert = try #require(await rig.host.alert())
+        let dismiss = try #require(errorAlert.actions.first)
+        await withCheckedContinuation { continuation in
+            rig.host.root.dismiss(animated: false) { continuation.resume() }
+        }
+        dismiss.fire()
+        let settled = await rig.host.noAlert()
+        let top = (rig.host.topmost as? UIAlertController)?.title ?? "none"
+        #expect(settled, "top: \(top) \(rig.host.root.presentedViewController as Any)")
+        #expect(clearCalls(rig) == 0)
+    }
 }
