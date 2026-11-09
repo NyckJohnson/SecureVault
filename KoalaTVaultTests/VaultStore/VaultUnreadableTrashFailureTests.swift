@@ -453,7 +453,7 @@ import Testing
         let item = try await trashFile(vault, "big.bin")
         try HeaderAwareTestCipher.sealed(Data(repeating: 0x5A, count: 150_000), declaredSize: 300_000)
             .write(to: item.diskURL)
-        let restore = try restrict(vault.tempRoot)
+        let restore = try vault.restrictStoreTempFolder()
         defer { restore() }
 
         let detected = await vault.store.hasUnreadableTrash()
@@ -526,7 +526,7 @@ import Testing
         try await trashFile(vault, "good.txt")
         try sealWithOtherKey(bad.diskURL)
         let before = try vaultState(vault)
-        let restore = try restrict(vault.tempRoot)
+        let restore = try vault.restrictStoreTempFolder()
         defer { restore() }
 
         let detected = await vault.store.hasUnreadableTrash()
@@ -544,7 +544,7 @@ import Testing
         let vault = try makeVault()
         defer { vault.cleanUp() }
         try await trashFile(vault, "a.txt", "content")
-        let restore = try restrict(vault.tempRoot)
+        let restore = try vault.restrictStoreTempFolder()
         defer { restore() }
 
         let listed = try await vault.store.trashContents()
@@ -567,7 +567,7 @@ import Testing
         try await trashFile(vault, "a.txt", "content")
         let item = try #require(try await vault.store.trashContents().first)
         let before = try vaultState(vault)
-        let restore = try restrict(vault.tempRoot)
+        let restore = try vault.restrictStoreTempFolder()
         defer { restore() }
 
         let error = await caught {

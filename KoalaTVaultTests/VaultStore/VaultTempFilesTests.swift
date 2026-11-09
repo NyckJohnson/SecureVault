@@ -89,6 +89,7 @@ import Testing
         vault.store.removeAllTemporaryFiles()
         #expect(folders.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
         #expect(vault.tempContents().isEmpty)
+
     }
 
     @Test("removeAllTemporaryFiles removes decrypted copies made by open and keeps the vault intact")
@@ -101,6 +102,7 @@ import Testing
         vault.store.removeAllTemporaryFiles()
         #expect(!FileManager.default.fileExists(atPath: opened.path))
         #expect(vault.tempFiles().isEmpty)
+
         #expect(try await vault.names() == ["Report.pdf"])
         #expect(try await vault.openedContent(item) == "pdf bytes")
     }

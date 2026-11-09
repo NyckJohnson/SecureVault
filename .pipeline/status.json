@@ -138,7 +138,7 @@
             "VaultTempFiles.swift"
           ],
           "state": "done",
-          "attempts": 2
+          "attempts": 1
         },
         {
           "number": 3,
@@ -262,7 +262,7 @@
             "LiveLockMigrator.swift"
           ],
           "state": "done",
-          "attempts": 2
+          "attempts": 0
         },
         {
           "number": 2,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T14:11:37-08:00",
+  "updatedAt": "2026-11-09T15:16:00-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

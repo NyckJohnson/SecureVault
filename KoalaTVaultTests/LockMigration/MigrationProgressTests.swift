@@ -24,7 +24,7 @@ private func collect(
 private func isFinal(_ phase: MigrationPhase) -> Bool {
     switch phase {
     case .completed, .failed, .paused: true
-    case .unreadableTrash: true  // feature device-fixes: new phase added (a stop, like .failed)
+    case .unreadableTrash: true
     case .idle, .running: false
     }
 }
