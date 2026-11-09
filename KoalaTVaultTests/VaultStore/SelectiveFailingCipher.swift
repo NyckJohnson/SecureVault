@@ -20,6 +20,9 @@ final class SelectiveFailingCipher: FileCipher {
         var decryptChunkError: (any Error)?
         var streamInfoURLs: [URL] = []
         var decryptChunkCalls: [ChunkCall] = []
+        var onFirstStreamInfo: (@Sendable (URL) -> Void)?
+        var decryptChunkErrorFor: (@Sendable (URL) -> (any Error)?)?
+        var decryptErrorFor: (@Sendable (Data) -> (any Error)?)?
     }
 
     /// One recorded `decryptChunk` call.
@@ -81,6 +84,24 @@ final class SelectiveFailingCipher: FileCipher {
         set { state.withLock { $0.decryptChunkError = newValue } }
     }
 
+    /// Runs once, at the first `streamInfo(of:)` call after it is set, before the call is forwarded.
+    var onFirstStreamInfo: (@Sendable (URL) -> Void)? {
+        get { state.withLock { $0.onFirstStreamInfo } }
+        set { state.withLock { $0.onFirstStreamInfo = newValue } }
+    }
+
+    /// When set, `decryptChunk` throws the error this returns for the file's URL (nil: no failure for that file).
+    var decryptChunkErrorFor: (@Sendable (URL) -> (any Error)?)? {
+        get { state.withLock { $0.decryptChunkErrorFor } }
+        set { state.withLock { $0.decryptChunkErrorFor = newValue } }
+    }
+
+    /// When set, `decrypt(_:contexts:)` throws the error this returns for the data (nil: no failure for that data).
+    var decryptErrorFor: (@Sendable (Data) -> (any Error)?)? {
+        get { state.withLock { $0.decryptErrorFor } }
+        set { state.withLock { $0.decryptErrorFor = newValue } }
+    }
+
     /// Every URL passed to `streamInfo(of:)`, in call order (recorded even when the call is made to fail).
     var streamInfoURLs: [URL] { state.withLock { $0.streamInfoURLs } }
 
@@ -101,6 +122,7 @@ final class SelectiveFailingCipher: FileCipher {
 
     func decrypt(_ data: Data, contexts: [String]) throws -> Data {
         if let error = decryptError { throw error }
+        if let error = decryptErrorFor?(data) { throw error }
         return try inner.decrypt(data, contexts: contexts)
     }
 
@@ -116,6 +138,11 @@ final class SelectiveFailingCipher: FileCipher {
 
     func streamInfo(of url: URL) throws -> StreamInfo {
         state.withLock { $0.streamInfoURLs.append(url) }
+        let hook = state.withLock { state -> (@Sendable (URL) -> Void)? in
+            defer { state.onFirstStreamInfo = nil }
+            return state.onFirstStreamInfo
+        }
+        hook?(url)
         if let error = streamInfoError { throw error }
         return try inner.streamInfo(of: url)
     }
@@ -123,6 +150,7 @@ final class SelectiveFailingCipher: FileCipher {
     func decryptChunk(_ index: Int, of url: URL, info: StreamInfo) throws -> Data {
         state.withLock { $0.decryptChunkCalls.append(ChunkCall(index: index, url: url)) }
         if let error = decryptChunkError { throw error }
+        if let error = decryptChunkErrorFor?(url) { throw error }
         return try inner.decryptChunk(index, of: url, info: info)
     }
 }

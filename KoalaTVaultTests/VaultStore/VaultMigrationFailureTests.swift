@@ -256,6 +256,24 @@ import Testing
         #expect(try files(vault) == before)
     }
 
+    @Test("itemsToMigrate throws io, never taking an unreadable indexed file for plaintext, and changes nothing")
+    func unreadableIndexedFileIsNeverPlaintext() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        try await vault.add("a.txt", "secret")
+        let diskName = try #require(try vault.diskNames().first { $0 != ".vault_map" })
+        let fileURL = vault.rootURL.appendingPathComponent(diskName)
+        let before = try files(vault)
+        vault.failing?.streamInfoError = VaultCryptoError.decryptionFailed
+        let restore = try restrict(fileURL, to: 0o000)
+        defer { restore() }
+
+        let error = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: false) }
+        restore()
+        #expect(isIOError(error))
+        #expect(try files(vault) == before)
+    }
+
     @Test("A key lost while comparing with a same-name plaintext throws locked and changes nothing")
     func keyLostComparingForDecrypt() async throws {
         let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)

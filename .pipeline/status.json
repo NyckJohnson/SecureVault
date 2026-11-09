@@ -137,7 +137,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 2
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T12:59:36-08:00",
+  "updatedAt": "2026-11-09T13:11:19-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -716,7 +716,7 @@
       },
       {
         "name": "vaultstore-u2",
-        "done": false
+        "done": true
       },
       {
         "name": "lockmigration-u1",
