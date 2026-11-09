@@ -371,3 +371,118 @@ import Testing
         #expect(finished.values.isEmpty)
     }
 }
+
+@MainActor
+@Suite struct MigrationViewModelTrashTests {
+    private struct Rig {
+        let viewModel: MigrationViewModel
+        let migrator: SettingsScriptedMigrator
+    }
+
+    private func makeRig(phase: MigrationPhase = .idle) -> Rig {
+        let migrator = SettingsScriptedMigrator(phase: phase)
+        let viewModel = MigrationViewModel(
+            kind: .decrypt, migrator: migrator, sleep: { _ in }, onFinish: { _ in })
+        return Rig(viewModel: viewModel, migrator: migrator)
+    }
+
+    private func startRunning(_ rig: Rig) async -> Task<Void, Never> {
+        let viewModel = rig.viewModel
+        let task = Task { await viewModel.run() }
+        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
+        return task
+    }
+
+    @Test("Unreadable trash shows the Some Deleted Items Can't Be Read alert")
+    func alertText() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.unreadableTrash)
+        await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
+        #expect(rig.viewModel.failureTitle == "Some Deleted Items Can't Be Read")
+        #expect(
+            rig.viewModel.failureMessage
+                == "They were encrypted with a key this vault no longer has, so they can never be restored "
+                + "or opened. Clear them to continue.")
+        task.cancel()
+    }
+
+    // Assumed property: `isUnreadableTrash` (published Bool), true while the unreadable-trash alert shows.
+    @Test("The unreadable-trash alert is told apart from the failed-files alert")
+    func alertKind() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.failed(names: ["a.jpg"]))
+        await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
+        #expect(!rig.viewModel.isUnreadableTrash)
+        rig.migrator.send(.unreadableTrash)
+        await SettingsTestSupport.waitUntil { rig.viewModel.isUnreadableTrash }
+        #expect(rig.viewModel.isUnreadableTrash)
+        task.cancel()
+    }
+
+    @Test("Background time is not wanted while the unreadable-trash alert shows")
+    func noBackgroundTime() async {
+        let rig = makeRig(phase: .running(done: 1, total: 4))
+        #expect(rig.viewModel.wantsBackgroundTime)
+        let task = await startRunning(rig)
+        rig.migrator.send(.unreadableTrash)
+        await SettingsTestSupport.waitUntil { !rig.viewModel.wantsBackgroundTime }
+        #expect(!rig.viewModel.wantsBackgroundTime)
+        task.cancel()
+    }
+
+    @Test("A screen that starts in the unreadable-trash phase shows the alert at once")
+    func initialPhase() {
+        let viewModel = makeRig(phase: .unreadableTrash).viewModel
+        #expect(viewModel.failureTitle == "Some Deleted Items Can't Be Read")
+        #expect(viewModel.isUnreadableTrash)
+    }
+
+    // Assumed method: `clearAndContinue() async`.
+    @Test("Clear and Continue asks the migration to clear the unreadable trash")
+    func clearAndContinue() async {
+        let rig = makeRig(phase: .unreadableTrash)
+        await rig.viewModel.clearAndContinue()
+        #expect(rig.migrator.calls.contains(.clearUnreadableTrash))
+        #expect(!rig.migrator.calls.contains(.skipFailed))
+    }
+
+    @Test("Skip on the unreadable-trash alert skips the failed files")
+    func skipOnTrashAlert() async {
+        let rig = makeRig(phase: .unreadableTrash)
+        await rig.viewModel.skip()
+        #expect(rig.migrator.calls.contains(.skipFailed))
+        #expect(!rig.migrator.calls.contains(.clearUnreadableTrash))
+    }
+
+    @Test("Moving on to running clears the unreadable-trash alert")
+    func runningClearsAlert() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.unreadableTrash)
+        await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
+        rig.migrator.send(.running(done: 1, total: 4))
+        await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle == nil }
+        #expect(rig.viewModel.failureTitle == nil)
+        #expect(rig.viewModel.failureMessage == nil)
+        #expect(!rig.viewModel.isUnreadableTrash)
+        #expect(rig.viewModel.wantsBackgroundTime)
+        task.cancel()
+    }
+
+    @Test("Reaching the unreadable-trash phase again shows the alert again")
+    func alertReappears() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.unreadableTrash)
+        await SettingsTestSupport.waitUntil { rig.viewModel.isUnreadableTrash }
+        rig.migrator.send(.running(done: 1, total: 4))
+        await SettingsTestSupport.waitUntil { !rig.viewModel.isUnreadableTrash }
+        rig.migrator.send(.unreadableTrash)
+        await SettingsTestSupport.waitUntil { rig.viewModel.isUnreadableTrash }
+        #expect(rig.viewModel.isUnreadableTrash)
+        #expect(rig.viewModel.failureTitle == "Some Deleted Items Can't Be Read")
+        task.cancel()
+    }
+}

@@ -553,6 +553,7 @@ import Testing
         case running
         case paused
         case failed
+        case unreadableTrash
         case pending
 
         @MainActor
@@ -561,6 +562,7 @@ import Testing
             case .running: migrator.send(.running(done: 1, total: 4))
             case .paused: migrator.send(.paused(done: 1, total: 4))
             case .failed: migrator.send(.failed(names: ["a.jpg"]))
+            case .unreadableTrash: migrator.send(.unreadableTrash)
             case .pending: migrator.pending = PendingMigration(kind: .decrypt, targetLockMode: nil)
             }
         }
