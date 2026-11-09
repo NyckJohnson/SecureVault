@@ -67,8 +67,8 @@ final class LiveLockMigrator: LockMigrating {
 
     func resumeIfPending() async {
         guard !isBusy, let record = preferences.pendingMigration else { return }
-        // Failures wait for the user's retry or skip.
-        if case .failed = phase { return }
+        // Failures and unreadable trash wait for the user's choice.
+        if awaitsUserChoice { return }
         if run?.record != record {
             run = Run(record: record)
         }
@@ -79,11 +79,14 @@ final class LiveLockMigrator: LockMigrating {
         guard !isBusy, case .failed = phase, run != nil else { return }
         run?.progress.restartWithFailed()
         run?.rescanned = false
+        // Publish `.running` first, so that the same failure happening again is a change subscribers hear about.
+        // Without the key, `drive` pauses at once instead.
+        if keyLoaded, let progress = run?.progress { broadcast.update(progress.running) }
         await drive()
     }
 
     func skipFailed() async {
-        guard !isBusy, case .failed = phase, let run else { return }
+        guard !isBusy, awaitsUserChoice, let run else { return }
         isBusy = true
         defer { isBusy = false }
         if run.encrypting {
@@ -98,9 +101,48 @@ final class LiveLockMigrator: LockMigrating {
         complete(fully: false)
     }
 
+    func clearUnreadableTrash() async {
+        guard !isBusy, phase == .unreadableTrash, run != nil else { return }
+        guard keyLoaded else {
+            pause()
+            return
+        }
+        // The same migration continues from a fresh listing: files already migrated are not listed again.
+        run?.listed = false
+        run?.rescanned = false
+        run?.progress = MigrationProgress()
+        if let progress = run?.progress { broadcast.update(progress.running) }
+
+        isBusy = true
+        do {
+            try await store.clearUnreadableTrash()
+        } catch {
+            isBusy = false
+            if isInterruption(error) {
+                pause()
+            } else {
+                // Not `publishFailure`: the trash is still unreadable, and asking again would loop back here.
+                Self.logger.error(
+                    "Clearing unreadable trash failed: \(String(describing: error), privacy: .private)")
+                broadcast.update(.failed(names: []))
+            }
+            return
+        }
+        isBusy = false
+        await drive()
+    }
+
     // MARK: - Running
 
     private var keyLoaded: Bool { lock.state != .locked }
+
+    /// The run stopped on failures or unreadable trash and waits for Retry, Skip or Clear.
+    private var awaitsUserChoice: Bool {
+        switch phase {
+        case .failed, .unreadableTrash: true
+        default: false
+        }
+    }
 
     /// Lists (once), migrates the remaining files, re-scans (decrypt), then runs the closing steps.
     /// Stops at a pause or a failure, keeping the run so the next call continues where it stopped.
@@ -120,14 +162,14 @@ final class LiveLockMigrator: LockMigrating {
             run?.listed = true
         }
         if let progress = run?.progress { broadcast.update(progress.running) }
-        guard await migrateRemaining(), noFailures() else { return }
+        guard await migrateRemaining(), await noFailures() else { return }
 
         if !current.encrypting, run?.rescanned == false {
             guard let items = await list(encrypting: false) else { return }
             run?.progress.items.append(contentsOf: items)
             run?.rescanned = true
             if let progress = run?.progress { broadcast.update(progress.running) }
-            guard await migrateRemaining(), noFailures() else { return }
+            guard await migrateRemaining(), await noFailures() else { return }
         }
 
         guard await finish() else { return }
@@ -143,7 +185,7 @@ final class LiveLockMigrator: LockMigrating {
         do {
             return try await store.itemsToMigrate(toEncrypted: encrypting)
         } catch {
-            stop(after: error)
+            await stop(after: error)
             return nil
         }
     }
@@ -182,9 +224,9 @@ final class LiveLockMigrator: LockMigrating {
     }
 
     /// Publishes the failures if the pass had any; true when it had none.
-    private func noFailures() -> Bool {
+    private func noFailures() async -> Bool {
         guard let progress = run?.progress, !progress.failed.isEmpty else { return true }
-        broadcast.update(progress.failedPhase)
+        await publishFailure(progress.failedPhase)
         return false
     }
 
@@ -214,7 +256,7 @@ final class LiveLockMigrator: LockMigrating {
             }
             return true
         } catch {
-            stop(after: error)
+            await stop(after: error)
             return false
         }
     }
@@ -232,13 +274,25 @@ final class LiveLockMigrator: LockMigrating {
     }
 
     /// Pauses on a key wipe; otherwise reports the failure, so Retry redoes the step and Skip gives up.
-    private func stop(after error: any Error) {
+    private func stop(after error: any Error) async {
         if isInterruption(error) {
             pause()
             return
         }
         Self.logger.error("Lock migration step failed: \(String(describing: error), privacy: .private)")
-        broadcast.update(run?.progress.failedPhase ?? .failed(names: []))
+        await publishFailure(run?.progress.failedPhase ?? .failed(names: []))
+    }
+
+    /// Publishes `failure`, or `.unreadableTrash` when the trash holds items that can never be decrypted
+    /// (the likely cause, which only clearing the trash fixes). A key wipe during the trash query pauses
+    /// instead: without the key the store cannot tell, and the step is redone on resume.
+    private func publishFailure(_ failure: MigrationPhase) async {
+        let unreadable = await store.hasUnreadableTrash()
+        guard keyLoaded else {
+            pause()
+            return
+        }
+        broadcast.update(unreadable ? .unreadableTrash : failure)
     }
 
     private func pause() {

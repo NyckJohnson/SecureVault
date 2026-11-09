@@ -204,6 +204,7 @@ final class SettingsScriptedMigrator: LockMigrating {
         case resumeIfPending
         case retryFailed
         case skipFailed
+        case clearUnreadableTrash
     }
 
     private(set) var calls: [Call] = []
@@ -249,5 +250,9 @@ final class SettingsScriptedMigrator: LockMigrating {
     func skipFailed() async {
         calls.append(.skipFailed)
         if let phaseAfterSkip { send(phaseAfterSkip) }
+    }
+
+    func clearUnreadableTrash() async {
+        calls.append(.clearUnreadableTrash)
     }
 }

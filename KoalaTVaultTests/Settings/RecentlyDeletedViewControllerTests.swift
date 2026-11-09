@@ -169,3 +169,119 @@ import UIKit
         #expect(alert?.title == "Error")
     }
 }
+
+/// Views of Recently Deleted's unreadable-trash prompt (spec: RecentlyDeletedViewModel, unreadable trash).
+@MainActor
+@Suite struct RecentlyDeletedUnreadablePromptTests {
+    private static let title = "Some Deleted Items Can't Be Read"
+    private static let message =
+        "They were encrypted with a key this vault no longer has, so they can never be restored or opened. "
+        + "Clear them now?"
+
+    private struct Rig {
+        let host: SettingsViewHost
+        let store: MockVaultStoring
+    }
+
+    private func makeRig(unreadable: Bool) -> Rig {
+        let store = MockVaultStoring(withSampleContent: false)
+        store.unreadableTrash = unreadable
+        let controller = RecentlyDeletedViewController(store: store, onRestore: {})
+        let host = SettingsViewHost(content: UINavigationController(rootViewController: controller))
+        return Rig(host: host, store: store)
+    }
+
+    private func clearCalls(_ rig: Rig) -> Int {
+        rig.store.calls.filter { $0 == .clearUnreadableTrash }.count
+    }
+
+    @Test("Opening with unreadable trash shows the prompt with the spec's title and message")
+    func promptWording() async throws {
+        let rig = makeRig(unreadable: true)
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.title == Self.title)
+        #expect(alert.message == Self.message)
+    }
+
+    @Test("The prompt offers Clear (destructive) and Not Now")
+    func promptActions() async throws {
+        let rig = makeRig(unreadable: true)
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.actionTitles == ["Clear", "Not Now"])
+        #expect(alert.actions.first { $0.title == "Clear" }?.style == .destructive)
+    }
+
+    @Test("Clear clears the store's unreadable trash and reloads the list")
+    func clearReloads() async throws {
+        let rig = makeRig(unreadable: true)
+        try #require(await rig.host.alert()).fire("Clear")
+        await SettingsTestSupport.waitUntil { self.clearCalls(rig) == 1 }
+        #expect(clearCalls(rig) == 1)
+        let calls = rig.store.calls
+        let clearAt = try #require(calls.firstIndex(of: .clearUnreadableTrash))
+        await SettingsTestSupport.waitUntil {
+            rig.store.calls.suffix(from: clearAt + 1).contains(.trashContents)
+        }
+        #expect(rig.store.calls.suffix(from: clearAt + 1).contains(.trashContents))
+    }
+
+    @Test("Not Now leaves the trash alone and the prompt gone")
+    func notNow() async throws {
+        let rig = makeRig(unreadable: true)
+        try #require(await rig.host.alert()).fire("Not Now")
+        #expect(await rig.host.noAlert())
+        #expect(clearCalls(rig) == 0)
+    }
+
+    @Test("No prompt appears when the trash has nothing unreadable")
+    func noPromptWhenReadable() async {
+        let rig = makeRig(unreadable: false)
+        await SettingsTestSupport.waitUntil { rig.store.calls.contains(.hasUnreadableTrash) }
+        #expect(await rig.host.noAlert())
+        #expect(clearCalls(rig) == 0)
+    }
+
+    private func makeFailingRig(presented: Bool) -> Rig {
+        let store = MockVaultStoring(withSampleContent: false)
+        store.unreadableTrash = true
+        store.errorToThrow = .indexUnreadable(folder: ".trash")
+        let controller = RecentlyDeletedViewController(store: store, onRestore: {})
+        let host =
+            presented
+            ? SettingsViewHost.presenting(controller)
+            : SettingsViewHost(content: UINavigationController(rootViewController: controller))
+        return Rig(host: host, store: store)
+    }
+
+    @Test("An unreadable trash index shows the error alert first and the prompt only after it is dismissed")
+    func promptWaitsForErrorAlert() async throws {
+        let rig = makeFailingRig(presented: false)
+        await SettingsTestSupport.waitUntil { rig.store.calls.contains(.hasUnreadableTrash) }
+        let errorAlert = try #require(await rig.host.alert())
+        #expect(errorAlert.title != Self.title)
+        #expect(errorAlert.presentedViewController == nil)
+        let dismiss = try #require(errorAlert.actions.first)
+        dismiss.fire()
+        errorAlert.dismiss(animated: false)
+        await SettingsTestSupport.waitUntil { (rig.host.topmost as? UIAlertController)?.title == Self.title }
+        let prompt = try #require(rig.host.topmost as? UIAlertController)
+        #expect(prompt.title == Self.title)
+        #expect(prompt.message == Self.message)
+    }
+
+    @Test("A screen closed while the prompt waits behind the error alert never presents it or clears")
+    func closedScreenNeverPrompts() async throws {
+        let rig = makeFailingRig(presented: true)
+        await SettingsTestSupport.waitUntil { rig.store.calls.contains(.hasUnreadableTrash) }
+        let errorAlert = try #require(await rig.host.alert())
+        let dismiss = try #require(errorAlert.actions.first)
+        await withCheckedContinuation { continuation in
+            rig.host.root.dismiss(animated: false) { continuation.resume() }
+        }
+        dismiss.fire()
+        let settled = await rig.host.noAlert()
+        let top = (rig.host.topmost as? UIAlertController)?.title ?? "none"
+        #expect(settled, "top: \(top) \(rig.host.root.presentedViewController as Any)")
+        #expect(clearCalls(rig) == 0)
+    }
+}

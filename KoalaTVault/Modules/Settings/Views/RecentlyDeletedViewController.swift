@@ -2,7 +2,7 @@ import Combine
 import UIKit
 
 /// Recently Deleted: binds `RecentlyDeletedViewModel` to the trash list, the empty message, Empty Trash and the
-/// confirmations.
+/// confirmations, and the prompt to clear trash that can never be read.
 final class RecentlyDeletedViewController: UIViewController, AlertPresenting {
     private let store: any VaultStoring
     private let onRestore: @MainActor () -> Void
@@ -10,6 +10,10 @@ final class RecentlyDeletedViewController: UIViewController, AlertPresenting {
     private var subscriptions = Set<AnyCancellable>()
     /// The rows on screen; the table reads these, so it never sees a change before it is told to reload.
     private var rows: [RecentlyDeletedRow] = []
+    /// True once the screen has finished appearing; UIKit drops presentations made while it is still appearing.
+    private var hasAppeared = false
+    /// Waits for the screen to be free of other alerts, then shows the unreadable-trash prompt.
+    private var unreadablePromptTask: Task<Void, Never>?
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let emptyStateLabel = UILabel()
@@ -27,6 +31,10 @@ final class RecentlyDeletedViewController: UIViewController, AlertPresenting {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    deinit {
+        unreadablePromptTask?.cancel()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Recently Deleted"
@@ -35,6 +43,11 @@ final class RecentlyDeletedViewController: UIViewController, AlertPresenting {
         configureNavigationBar()
         bindViewModel()
         Task { [viewModel] in await viewModel.load() }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        hasAppeared = true
     }
 
     private func configureTable() {
@@ -74,6 +87,13 @@ final class RecentlyDeletedViewController: UIViewController, AlertPresenting {
         viewModel.$confirmation
             .compactMap { $0 }
             .sink { [weak self] confirmation in self?.present(confirmation) }
+            .store(in: &subscriptions)
+        // Read the state on the next turn, when the view model has changed.
+        viewModel.$isAskingToClearUnreadableTrash
+            .removeDuplicates()
+            .filter { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.showUnreadableTrashPromptWhenFree() }
             .store(in: &subscriptions)
     }
 
@@ -132,6 +152,54 @@ final class RecentlyDeletedViewController: UIViewController, AlertPresenting {
             Task { await viewModel.confirmPending() }
         }
         presentFromSettings(alert, animated: false)
+    }
+
+    // MARK: - Unreadable trash
+
+    /// Shows the unreadable-trash prompt once no other alert is up (an error from loading the trash comes
+    /// first), so the prompt never sits on top of another alert. Checks again every 100 ms until then; stops
+    /// when the screen goes away or no longer asks.
+    private func showUnreadableTrashPromptWhenFree() {
+        unreadablePromptTask?.cancel()
+        unreadablePromptTask = Task { [weak self] in
+            while self?.showUnreadableTrashPromptIfFree() == false {
+                do {
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    // Cancelled: a newer request or the screen's end took over.
+                    return
+                }
+            }
+        }
+    }
+
+    /// Shows the prompt if the screen has appeared and has no alert up. Returns false when it must wait, true
+    /// when it is done (shown, or no longer wanted).
+    private func showUnreadableTrashPromptIfFree() -> Bool {
+        guard viewModel.isAskingToClearUnreadableTrash else { return true }
+        guard hasAppeared, viewIfLoaded?.window != nil, !isShowingAlert else { return false }
+        let alert = UIAlertController(
+            title: viewModel.unreadableTrashPromptTitle, message: viewModel.unreadableTrashPromptMessage,
+            preferredStyle: .alert)
+        alert.addClosingAction(title: "Clear", style: .destructive) { [viewModel] in
+            Task { await viewModel.clearUnreadableTrash() }
+        }
+        alert.addClosingAction(title: "Not Now", style: .cancel) { [viewModel] in
+            viewModel.declineClearingUnreadableTrash()
+        }
+        presentFromSettings(alert, animated: false)
+        return true
+    }
+
+    /// True while an alert or action sheet is up over this screen, or still going away.
+    private var isShowingAlert: Bool {
+        var top: UIViewController = self
+        while let parent = top.parent { top = parent }
+        while let next = top.presentedViewController {
+            if next is UIAlertController { return true }
+            top = next
+        }
+        return false
     }
 
     // MARK: - Icons

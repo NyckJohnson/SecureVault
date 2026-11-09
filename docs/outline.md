@@ -70,6 +70,10 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    automatically when the vault is opened. Ends when the item is restored or gone.
    - Failure path: restoring into a folder that has the same name gives " 1"; restoring when the original folder is gone
      recreates it; a failure shows its error.
+   - Failure path: deleted items that can never be read (sealed with a key the vault no longer has, e.g. by an older
+     version that left the trash out of a lock change) → on opening Recently Deleted, "Some Deleted Items Can't Be Read"
+     / "They were encrypted with a key this vault no longer has, so they can never be restored or opened. Clear them
+     now?" with Clear / Not Now; Clear removes only those items and reloads the list.
 7. **Export / share** — the user wants a file outside the vault. Export (context menu, bulk, viewer share) → sheet "Save
    to Files", "Save to Camera Roll" (only when the selection has images or videos), "Cancel". Save to Files → "Exporting..."
    → document picker (copies); decrypted copies are removed when the picker closes. Save to Camera Roll → "N saved, M
@@ -91,6 +95,12 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    - Failure path: backgrounding pauses the migration ("Paused — unlock to continue"); after unlock it resumes. A kill
      resumes it after the next unlock (or launch, without a lock).
    - Failure path: wrong current password → "Current password is incorrect".
+   - Failure path: the migration stops on deleted items that can never be read (see journey 6) → "Some Deleted Items
+     Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or
+     opened. Clear them to continue." with Clear and Continue (those items are removed and the migration picks up where
+     it stopped) / Skip (as for failed files).
+   - Failure path: Retry after a failure that happens again shows the failure again (never a screen stuck on
+     "Preparing…").
    - Failure path: adding Password + Face ID and the migration ends incomplete (Skip, Close or a kill) → the vault stays
      Password; after Skip or Close the alert "Face ID wasn't turned on because some files aren't encrypted yet. Use
      Re-encrypt Everything, then turn on Face ID." A Face ID failure after a full migration shows the error and keeps Password.
@@ -461,6 +471,8 @@ extension matching ignores case.
       func deletePermanently(_ trashed: VaultItem) async throws
       func emptyTrash() async
       func purgeExpiredTrash(now: Date) async throws -> Int
+      func hasUnreadableTrash() async -> Bool
+      func clearUnreadableTrash() async throws
       func countFiles() async throws -> Int
       func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]
       func migrateToEncrypted(_ item: VaultItem) async throws
@@ -506,6 +518,9 @@ extension matching ignores case.
   - hasUnencryptedFiles: true if any plaintext file is under the root or in the trash.
   - keyMatchesVault: true when the loaded key decrypts the root index, or when there is no encrypted index to check; false otherwise.
   - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list and that carry an SVC5 header (a plaintext file with such a name is kept); folders with no index, an unreadable index, and the trash are never swept.
+  - Unreadable trash (definition): trash that can never be decrypted, because it was sealed with a key the vault no longer has. Only when all hold: encrypted mode with the key loaded; the key opens the vault (as `keyMatchesVault`); the data was read in full (a read, file-protection or I/O error never counts) and fails authentication under every context it may have been sealed with. Two kinds: (a) the trash index `.trash/.trash_map` (only if it is at least as long as a sealed record, 12-byte nonce + 16-byte tag; an empty or shorter file is uncertain) → the whole trash is unreadable; (b) a top-level trash item (with a readable trash index): a file whose first encrypted chunk fails authentication or is incomplete, judged only on bytes the store itself read (the header and the first chunk, never the whole file; the cipher is never asked to re-read the trash file, so a read error can't pass for a wrong key) (an SVC5 file only; a plaintext file is never unreadable), or a folder in which any `.vault_map` or encrypted file (judged the same way) fails. Anything uncertain (no key, read error, key doesn't match, plaintext mode, `.trash` that is a symlink or not a folder) is never unreadable.
+  - hasUnreadableTrash: true when the trash holds unreadable trash as defined above; false otherwise, including on any error (never throws).
+  - clearUnreadableTrash: re-checks the definition at the time of the call and removes only what still meets it: kind (a) → everything in `.trash`, the index included; kind (b) → those items (a folder with its whole tree) and their entries, the other items and their entries untouched; the trash index is rewritten without their entries before anything is removed (a failed write removes nothing). Each removal is logged (no names). Nothing unreadable → no change. A removal that fails throws `.io` after the rest are removed; no key → `.locked`, nothing removed.
   - Temp files: `makeTempDirectory` creates a unique folder under the app temp folder; `removeTemporary` removes one; `removeAllTemporaryFiles` removes everything the store created.
   - Contract logic (in `Contracts/VaultStoreModels.swift`; unit 1 tests it): `FileKind(extension:)` maps every extension in Data models › FileKind (one case per extension, also upper and mixed case); an empty or unknown extension → `.other`. `VaultItem.kind` comes from the display name's extension (an encrypted item's original name, not its UUID disk name). `asDirectory`: a folder → `VaultDirectory` with the item's name, diskURL and rootURL; a file → nil.
   - errorDescription (logic in `Contracts/VaultStoring.swift`, next to `VaultStoreError`; tested in a reopened VaultStore change, one asserting test per case): indexUnreadable "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."; locked → the text of `VaultCryptoError.noKeyLoaded` ("No encryption key is loaded."); invalidName "Names can't contain / or start with ."; notFound "This item no longer exists."; moveIntoItself "A folder can't be moved into itself"; stillEncrypted(1) "1 file is still encrypted.", stillEncrypted(n) "<n> files are still encrypted."; io(message) → the message itself. Alerts show `localizedDescription`, so this is the text the user sees.
@@ -617,6 +632,7 @@ extension matching ignores case.
       case paused(done: Int, total: Int)
       case failed(names: [String])
       case completed(fully: Bool)
+      case unreadableTrash
   }
 
   @MainActor
@@ -628,6 +644,7 @@ extension matching ignores case.
       func resumeIfPending() async
       func retryFailed() async
       func skipFailed() async
+      func clearUnreadableTrash() async
   }
   ```
 - Behavior spec:
@@ -648,6 +665,9 @@ extension matching ignores case.
   - Encrypt with a target calls `switchMode(to: target)` only if the current mode differs; the target is never `.none`, and an encrypt pending with lockMode `.none` is the launch recovery's job, not the migrator's.
   - `resumeIfPending` while locked goes straight to `.paused` (no `.running` published first).
   - `start` while a run exists (running, paused or failed) does nothing; a new migration starts only from `.idle` or `.completed`.
+  - Retry after a listing or closing-step failure publishes `.running(done, total)` before redoing the step, so the same failure happening again is published again (never swallowed as an unchanged phase).
+  - Unreadable trash: wherever the run would publish `.failed` (a listing or closing-step failure, or failed files at the end of a pass), it first asks `hasUnreadableTrash()`; true → `.unreadableTrash` instead. While `.unreadableTrash`, `start` and `resumeIfPending` do nothing, `skipFailed` behaves as from `.failed`, and `retryFailed` does nothing.
+  - clearUnreadableTrash: only from `.unreadableTrash`; publishes `.running`, calls the store's `clearUnreadableTrash()`, then continues the same migration from a fresh listing (files already migrated are not listed again; the decrypt re-scan and closing steps run as usual). A clearing failure (not a lock) → `.failed(names: [])`, logged.
 - Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
 - Legacy files: View/Migration.swift (part: migration state machine; it still reads `LegacyStorage.current.masterKeyStore.isKeyLoaded` directly); Model/AuthService.swift (part: `LegacyMigrationCompletion.finalize`)
 - Legacy tests: KoalaTVaultTests/MigrationTests.swift; KoalaTVaultTests/LockMigration/MigrationFinalizationTests.swift (a legacy XCTest moved there in VaultLock's switch-over, not a spec test; delete in the switch-over)
@@ -832,11 +852,13 @@ extension matching ignores case.
   - Re-encrypt Everything → encrypt migration with no target, keeping a pending encrypt's target.
   - A store that can't be read (locked or failing) hides Re-encrypt Everything rather than showing an error.
   - The view model records the kind (`.decrypt` after Remove Lock, `.encrypt` after adding a lock or re-encrypting) of the migration it starts, for the Migration screen.
-  - Changing the lock mode or re-encrypting is refused during a migration (running, paused, failed or pending): "A migration is still in progress. Let it finish, then try again."
+  - Changing the lock mode or re-encrypting is refused during a migration (running, paused, failed, unreadable trash or pending): "A migration is still in progress. Let it finish, then try again."
   - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; success → "Password changed successfully"; busy while working.
   - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; the screen reappearing while a migration is paused (back from the lock screen) does not start it again; `wantsBackgroundTime` is true while running and false when paused, failed or completed.
+  - MigrationViewModel, unreadable trash: `.unreadableTrash` → alert "Some Deleted Items Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or opened. Clear them to continue." with "Clear and Continue" (→ `clearUnreadableTrash`) and "Skip" (→ `skipFailed`); `wantsBackgroundTime` false while it shows; the alert reappears if the phase is reached again.
   - PaywallViewModel: "Store more than 100 files."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
   - RecentlyDeletedViewModel: rows, most recently deleted first, with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
+  - RecentlyDeletedViewModel, unreadable trash: on each load (opening the screen), `hasUnreadableTrash()` true → prompt "Some Deleted Items Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or opened. Clear them now?" with "Clear" (destructive; → the store's `clearUnreadableTrash()`, then the list reloads; an error is shown) and "Not Now" (no change; an unreadable trash index still shows its error). Asked at most once per opening of the screen.
   - Settings screen (view): a "Done" button at the top right closes Settings (identifier `settingsDoneButton`); it is disabled while Settings is busy (setting or changing a password, adding a lock), so the result alert and the Migration screen are never lost; swipe-down still closes it where the system allows (fixed in verify, app review B4).
   - Views: identifiers `upgradeToProCell`, `lockModeNoneCell`, `lockModePasswordCell`, `lockModeBiometricCell`, `reencryptCell`, `changePasswordCell`, `recentlyDeletedCell`, `paywallUnlockButton`, `restoreButton`, `paywallCloseButton`, `migrationStatusLabel`, `emptyTrashButton`. (Views.)
 - Contract: see `docs/api/Settings.md` (generated; do not edit by hand)
@@ -1061,3 +1083,7 @@ extension matching ignores case.
 - 2026-11-04: Whole-app review (docs/adopt/app-review.md): fix now in the adoption — the combined-screen bugs B1-B5 (overlay under the nav bar, alert on a dismissing controller, export overlay stuck on "Preparing...", no Done in Settings, unnamed folder in the picker) and the app-shell clean-ups (rename `LegacyStorage`, test-only launch paths `#if DEBUG`, launch temp clean-up off the main thread, asset catalog); accessibility and Dynamic Type become the next feature; memo corrected (LockScreens and Settings dependencies, thumbnail clearing on background); the sweep, `clearCache(for:)`, migration-ordering and checkmark-disc items go to Later features — decided by the human
 - 2026-11-04: Spec lines for the app-review fixes B1-B5 and the shell clean-ups (SharedUI ProgressOverlayView and Topmost, Export overlay, Settings Done, folder picker title, shell section) — approved by the human
 - 2026-11-04: B3 also covers the "Saving to Camera Roll..." overlay (status "Saving N item(s)…"), found while writing Export's tests; same intent as the approved line (no overlay stuck on "Preparing...") — orchestrator, recorded
+- 2026-11-09: Device test: decrypting stopped at once ("Some Files Failed") because `.trash/.trash_map` on the device was sealed with a key deleted by an earlier lock change in the old version (which never converted the trash); Retry then left the screen on "Preparing…" because the repeated identical `.failed` phase was not published. Fixed on the device by hand (the trash index replaced with an empty one). Fix now: Retry publishes `.running` before redoing a step; trash that can never be decrypted (strict definition in VaultStore's spec: key loaded and matching the vault, data read in full, authentication fails; trash only) is detected and, after the user confirms, cleared — prompted in Recently Deleted (Clear / Not Now) and on the migration screen (Clear and Continue / Skip). Contract changes: VaultStoring gains `hasUnreadableTrash()` and `clearUnreadableTrash()`; MigrationPhase gains `.unreadableTrash`; LockMigrating gains `clearUnreadableTrash()`. No VaultCrypto change (the store reads the bytes itself, so an authentication failure is told apart from a read error). A no-lock vault with an old sealed trash is left as it is (the clear is offered once a lock is added) — decided by the human
+- 2026-11-09: VaultStore review of the unreadable-trash change: the definition is narrowed (only safer): an empty or too-short index is uncertain; files are judged on the header and first chunk the store read itself (an incomplete first chunk counts, being permanent damage); a symlinked or non-folder `.trash` is never cleared; kind (b) rewrites the trash index before removing — orchestrator, recorded (within the approved intent)
+- 2026-11-09: VaultStore unit 2 (device-fixes) passed review on attempt 3. Trash listing, restore and migration steps now read trash file headers through the same probe (a copy of the leading bytes in a store temp folder; with strict, a temp failure is `.io`) — within the existing spec. Open minors, for the human at the end of the fixes: `TrashFileProbe.close()` removes the shared store temp folder when it created it (tiny race with a concurrent open/write; fix: never remove the parent); header-only reads copy 64 KiB per trash file (could be ~4 KiB) — orchestrator, recorded
+- 2026-11-09: Coverage triage found that `migrateToEncrypted` on a trash item whose file has gone missing (entry kept) throws a misleading `.io("Decryption failed…")` while `migrateToDecrypted` skips it as done; pre-existing, unspecified, outside device-fixes — left as it is and listed for the human with the other open minors — orchestrator, recorded

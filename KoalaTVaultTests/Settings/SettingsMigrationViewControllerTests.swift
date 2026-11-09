@@ -248,3 +248,100 @@ import UIKit
         #expect(rig.background.ended == rig.background.begun)
     }
 }
+
+/// Views of the migration screen's unreadable-trash alert (spec: MigrationViewModel, unreadable trash).
+@MainActor
+@Suite struct SettingsMigrationUnreadableTrashTests {
+    private static let title = "Some Deleted Items Can't Be Read"
+    private static let message =
+        "They were encrypted with a key this vault no longer has, so they can never be restored or opened. "
+        + "Clear them to continue."
+
+    private struct Rig {
+        let host: SettingsViewHost
+        let migrator: SettingsScriptedMigrator
+    }
+
+    private func makeRig() -> Rig {
+        let migrator = SettingsScriptedMigrator()
+        let controller = MigrationViewController(
+            kind: .decrypt, migrator: migrator, sleep: { _ in }, backgroundTime: SettingsFakeBackgroundTime(),
+            onFinish: { _ in })
+        return Rig(host: SettingsViewHost.presenting(controller), migrator: migrator)
+    }
+
+    private func reachUnreadableTrash(_ rig: Rig) async {
+        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
+        rig.migrator.send(.unreadableTrash)
+    }
+
+    @Test("Unreadable trash shows the alert with the spec's title and message")
+    func alertWording() async throws {
+        let rig = makeRig()
+        await reachUnreadableTrash(rig)
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.title == Self.title)
+        #expect(alert.message == Self.message)
+    }
+
+    @Test("The unreadable-trash alert offers exactly Clear and Continue and Skip, with no Retry")
+    func alertActions() async throws {
+        let rig = makeRig()
+        await reachUnreadableTrash(rig)
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.actionTitles == ["Clear and Continue", "Skip"])
+    }
+
+    @Test("Clear and Continue asks the migrator to clear the unreadable trash")
+    func clearForwarded() async throws {
+        let rig = makeRig()
+        await reachUnreadableTrash(rig)
+        try #require(await rig.host.alert()).fire("Clear and Continue")
+        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.clearUnreadableTrash) }
+        #expect(rig.migrator.calls.contains(.clearUnreadableTrash))
+        #expect(!rig.migrator.calls.contains(.skipFailed))
+    }
+
+    @Test("Skip in the unreadable-trash alert asks the migrator to skip")
+    func skipForwarded() async throws {
+        let rig = makeRig()
+        await reachUnreadableTrash(rig)
+        try #require(await rig.host.alert()).fire("Skip")
+        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.skipFailed) }
+        #expect(rig.migrator.calls.contains(.skipFailed))
+        #expect(!rig.migrator.calls.contains(.clearUnreadableTrash))
+    }
+
+    @Test("Going from unreadable trash back to running takes the alert away")
+    func runningDismissesAlert() async throws {
+        let rig = makeRig()
+        await reachUnreadableTrash(rig)
+        _ = try #require(await rig.host.alert())
+        rig.migrator.send(.running(done: 1, total: 10))
+        await SettingsTestSupport.waitUntil { !(rig.host.topmost is UIAlertController) }
+        #expect(!(rig.host.topmost is UIAlertController))
+    }
+
+    @Test("Reaching unreadable trash again shows the alert again")
+    func reappears() async throws {
+        let rig = makeRig()
+        await reachUnreadableTrash(rig)
+        _ = try #require(await rig.host.alert())
+        rig.migrator.send(.running(done: 1, total: 10))
+        await SettingsTestSupport.waitUntil { !(rig.host.topmost is UIAlertController) }
+        rig.migrator.send(.unreadableTrash)
+        let again = try #require(await rig.host.alert())
+        #expect(again.title == Self.title)
+        #expect(again.actionTitles == ["Clear and Continue", "Skip"])
+    }
+
+    @Test("The failed-files alert still offers Retry and Skip")
+    func failedFilesUnchanged() async throws {
+        let rig = makeRig()
+        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
+        rig.migrator.send(.failed(names: ["a.txt"]))
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.title == "Some Files Failed")
+        #expect(alert.actionTitles == ["Retry", "Skip"])
+    }
+}

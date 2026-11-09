@@ -285,6 +285,8 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     func deletePermanently(_ trashed: VaultItem) async throws { try await base.deletePermanently(trashed) }
     func emptyTrash() async { await base.emptyTrash() }
     func purgeExpiredTrash(now: Date) async throws -> Int { try await base.purgeExpiredTrash(now: now) }
+    func hasUnreadableTrash() async -> Bool { await base.hasUnreadableTrash() }
+    func clearUnreadableTrash() async throws { try await base.clearUnreadableTrash() }
     func countFiles() async throws -> Int { try await base.countFiles() }
     func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
         try await base.itemsToMigrate(toEncrypted: toEncrypted)

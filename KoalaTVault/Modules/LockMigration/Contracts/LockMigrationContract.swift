@@ -9,6 +9,8 @@ enum MigrationPhase: Sendable, Equatable {
     case paused(done: Int, total: Int)
     case failed(names: [String])
     case completed(fully: Bool)
+    /// The run stopped because the trash holds items that can never be decrypted; awaits Clear or Skip.
+    case unreadableTrash
 }
 
 /// Encrypts or decrypts the whole vault when a lock is added or removed.
@@ -28,4 +30,7 @@ protocol LockMigrating: AnyObject, Sendable {
     func retryFailed() async
     /// Gives up on the failed files.
     func skipFailed() async
+    /// From `.unreadableTrash` only: clears the unreadable trash, then continues the same migration
+    /// from a fresh listing; a clearing failure (not a lock) → `.failed(names: [])`.
+    func clearUnreadableTrash() async
 }

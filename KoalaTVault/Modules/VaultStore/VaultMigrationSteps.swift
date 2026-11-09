@@ -102,12 +102,15 @@ extension LiveVaultStore {
     /// - Throws: with `strict`, `.locked` without the key, `.io` when a trash file can't be read.
     func correctedTrashMap(_ map: [String: VaultTrashEntry], strict: Bool = true) throws -> [String: VaultTrashEntry] {
         var result = map
+        // Trash files are judged on copies of bytes the store reads itself; the cipher never opens them.
+        let probe = TrashFileProbe(store: self)
+        defer { probe.close() }
         for (trashName, entry) in map where VaultTrashMap.isItemName(trashName) {
             let url = trashMap.folderURL.appendingPathComponent(trashName)
             guard Self.isRegularFile(url) else { continue }
             let form: FileForm
             do {
-                form = try fileForm(at: url)
+                form = try fileForm(at: url, probe: probe)
             } catch {
                 guard !strict else { throw error }
                 // Best-effort for listing and restore: the stored flag stands for a file that can't be checked.
@@ -149,6 +152,26 @@ extension LiveVaultStore {
             }
             return .plaintext
         }
+        // An encrypted file always carries a header on top of its plaintext's length.
+        return try fileSize(of: url) > info.totalSize ? .encrypted : .undetermined
+    }
+
+    /// `fileForm(at:)` for a trash file, with the header read through `probe` (a copy of the file's leading
+    /// bytes the store read itself), so the cipher never opens the trash file.
+    /// - Throws: `.locked` without the key; `.io` / `.notFound` when the store can't read the file or make the copy.
+    func fileForm(at url: URL, probe: TrashFileProbe) throws -> FileForm {
+        let info: StreamInfo?
+        do {
+            info = try probe.streamInfo(of: url)
+        } catch VaultCryptoError.noKeyLoaded {
+            throw VaultStoreError.locked
+        } catch TrashFileProbe.CopyError.read(let error), TrashFileProbe.CopyError.scratch(let error) {
+            throw VaultStoreError.from(error)
+        } catch {
+            // Any other cipher error on bytes the store has read: no SVC5 header there (as `fileForm(at:)`).
+            return .plaintext
+        }
+        guard let info else { return .plaintext }
         // An encrypted file always carries a header on top of its plaintext's length.
         return try fileSize(of: url) > info.totalSize ? .encrypted : .undetermined
     }

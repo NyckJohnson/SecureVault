@@ -116,7 +116,7 @@
         "VaultCrypto",
         "Preferences"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -253,7 +253,7 @@
         "VaultLock",
         "Preferences"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -479,7 +479,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -490,7 +490,7 @@
             "RecentlyDeletedViewModel.swift"
           ],
           "state": "done",
-          "attempts": 2
+          "attempts": 0
         },
         {
           "number": 2,
@@ -501,7 +501,7 @@
             "Views/RecentlyDeletedViewController.swift"
           ],
           "state": "done",
-          "attempts": 1
+          "attempts": 0
         },
         {
           "number": 3,
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-04T16:09:01-08:00",
+  "updatedAt": "2026-11-09T14:05:14-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -704,66 +704,46 @@
     "finishedAt": null
   },
   "plan": {
-    "label": "verify",
+    "label": "verify-device-fixes",
     "items": [
       {
-        "name": "legacy-check",
+        "name": "memo",
         "done": true
       },
       {
-        "name": "final-switch",
+        "name": "contracts",
         "done": true
       },
       {
-        "name": "j1-setup",
+        "name": "vaultstore-u2",
         "done": true
       },
       {
-        "name": "j2-unlock",
+        "name": "lockmigration-u1",
         "done": true
       },
       {
-        "name": "j3-browse",
+        "name": "settings-u1",
         "done": true
       },
       {
-        "name": "j4-import",
+        "name": "settings-u2",
         "done": true
       },
       {
-        "name": "j5-view-edit",
+        "name": "coverage",
         "done": true
       },
       {
-        "name": "j6-delete-restore",
-        "done": true
-      },
-      {
-        "name": "j7-export",
-        "done": true
-      },
-      {
-        "name": "j8-lock-mode",
-        "done": true
-      },
-      {
-        "name": "j9-paywall",
-        "done": true
-      },
-      {
-        "name": "app-review",
-        "done": true
-      },
-      {
-        "name": "fixes",
-        "done": true
-      },
-      {
-        "name": "device-test",
+        "name": "full-gates",
         "done": false
       },
       {
-        "name": "backlog",
+        "name": "merge",
+        "done": false
+      },
+      {
+        "name": "retest",
         "done": false
       }
     ]

@@ -24,6 +24,8 @@ final class MockVaultStoring: VaultStoring {
         case deletePermanently(String)
         case emptyTrash
         case purgeExpiredTrash
+        case hasUnreadableTrash
+        case clearUnreadableTrash
         case countFiles
         case itemsToMigrate(toEncrypted: Bool)
         case migrateToEncrypted(String)
@@ -47,6 +49,7 @@ final class MockVaultStoring: VaultStoring {
         var calls: [Call] = []
         var errorToThrow: VaultStoreError?
         var keyMatches = true
+        var unreadableTrash = false
     }
 
     let root: VaultDirectory
@@ -77,6 +80,12 @@ final class MockVaultStoring: VaultStoring {
     var keyMatches: Bool {
         get { state.withLock { $0.keyMatches } }
         set { state.withLock { $0.keyMatches = newValue } }
+    }
+
+    /// What `hasUnreadableTrash()` returns; `clearUnreadableTrash()` resets it to false.
+    var unreadableTrash: Bool {
+        get { state.withLock { $0.unreadableTrash } }
+        set { state.withLock { $0.unreadableTrash = newValue } }
     }
 
     func contents(
@@ -261,6 +270,17 @@ final class MockVaultStoring: VaultStoring {
             state.trash.removeAll { ($0.deletedAt ?? now) < cutoff }
             return before - state.trash.count
         }
+    }
+
+    func hasUnreadableTrash() async -> Bool {
+        state.withLock { state in
+            state.calls.append(.hasUnreadableTrash)
+            return state.unreadableTrash
+        }
+    }
+
+    func clearUnreadableTrash() async throws {
+        try record(.clearUnreadableTrash) { state in state.unreadableTrash = false }
     }
 
     func countFiles() async throws -> Int {

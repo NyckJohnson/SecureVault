@@ -257,3 +257,112 @@ import Testing
         #expect(rig.viewModel.rows.isEmpty)
     }
 }
+
+@MainActor
+@Suite struct RecentlyDeletedUnreadableTrashTests {
+    private static let title = "Some Deleted Items Can't Be Read"
+    private static let message =
+        "They were encrypted with a key this vault no longer has, so they can never be restored or opened. "
+        + "Clear them now?"
+
+    private struct Rig {
+        let viewModel: RecentlyDeletedViewModel
+        let store: MockVaultStoring
+        let alerts: MockAlertPresenting
+    }
+
+    private func makeRig(unreadable: Bool) -> Rig {
+        let store = MockVaultStoring(withSampleContent: false)
+        store.unreadableTrash = unreadable
+        let alerts = MockAlertPresenting()
+        let viewModel = RecentlyDeletedViewModel(store: store, alerts: alerts, onRestore: {})
+        return Rig(viewModel: viewModel, store: store, alerts: alerts)
+    }
+
+    private func count(_ call: MockVaultStoring.Call, in rig: Rig) -> Int {
+        rig.store.calls.filter { $0 == call }.count
+    }
+
+    // Assumed API: `isAskingToClearUnreadableTrash` (published Bool), `unreadableTrashPromptTitle` and
+    // `unreadableTrashPromptMessage` (Strings), `clearUnreadableTrash() async`, `declineClearingUnreadableTrash()`.
+
+    @Test("Loading with unreadable trash asks whether to clear it, with the spec's wording")
+    func promptShown() async {
+        let rig = makeRig(unreadable: true)
+        await rig.viewModel.load()
+        #expect(rig.viewModel.isAskingToClearUnreadableTrash)
+        #expect(rig.viewModel.unreadableTrashPromptTitle == Self.title)
+        #expect(rig.viewModel.unreadableTrashPromptMessage == Self.message)
+    }
+
+    @Test("Loading with no unreadable trash asks nothing")
+    func noPrompt() async {
+        let rig = makeRig(unreadable: false)
+        await rig.viewModel.load()
+        #expect(!rig.viewModel.isAskingToClearUnreadableTrash)
+        #expect(count(.hasUnreadableTrash, in: rig) == 1)
+    }
+
+    @Test("Clear clears the store's unreadable trash and then reloads the list")
+    func clearThenReload() async throws {
+        let rig = makeRig(unreadable: true)
+        await rig.viewModel.load()
+        await rig.viewModel.clearUnreadableTrash()
+        let calls = rig.store.calls
+        let clearAt = try #require(calls.firstIndex(of: .clearUnreadableTrash))
+        #expect(calls[(clearAt + 1)...].contains(.trashContents))
+        #expect(!rig.viewModel.isAskingToClearUnreadableTrash)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A failure while clearing is shown")
+    func clearErrorShown() async {
+        let rig = makeRig(unreadable: true)
+        await rig.viewModel.load()
+        rig.store.errorToThrow = .io("The disk is full.")
+        await rig.viewModel.clearUnreadableTrash()
+        #expect(rig.alerts.alerts.contains(.error("The disk is full.")))
+        #expect(!rig.viewModel.isAskingToClearUnreadableTrash)
+    }
+
+    @Test("Not Now changes nothing in the store and closes the prompt")
+    func notNow() async {
+        let rig = makeRig(unreadable: true)
+        await rig.viewModel.load()
+        rig.viewModel.declineClearingUnreadableTrash()
+        #expect(!rig.viewModel.isAskingToClearUnreadableTrash)
+        #expect(count(.clearUnreadableTrash, in: rig) == 0)
+        #expect(rig.store.unreadableTrash)
+    }
+
+    @Test("Not Now leaves an unreadable trash index's error showing")
+    func notNowKeepsIndexError() async {
+        let rig = makeRig(unreadable: true)
+        rig.store.errorToThrow = .indexUnreadable(folder: ".trash")
+        await rig.viewModel.load()
+        #expect(rig.alerts.alerts.count == 1)
+        rig.viewModel.declineClearingUnreadableTrash()
+        #expect(rig.alerts.alerts.count == 1)
+        #expect(rig.viewModel.rows.isEmpty)
+    }
+
+    @Test("A second load in the same opening does not ask again")
+    func askedOncePerOpening() async {
+        let rig = makeRig(unreadable: true)
+        await rig.viewModel.load()
+        rig.viewModel.declineClearingUnreadableTrash()
+        await rig.viewModel.load()
+        #expect(!rig.viewModel.isAskingToClearUnreadableTrash)
+        #expect(count(.hasUnreadableTrash, in: rig) == 1)
+    }
+
+    @Test("A new screen asks again")
+    func newOpeningAsksAgain() async {
+        let rig = makeRig(unreadable: true)
+        await rig.viewModel.load()
+        rig.viewModel.declineClearingUnreadableTrash()
+        let reopened = RecentlyDeletedViewModel(store: rig.store, alerts: rig.alerts, onRestore: {})
+        await reopened.load()
+        #expect(reopened.isAskingToClearUnreadableTrash)
+    }
+}
