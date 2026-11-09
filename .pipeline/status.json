@@ -500,7 +500,7 @@
             "Views/PaywallViewController.swift",
             "Views/RecentlyDeletedViewController.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T13:57:58-08:00",
+  "updatedAt": "2026-11-09T14:05:14-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -728,11 +728,11 @@
       },
       {
         "name": "settings-u2",
-        "done": false
+        "done": true
       },
       {
         "name": "coverage",
-        "done": false
+        "done": true
       },
       {
         "name": "full-gates",
