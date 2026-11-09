@@ -433,7 +433,7 @@ struct TrashScenario: CustomTestStringConvertible, Sendable {
         #expect(harness.log.count(of: "dec:a.jpg") == 1)
     }
 
-    @Test("A failure while clearing (not a lock) reports failed with no names and logs only")
+    @Test("A failure while clearing (not a lock) reports failed with no names and keeps the pending record")
     func clearingFailureReportsFailed() async {
         let harness = encryptHarness()
         harness.store.hasUnreadableTrashFlag = true
@@ -465,5 +465,161 @@ struct TrashScenario: CustomTestStringConvertible, Sendable {
             return
         }
         #expect(harness.migrator.pending != nil)
+        // After the next unlock a fresh listing is made and the run completes.
+        let listingsBefore = harness.log.count(of: "list:enc")
+        harness.lock.restoreKey()
+        await harness.migrator.resumeIfPending()
+        #expect(harness.log.count(of: "list:enc") > listingsBefore)
+        #expect(harness.migrator.phase == .completed(fully: true))
+        #expect(harness.migrator.pending == nil)
+    }
+
+    @Test("After a lock during clearing, resuming with the trash still unreadable returns to unreadableTrash")
+    func resumeAfterLockStillUnreadable() async {
+        let harness = encryptHarness()
+        harness.store.hasUnreadableTrashFlag = true
+        harness.store.setFailure(.io("unreadable"), forStep: .itemsToMigrate)
+        await harness.migrator.start(.encrypt, target: .password)
+        harness.gate.arm(at: "clearUnreadableTrash")
+        harness.store.setClearFailure(.io("cannot clear"))
+        let task = Task { await harness.migrator.clearUnreadableTrash() }
+        #expect(await waitUntil { harness.gate.hasReached("clearUnreadableTrash") })
+        harness.lock.wipeKey()
+        harness.gate.release()
+        await task.value
+        guard case .paused = harness.migrator.phase else {
+            Issue.record("Expected paused, got \(harness.migrator.phase)")
+            return
+        }
+        let listingsBefore = harness.log.count(of: "list:enc")
+        harness.lock.restoreKey()
+        await harness.migrator.resumeIfPending()
+        #expect(harness.log.count(of: "list:enc") > listingsBefore)
+        #expect(harness.migrator.phase == .unreadableTrash)
+        #expect(harness.migrator.pending != nil)
+    }
+
+    @Test("Clear pressed after the key is gone pauses, never calls the store, and resume reaches unreadableTrash again")
+    func clearWithKeyGonePauses() async {
+        let harness = encryptHarness()
+        harness.store.hasUnreadableTrashFlag = true
+        harness.store.setFailure(.io("unreadable"), forStep: .itemsToMigrate)
+        await harness.migrator.start(.encrypt, target: .password)
+        #expect(harness.migrator.phase == .unreadableTrash)
+        harness.lock.wipeKey()
+        await harness.migrator.clearUnreadableTrash()
+        guard case .paused = harness.migrator.phase else {
+            Issue.record("Expected paused, got \(harness.migrator.phase)")
+            return
+        }
+        #expect(harness.log.count(of: "clearUnreadableTrash") == 0)
+        #expect(harness.migrator.pending != nil)
+        #expect(harness.preferences.pendingMigration != nil)
+        harness.lock.restoreKey()
+        await harness.migrator.resumeIfPending()
+        #expect(harness.migrator.phase == .unreadableTrash)
+        #expect(harness.migrator.pending != nil)
+    }
+}
+
+// MARK: - Retry after a clearing failure, and calls during a clear
+
+@MainActor
+@Suite struct MigratorClearFollowUpTests {
+    /// A run whose clearing failed: `.failed(names: [])`, the trash still unreadable, the listing still failing.
+    private func afterClearingFailure() async -> MigrationHarness {
+        let harness = encryptHarness()
+        harness.store.hasUnreadableTrashFlag = true
+        harness.store.setFailure(.io("unreadable"), forStep: .itemsToMigrate)
+        await harness.migrator.start(.encrypt, target: .password)
+        harness.store.setClearFailure(.io("cannot clear"))
+        await harness.migrator.clearUnreadableTrash()
+        return harness
+    }
+
+    @Test("Retry after a clearing failure publishes running, ends in unreadableTrash while the trash is unreadable")
+    func retryAfterClearingFailureStillUnreadable() async {
+        let harness = await afterClearingFailure()
+        #expect(harness.migrator.phase == .failed(names: []))
+        let recorder = TrashPhaseRecorder(harness.migrator.phaseUpdates())
+        await harness.migrator.retryFailed()
+        await recorder.stop()
+        let running = recorder.phases.firstIndex(where: isRunningPhase)
+        let stopped = recorder.phases.firstIndex(of: .unreadableTrash)
+        #expect(running != nil)
+        #expect(stopped != nil)
+        if let running, let stopped { #expect(running < stopped) }
+        #expect(harness.migrator.phase == .unreadableTrash)
+    }
+
+    @Test("Once healed, clearing from unreadableTrash after a Retry completes fully")
+    func healedAfterRetryCompletes() async {
+        let harness = await afterClearingFailure()
+        await harness.migrator.retryFailed()
+        #expect(harness.migrator.phase == .unreadableTrash)
+        harness.store.setClearFailure(nil)
+        harness.store.setFailure(nil, forStep: .itemsToMigrate)
+        await harness.migrator.clearUnreadableTrash()
+        #expect(harness.migrator.phase == .completed(fully: true))
+        #expect(harness.migrator.pending == nil)
+    }
+
+    @Test("Retry after a clearing failure completes fully once everything is healed")
+    func retryHealedCompletes() async {
+        let harness = await afterClearingFailure()
+        harness.store.setClearFailure(nil)
+        harness.store.setFailure(nil, forStep: .itemsToMigrate)
+        harness.store.hasUnreadableTrashFlag = false
+        await harness.migrator.retryFailed()
+        #expect(harness.migrator.phase == .completed(fully: true))
+        #expect(harness.migrator.pending == nil)
+    }
+
+    @Test("While a clear is in flight, other calls do nothing and the store clears exactly once")
+    func callsDuringClearAreIgnored() async {
+        let harness = encryptHarness()
+        harness.store.hasUnreadableTrashFlag = true
+        harness.store.setFailure(.io("unreadable"), forStep: .itemsToMigrate)
+        await harness.migrator.start(.encrypt, target: .password)
+        harness.store.setFailure(nil, forStep: .itemsToMigrate)
+        harness.gate.arm(at: "clearUnreadableTrash")
+        let task = Task { await harness.migrator.clearUnreadableTrash() }
+        #expect(await waitUntil { harness.gate.hasReached("clearUnreadableTrash") })
+        let eventsBefore = harness.log.events
+        await harness.migrator.clearUnreadableTrash()
+        await harness.migrator.retryFailed()
+        await harness.migrator.skipFailed()
+        await harness.migrator.start(.encrypt, target: .password)
+        await harness.migrator.resumeIfPending()
+        #expect(harness.log.events == eventsBefore)
+        #expect(harness.migrator.pending != nil)
+        #expect(isRunningPhase(harness.migrator.phase))
+        harness.gate.release()
+        await task.value
+        #expect(harness.log.count(of: "clearUnreadableTrash") == 1)
+        #expect(harness.migrator.phase == .completed(fully: true))
+    }
+}
+
+// MARK: - Key wiped while asking about the trash
+
+@MainActor
+@Suite struct MigratorTrashProbeWipeTests {
+    @Test("A key wiped while hasUnreadableTrash is awaited at a failure point pauses instead of failing")
+    func wipeDuringTrashQueryPauses() async {
+        let harness = encryptHarness()
+        harness.store.setFailure(.io("unreadable"), forStep: .itemsToMigrate)
+        harness.gate.arm(at: "hasUnreadableTrash")
+        let task = Task { await harness.migrator.start(.encrypt, target: .password) }
+        #expect(await waitUntil { harness.gate.hasReached("hasUnreadableTrash") })
+        harness.lock.wipeKey()
+        harness.gate.release()
+        await task.value
+        guard case .paused = harness.migrator.phase else {
+            Issue.record("Expected paused, got \(harness.migrator.phase)")
+            return
+        }
+        #expect(harness.migrator.pending != nil)
+        #expect(harness.preferences.pendingMigration != nil)
     }
 }

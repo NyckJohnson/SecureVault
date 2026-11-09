@@ -300,6 +300,7 @@ final class FakeMigrationStore: VaultStoring {
     func purgeExpiredTrash(now: Date) async throws -> Int { 0 }
     func hasUnreadableTrash() async -> Bool {
         log.add("hasUnreadableTrash")
+        await gate.pass("hasUnreadableTrash")
         return state.withLock { $0.unreadableTrash }
     }
 
