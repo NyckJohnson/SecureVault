@@ -169,3 +169,75 @@ import UIKit
         #expect(alert?.title == "Error")
     }
 }
+
+/// Views of Recently Deleted's unreadable-trash prompt (spec: RecentlyDeletedViewModel, unreadable trash).
+@MainActor
+@Suite struct RecentlyDeletedUnreadablePromptTests {
+    private static let title = "Some Deleted Items Can't Be Read"
+    private static let message =
+        "They were encrypted with a key this vault no longer has, so they can never be restored or opened. "
+        + "Clear them now?"
+
+    private struct Rig {
+        let host: SettingsViewHost
+        let store: MockVaultStoring
+    }
+
+    private func makeRig(unreadable: Bool) -> Rig {
+        let store = MockVaultStoring(withSampleContent: false)
+        store.unreadableTrash = unreadable
+        let controller = RecentlyDeletedViewController(store: store, onRestore: {})
+        let host = SettingsViewHost(content: UINavigationController(rootViewController: controller))
+        return Rig(host: host, store: store)
+    }
+
+    private func clearCalls(_ rig: Rig) -> Int {
+        rig.store.calls.filter { $0 == .clearUnreadableTrash }.count
+    }
+
+    @Test("Opening with unreadable trash shows the prompt with the spec's title and message")
+    func promptWording() async throws {
+        let rig = makeRig(unreadable: true)
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.title == Self.title)
+        #expect(alert.message == Self.message)
+    }
+
+    @Test("The prompt offers Clear (destructive) and Not Now")
+    func promptActions() async throws {
+        let rig = makeRig(unreadable: true)
+        let alert = try #require(await rig.host.alert())
+        #expect(alert.actionTitles == ["Clear", "Not Now"])
+        #expect(alert.actions.first { $0.title == "Clear" }?.style == .destructive)
+    }
+
+    @Test("Clear clears the store's unreadable trash and reloads the list")
+    func clearReloads() async throws {
+        let rig = makeRig(unreadable: true)
+        try #require(await rig.host.alert()).fire("Clear")
+        await SettingsTestSupport.waitUntil { self.clearCalls(rig) == 1 }
+        #expect(clearCalls(rig) == 1)
+        let calls = rig.store.calls
+        let clearAt = try #require(calls.firstIndex(of: .clearUnreadableTrash))
+        await SettingsTestSupport.waitUntil {
+            rig.store.calls.suffix(from: clearAt + 1).contains(.trashContents)
+        }
+        #expect(rig.store.calls.suffix(from: clearAt + 1).contains(.trashContents))
+    }
+
+    @Test("Not Now leaves the trash alone and the prompt gone")
+    func notNow() async throws {
+        let rig = makeRig(unreadable: true)
+        try #require(await rig.host.alert()).fire("Not Now")
+        #expect(await rig.host.noAlert())
+        #expect(clearCalls(rig) == 0)
+    }
+
+    @Test("No prompt appears when the trash has nothing unreadable")
+    func noPromptWhenReadable() async {
+        let rig = makeRig(unreadable: false)
+        await SettingsTestSupport.waitUntil { rig.store.calls.contains(.hasUnreadableTrash) }
+        #expect(await rig.host.noAlert())
+        #expect(clearCalls(rig) == 0)
+    }
+}

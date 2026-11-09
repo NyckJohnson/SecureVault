@@ -353,7 +353,7 @@ import Testing
         rig.viewModel.declineClearingUnreadableTrash()
         await rig.viewModel.load()
         #expect(!rig.viewModel.isAskingToClearUnreadableTrash)
-        #expect(count(.hasUnreadableTrash, in: rig) <= 1)
+        #expect(count(.hasUnreadableTrash, in: rig) == 1)
     }
 
     @Test("A new screen asks again")
