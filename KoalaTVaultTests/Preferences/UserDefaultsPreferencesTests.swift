@@ -293,6 +293,55 @@ private struct TestSuite {
         #expect(store.pendingMigration == PendingMigration(kind: .encrypt, targetLockMode: .password))
     }
 
+    // MARK: vaultsUpgraded (feature multiple-vaults-duress-password)
+
+    @Test("vaultsUpgraded defaults to false on an empty store")
+    func vaultsUpgradedDefaultsToFalse() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        #expect(suite.makeStore().vaultsUpgraded == false)
+    }
+
+    @Test("vaultsUpgraded round-trips under its key")
+    func vaultsUpgradedRoundTrip() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        let store = suite.makeStore()
+        store.vaultsUpgraded = true
+        #expect(store.vaultsUpgraded == true)
+        #expect(suite.defaults.bool(forKey: "vaultsUpgraded") == true)
+        store.vaultsUpgraded = false
+        #expect(store.vaultsUpgraded == false)
+        #expect(suite.defaults.bool(forKey: "vaultsUpgraded") == false)
+    }
+
+    @Test("vaultsUpgraded written directly under its key is read back")
+    func vaultsUpgradedReadsDocumentedKey() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        suite.defaults.set(true, forKey: "vaultsUpgraded")
+        #expect(suite.makeStore().vaultsUpgraded == true)
+    }
+
+    @Test("vaultsUpgraded set by one store is read by a new store on the same suite")
+    func vaultsUpgradedPersistsAcrossStores() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        suite.makeStore().vaultsUpgraded = true
+        #expect(suite.makeStore().vaultsUpgraded == true)
+    }
+
+    @Test("vaultsUpgraded does not change other settings")
+    func vaultsUpgradedLeavesOtherSettingsAlone() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        let store = suite.makeStore()
+        store.vaultsUpgraded = true
+        #expect(store.hasCompletedSetup == false)
+        #expect(store.lockMode == .none)
+        #expect(store.pendingMigration == nil)
+    }
+
     // MARK: Thread safety
 
     static let concurrentMigrations: [PendingMigration?] = {
@@ -317,11 +366,13 @@ private struct TestSuite {
             store.sortOption = SortOption.allCases[i % SortOption.allCases.count]
             store.sortDirection = SortDirection.allCases[i % SortDirection.allCases.count]
             store.pendingMigration = migrations[i % migrations.count]
+            store.vaultsUpgraded = i.isMultiple(of: 3)
 
             _ = store.hasCompletedSetup
             _ = store.lockMode
             _ = store.sortOption
             _ = store.sortDirection
+            _ = store.vaultsUpgraded
             let read = store.pendingMigration
             reads.withLock { $0.append(read) }
         }
