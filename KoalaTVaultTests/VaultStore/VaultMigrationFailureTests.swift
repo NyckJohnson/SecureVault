@@ -305,7 +305,7 @@ import Testing
         #expect(try vault.content(plaintext) == "same")
     }
 
-    @Test("migrateToEncrypted whose last step can't remove the plaintext throws and keeps the copy, entry and plaintext")
+    @Test("migrateToEncrypted failing to remove the plaintext throws and keeps copy, entry and plaintext")
     func plaintextRemovalFailureKeepsEverything() async throws {
         let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
         defer { vault.cleanUp() }
@@ -328,7 +328,7 @@ import Testing
         #expect(try await vault.openedContent(existing) == "same")
     }
 
-    @Test("migrateToEncrypted whose new copy records a different size than the plaintext throws io and keeps the plaintext")
+    @Test("migrateToEncrypted with a new copy of a wrong header size throws io and keeps the plaintext")
     func copyWithWrongHeaderSizeIsAMismatch() async throws {
         let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
         defer { vault.cleanUp() }
