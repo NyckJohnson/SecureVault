@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T01:20:43-08:00",
+  "updatedAt": "2026-11-10T01:26:59-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -681,7 +681,7 @@
       },
       {
         "name": "Browser",
-        "done": false
+        "done": true
       },
       {
         "name": "Settings",

@@ -90,3 +90,10 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   subagents. LockPresenter.swift is handled with LockScreens unit 2 as the memo says.
 - Skeleton next (`MODE: feature multiple-vaults-duress-password`), then prototype for the Vaults, Create Vault, vault
   picker and changed Settings screens; no manual project setup is needed (Face ID usage text already exists).
+- 2026-11-10 (prototype): Browser takes an optional `BrowserVaultServices(lock:transfer:vaultsScreens:)` via
+  `LiveBrowserFactory(..., vaultServices:)`, and FileBrowserViewModel optional `lock:`/`transfer:`; nil hides the
+  Vaults button and the vault actions. AppDependencies doesn't pass them yet (live lock and transfer are stubs): the
+  shell rework must, and Browser's build units may make them required once tests are updated. The drag-out rule
+  still also checks the old `lockMode`/`pendingMigration` (existing tests depend on it); Browser's build drops them.
+  VaultPickerViewModel is `init(lock:isMove:)`. Vaults/CreateVault view models are `ObservableObject` (as the
+  existing screens), with `onDone`/`onNeedsPro`/`onCreateVault` closures set by `LiveVaultsScreenFactory`.
