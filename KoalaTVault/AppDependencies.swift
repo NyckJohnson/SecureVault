@@ -422,11 +422,13 @@ final class AppDependencies {
 
         let temporaryRoot = LaunchTemporaryFiles.makeLaunchRoot()
         self.temporaryRoot = temporaryRoot
+        // Interim (feature multiple-vaults-duress-password): the shell rework builds a store per vault.
         let liveStore = LiveVaultStore(
             root: storage.vaultRootURL,
+            name: "KoalaTVault",
+            isEncrypted: storage.preferences.lockMode != .none,
             keyStore: storage.masterKeyStore,
             cipher: storage.fileCipher,
-            preferences: storage.preferences,
             temporaryRoot: temporaryRoot
         )
         let vaultStore = Self.finishVaultStore(liveStore, storage: storage)

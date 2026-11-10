@@ -76,7 +76,7 @@
       "dependsOn": [
         "VaultCrypto"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -86,7 +86,7 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -97,7 +97,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "pending",
+          "state": "done",
           "attempts": 0
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T12:12:34-08:00",
+  "updatedAt": "2026-11-10T12:30:18-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

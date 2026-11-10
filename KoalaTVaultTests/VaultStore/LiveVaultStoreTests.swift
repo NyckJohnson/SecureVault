@@ -77,20 +77,116 @@ import Testing
         #expect(try await vault.store.findItem(named: "a.txt", in: vault.root) != nil)
     }
 
-    @Test("The lock mode is read from preferences at the start of each operation")
-    func lockModeReadPerOperation() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+    @Test("The store's encryption flag is fixed at init: reopening over the same root with the other flag changes mode")
+    func flagFixedPerStore() async throws {
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let plain = try await vault.add("plain.txt")
         #expect(plain.isEncrypted == false)
-        vault.prefs.lockMode = .password
+        #expect(vault.store.isEncrypted == false)
+        let second = try await vault.add("second.txt")
+        #expect(second.isEncrypted == false)
+        #expect(vault.store.isEncrypted == false)
+        vault.reopen(encrypted: true)
+        #expect(vault.store.isEncrypted)
         let encrypted = try await vault.add("secret.txt")
         #expect(encrypted.isEncrypted)
         #expect(try vault.diskNames().contains("plain.txt"))
         #expect(!(try vault.diskNames()).contains("secret.txt"))
-        vault.prefs.lockMode = .passwordAndBiometrics
-        let third = try await vault.add("third.txt")
-        #expect(third.isEncrypted)
+        #expect(vault.store.isEncrypted)
+    }
+
+    @Test("isEncrypted equals the init flag and never changes", arguments: [false, true])
+    func isEncryptedEqualsInitFlag(encrypted: Bool) async throws {
+        let vault = try VaultStoreFixture(lockMode: encrypted ? .password : .none)
+        defer { vault.cleanUp() }
+        #expect(vault.store.isEncrypted == encrypted)
+        try await vault.add("a.txt")
+        _ = try await vault.list()
+        vault.keys.wipeKey()
+        _ = await caught { _ = try await vault.list() }
+        #expect(vault.store.isEncrypted == encrypted)
+    }
+
+    @Test("root.name is the name given at init", arguments: ["Work", "KoalaTVault", "My Vault"])
+    func rootNameIsGivenName(name: String) throws {
+        let vault = try VaultStoreFixture(lockMode: .password, name: name)
+        defer { vault.cleanUp() }
+        #expect(vault.store.root.name == name)
+        #expect(resolved(vault.store.root.diskURL) == resolved(vault.rootURL))
+        #expect(resolved(vault.store.root.rootURL) == resolved(vault.rootURL))
+    }
+
+    @Test("Listed items and folders carry the store's root as their rootURL, whatever the vault's name")
+    func itemsUseGivenRoot() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none, name: "Work")
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        try await vault.add("a.txt", to: docs)
+        let rootItems = try await vault.list()
+        let docsItems = try await vault.list(docs)
+        let all = rootItems + docsItems
+        #expect(all.count == 2)
+        for item in all {
+            #expect(resolved(item.rootURL) == resolved(vault.rootURL))
+        }
+    }
+
+    @Test("Two stores over two roots, one encrypted and one not, never see each other's files")
+    func twoStoresAreIsolated() async throws {
+        let plain = try VaultStoreFixture(lockMode: .none, name: "KoalaTVault")
+        let secret = try VaultStoreFixture(lockMode: .password, name: "Secret")
+        defer {
+            plain.cleanUp()
+            secret.cleanUp()
+        }
+        try await plain.add("plain.txt", "p")
+        let hidden = try await secret.add("secret.txt", "s")
+        #expect(try await plain.names() == ["plain.txt"])
+        #expect(try await secret.names() == ["secret.txt"])
+        #expect(plain.indexEntries() == nil)
+        #expect(secret.indexEntries()?.values.sorted() == ["secret.txt"])
+
+        try await secret.store.moveToTrash(hidden)
+        #expect(try await secret.store.trashContents().map(\.name) == ["secret.txt"])
+        #expect(try await plain.store.trashContents().isEmpty)
+        #expect(plain.trashDiskNames().isEmpty)
+        #expect(try await plain.names() == ["plain.txt"])
+    }
+
+    @Test("Removing temporary files in one store leaves the other store's temp files intact")
+    func tempFilesAreIsolated() async throws {
+        let plain = try VaultStoreFixture(lockMode: .none)
+        let secret = try VaultStoreFixture(lockMode: .password)
+        defer {
+            plain.cleanUp()
+            secret.cleanUp()
+        }
+        let plainTemp = try plain.store.makeTempDirectory()
+        let secretTemp = try secret.store.makeTempDirectory()
+        try Data("p".utf8).write(to: plainTemp.appendingPathComponent("p.txt"))
+        try Data("s".utf8).write(to: secretTemp.appendingPathComponent("s.txt"))
+
+        secret.store.removeAllTemporaryFiles()
+
+        #expect(!FileManager.default.fileExists(atPath: secretTemp.path))
+        #expect(FileManager.default.fileExists(atPath: plainTemp.appendingPathComponent("p.txt").path))
+    }
+
+    @Test("Adding a file to one store leaves the other's disk and index untouched")
+    func addInOneLeavesOtherUntouched() async throws {
+        let plain = try VaultStoreFixture(lockMode: .none)
+        let secret = try VaultStoreFixture(lockMode: .password)
+        defer {
+            plain.cleanUp()
+            secret.cleanUp()
+        }
+        try await plain.add("plain.txt")
+        let before = try plain.snapshot()
+        try await secret.add("one.txt")
+        try await secret.add("two.txt")
+        #expect(try plain.snapshot() == before)
+        #expect(try await plain.names() == ["plain.txt"])
     }
 
     @Test("An operation captures the key at most once")

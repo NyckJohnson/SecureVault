@@ -32,38 +32,19 @@ import os
 
     @Test("migrateToEncrypted on a trash item whose file is gone changes nothing and does not throw")
     func encryptMissingTrashFile() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
+        var vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
         defer { vault.cleanUp() }
         let item = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(item)
         try await vault.add("keep.txt", "kept")
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
 
         let pending = try #require(
-            try await vault.store.itemsToMigrate(toEncrypted: true).first { $0.name == "old.txt" })
+            try await vault.store.itemsToEncrypt().first { $0.name == "old.txt" })
         try FileManager.default.removeItem(at: pending.diskURL)
         let before = try vaultFiles(vault)
 
         try await vault.store.migrateToEncrypted(pending)
-
-        #expect(try vaultFiles(vault) == before)
-    }
-
-    @Test("migrateToDecrypted on a trash item whose file is gone changes nothing and does not throw")
-    func decryptMissingTrashFile() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
-        defer { vault.cleanUp() }
-        let item = try await vault.add("old.txt", "old content")
-        try await vault.store.moveToTrash(item)
-        try await vault.add("keep.txt", "kept")
-        vault.prefs.lockMode = .none
-
-        let pending = try #require(
-            try await vault.store.itemsToMigrate(toEncrypted: false).first { $0.name == "old.txt" })
-        try FileManager.default.removeItem(at: pending.diskURL)
-        let before = try vaultFiles(vault)
-
-        try await vault.store.migrateToDecrypted(pending)
 
         #expect(try vaultFiles(vault) == before)
     }
