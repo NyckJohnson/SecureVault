@@ -27,9 +27,58 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   vault); files are re-encrypted / decrypted on the way. This replaces the encrypt-everything migration.
 - The vault folder is not shared with the Files app (no UIFileSharingEnabled), so other vaults aren't visible there.
 
+- 2026-11-10 (human): encrypted vaults are named at creation (the name is the vault root's title; stored encrypted).
+- 2026-11-10 (human): an encrypted vault can be deleted from its own Settings ("Delete This Vault", confirmed by typing
+  its password): its files, trash and key are erased and the app returns to the unencrypted root.
+- 2026-11-10 (human): a free user with one encrypted vault who taps Create New Vault sees the paywall; accepted that this
+  reveals a vault exists (the unencrypted vault is a free user's decoy).
+- Assumed (stated to the human): inside an encrypted vault the Vaults button also offers "Close Vault"; a new vault whose
+  password another vault already uses is refused ("Choose a different password."); a wrong password shows only
+  "Incorrect password"; Change Password stays, per vault.
+- Orchestrator notes: 1.2 is not released yet, so "upgrading users" are test devices (the human's own holds a 23 GB
+  locked vault). Each password try costs one PBKDF2 (600,000 iterations, a fraction of a second on device), so opening
+  takes longer with more vaults (a spinner shows). The queued `faster-lock-changes-in-large-folders` loses its lock
+  changes; the same slow pattern remains for large moves between vaults and the upgrade's leftover encryption (that brief
+  to be updated when this feature is accepted).
+
 ## Agreed scope
+- Vault model: one unencrypted vault, always there, the app's Documents folder as today; any number of encrypted vaults
+  (one without Pro), each its own folder outside Documents with its own password-wrapped key, name (encrypted), folders,
+  trash. The app never lists or counts encrypted vaults.
 - New or changed journeys:
-- New or changed screens:
-- Affected modules (new / changed):
-- Contract changes:
-- Out of scope:
+  - 1 First launch → the browser opens on the unencrypted vault's root; no setup wizard.
+  - 2 Unlock → "Open a vault": Vaults button (root toolbar) → Vaults screen: password field, Open, "Use Face ID" (only when
+    a vault has Face ID), "Create New Vault", and "Close Vault" while an encrypted vault is open. The password opens the
+    vault it belongs to (that vault's root, titled with its name). Wrong → "Incorrect password". Backgrounding with an
+    encrypted vault open: privacy cover, then close (key and plaintext temp files wiped); return shows the unencrypted
+    root with no lock screen.
+  - 8 Change lock mode → "Manage a vault": in an encrypted vault's Settings: Change Password; "Use Face ID for This
+    Vault" (turning it on moves Face ID from whichever vault had it, silently); Delete This Vault (type its password).
+    The unencrypted vault's Settings has none of these.
+  - 9 Paywall: also opens from Create New Vault when one encrypted vault exists without Pro; copy covers both limits.
+  - 4 Import: the 100-file free limit counts the open vault only.
+  - New 10 Create a vault: name, password, confirm → the new vault opens. Failures: empty name, empty password,
+    mismatch, password used by another vault, paywall.
+  - New 11 Move/Copy to another vault: long press and Select mode → Move / Copy → "To Another Vault…" → the unencrypted
+    vault, or type a vault's password → files (folders whole) re-encrypted or decrypted into the target's root, with
+    progress; per-vault free limit checked first; a failure part-way leaves each item in exactly one place (move) and
+    reports how many failed.
+  - New 12 Upgrade from one vault (once, at first launch of this version): No Lock → the files are the unencrypted vault.
+    A lock → the vault (files, trash, key and Face ID) becomes an encrypted vault named "My Vault" with the same
+    password, and the unencrypted vault starts empty. Crash-safe (resumes at next launch). Files a past lock change left
+    plaintext are encrypted when that vault is next opened (progress screen). The old lock-mode settings are then unused.
+- New or changed screens: Vaults screen (new), Create Vault (new), vault picker for "To Another Vault…" (new), transfer
+  progress (new); Settings (per vault); Migration screen → "Encrypting leftover files"; Paywall (copy); Browser (Vaults
+  button, root title, Move/Copy to vault). Removed: setup wizard, lock screen.
+- Affected modules (new / changed): VaultCrypto (key per vault), Preferences (lock-mode keys read only for the
+  upgrade), VaultStore (one store per vault, mode fixed per vault; decrypt-migration steps go), VaultLock (becomes the
+  vault registry: create, open by password or Face ID, close, delete, change password, Face ID, upgrade), LockMigration
+  (only encrypts an opened vault's leftovers), LockScreens (Vaults and Create Vault screens, privacy cover, close on
+  background; wizard and lock screen removed), Settings, Browser, app shell (services per open vault). New module
+  VaultTransfer (move/copy between vaults with the per-vault limit). Import, Export, Media, Viewer unchanged in code
+  (built per vault by the shell).
+- Contract changes: VaultCrypto (per-vault key store), Preferences, VaultStore, VaultLock, LockMigration, LockScreens,
+  Settings, Browser (exact shapes in the outline).
+- Out of scope: hiding vaults from someone examining the device itself (vault folders and Keychain items can be counted
+  with device-level access); timing of the password search; renaming a vault; lockout, password strength, password
+  recovery (their own features); making large moves fast (feature `faster-lock-changes-in-large-folders`).
