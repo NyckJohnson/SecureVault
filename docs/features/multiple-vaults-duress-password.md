@@ -21,6 +21,11 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   upgrading a locked vault → it becomes the first encrypted vault with the same password and the unencrypted vault starts
   empty. The app never shows how many encrypted vaults exist; the Vaults button shows only a password field and "Create
   New Vault"; Settings inside an open vault manages that vault only. Each vault has its own folders, trash and Storage.
+- 2026-11-10 (human, after learning iOS doesn't say which face matched): Face ID / Touch ID can be turned on for one
+  chosen encrypted vault at most (from that vault's Settings); the Vaults screen then offers a Face ID button.
+- 2026-11-10 (human): Move and Copy gain "To Another Vault…": type the target vault's password (or pick the unencrypted
+  vault); files are re-encrypted / decrypted on the way. This replaces the encrypt-everything migration.
+- The vault folder is not shared with the Files app (no UIFileSharingEnabled), so other vaults aren't visible there.
 
 ## Agreed scope
 - New or changed journeys:
