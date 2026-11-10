@@ -1,15 +1,785 @@
 {
-  "stage": 1,
+  "stage": 6,
   "paused": false,
   "pauseReason": null,
-  "checkpoints": {},
-  "modules": [],
-  "updatedAt": "2026-10-24T11:49:56-07:00",
-  "features": [],
+  "checkpoints": {
+    "outline-approved": "2026-10-24T13:06:36-07:00",
+    "setup": "2026-10-24T13:39:18-07:00",
+    "baseline": "2026-10-27T10:37:27-07:00",
+    "scaffold": "2026-10-27T12:21:18-07:00",
+    "adopted": "2026-11-09T23:58:04-08:00",
+    "app-accepted": "2026-11-09T23:58:04-08:00"
+  },
+  "modules": [
+    {
+      "name": "VaultCrypto",
+      "path": "KoalaTVault/Modules/VaultCrypto",
+      "dependsOn": [],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "KeychainStore.swift",
+            "MasterKeyBlob.swift",
+            "LiveMasterKeyStore.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 2,
+          "files": [
+            "SVC5Format.swift",
+            "LiveFileCipher.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 3,
+          "files": [
+            "AppDelegate.swift",
+            "Model/AuthService.swift",
+            "Model/FileSystem.swift",
+            "Model/VaultResourceLoaderDelegate.swift",
+            "View/Migration.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Preferences",
+      "path": "KoalaTVault/Modules/Preferences",
+      "dependsOn": [],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "UserDefaultsPreferences.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 2,
+          "files": [
+            "AppDelegate.swift",
+            "SceneDelegate.swift",
+            "Model/AuthService.swift",
+            "Model/FileSystem.swift",
+            "View/SetupWizard.swift",
+            "View/Migration.swift",
+            "View/FileBrowser.swift",
+            "View/SecuritySettings.swift"
+          ],
+          "state": "done",
+          "attempts": 1,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Entitlements",
+      "path": "KoalaTVault/Modules/Entitlements",
+      "dependsOn": [],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "StoreKitProUnlock.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 2,
+          "files": [
+            "AppDelegate.swift",
+            "Model/FileSystem.swift",
+            "View/SecuritySettings.swift",
+            "View/PaywallViewController.swift"
+          ],
+          "state": "done",
+          "attempts": 2,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "VaultStore",
+      "path": "KoalaTVault/Modules/VaultStore",
+      "dependsOn": [
+        "VaultCrypto",
+        "Preferences"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "VaultIndex.swift",
+            "VaultNaming.swift",
+            "LiveVaultStore.swift",
+            "VaultFileOperations.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 2,
+          "files": [
+            "VaultTrash.swift",
+            "VaultMigrationSteps.swift",
+            "OrphanSweep.swift",
+            "VaultTempFiles.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 3,
+          "files": [
+            "AppDelegate.swift",
+            "SceneDelegate.swift",
+            "Model/AuthService.swift",
+            "Model/ExportService.swift",
+            "Model/ImportService.swift",
+            "Model/ThumbnailService.swift",
+            "View/FileBrowser.swift",
+            "View/FileCell.swift",
+            "View/FileIconProvider.swift",
+            "View/FilePage.swift",
+            "View/FileViewer.swift",
+            "View/FolderPicker.swift",
+            "View/Migration.swift",
+            "View/RecentlyDeleted.swift",
+            "View/SecuritySettings.swift",
+            "View/TextEditor.swift"
+          ],
+          "state": "done",
+          "attempts": 1,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "SharedUI",
+      "path": "KoalaTVault/Modules/SharedUI",
+      "dependsOn": [
+        "VaultStore"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "FileIconMapping.swift",
+            "Views/ProgressOverlayView.swift",
+            "Views/AlertPresenting.swift",
+            "Views/UIViewController+Topmost.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 2,
+          "files": [
+            "SceneDelegate.swift",
+            "Model/AuthService.swift",
+            "Model/ExportService.swift",
+            "Model/ImportService.swift",
+            "Model/ThumbnailService.swift",
+            "View/FileBrowser.swift",
+            "View/FileCell.swift",
+            "View/Migration.swift",
+            "View/PaywallViewController.swift",
+            "View/RecentlyDeleted.swift",
+            "View/SecuritySettings.swift",
+            "View/SetupWizard.swift",
+            "View/TextEditor.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "VaultLock",
+      "path": "KoalaTVault/Modules/VaultLock",
+      "dependsOn": [
+        "VaultCrypto",
+        "Preferences",
+        "VaultStore"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "LockState.swift",
+            "BiometricInfo.swift",
+            "LiveVaultLock.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 2,
+          "files": [
+            "AppDelegate.swift",
+            "SceneDelegate.swift",
+            "View/FileBrowser.swift",
+            "View/LockScreen.swift",
+            "View/Migration.swift",
+            "View/SecuritySettings.swift",
+            "View/SetupWizard.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "LockMigration",
+      "path": "KoalaTVault/Modules/LockMigration",
+      "dependsOn": [
+        "VaultStore",
+        "VaultLock",
+        "Preferences"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "MigrationProgress.swift",
+            "LiveLockMigrator.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 2,
+          "files": [
+            "SceneDelegate.swift",
+            "View/SecuritySettings.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Media",
+      "path": "KoalaTVault/Modules/Media",
+      "dependsOn": [
+        "VaultStore",
+        "VaultCrypto"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "ThumbnailCache.swift",
+            "LiveThumbnailProvider.swift",
+            "EncryptedVideoLoader.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 2,
+          "files": [
+            "SceneDelegate.swift",
+            "Model/AuthService.swift",
+            "View/FileCell.swift",
+            "View/FilePage.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Import",
+      "path": "KoalaTVault/Modules/Import",
+      "dependsOn": [
+        "VaultStore",
+        "Entitlements",
+        "SharedUI"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "ImportLimit.swift",
+            "DuplicateCheck.swift",
+            "LiveVaultImporter.swift",
+            "PhotoLibraryAccess.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 2,
+          "files": [
+            "Views/ImportPresenter.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 3,
+          "files": [
+            "View/FileBrowser.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Export",
+      "path": "KoalaTVault/Modules/Export",
+      "dependsOn": [
+        "VaultStore",
+        "SharedUI"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "LiveVaultExporter.swift",
+            "PhotoLibrarySaver.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 2,
+          "files": [
+            "Views/ExportPresenter.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 3,
+          "files": [
+            "View/FileBrowser.swift",
+            "View/FileViewer.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "LockScreens",
+      "path": "KoalaTVault/Modules/LockScreens",
+      "dependsOn": [
+        "VaultLock",
+        "SharedUI"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "SetupWizardViewModel.swift",
+            "LockScreenViewModel.swift",
+            "AppLockCoordinator.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 2,
+          "files": [
+            "Views/SetupWizardViewController.swift",
+            "Views/LockScreenViewController.swift",
+            "Views/PrivacyCoverView.swift"
+          ],
+          "state": "done",
+          "attempts": 1
+        },
+        {
+          "number": 3,
+          "files": [
+            "SceneDelegate.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Viewer",
+      "path": "KoalaTVault/Modules/Viewer",
+      "dependsOn": [
+        "VaultStore",
+        "Media",
+        "Export",
+        "SharedUI"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "FileViewerViewModel.swift",
+            "FilePageViewModel.swift",
+            "TextEditorViewModel.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 2,
+          "files": [
+            "Views/FileViewerViewController.swift",
+            "Views/FilePageViewController.swift",
+            "Views/TextEditorViewController.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 3,
+          "files": [
+            "View/FileBrowser.swift"
+          ],
+          "state": "done",
+          "attempts": 2,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "path": "KoalaTVault/Modules/Settings",
+      "dependsOn": [
+        "VaultLock",
+        "LockMigration",
+        "VaultStore",
+        "Entitlements",
+        "SharedUI"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "SecuritySettingsViewModel.swift",
+            "MigrationViewModel.swift",
+            "PaywallViewModel.swift",
+            "RecentlyDeletedViewModel.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 2,
+          "files": [
+            "Views/SecuritySettingsViewController.swift",
+            "Views/MigrationViewController.swift",
+            "Views/PaywallViewController.swift",
+            "Views/RecentlyDeletedViewController.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 3,
+          "files": [
+            "SceneDelegate.swift",
+            "View/FileBrowser.swift"
+          ],
+          "state": "done",
+          "attempts": 0,
+          "kind": "switch-over"
+        }
+      ]
+    },
+    {
+      "name": "Browser",
+      "path": "KoalaTVault/Modules/Browser",
+      "dependsOn": [
+        "VaultStore",
+        "Preferences",
+        "Media",
+        "Import",
+        "Export",
+        "SharedUI",
+        "Viewer",
+        "Settings"
+      ],
+      "state": "done",
+      "units": [
+        {
+          "number": 1,
+          "files": [
+            "FileBrowserViewModel.swift",
+            "FolderPickerViewModel.swift",
+            "FileCellModel.swift"
+          ],
+          "state": "done",
+          "attempts": 2
+        },
+        {
+          "number": 2,
+          "files": [
+            "Views/FileBrowserViewController.swift",
+            "Views/FileCell.swift",
+            "Views/FolderPickerViewController.swift"
+          ],
+          "state": "done",
+          "attempts": 0
+        },
+        {
+          "number": 3,
+          "files": [
+            "SceneDelegate.swift"
+          ],
+          "state": "done",
+          "attempts": 1,
+          "kind": "switch-over"
+        }
+      ]
+    }
+  ],
+  "updatedAt": "2026-11-09T23:58:04-08:00",
+  "features": [
+    {
+      "slug": "accessibility-and-dynamic-type",
+      "title": "Accessibility and Dynamic Type",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/accessibility-and-dynamic-type.md",
+      "addedAt": "2026-11-04T14:25:11-08:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "minimum-password-strength",
+      "title": "Minimum password strength",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/minimum-password-strength.md",
+      "addedAt": "2026-10-24T11:59:10-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "icloud-backup",
+      "title": "iCloud backup",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/icloud-backup.md",
+      "addedAt": "2026-10-24T12:11:48-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "password-recovery",
+      "title": "Password recovery",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/password-recovery.md",
+      "addedAt": "2026-10-24T12:11:48-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "multiple-vaults-duress-password",
+      "title": "Multiple vaults / duress password",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/multiple-vaults-duress-password.md",
+      "addedAt": "2026-10-24T12:11:48-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "timed-lockout-for-failed-passwords",
+      "title": "Timed lockout for failed passwords",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/timed-lockout-for-failed-passwords.md",
+      "addedAt": "2026-10-24T12:14:28-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "encrypt-folder-names",
+      "title": "Encrypt folder names",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/encrypt-folder-names.md",
+      "addedAt": "2026-10-24T12:52:41-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "vault-size-in-settings",
+      "title": "Vault size in Settings",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/vault-size-in-settings.md",
+      "addedAt": "2026-10-24T13:09:44-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "smoother-lock-screen-dismissal",
+      "title": "Smoother lock screen dismissal",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/smoother-lock-screen-dismissal.md",
+      "addedAt": "2026-10-27T10:37:21-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "graceful-unsupported-files-in-the-viewer",
+      "title": "Graceful unsupported files in the viewer",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/graceful-unsupported-files-in-the-viewer.md",
+      "addedAt": "2026-10-27T10:37:21-07:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "settings-screen-polish",
+      "title": "Settings screen polish",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/settings-screen-polish.md",
+      "addedAt": "2026-11-03T12:53:17-08:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "faster-lock-changes-in-large-folders",
+      "title": "Faster lock changes in large folders",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/faster-lock-changes-in-large-folders.md",
+      "addedAt": "2026-11-09T23:56:20-08:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    }
+  ],
   "activeFeature": null,
   "adopt": {
-    "state": "active",
+    "state": "finished",
     "startedAt": "2026-10-24T11:49:56-07:00",
-    "finishedAt": null
+    "finishedAt": "2026-11-09T23:58:04-08:00"
+  },
+  "plan": {
+    "label": "verify",
+    "items": [
+      {
+        "name": "legacy-check",
+        "done": true
+      },
+      {
+        "name": "final-switch",
+        "done": true
+      },
+      {
+        "name": "j1-setup",
+        "done": true
+      },
+      {
+        "name": "j2-unlock",
+        "done": true
+      },
+      {
+        "name": "j3-browse",
+        "done": true
+      },
+      {
+        "name": "j4-import",
+        "done": true
+      },
+      {
+        "name": "j5-view-edit",
+        "done": true
+      },
+      {
+        "name": "j6-delete-restore",
+        "done": true
+      },
+      {
+        "name": "j7-export",
+        "done": true
+      },
+      {
+        "name": "j8-lock-mode",
+        "done": true
+      },
+      {
+        "name": "j9-paywall",
+        "done": true
+      },
+      {
+        "name": "app-review",
+        "done": true
+      },
+      {
+        "name": "fixes",
+        "done": true
+      },
+      {
+        "name": "device-test",
+        "done": true
+      },
+      {
+        "name": "backlog",
+        "done": false
+      }
+    ]
   }
 }

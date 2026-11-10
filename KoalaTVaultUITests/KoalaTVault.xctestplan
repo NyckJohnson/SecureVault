@@ -9,6 +9,14 @@
     }
   ],
   "defaultOptions" : {
+    "commandLineArgumentEntries" : [
+      {
+        "argument" : "-uiTesting"
+      },
+      {
+        "argument" : "-unitTestHost"
+      }
+    ],
     "threadSanitizerEnabled" : true
   },
   "testTargets" : [
