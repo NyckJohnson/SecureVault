@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T01:06:38-08:00",
+  "updatedAt": "2026-11-10T01:12:41-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -669,7 +669,7 @@
     "items": [
       {
         "name": "Vaults",
-        "done": false
+        "done": true
       },
       {
         "name": "CreateVault",

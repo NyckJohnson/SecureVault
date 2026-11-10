@@ -243,8 +243,15 @@ final class LiveVaultsScreenFactory: VaultsScreenFactory {
             navigation?.dismiss(animated: true)
         }
         viewModel.onCreateVault = { [weak navigation, lock] in
-            let createVault = CreateVaultViewController(viewModel: CreateVaultViewModel(lock: lock))
-            navigation?.pushViewController(createVault, animated: true)
+            let createViewModel = CreateVaultViewModel(lock: lock)
+            createViewModel.onDone = { [weak navigation] in
+                navigation?.dismiss(animated: true)
+            }
+            createViewModel.onNeedsPro = { [weak navigation] in
+                guard let navigation else { return }
+                onNeedsPro(navigation)
+            }
+            navigation?.pushViewController(CreateVaultViewController(viewModel: createViewModel), animated: true)
         }
         viewModel.onNeedsPro = { [weak navigation] in
             guard let navigation else { return }
