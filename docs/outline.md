@@ -714,6 +714,13 @@ the upgrade clearing it.
   - openTransferTarget(password): empty → `.emptyPassword`; the open vault's own password → `.sameVault`; no vault →
     `.wrongPassword`; otherwise an `OpenVault` with its own loaded key, separate from `current`. closeTransferTarget wipes
     its key and temp files. The unencrypted vault as a target needs no password (`unencryptedVault`).
+  - Password checks and races (VaultLock unit 1 review): a password is always tried on a fresh key store (never on the
+    open vault's own), and a fresh store that didn't become the open vault or the transfer target is wiped. If `close`,
+    `appDidEnterBackground` or another open runs while a check is in progress, the check's result is dropped and its key
+    wiped: `open`, `openWithBiometrics` and `openTransferTarget` throw `.notOpen` and open nothing; `changePassword`,
+    `deleteCurrentVault` and `setUsesBiometrics` throw `.notOpen` and change nothing; `createVault` keeps the finished
+    vault but doesn't open it (no error). `createVault` calls run one at a time (a second waits, then makes its own
+    checks), so two vaults never share a password. `setUsesBiometrics(false)` in the unencrypted vault does nothing.
   - VaultUpgrade (VaultUpgrade.swift), `upgradeIfNeeded` (journey 12), run once at launch before anything shows:
     `vaultsUpgraded` true → nothing. A lock (`lockMode` not .none, or a pending encrypt while a blob exists; a Keychain
     error counts as a blob) → `Vaults/primary/` is created and every entry of Documents (hidden ones included) is moved
@@ -1241,3 +1248,4 @@ the upgrade clearing it.
 - 2026-11-10: VaultStore `remove`: a failed file delete after the index write puts the entry back, best-effort, so the item stays findable (reviewer finding, VaultStore unit 1 of feature multiple-vaults-duress-password) — orchestrator
 - 2026-11-10: VaultStore `remove` on an encrypted file whose index entry is already gone deletes the file (no error) — decided by the human (VaultStore coverage triage, feature multiple-vaults-duress-password)
 - 2026-11-10: VaultCatalog removes a blobless vault folder at launch only when it is empty, so an upgraded vault whose Keychain blob is missing (e.g. after a restore) never has its files deleted (reviewer finding, VaultLock unit 2) — orchestrator
+- 2026-11-10: VaultLock races: a close/background/switch during a password check drops the check's result and wipes its key (opens and management calls throw `.notOpen`); createVault runs one at a time; setUsesBiometrics(false) in the unencrypted vault is a no-op (reviewer findings, VaultLock unit 1) — orchestrator

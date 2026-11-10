@@ -142,7 +142,7 @@
             "LiveVaultLock.swift"
           ],
           "state": "code",
-          "attempts": 1
+          "attempts": 2
         },
         {
           "number": 2,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T13:15:05-08:00",
+  "updatedAt": "2026-11-10T13:16:30-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
