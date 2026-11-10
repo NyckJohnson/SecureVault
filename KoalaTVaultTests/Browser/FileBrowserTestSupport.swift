@@ -107,6 +107,8 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     var root: VaultDirectory { inner.root }
+    // feature multiple-vaults-duress-password: signature updated
+    var isEncrypted: Bool { inner.isEncrypted }
 
     func contents(
         of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
@@ -155,6 +157,8 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem {
         try await inner.rename(item, to: name)
     }
+    // feature multiple-vaults-duress-password: signature updated
+    func remove(_ item: VaultItem) async throws { try await inner.remove(item) }
     func trashContents() async throws -> [VaultItem] { try await inner.trashContents() }
     func restore(_ trashed: VaultItem) async throws -> VaultItem { try await inner.restore(trashed) }
     func deletePermanently(_ trashed: VaultItem) async throws { try await inner.deletePermanently(trashed) }
@@ -163,12 +167,9 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
     func hasUnreadableTrash() async -> Bool { await inner.hasUnreadableTrash() }
     func clearUnreadableTrash() async throws { try await inner.clearUnreadableTrash() }
     func countFiles() async throws -> Int { try await inner.countFiles() }
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
-        try await inner.itemsToMigrate(toEncrypted: toEncrypted)
-    }
+    // feature multiple-vaults-duress-password: signature updated
+    func itemsToEncrypt() async throws -> [VaultItem] { try await inner.itemsToEncrypt() }
     func migrateToEncrypted(_ item: VaultItem) async throws { try await inner.migrateToEncrypted(item) }
-    func migrateToDecrypted(_ item: VaultItem) async throws { try await inner.migrateToDecrypted(item) }
-    func finishDecryption() async throws { try await inner.finishDecryption() }
     func finishEncryption() async throws { try await inner.finishEncryption() }
     func hasUnencryptedFiles() async throws -> Bool { try await inner.hasUnencryptedFiles() }
     func keyMatchesVault() async -> Bool { await inner.keyMatchesVault() }

@@ -11,6 +11,7 @@
 - `PreferencesStoring: var pendingMigration: PendingMigration?`
 - `PreferencesStoring: var sortDirection: SortDirection`
 - `PreferencesStoring: var sortOption: SortOption`
+- `PreferencesStoring: var vaultsUpgraded: Bool`
 - `SortDirection: case ascending, descending`
 - `SortOption: case name, type, dateModified`
 - `SortOption: var displayName: String`

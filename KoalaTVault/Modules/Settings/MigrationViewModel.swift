@@ -106,13 +106,6 @@ final class MigrationViewModel: ObservableObject {
             guard total > 0 else { return }
             progress = Float(done) / Float(total)
             statusText = "\(done * 100 / total)% complete"
-        case .paused(let done, let total):
-            clearFailure()
-            wantsBackgroundTime = false
-            if total > 0 {
-                progress = Float(done) / Float(total)
-            }
-            statusText = "Paused — unlock to continue"
         case .failed(let names):
             wantsBackgroundTime = false
             isUnreadableTrash = false

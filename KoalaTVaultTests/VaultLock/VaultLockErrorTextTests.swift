@@ -15,9 +15,14 @@ import Testing
         expectText(.wrongPassword, "Incorrect password")
     }
 
-    @Test("existingPasswordRequired asks for the password already on the device")
+    @Test(
+        "existingPasswordRequired asks for the password already on the device",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in VaultLock unit 1"))
     func existingPasswordRequiredText() {
-        expectText(.existingPasswordRequired, "A vault password already exists on this device. Enter that password.")
+        #if false
+            expectText(
+                .existingPasswordRequired, "A vault password already exists on this device. Enter that password.")
+        #endif
     }
 
     @Test("emptyPassword says the password cannot be empty")
@@ -25,14 +30,22 @@ import Testing
         expectText(.emptyPassword, "Password cannot be empty")
     }
 
-    @Test("passwordMissing says the password is missing from the device")
+    @Test(
+        "passwordMissing says the password is missing from the device",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in VaultLock unit 1"))
     func passwordMissingText() {
-        expectText(.passwordMissing, "Your vault password is missing from this device.")
+        #if false
+            expectText(.passwordMissing, "Your vault password is missing from this device.")
+        #endif
     }
 
-    @Test("notUnlocked asks to unlock the vault first")
+    @Test(
+        "notUnlocked asks to unlock the vault first",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in VaultLock unit 1"))
     func notUnlockedText() {
-        expectText(.notUnlocked, "Unlock the vault first.")
+        #if false
+            expectText(.notUnlocked, "Unlock the vault first.")
+        #endif
     }
 
     @Test("biometricsUnavailable says biometrics aren't available on this device")

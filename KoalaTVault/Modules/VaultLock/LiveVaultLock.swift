@@ -2,19 +2,10 @@ import Foundation
 import Security
 import os
 
-/// The live vault lock: the key lifecycle over the master-key store, the lock mode in the preferences,
-/// and the lock state derived from both.
-///
-/// Key operations (PBKDF2, Keychain reads behind a Face ID prompt) run off the main actor; the state
-/// and the lock mode are only changed on the main actor, after each awaited step returns.
+/// The live vault lock. Feature multiple-vaults-duress-password replaces the lock-mode lock with the vaults
+/// (VaultLock unit 1 rebuilds it); until then every vault member fails loudly.
 @MainActor
 final class LiveVaultLock: VaultLocking {
-    private static let logger = Logger(subsystem: "com.KoalaTVault", category: "VaultLock")
-    /// The plaintext password item from old app versions; deleted whenever it may still exist.
-    nonisolated private static let legacyPasswordAccount = "com.KoalaTVault.password"
-    /// The reason shown with the biometric prompt.
-    nonisolated private static let biometricPrompt = "Unlock your vault"
-
     private let masterKeys: any MasterKeyStoring
     private let keychain: any KeychainAccessing
     private let preferences: any PreferencesStoring
@@ -22,18 +13,9 @@ final class LiveVaultLock: VaultLocking {
     private let biometricInfo: BiometricInfo
     private let vaultHoldsEncryptedData: @Sendable () async -> Bool
 
-    private(set) var state: LockState {
-        didSet {
-            guard state != oldValue else { return }
-            for continuation in continuations.values { continuation.yield(state) }
-        }
-    }
-
-    private var continuations: [UUID: AsyncStream<LockState>.Continuation] = [:]
-
     /// - Parameters:
     ///   - vaultHoldsEncryptedData: whether the vault holds any index, encrypted file or trash entry
-    ///     (see `VaultEncryptedDataCheck`); decides whether an existing key blob is stale.
+    ///     (see `VaultEncryptedDataCheck`).
     init(
         masterKeys: any MasterKeyStoring,
         keychain: any KeychainAccessing,
@@ -48,299 +30,63 @@ final class LiveVaultLock: VaultLocking {
         self.store = store
         self.biometricInfo = biometricInfo
         self.vaultHoldsEncryptedData = vaultHoldsEncryptedData
-        // At launch no key is loaded: a lock starts locked, no lock starts open.
-        state = LockState(lockMode: preferences.lockMode, keyLoaded: false)
     }
 
-    deinit {
-        for continuation in continuations.values { continuation.finish() }
+    var current: OpenVault {
+        fatalError("Not implemented: LiveVaultLock.current (feature multiple-vaults-duress-password)")
     }
-
-    var lockMode: LockMode { preferences.lockMode }
+    var unencryptedVault: OpenVault {
+        fatalError("Not implemented: LiveVaultLock.unencryptedVault (feature multiple-vaults-duress-password)")
+    }
+    func currentUpdates() -> AsyncStream<OpenVault> {
+        fatalError("Not implemented: LiveVaultLock.currentUpdates (feature multiple-vaults-duress-password)")
+    }
     var biometricKind: BiometricKind { biometricInfo.kind }
     var biometricsAvailable: Bool { biometricInfo.isAvailable }
-
-    func stateUpdates() -> AsyncStream<LockState> {
-        let id = UUID()
-        let (stream, continuation) = AsyncStream<LockState>.makeStream()
-        continuations[id] = continuation
-        continuation.onTermination = { _ in
-            Task { @MainActor [weak self] in self?.continuations[id] = nil }
-        }
-        return stream
+    var hasBiometricVault: Bool {
+        fatalError("Not implemented: LiveVaultLock.hasBiometricVault (feature multiple-vaults-duress-password)")
     }
-
-    // MARK: - Setting up a lock
-
-    func setUp(mode: LockMode, password: String?) async throws {
-        guard mode != .none else {
-            preferences.lockMode = .none
-            refreshState()
-            return
-        }
-        guard let password, !password.isEmpty else { throw VaultLockError.emptyPassword }
-        try await addLock(mode: mode, password: password)
+    var currentUsesBiometrics: Bool {
+        fatalError("Not implemented: LiveVaultLock.currentUsesBiometrics (feature multiple-vaults-duress-password)")
     }
-
-    func prepareToAddLock(mode: LockMode, password: String) async throws {
-        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
-        try await addLock(mode: mode, password: password)
+    func upgradeIfNeeded() async throws {
+        fatalError("Not implemented: LiveVaultLock.upgradeIfNeeded (feature multiple-vaults-duress-password)")
     }
-
-    /// Loads or creates the key for `password`, stores the biometric item for biometric mode, then writes
-    /// `mode`. Any failure after the key was loaded or created rolls back and leaves the lock mode as it was.
-    private func addLock(mode: LockMode, password: String) async throws {
-        defer { refreshState() }
-        if mode == .passwordAndBiometrics && !biometricInfo.isAvailable {
-            throw VaultLockError.biometricsUnavailable
-        }
-        let createdNewKey = try await establishKey(password: password)
-        if mode == .passwordAndBiometrics {
-            do {
-                try await offMain { [masterKeys] in try masterKeys.storeBiometricKey() }
-            } catch {
-                await rollBack(createdNewKey: createdNewKey)
-                throw Self.lockError(from: error)
-            }
-        }
-        preferences.lockMode = mode
+    func canCreateVault() async -> Bool {
+        fatalError("Not implemented: LiveVaultLock.canCreateVault (feature multiple-vaults-duress-password)")
     }
-
-    /// Loads the key for `password`, creating it when there is no usable blob.
-    ///
-    /// A blob over a vault without encrypted data is stale (e.g. left from an earlier install): it and its
-    /// biometric item are deleted and a new key is created. A blob over encrypted data is never replaced;
-    /// `password` must unlock it. Returns true when a new key was created.
-    private func establishKey(password: String) async throws -> Bool {
-        let keys = masterKeys
-        let hasBlob: Bool
-        do {
-            hasBlob = try await offMain { try keys.hasMasterKeyBlob() }
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        if hasBlob {
-            if await vaultHoldsEncryptedData() {
-                do {
-                    try await offMain { try keys.unlock(password: password) }
-                } catch VaultCryptoError.wrongPassword {
-                    throw VaultLockError.existingPasswordRequired
-                } catch {
-                    throw Self.lockError(from: error)
-                }
-                return false
-            }
-            do {
-                try await offMain { try keys.deleteMasterKeyBlob() }
-            } catch {
-                throw Self.lockError(from: error)
-            }
-            // A stale biometric item only holds the stale key; storing a new one replaces it.
-            await deleteBiometricKeyLogging("stale biometric item")
-        }
-        do {
-            try await offMain { try keys.createMasterKey(password: password) }
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        return true
+    func createVault(name: String, password: String) async throws {
+        fatalError("Not implemented: LiveVaultLock.createVault (feature multiple-vaults-duress-password)")
     }
-
-    /// Undoes `establishKey` after a later step failed: deletes the biometric item, deletes the blob when it
-    /// was newly created (a kept blob still protects encrypted data), and wipes the key. A blob that can't be
-    /// deleted is logged; the next setup on the empty vault replaces it.
-    private func rollBack(createdNewKey: Bool) async {
-        await deleteBiometricKeyLogging("rollback biometric item")
-        if createdNewKey {
-            do {
-                try await offMain { [masterKeys] in try masterKeys.deleteMasterKeyBlob() }
-            } catch {
-                Self.logger.error("Rollback blob delete failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-        masterKeys.wipeKey()
+    func open(password: String) async throws {
+        fatalError("Not implemented: LiveVaultLock.open (feature multiple-vaults-duress-password)")
     }
-
-    // MARK: - Unlocking
-
-    func unlock(password: String) async throws {
-        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
-        defer { refreshState() }
-        let keys = masterKeys
-        do {
-            try await offMain { try keys.unlock(password: password) }
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        await deleteLegacyPasswordItem()
-        if preferences.lockMode == .passwordAndBiometrics {
-            // Refreshes the item after biometric enrollment changes; the password still unlocks if this fails.
-            do {
-                try await offMain { try keys.storeBiometricKey() }
-            } catch {
-                Self.logger.error(
-                    "Refreshing the biometric item failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+    func openWithBiometrics() async throws {
+        fatalError("Not implemented: LiveVaultLock.openWithBiometrics (feature multiple-vaults-duress-password)")
     }
-
-    func unlockWithBiometrics() async throws {
-        guard preferences.lockMode == .passwordAndBiometrics else { throw VaultLockError.biometricsUnavailable }
-        defer { refreshState() }
-        let keys = masterKeys
-        do {
-            try await offMain { try keys.unlockWithBiometricKey(prompt: Self.biometricPrompt) }
-        } catch VaultCryptoError.biometricItemMissing {
-            throw VaultLockError.biometricChanged
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        // The item holds raw key bytes; any 32 bytes load, so check them against the vault.
-        guard await store.keyMatchesVault() else {
-            masterKeys.wipeKey()
-            await deleteBiometricKeyLogging("mismatched biometric item")
-            throw VaultLockError.biometricChanged
-        }
+    func close() {
+        fatalError("Not implemented: LiveVaultLock.close (feature multiple-vaults-duress-password)")
     }
-
-    // MARK: - Scene lifecycle
-
     func appWillResignActive() -> Bool {
-        preferences.lockMode != .none && state == .unlocked
+        fatalError("Not implemented: LiveVaultLock.appWillResignActive (feature multiple-vaults-duress-password)")
     }
-
     func appDidEnterBackground() {
-        guard preferences.lockMode != .none else { return }
-        masterKeys.wipeKey()
-        store.removeAllTemporaryFiles()
-        state = .locked
+        fatalError("Not implemented: LiveVaultLock.appDidEnterBackground (feature multiple-vaults-duress-password)")
     }
-
-    func appWillEnterForeground() {
-        if preferences.lockMode == .none { state = .open }
-    }
-
-    // MARK: - Settings
-
     func changePassword(current: String, new: String) async throws {
-        guard !new.isEmpty else { throw VaultLockError.emptyPassword }
-        defer { refreshState() }
-        let keys = masterKeys
-        do {
-            try await offMain { try keys.unlock(password: current) }
-            // The key stays the same, so files and the biometric item stay valid.
-            try await offMain { try keys.rewrap(newPassword: new) }
-        } catch {
-            throw Self.lockError(from: error)
-        }
+        fatalError("Not implemented: LiveVaultLock.changePassword (feature multiple-vaults-duress-password)")
     }
-
-    func switchMode(to mode: LockMode) async throws {
-        let current = preferences.lockMode
-        // Adding or removing the lock goes through the migration (`prepareToAddLock` / `removeKeysAfterDecryption`).
-        guard mode != .none, current != .none else { throw VaultLockError.notUnlocked }
-        guard mode != current else { return }
-        let keys = masterKeys
-        if mode == .passwordAndBiometrics {
-            guard keys.isKeyLoaded else { throw VaultLockError.notUnlocked }
-            guard biometricInfo.isAvailable else { throw VaultLockError.biometricsUnavailable }
-            do {
-                try await offMain { try keys.storeBiometricKey() }
-            } catch {
-                throw Self.lockError(from: error)
-            }
-            preferences.lockMode = mode
-        } else {
-            preferences.lockMode = mode
-            // A leftover item is harmless once the mode is password; the error is still reported.
-            do {
-                try await offMain { try keys.deleteBiometricKey() }
-            } catch {
-                throw Self.lockError(from: error)
-            }
-        }
+    func setUsesBiometrics(_ enabled: Bool) async throws {
+        fatalError("Not implemented: LiveVaultLock.setUsesBiometrics (feature multiple-vaults-duress-password)")
     }
-
-    // MARK: - Removing the lock
-
-    func removeKeysAfterDecryption() async throws {
-        defer { refreshState() }
-        let keys = masterKeys
-        // Each step is idempotent; a failure stops here and the next call redoes the remaining steps.
-        do {
-            try await offMain { try keys.deleteBiometricKey() }
-            preferences.lockMode = .none
-            try await offMain { try keys.deleteMasterKeyBlob() }
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        keys.wipeKey()
-        await deleteLegacyPasswordItem()
+    func deleteCurrentVault(password: String) async throws {
+        fatalError("Not implemented: LiveVaultLock.deleteCurrentVault (feature multiple-vaults-duress-password)")
     }
-
-    // MARK: - Helpers
-
-    /// Sets the state from the lock mode and whether the key is loaded; publishes only a change.
-    private func refreshState() {
-        state = LockState(lockMode: preferences.lockMode, keyLoaded: masterKeys.isKeyLoaded)
+    func openTransferTarget(password: String) async throws -> OpenVault {
+        fatalError("Not implemented: LiveVaultLock.openTransferTarget (feature multiple-vaults-duress-password)")
     }
-
-    /// Deletes the old plaintext password item; a failure is logged and otherwise ignored.
-    private func deleteLegacyPasswordItem() async {
-        let keychain = keychain
-        do {
-            try await offMain { try keychain.delete(account: Self.legacyPasswordAccount) }
-        } catch {
-            Self.logger.error(
-                "Deleting the legacy password item failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    /// Deletes the biometric item where a failure must not stop the caller; the failure is logged.
-    private func deleteBiometricKeyLogging(_ what: StaticString) async {
-        do {
-            try await offMain { [masterKeys] in try masterKeys.deleteBiometricKey() }
-        } catch {
-            Self.logger.error(
-                "Deleting the \(what, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    /// Runs blocking Keychain and key-derivation work off the main actor.
-    private func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(priority: .userInitiated) { try work() }.value
-    }
-
-    /// Maps a key-store error to the lock's error.
-    ///
-    /// Key-store failures with no lock equivalent (corrupt blob, invalid key data, a crypto failure, an
-    /// existing key) surface as a Keychain error with the closest Security status.
-    private static func lockError(from error: any Error) -> VaultLockError {
-        guard let error = error as? VaultCryptoError else {
-            return (error as? VaultLockError) ?? .keychain(errSecInternalError)
-        }
-        if let biometricError = biometricLockError(from: error) { return biometricError }
-        switch error {
-        case .wrongPassword: return .wrongPassword
-        case .emptyPassword: return .emptyPassword
-        case .noMasterKeyBlob: return .passwordMissing
-        case .noKeyLoaded: return .notUnlocked
-        case .keychain(let status): return .keychain(status)
-        case .masterKeyAlreadyExists: return .keychain(errSecDuplicateItem)
-        default: return .keychain(errSecDecode)
-        }
-    }
-
-    /// The lock error for a biometric key-store error, or nil for any other error.
-    private static func biometricLockError(from error: VaultCryptoError) -> VaultLockError? {
-        switch error {
-        case .biometricCancelled: return .biometricCancelled
-        case .biometricItemMissing: return .biometricChanged
-        case .biometryLockedOut: return .biometryLockedOut
-        case .biometryNotEnrolled: return .biometryNotEnrolled
-        case .passcodeNotSet: return .passcodeNotSet
-        default: return nil
-        }
+    func closeTransferTarget(_ vault: OpenVault) {
+        fatalError("Not implemented: LiveVaultLock.closeTransferTarget (feature multiple-vaults-duress-password)")
     }
 }
 

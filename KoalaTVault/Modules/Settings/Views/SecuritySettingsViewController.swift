@@ -231,15 +231,9 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
                 Task { await viewModel.submitNewPassword(password, confirm: confirm) }
             }
         case .existingPassword:
-            alert = UIAlertController(
-                title: "Enter Existing Password", message: VaultLockError.existingPasswordRequired.localizedDescription,
-                preferredStyle: .alert)
-            addSecureField(to: alert, placeholder: "Existing password", identifier: "settings.existingPasswordField")
-            addCancelAction(to: alert)
-            alert.addClosingAction(title: "Continue", style: .default) { [viewModel, weak alert] in
-                let password = alert?.textFields?[0].text ?? ""
-                Task { await viewModel.submitExistingPassword(password) }
-            }
+            fatalError(
+                "Not implemented: SecuritySettingsViewController existing-password prompt "
+                    + "(feature multiple-vaults-duress-password)")
         }
         presentFromSettings(alert, animated: false)
     }

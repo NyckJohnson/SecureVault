@@ -821,7 +821,7 @@ the upgrade clearing it.
   - Plaintext → plaintext and encrypted → encrypted transfers work the same way (content always goes through `open`).
   - errorDescription (logic in `Contracts/`; one asserting test per case): limitReached "The other vault would have more
     than 100 files."; sameVault "These items are already in this vault."
-- Contract: (new; generated after the skeleton)
+- Contract: see `docs/api/VaultTransfer.md` (generated; do not edit by hand)
 
 ### Media
 - Purpose: thumbnails for the grid and streaming encrypted video to AVPlayer without writing plaintext to disk.

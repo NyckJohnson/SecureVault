@@ -53,6 +53,11 @@ extension LiveVaultStore {
         return result
     }
 
+    func itemsToEncrypt() throws -> [VaultItem] {
+        // feature multiple-vaults-duress-password: signature updated (was `itemsToMigrate(toEncrypted: true)`)
+        try itemsToMigrate(toEncrypted: true)
+    }
+
     func hasUnencryptedFiles() throws -> Bool {
         try !itemsToMigrate(toEncrypted: true).isEmpty
     }
@@ -446,31 +451,7 @@ extension LiveVaultStore {
     // MARK: - Finish
 
     func finishDecryption() throws {
-        let mode = try beginOperation()
-        // Judged by each file's header, so an entry's wrong flag neither hides nor invents an encrypted file.
-        let map = try correctedTrashMap(trashMap.read(mode: mode))
-        var folders: [VaultDirectory] = []
-        var remaining = 0
-        try forEachListing(trash: map, mode: mode) { folder, items in
-            folders.append(folder)
-            for item in items where !item.isDirectory {
-                if try realForm(of: item) == .encrypted { remaining += 1 }
-            }
-        }
-        remaining += trashItems(map: map).filter { $0.isEncrypted && !$0.isDirectory }.count
-        guard remaining == 0 else { throw VaultStoreError.stillEncrypted(count: remaining) }
-        // Staging files of interrupted trash conversions: their originals are intact and now plaintext.
-        let trashNames = (try? FileManager.default.contentsOfDirectory(atPath: trashMap.folderURL.path)) ?? []
-        for name in trashNames where name.hasPrefix(".") && name.hasSuffix(Self.stagingSuffix) {
-            try removeFile(trashMap.folderURL.appendingPathComponent(name))
-        }
-        if trashMap.exists {
-            try trashMap.write(map, mode: VaultOperationMode(isEncrypted: false, keyLoaded: mode.keyLoaded))
-        }
-        for folder in folders {
-            let url = folder.diskURL.appendingPathComponent(VaultIndex.fileName)
-            if FileManager.default.fileExists(atPath: url.path) { try removeFile(url) }
-        }
+        fatalError("Not implemented: LiveVaultStore.finishDecryption (feature multiple-vaults-duress-password)")
     }
 
     /// Seals every index older builds left as plaintext JSON: each `.vault_map` under the root (and in folders

@@ -26,7 +26,9 @@ import UIKit
         return Rig(factory: factory, migrator: migrator, store: store, pro: pro, restored: restored)
     }
 
-    @Test("makeSettings returns a form-sheet navigation controller rooted at the security settings")
+    @Test(
+        "makeSettings returns a form-sheet navigation controller rooted at the security settings",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func settingsIsNavigationFormSheet() throws {
         let screen = makeRig().factory.makeSettings()
         let navigation = try #require(screen as? UINavigationController)
@@ -53,28 +55,36 @@ import UIKit
         #expect(unlocked.values.count == 1)
     }
 
-    @Test("makeMigration is titled Decrypting Files when a decrypt migration is pending")
+    @Test(
+        "makeMigration is titled Decrypting Files when a decrypt migration is pending",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func migrationUsesPendingDecrypt() {
         let rig = makeRig(pending: PendingMigration(kind: .decrypt, targetLockMode: nil))
         let host = SettingsViewHost.presenting(rig.factory.makeMigration(onFinish: { _ in }))
         #expect((host.element("migration.titleLabel") as? UILabel)?.text == "Decrypting Files")
     }
 
-    @Test("makeMigration is titled Encrypting Files when a migration is pending encrypt")
+    @Test(
+        "makeMigration is titled Encrypting Files when a migration is pending encrypt",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func migrationUsesPendingEncrypt() {
         let rig = makeRig(pending: PendingMigration(kind: .encrypt, targetLockMode: .password))
         let host = SettingsViewHost.presenting(rig.factory.makeMigration(onFinish: { _ in }))
         #expect((host.element("migration.titleLabel") as? UILabel)?.text == "Encrypting Files")
     }
 
-    @Test("makeMigration is titled Encrypting Files when no migration is pending")
+    @Test(
+        "makeMigration is titled Encrypting Files when no migration is pending",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func migrationDefaultsToEncrypt() {
         let rig = makeRig(pending: nil)
         let host = SettingsViewHost.presenting(rig.factory.makeMigration(onFinish: { _ in }))
         #expect((host.element("migration.titleLabel") as? UILabel)?.text == "Encrypting Files")
     }
 
-    @Test("Finishing the migration calls onFinish with the completed flag", arguments: [true, false])
+    @Test(
+        "Finishing the migration calls onFinish with the completed flag",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"), arguments: [true, false])
     func migrationFinishReportsFlag(fully: Bool) async {
         let rig = makeRig()
         let finished = SettingsRecorder<Bool>()
@@ -88,7 +98,9 @@ import UIKit
         withExtendedLifetime(host) {}
     }
 
-    @Test("Restoring from Recently Deleted inside the settings calls the factory's onRestore")
+    @Test(
+        "Restoring from Recently Deleted inside the settings calls the factory's onRestore",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func restoreCallsOnRestore() async throws {
         let store = MockVaultStoring(withSampleContent: false)
         let source = URL(fileURLWithPath: "/nonexistent/source")

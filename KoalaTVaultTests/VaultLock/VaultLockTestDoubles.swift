@@ -144,6 +144,7 @@ final class LoggingPreferences: PreferencesStoring {
         var sortOption = SortOption.name
         var sortDirection = SortDirection.ascending
         var pendingMigration: PendingMigration?
+        var vaultsUpgraded = false
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -186,6 +187,12 @@ final class LoggingPreferences: PreferencesStoring {
         get { state.withLock { $0.pendingMigration } }
         set { state.withLock { $0.pendingMigration = newValue } }
     }
+
+    // feature multiple-vaults-duress-password: signature updated
+    var vaultsUpgraded: Bool {
+        get { state.withLock { $0.vaultsUpgraded } }
+        set { state.withLock { $0.vaultsUpgraded = newValue } }
+    }
 }
 
 /// A biometric probe whose answer tests set.
@@ -222,71 +229,74 @@ final class FakeBiometricProbe: BiometricProbing {
     }
 }
 
-/// Collects what `stateUpdates()` publishes.
-@MainActor
-final class LockStateCollector {
-    private(set) var values: [LockState] = []
-    private var task: Task<Void, Never>?
+// feature multiple-vaults-duress-password: rebuilt in VaultLock unit 1 (these helpers drive the removed lock-mode API).
+#if false
+    /// Collects what `stateUpdates()` publishes.
+    @MainActor
+    final class LockStateCollector {
+        private(set) var values: [LockState] = []
+        private var task: Task<Void, Never>?
 
-    init(_ stream: AsyncStream<LockState>) {
-        task = Task { [weak self] in
-            for await state in stream { self?.values.append(state) }
+        init(_ stream: AsyncStream<LockState>) {
+            task = Task { [weak self] in
+                for await state in stream { self?.values.append(state) }
+            }
         }
-    }
 
-    /// Lets queued deliveries run so `values` is up to date.
-    func settle() async {
-        for _ in 0..<60 { await Task.yield() }
-    }
-
-    func stop() { task?.cancel() }
-}
-
-/// Everything a LiveVaultLock test needs, wired with doubles.
-@MainActor
-struct VaultLockHarness {
-    let log = VaultLockEventLog()
-    let keys: ScriptedMasterKeys
-    let prefs: LoggingPreferences
-    let keychain = MockKeychainAccessing()
-    let store = MockVaultStoring(withSampleContent: false)
-    let probe: FakeBiometricProbe
-    let encryptedData = VaultLockFlag(false)
-    let lock: LiveVaultLock
-
-    /// - Parameters:
-    ///   - lockMode: the stored lock mode at launch.
-    ///   - blobPassword: the password wrapping the existing blob; nil for no blob.
-    ///   - unlocked: whether the key is loaded and the lock already unlocked at the start.
-    init(
-        lockMode: LockMode = .none,
-        blobPassword: String? = nil,
-        hasBiometricKey: Bool = false,
-        biometricKind: BiometricKind = .faceID,
-        biometricsEnabled: Bool = true,
-        vaultHasEncryptedData: Bool = false,
-        keyMatchesVault: Bool = true,
-        unlocked: Bool = false
-    ) async throws {
-        keys = ScriptedMasterKeys(
-            log: log, password: blobPassword, keyLoaded: false, hasBiometricKey: hasBiometricKey)
-        prefs = LoggingPreferences(log: log, lockMode: lockMode)
-        probe = FakeBiometricProbe(kind: biometricKind, canEvaluate: biometricsEnabled)
-        encryptedData.value = vaultHasEncryptedData
-        store.keyMatches = keyMatchesVault
-        let flag = encryptedData
-        lock = LiveVaultLock(
-            masterKeys: keys,
-            keychain: keychain,
-            preferences: prefs,
-            store: store,
-            biometricInfo: BiometricInfo(probe: probe),
-            vaultHoldsEncryptedData: { flag.value })
-        if unlocked, let blobPassword {
-            try await lock.unlock(password: blobPassword)
+        /// Lets queued deliveries run so `values` is up to date.
+        func settle() async {
+            for _ in 0..<60 { await Task.yield() }
         }
+
+        func stop() { task?.cancel() }
     }
 
-    /// Events recorded since the start, ignoring the ones from the harness' own unlock.
-    func events(after count: Int = 0) -> [String] { Array(log.events.dropFirst(count)) }
-}
+    /// Everything a LiveVaultLock test needs, wired with doubles.
+    @MainActor
+    struct VaultLockHarness {
+        let log = VaultLockEventLog()
+        let keys: ScriptedMasterKeys
+        let prefs: LoggingPreferences
+        let keychain = MockKeychainAccessing()
+        let store = MockVaultStoring(withSampleContent: false)
+        let probe: FakeBiometricProbe
+        let encryptedData = VaultLockFlag(false)
+        let lock: LiveVaultLock
+
+        /// - Parameters:
+        ///   - lockMode: the stored lock mode at launch.
+        ///   - blobPassword: the password wrapping the existing blob; nil for no blob.
+        ///   - unlocked: whether the key is loaded and the lock already unlocked at the start.
+        init(
+            lockMode: LockMode = .none,
+            blobPassword: String? = nil,
+            hasBiometricKey: Bool = false,
+            biometricKind: BiometricKind = .faceID,
+            biometricsEnabled: Bool = true,
+            vaultHasEncryptedData: Bool = false,
+            keyMatchesVault: Bool = true,
+            unlocked: Bool = false
+        ) async throws {
+            keys = ScriptedMasterKeys(
+                log: log, password: blobPassword, keyLoaded: false, hasBiometricKey: hasBiometricKey)
+            prefs = LoggingPreferences(log: log, lockMode: lockMode)
+            probe = FakeBiometricProbe(kind: biometricKind, canEvaluate: biometricsEnabled)
+            encryptedData.value = vaultHasEncryptedData
+            store.keyMatches = keyMatchesVault
+            let flag = encryptedData
+            lock = LiveVaultLock(
+                masterKeys: keys,
+                keychain: keychain,
+                preferences: prefs,
+                store: store,
+                biometricInfo: BiometricInfo(probe: probe),
+                vaultHoldsEncryptedData: { flag.value })
+            if unlocked, let blobPassword {
+                try await lock.unlock(password: blobPassword)
+            }
+        }
+
+        /// Events recorded since the start, ignoring the ones from the harness' own unlock.
+        func events(after count: Int = 0) -> [String] { Array(log.events.dropFirst(count)) }
+    }
+#endif

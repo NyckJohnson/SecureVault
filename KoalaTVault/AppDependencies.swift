@@ -237,6 +237,8 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     let delay: Duration
 
     var root: VaultDirectory { base.root }
+    // feature multiple-vaults-duress-password: forwards the members `VaultStoring` gained.
+    var isEncrypted: Bool { base.isEncrypted }
 
     /// Waits before a file's migration. A cancelled wait just migrates sooner.
     private func waitBeforeMigrating() async {
@@ -250,11 +252,6 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     func migrateToEncrypted(_ item: VaultItem) async throws {
         await waitBeforeMigrating()
         try await base.migrateToEncrypted(item)
-    }
-
-    func migrateToDecrypted(_ item: VaultItem) async throws {
-        await waitBeforeMigrating()
-        try await base.migrateToDecrypted(item)
     }
 
     func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem] {
@@ -280,6 +277,7 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { try await base.rename(item, to: name) }
     func moveToTrash(_ item: VaultItem) async throws { try await base.moveToTrash(item) }
+    func remove(_ item: VaultItem) async throws { try await base.remove(item) }
     func trashContents() async throws -> [VaultItem] { try await base.trashContents() }
     func restore(_ trashed: VaultItem) async throws -> VaultItem { try await base.restore(trashed) }
     func deletePermanently(_ trashed: VaultItem) async throws { try await base.deletePermanently(trashed) }
@@ -288,10 +286,7 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     func hasUnreadableTrash() async -> Bool { await base.hasUnreadableTrash() }
     func clearUnreadableTrash() async throws { try await base.clearUnreadableTrash() }
     func countFiles() async throws -> Int { try await base.countFiles() }
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
-        try await base.itemsToMigrate(toEncrypted: toEncrypted)
-    }
-    func finishDecryption() async throws { try await base.finishDecryption() }
+    func itemsToEncrypt() async throws -> [VaultItem] { try await base.itemsToEncrypt() }
     func finishEncryption() async throws { try await base.finishEncryption() }
     func hasUnencryptedFiles() async throws -> Bool { try await base.hasUnencryptedFiles() }
     func keyMatchesVault() async -> Bool { await base.keyMatchesVault() }
@@ -583,7 +578,8 @@ final class AppDependencies {
 
         if let pending = settings.pendingMigration {
             preferences.pendingMigration = MigrationKind(rawValue: pending).map {
-                PendingMigration(kind: $0, targetLockMode: vaultLock.lockMode)
+                // feature multiple-vaults-duress-password: signature updated (was `vaultLock.lockMode`)
+                PendingMigration(kind: $0, targetLockMode: preferences.lockMode)
             }
         }
         if settings.plaintextIndex {

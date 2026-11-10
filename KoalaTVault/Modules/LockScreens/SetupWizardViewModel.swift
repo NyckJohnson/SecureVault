@@ -106,18 +106,6 @@ final class SetupWizardViewModel: ObservableObject {
     }
 
     private func setUp(password: String?) async {
-        isBusy = true
-        errorMessage = nil
-        do {
-            try await lock.setUp(mode: selectedOption.lockMode, password: password)
-        } catch {
-            isBusy = false
-            errorMessage = error.localizedDescription
-            return
-        }
-        isBusy = false
-        preferences.hasCompletedSetup = true
-        isFinished = true
-        onFinished?()
+        fatalError("Not implemented: SetupWizardViewModel.setUp (feature multiple-vaults-duress-password)")
     }
 }

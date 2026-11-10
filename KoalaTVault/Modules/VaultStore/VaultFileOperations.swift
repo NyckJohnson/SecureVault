@@ -199,6 +199,10 @@ extension LiveVaultStore {
 
     // MARK: - Rename
 
+    func remove(_ item: VaultItem) throws {
+        fatalError("Not implemented: LiveVaultStore.remove (feature multiple-vaults-duress-password)")
+    }
+
     func rename(_ item: VaultItem, to name: String) throws -> VaultItem {
         try VaultNaming.validateUserName(name)
         let mode = try beginOperation()

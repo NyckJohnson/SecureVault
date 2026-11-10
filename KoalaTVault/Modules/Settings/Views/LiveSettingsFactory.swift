@@ -48,10 +48,7 @@ final class LiveSettingsFactory: SettingsFactory {
     /// recorded). The caller resumes the migration (`resumeIfPending()`) once the screen is shown, so a
     /// `.completed` phase left by an earlier migration is not taken for this one's end.
     func makeMigration(onFinish: @escaping (Bool) -> Void) -> UIViewController {
-        let callback = MainActorCallback(onFinish)
-        return MigrationViewController(
-            kind: migrator.pending?.kind ?? .encrypt, migrator: migrator, waitsForNewRun: true,
-            onFinish: { callback.action($0) })
+        fatalError("Not implemented: LiveSettingsFactory.makeMigration (feature multiple-vaults-duress-password)")
     }
 }
 

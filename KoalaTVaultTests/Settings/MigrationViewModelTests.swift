@@ -64,14 +64,18 @@ import Testing
         task.cancel()
     }
 
-    @Test("A paused phase shows Paused — unlock to continue")
+    @Test(
+        "A paused phase shows Paused — unlock to continue",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 1"))
     func pausedStatus() async {
-        let rig = makeRig()
-        let task = await startRunning(rig)
-        rig.migrator.send(.paused(done: 3, total: 10))
-        await SettingsTestSupport.waitUntil { rig.viewModel.statusText == "Paused — unlock to continue" }
-        #expect(rig.viewModel.statusText == "Paused — unlock to continue")
-        task.cancel()
+        #if false
+            let rig = makeRig()
+            let task = await startRunning(rig)
+            rig.migrator.send(.paused(done: 3, total: 10))
+            await SettingsTestSupport.waitUntil { rig.viewModel.statusText == "Paused — unlock to continue" }
+            #expect(rig.viewModel.statusText == "Paused — unlock to continue")
+            task.cancel()
+        #endif
     }
 
     @Test("A completed phase shows Complete")
@@ -103,9 +107,10 @@ import Testing
         task.cancel()
     }
 
+    // feature multiple-vaults-duress-password: signature updated (`MigrationPhase.paused` is gone, so it left the arguments)
     @Test(
         "Background time is not wanted once the migration is paused, failed or completed",
-        arguments: [MigrationPhase.paused(done: 1, total: 4), .failed(names: ["a.jpg"]), .completed(fully: true)]
+        arguments: [MigrationPhase.failed(names: ["a.jpg"]), .completed(fully: true)]
     )
     func noBackgroundTimeAfterStopping(phase: MigrationPhase) async {
         let rig = makeRig(phase: .running(done: 1, total: 4))
@@ -236,20 +241,24 @@ import Testing
         task.cancel()
     }
 
-    @Test("Paused, running, then completed finishes exactly once")
+    @Test(
+        "Paused, running, then completed finishes exactly once",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 1"))
     func pausedRunningCompletedFinishesOnce() async {
-        let rig = makeRig()
-        let task = await startRunning(rig)
-        rig.migrator.send(.running(done: 1, total: 4))
-        rig.migrator.send(.paused(done: 1, total: 4))
-        rig.migrator.send(.running(done: 2, total: 4))
-        rig.migrator.send(.completed(fully: true))
-        await SettingsTestSupport.waitUntil { rig.sleeper.pendingCount == 1 }
-        rig.sleeper.advance()
-        await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
-        await SettingsTestSupport.settle()
-        #expect(rig.finished.values == [true])
-        task.cancel()
+        #if false
+            let rig = makeRig()
+            let task = await startRunning(rig)
+            rig.migrator.send(.running(done: 1, total: 4))
+            rig.migrator.send(.paused(done: 1, total: 4))
+            rig.migrator.send(.running(done: 2, total: 4))
+            rig.migrator.send(.completed(fully: true))
+            await SettingsTestSupport.waitUntil { rig.sleeper.pendingCount == 1 }
+            rig.sleeper.advance()
+            await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
+            await SettingsTestSupport.settle()
+            #expect(rig.finished.values == [true])
+            task.cancel()
+        #endif
     }
 
     @Test("Nothing finishes while the migration is running, paused or failed")
@@ -257,7 +266,7 @@ import Testing
         let rig = makeRig()
         let task = await startRunning(rig)
         rig.migrator.send(.running(done: 1, total: 4))
-        rig.migrator.send(.paused(done: 1, total: 4))
+        // feature multiple-vaults-duress-password: signature updated (`MigrationPhase.paused` is gone, so it is no longer sent)
         rig.migrator.send(.failed(names: ["a.jpg"]))
         await SettingsTestSupport.settle()
         #expect(rig.sleeper.requestedDurations.isEmpty)

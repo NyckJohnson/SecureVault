@@ -14,4 +14,6 @@ protocol PreferencesStoring: AnyObject, Sendable {
     var sortDirection: SortDirection { get set }
     /// The lock migration in progress, if any.
     var pendingMigration: PendingMigration? { get set }
+    /// Whether the one-time upgrade to multiple vaults has run.
+    var vaultsUpgraded: Bool { get set }
 }

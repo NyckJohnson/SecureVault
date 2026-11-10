@@ -24,7 +24,6 @@
 - `VaultStoreError: case locked`
 - `VaultStoreError: case moveIntoItself`
 - `VaultStoreError: case notFound`
-- `VaultStoreError: case stillEncrypted(count: Int)`
 - `VaultStoreError: var errorDescription: String?`
 - `VaultStoring: func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem`
 - `VaultStoring: func clearUnreadableTrash() async throws`
@@ -36,19 +35,18 @@
 - `VaultStoring: func deletePermanently(_ trashed: VaultItem) async throws`
 - `VaultStoring: func emptyTrash() async`
 - `VaultStoring: func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem?`
-- `VaultStoring: func finishDecryption() async throws`
 - `VaultStoring: func finishEncryption() async throws`
 - `VaultStoring: func hasUnencryptedFiles() async throws -> Bool`
 - `VaultStoring: func hasUnreadableTrash() async -> Bool`
-- `VaultStoring: func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]`
+- `VaultStoring: func itemsToEncrypt() async throws -> [VaultItem]`
 - `VaultStoring: func keyMatchesVault() async -> Bool`
 - `VaultStoring: func makeTempDirectory() throws -> URL`
-- `VaultStoring: func migrateToDecrypted(_ item: VaultItem) async throws`
 - `VaultStoring: func migrateToEncrypted(_ item: VaultItem) async throws`
 - `VaultStoring: func move(_ item: VaultItem, to directory: VaultDirectory) async throws`
 - `VaultStoring: func moveToTrash(_ item: VaultItem) async throws`
 - `VaultStoring: func open(_ item: VaultItem) async throws -> URL`
 - `VaultStoring: func purgeExpiredTrash(now: Date) async throws -> Int`
+- `VaultStoring: func remove(_ item: VaultItem) async throws`
 - `VaultStoring: func removeAllTemporaryFiles()`
 - `VaultStoring: func removeTemporary(_ url: URL)`
 - `VaultStoring: func rename(_ item: VaultItem, to name: String) async throws -> VaultItem`
@@ -56,6 +54,7 @@
 - `VaultStoring: func sweepOrphans() async`
 - `VaultStoring: func trashContents() async throws -> [VaultItem]`
 - `VaultStoring: func write(_ data: Data, to item: VaultItem) async throws`
+- `VaultStoring: var isEncrypted: Bool`
 - `VaultStoring: var root: VaultDirectory`
 - `enum FileKind: String, Sendable, Codable, CaseIterable`
 - `enum VaultStoreError: Error, Equatable, Sendable`

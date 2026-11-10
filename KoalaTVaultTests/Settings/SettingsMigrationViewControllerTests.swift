@@ -66,12 +66,16 @@ import UIKit
         #expect((rig.host.element("migration.progressBar") as? UIProgressView)?.progress == 0.5)
     }
 
-    @Test("A paused migration shows Paused — unlock to continue")
+    @Test(
+        "A paused migration shows Paused — unlock to continue",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func pausedStatus() async {
-        let rig = makeRig()
-        rig.migrator.send(.paused(done: 2, total: 10))
-        await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
-        #expect(status(rig) == "Paused — unlock to continue")
+        #if false
+            let rig = makeRig()
+            rig.migrator.send(.paused(done: 2, total: 10))
+            await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
+            #expect(status(rig) == "Paused — unlock to continue")
+        #endif
     }
 
     // MARK: - Failure alert
@@ -154,28 +158,32 @@ import UIKit
 
     // MARK: - Reappearing
 
-    @Test("A paused migration whose screen disappears and appears again is not started again")
+    @Test(
+        "A paused migration whose screen disappears and appears again is not started again",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func reappearingWhilePausedDoesNotRestart() async {
-        let rig = makeRig()
-        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
-        rig.migrator.send(.paused(done: 2, total: 10))
-        await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
-        func runs() -> Int {
-            rig.migrator.calls.filter {
-                if case .start = $0 { return true }
-                return $0 == .resumeIfPending
-            }.count
-        }
-        let before = runs()
-        let cover = UIViewController()
-        cover.modalPresentationStyle = .fullScreen
-        rig.host.topmost.present(cover, animated: false)
-        await SettingsTestSupport.settle()
-        cover.dismiss(animated: false)
-        await SettingsTestSupport.waitUntil { rig.host.topmost !== cover }
-        await SettingsTestSupport.settle()
-        #expect(runs() == before)
-        #expect(status(rig) == "Paused — unlock to continue")
+        #if false
+            let rig = makeRig()
+            await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
+            rig.migrator.send(.paused(done: 2, total: 10))
+            await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
+            func runs() -> Int {
+                rig.migrator.calls.filter {
+                    if case .start = $0 { return true }
+                    return $0 == .resumeIfPending
+                }.count
+            }
+            let before = runs()
+            let cover = UIViewController()
+            cover.modalPresentationStyle = .fullScreen
+            rig.host.topmost.present(cover, animated: false)
+            await SettingsTestSupport.settle()
+            cover.dismiss(animated: false)
+            await SettingsTestSupport.waitUntil { rig.host.topmost !== cover }
+            await SettingsTestSupport.settle()
+            #expect(runs() == before)
+            #expect(status(rig) == "Paused — unlock to continue")
+        #endif
     }
 
     // MARK: - Background time
@@ -199,15 +207,19 @@ import UIKit
         #expect(rig.background.begun.isEmpty)
     }
 
-    @Test("Pausing ends the background task that running began")
+    @Test(
+        "Pausing ends the background task that running began",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func pauseEndsBackground() async {
-        let rig = makeRig()
-        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
-        rig.migrator.send(.running(done: 1, total: 10))
-        await SettingsTestSupport.waitUntil { rig.background.begun.count == 1 }
-        rig.migrator.send(.paused(done: 1, total: 10))
-        await SettingsTestSupport.waitUntil { rig.background.ended.count == 1 }
-        #expect(rig.background.ended == rig.background.begun)
+        #if false
+            let rig = makeRig()
+            await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
+            rig.migrator.send(.running(done: 1, total: 10))
+            await SettingsTestSupport.waitUntil { rig.background.begun.count == 1 }
+            rig.migrator.send(.paused(done: 1, total: 10))
+            await SettingsTestSupport.waitUntil { rig.background.ended.count == 1 }
+            #expect(rig.background.ended == rig.background.begun)
+        #endif
     }
 
     @Test("A failure ends the background task, and running again begins a new one")

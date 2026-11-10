@@ -27,7 +27,8 @@ final class LockScreenViewModel: ObservableObject {
 
     /// True in biometric mode with biometrics available.
     var showsBiometricButton: Bool {
-        lock.lockMode == .passwordAndBiometrics && lock.biometricsAvailable
+        fatalError(
+            "Not implemented: LockScreenViewModel.showsBiometricButton (feature multiple-vaults-duress-password)")
     }
 
     /// The biometric button's title, naming the device's biometric kind.
@@ -55,46 +56,18 @@ final class LockScreenViewModel: ObservableObject {
 
     /// Unlocks with biometrics. A cancelled prompt shows nothing.
     func biometricTapped() async {
-        guard !isBusy else { return }
-        isBusy = true
-        do {
-            try await lock.unlockWithBiometrics()
-        } catch {
-            isBusy = false
-            if let message = biometricMessage(for: error) { show(message) }
-            return
-        }
-        isBusy = false
-        onUnlocked?()
+        fatalError("Not implemented: LockScreenViewModel.biometricTapped (feature multiple-vaults-duress-password)")
     }
 
     /// Unlocks with the field's password; an empty one is ignored.
     func unlockTapped() async {
-        guard !isBusy, !password.isEmpty else { return }
-        isBusy = true
-        let password = password
-        // Decided before `unlock` runs, so nothing the unlock changes can alter the answer.
-        let addsPendingLock = needsPendingLock
-        do {
-            // Unlock first: a mistyped password must fail here, before it can replace the saved one.
-            try await lock.unlock(password: password)
-            if addsPendingLock {
-                try await lock.prepareToAddLock(mode: .password, password: password)
-            }
-        } catch {
-            isBusy = false
-            show(error.localizedDescription)
-            return
-        }
-        isBusy = false
-        self.password = ""
-        onUnlocked?()
+        fatalError("Not implemented: LockScreenViewModel.unlockTapped (feature multiple-vaults-duress-password)")
     }
 
     /// An encrypt migration can be pending with no lock mode saved. The lock is added as `.password`
     /// whatever the record's target: the migration switches to the target at its end.
     private var needsPendingLock: Bool {
-        lock.lockMode == .none && preferences.pendingMigration?.kind == .encrypt
+        fatalError("Not implemented: LockScreenViewModel.needsPendingLock (feature multiple-vaults-duress-password)")
     }
 
     private func biometricMessage(for error: any Error) -> String? {

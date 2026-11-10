@@ -73,14 +73,7 @@ final class SecuritySettingsViewModel: ObservableObject {
         lock: any VaultLocking, migrator: any LockMigrating, store: any VaultStoring, pro: any ProUnlocking,
         alerts: any AlertPresenting, onShowMigration: @escaping @MainActor () -> Void
     ) {
-        self.lock = lock
-        self.migrator = migrator
-        self.store = store
-        self.pro = pro
-        self.alerts = alerts
-        self.onShowMigration = onShowMigration
-        currentMode = lock.lockMode
-        isProUnlocked = pro.isUnlocked
+        fatalError("Not implemented: SecuritySettingsViewModel.init (feature multiple-vaults-duress-password)")
     }
 
     // MARK: - Rows
@@ -117,25 +110,14 @@ final class SecuritySettingsViewModel: ObservableObject {
 
     /// Re-reads the lock mode and whether any file is unencrypted. Call on appearing.
     func reload() async {
-        // Locked or unreadable counts as "nothing to re-encrypt", as the screen has always done.
-        let hasUnencryptedFiles = (try? await store.hasUnencryptedFiles()) ?? false
-        currentMode = lock.lockMode
-        showsReencrypt = currentMode != .none && hasUnencryptedFiles
+        fatalError("Not implemented: SecuritySettingsViewModel.reload (feature multiple-vaults-duress-password)")
     }
 
     // MARK: - Choosing a lock mode
 
     /// The user chose a lock mode row.
     func select(_ mode: LockMode) async {
-        currentMode = lock.lockMode
-        guard mode != currentMode, isEnabled(mode), !refusedForMigrationUnderWay() else { return }
-        if mode == .none {
-            prompt = .removeLock
-        } else if currentMode == .none {
-            prompt = .newPassword(mode)
-        } else {
-            await switchMode(to: mode)
-        }
+        fatalError("Not implemented: SecuritySettingsViewModel.select (feature multiple-vaults-duress-password)")
     }
 
     /// The user dismissed the current prompt.
@@ -175,13 +157,8 @@ final class SecuritySettingsViewModel: ObservableObject {
 
     /// The user chose Re-encrypt Everything. The lock is already on; a pending encrypt's target is kept.
     func reencryptEverything() async {
-        let pending = migrator.pending
-        guard lock.lockMode != .none else { return }
-        guard !hasRunUnderWay, pending?.kind != .decrypt else {
-            showMigrationUnderWay()
-            return
-        }
-        await beginMigration(.encrypt, target: pending?.kind == .encrypt ? pending?.targetLockMode : nil)
+        fatalError(
+            "Not implemented: SecuritySettingsViewModel.reencryptEverything (feature multiple-vaults-duress-password)")
     }
 
     /// The migration screen reported its end. After adding Password + biometric, a full migration turns
@@ -228,17 +205,15 @@ final class SecuritySettingsViewModel: ObservableObject {
 
     /// A run exists when the migrator would ignore a new `start`.
     private var hasRunUnderWay: Bool {
-        switch migrator.phase {
-        case .running, .paused, .failed, .unreadableTrash: true
-        case .idle, .completed: false
-        }
+        fatalError(
+            "Not implemented: SecuritySettingsViewModel.hasRunUnderWay (feature multiple-vaults-duress-password)")
     }
 
     /// Shows why the lock can't change if a migration is under way or waiting to resume.
     private func refusedForMigrationUnderWay() -> Bool {
-        guard hasRunUnderWay || migrator.pending != nil else { return false }
-        showMigrationUnderWay()
-        return true
+        fatalError(
+            "Not implemented: SecuritySettingsViewModel.refusedForMigrationUnderWay (feature multiple-vaults-duress-password)"
+        )
     }
 
     private func showMigrationUnderWay() {
@@ -246,41 +221,19 @@ final class SecuritySettingsViewModel: ObservableObject {
     }
 
     private func switchMode(to mode: LockMode) async {
-        do {
-            try await lock.switchMode(to: mode)
-        } catch {
-            alerts?.showError(error)
-        }
-        currentMode = lock.lockMode
+        fatalError("Not implemented: SecuritySettingsViewModel.switchMode (feature multiple-vaults-duress-password)")
     }
 
     /// Adds the lock under the password alone, then encrypts under it. `migrationFinished` moves it to `target`
     /// if that is Password + biometric and every file was encrypted.
     private func addLock(ending target: LockMode, password: String, asksForExistingPassword: Bool) async {
-        guard !refusedForMigrationUnderWay() else { return }
-        isBusy = true
-        do {
-            try await lock.prepareToAddLock(mode: .password, password: password)
-        } catch VaultLockError.existingPasswordRequired where asksForExistingPassword {
-            isBusy = false
-            prompt = .existingPassword(target)
-            return
-        } catch {
-            isBusy = false
-            alerts?.showError(error)
-            return
-        }
-        isBusy = false
-        await beginMigration(.encrypt, target: .password, turnsOnBiometrics: target == .passwordAndBiometrics)
+        fatalError("Not implemented: SecuritySettingsViewModel.addLock (feature multiple-vaults-duress-password)")
     }
 
     /// Shows the screen first: `start` may not return until the migration ends, so `migrationFinished` can
     /// arrive before this returns.
     private func beginMigration(_ kind: MigrationKind, target: LockMode?, turnsOnBiometrics: Bool = false) async {
-        migrationKind = kind
-        turnsOnBiometricsAfterMigration = turnsOnBiometrics
-        onShowMigration()
-        await migrator.start(kind, target: target)
-        currentMode = lock.lockMode
+        fatalError(
+            "Not implemented: SecuritySettingsViewModel.beginMigration (feature multiple-vaults-duress-password)")
     }
 }

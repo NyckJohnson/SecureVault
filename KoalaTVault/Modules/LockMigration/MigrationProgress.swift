@@ -34,7 +34,9 @@ struct MigrationProgress: Sendable, Equatable {
     }
 
     var running: MigrationPhase { .running(done: done, total: total) }
-    var paused: MigrationPhase { .paused(done: done, total: total) }
+    var paused: MigrationPhase {
+        fatalError("Not implemented: MigrationProgress.paused (feature multiple-vaults-duress-password)")
+    }
     var failedPhase: MigrationPhase { .failed(names: failed.map(\.name)) }
 }
 

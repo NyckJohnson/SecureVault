@@ -12,6 +12,10 @@ import Foundation
 actor LiveVaultStore: VaultStoring {
     nonisolated let root: VaultDirectory
 
+    nonisolated var isEncrypted: Bool {
+        fatalError("Not implemented: LiveVaultStore.isEncrypted (feature multiple-vaults-duress-password)")
+    }
+
     let keyStore: any MasterKeyStoring
     let cipher: any FileCipher
     let preferences: any PreferencesStoring

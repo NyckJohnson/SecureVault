@@ -1,26 +1,26 @@
 import Foundation
 
-/// A lock migration that runs through a fixed number of files at once; records every call.
+/// An encryption of leftover files that runs through a fixed number of files at once; records every call.
 @MainActor
 final class MockLockMigrating: LockMigrating {
     /// A recorded call.
     enum Call: Equatable, Sendable {
         case phaseUpdates
-        case start(MigrationKind, target: LockMode?)
-        case resumeIfPending
+        case encryptLeftovers(root: String)
         case retryFailed
         case skipFailed
         case clearUnreadableTrash
+        case cancel
     }
 
     /// Every call so far, in order.
     private(set) var calls: [Call] = []
-    /// How many files a migration processes.
+    /// How many files a run processes.
     var fileCount: Int
     /// Display names of the files that fail on the first pass.
     var failingNames: [String]
     /// When true, a pass ends in `.unreadableTrash` instead of `.failed` or `.completed`;
-    /// `clearUnreadableTrash()` resets it and runs the migration again.
+    /// `clearUnreadableTrash()` resets it and runs again.
     var unreadableTrash: Bool
 
     private(set) var phase: MigrationPhase = .idle {
@@ -29,19 +29,14 @@ final class MockLockMigrating: LockMigrating {
             for continuation in continuations.values { continuation.yield(phase) }
         }
     }
-    private(set) var pending: PendingMigration?
 
     private var continuations: [UUID: AsyncStream<MigrationPhase>.Continuation] = [:]
 
-    /// A migration of `fileCount` files, of which `failingNames` fail, optionally already pending.
-    init(
-        fileCount: Int = 12, failingNames: [String] = [], unreadableTrash: Bool = false,
-        pending: PendingMigration? = nil
-    ) {
+    /// A run over `fileCount` files, of which `failingNames` fail.
+    init(fileCount: Int = 12, failingNames: [String] = [], unreadableTrash: Bool = false) {
         self.fileCount = fileCount
         self.failingNames = failingNames
         self.unreadableTrash = unreadableTrash
-        self.pending = pending
     }
 
     func phaseUpdates() -> AsyncStream<MigrationPhase> {
@@ -55,16 +50,9 @@ final class MockLockMigrating: LockMigrating {
         }
     }
 
-    func start(_ kind: MigrationKind, target: LockMode?) async {
-        calls.append(.start(kind, target: target))
-        guard !isRunning else { return }
-        pending = PendingMigration(kind: kind, targetLockMode: kind == .encrypt ? target : nil)
-        run()
-    }
-
-    func resumeIfPending() async {
-        calls.append(.resumeIfPending)
-        guard pending != nil, !isRunning else { return }
+    func encryptLeftovers(in store: any VaultStoring) async {
+        calls.append(.encryptLeftovers(root: store.root.name))
+        guard store.isEncrypted, !hasRun else { return }
         run()
     }
 
@@ -73,7 +61,6 @@ final class MockLockMigrating: LockMigrating {
         guard case .failed = phase else { return }
         failingNames = []
         phase = .completed(fully: true)
-        pending = nil
     }
 
     func skipFailed() async {
@@ -83,7 +70,6 @@ final class MockLockMigrating: LockMigrating {
         default: return
         }
         phase = .completed(fully: false)
-        pending = nil
     }
 
     func clearUnreadableTrash() async {
@@ -93,9 +79,17 @@ final class MockLockMigrating: LockMigrating {
         run()
     }
 
-    private var isRunning: Bool {
-        if case .running = phase { return true }
-        return false
+    func cancel() {
+        calls.append(.cancel)
+        phase = .idle
+    }
+
+    /// A run exists: running, failed or awaiting the unreadable-trash choice.
+    private var hasRun: Bool {
+        switch phase {
+        case .running, .failed, .unreadableTrash: true
+        default: false
+        }
     }
 
     private func run() {
@@ -106,7 +100,6 @@ final class MockLockMigrating: LockMigrating {
             phase = .unreadableTrash
         } else if failingNames.isEmpty {
             phase = .completed(fully: true)
-            pending = nil
         } else {
             phase = .failed(names: failingNames)
         }

@@ -7,6 +7,8 @@ import Foundation
 /// decrypted copy, under its display name, in a fresh folder of the store's temp area.
 final class ExportTestStore: VaultStoring, @unchecked Sendable {
     let root: VaultDirectory
+    // feature multiple-vaults-duress-password: signature updated
+    var isEncrypted: Bool { false }  // nothing in Export reads it
     /// Where `makeTempDirectory` folders live.
     let tempArea: URL
 
@@ -163,6 +165,8 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem { throw unsupported }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw unsupported }
     func moveToTrash(_ item: VaultItem) async throws { throw unsupported }
+    // feature multiple-vaults-duress-password: signature updated
+    func remove(_ item: VaultItem) async throws { throw unsupported }
     func trashContents() async throws -> [VaultItem] { throw unsupported }
     func restore(_ trashed: VaultItem) async throws -> VaultItem { throw unsupported }
     func deletePermanently(_ trashed: VaultItem) async throws { throw unsupported }
@@ -171,10 +175,9 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     func hasUnreadableTrash() async -> Bool { false }
     func clearUnreadableTrash() async throws { throw unsupported }
     func countFiles() async throws -> Int { throw unsupported }
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] { throw unsupported }
+    // feature multiple-vaults-duress-password: signature updated
+    func itemsToEncrypt() async throws -> [VaultItem] { throw unsupported }
     func migrateToEncrypted(_ item: VaultItem) async throws { throw unsupported }
-    func migrateToDecrypted(_ item: VaultItem) async throws { throw unsupported }
-    func finishDecryption() async throws { throw unsupported }
     func finishEncryption() async throws { throw unsupported }
     func hasUnencryptedFiles() async throws -> Bool { throw unsupported }
     func keyMatchesVault() async -> Bool { true }

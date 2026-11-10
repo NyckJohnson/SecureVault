@@ -70,6 +70,18 @@ final class UserDefaultsPreferences: PreferencesStoring {
             }
         }
     }
+
+    var vaultsUpgraded: Bool {
+        get {
+            fatalError(
+                "Not implemented: UserDefaultsPreferences.vaultsUpgraded (feature multiple-vaults-duress-password)")
+        }
+        set {
+            _ = newValue
+            fatalError(
+                "Not implemented: UserDefaultsPreferences.vaultsUpgraded (feature multiple-vaults-duress-password)")
+        }
+    }
 }
 
 private extension UserDefaults {

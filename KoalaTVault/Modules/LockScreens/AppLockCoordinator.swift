@@ -23,8 +23,6 @@ protocol LockPresenting: AnyObject {
 /// the vault lock's state, and recovers an interrupted encryption at launch.
 @MainActor
 final class AppLockCoordinator: AppLockCoordinating {
-    var onUnlocked: (() -> Void)?
-
     private let lock: any VaultLocking
     private let preferences: any PreferencesStoring
     private let masterKeys: any MasterKeyStoring
@@ -51,18 +49,8 @@ final class AppLockCoordinator: AppLockCoordinating {
         self.presenter = presenter
     }
 
-    func sceneDidConnect(window: UIWindow, needsSetup: Bool) {
-        self.window = window
-        // A reconnected scene has a new window: a lock screen in the old one went with it.
-        lockScreen = nil
-        if needsSetup {
-            presentSetupWizard(in: window)
-            return
-        }
-        let encryptionNeedsPassword = recoverPendingEncryption()
-        if lock.state == .locked || encryptionNeedsPassword {
-            presentLockScreenIfNeeded()
-        }
+    func sceneDidConnect(window: UIWindow) {
+        fatalError("Not implemented: AppLockCoordinator.sceneDidConnect (feature multiple-vaults-duress-password)")
     }
 
     func sceneWillResignActive() {
@@ -75,56 +63,6 @@ final class AppLockCoordinator: AppLockCoordinating {
     }
 
     func sceneDidBecomeActive() {
-        lock.appWillEnterForeground()
-        if lock.state == .locked {
-            presentLockScreenIfNeeded()
-            if let lockScreen {
-                Task { await lockScreen.sceneDidBecomeActive() }
-            }
-        }
-        // Also when locked: a cover left from before the background would hide the lock screen.
-        presenter.hidePrivacyCover()
-    }
-
-    private func presentSetupWizard(in window: UIWindow) {
-        let wizard = SetupWizardViewModel(lock: lock, preferences: preferences)
-        wizard.onFinished = { [weak self] in self?.presenter.dismissSetupWizard() }
-        presenter.presentSetupWizard(wizard, in: window)
-    }
-
-    private func presentLockScreenIfNeeded() {
-        guard lockScreen == nil, let window else { return }
-        let viewModel = LockScreenViewModel(lock: lock, preferences: preferences)
-        viewModel.onUnlocked = { [weak self] in self?.lockScreenDidUnlock() }
-        lockScreen = viewModel
-        presenter.presentLockScreen(viewModel, in: window)
-    }
-
-    private func lockScreenDidUnlock() {
-        lockScreen = nil
-        presenter.dismissLockScreen { [weak self] in
-            guard let self else { return }
-            self.presenter.hidePrivacyCover()
-            self.onUnlocked?()
-        }
-    }
-
-    /// Settles a pending encrypt migration; returns whether it needs the password. With no password blob it
-    /// can never finish (no key exists, so nothing was encrypted with it): the record is dropped and the vault
-    /// stays without a lock. A Keychain error counts as a blob, so nothing is lost to a passing failure.
-    private func recoverPendingEncryption() -> Bool {
-        guard preferences.pendingMigration?.kind == .encrypt else { return false }
-        do {
-            if try masterKeys.hasMasterKeyBlob() { return true }
-        } catch {
-            logger.error("Keychain read failed at launch: \(error.localizedDescription, privacy: .public)")
-            return true
-        }
-        logger.error("Pending encryption without a password; finishing as No Lock")
-        preferences.pendingMigration = nil
-        preferences.lockMode = .none
-        // The vault lock read the lock mode when it was built; this updates its state to `.open`.
-        lock.appWillEnterForeground()
-        return false
+        fatalError("Not implemented: AppLockCoordinator.sceneDidBecomeActive (feature multiple-vaults-duress-password)")
     }
 }

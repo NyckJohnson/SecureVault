@@ -53,19 +53,22 @@ enum SettingsTestSupport {
         try? await Task.sleep(for: .milliseconds(20))
     }
 
-    /// Whether the lock was asked to change anything.
-    @MainActor
-    static func changedLock(_ lock: MockVaultLocking) -> Bool {
-        lock.calls.contains { call in
-            switch call {
-            case .stateUpdates, .unlock, .unlockWithBiometrics, .appWillResignActive,
-                .appDidEnterBackground, .appWillEnterForeground:
-                false
-            default:
-                true
+    // feature multiple-vaults-duress-password: rebuilt in Settings unit 1 (uses the removed lock-mode API).
+    #if false
+        /// Whether the lock was asked to change anything.
+        @MainActor
+        static func changedLock(_ lock: MockVaultLocking) -> Bool {
+            lock.calls.contains { call in
+                switch call {
+                case .stateUpdates, .unlock, .unlockWithBiometrics, .appWillResignActive,
+                    .appDidEnterBackground, .appWillEnterForeground:
+                    false
+                default:
+                    true
+                }
             }
         }
-    }
+    #endif
 }
 
 /// A controllable stand-in for `Task.sleep`: every sleep suspends until `advance()` (or cancellation).
@@ -121,46 +124,51 @@ struct SettingsStubFailure: LocalizedError {
     var errorDescription: String? { "The disk is full." }
 }
 
-/// Wraps a `MockVaultLocking` and adds what the mock cannot do: throw a chosen error from
-/// `changePassword` / `prepareToAddLock`, and hold `changePassword` open until the test releases it.
-@MainActor
-final class SettingsScriptedLock: VaultLocking {
-    let inner: MockVaultLocking
-    var changePasswordError: (any Error)?
-    var prepareToAddLockError: (any Error)?
-    var holdsChangePassword = false
-    let changePasswordGate = SettingsGate()
+// feature multiple-vaults-duress-password: rebuilt in Settings unit 1 (wraps the removed lock-mode API).
+#if false
+    /// Wraps a `MockVaultLocking` and adds what the mock cannot do: throw a chosen error from
+    /// `changePassword` / `prepareToAddLock`, and hold `changePassword` open until the test releases it.
+    @MainActor
+    final class SettingsScriptedLock: VaultLocking {
+        let inner: MockVaultLocking
+        var changePasswordError: (any Error)?
+        var prepareToAddLockError: (any Error)?
+        var holdsChangePassword = false
+        let changePasswordGate = SettingsGate()
 
-    init(inner: MockVaultLocking) {
-        self.inner = inner
+        init(inner: MockVaultLocking) {
+            self.inner = inner
+        }
+
+        var state: LockState { inner.state }
+        var lockMode: LockMode { inner.lockMode }
+        var biometricKind: BiometricKind { inner.biometricKind }
+        var biometricsAvailable: Bool { inner.biometricsAvailable }
+
+        func stateUpdates() -> AsyncStream<LockState> { inner.stateUpdates() }
+        func setUp(mode: LockMode, password: String?) async throws {
+            try await inner.setUp(mode: mode, password: password)
+        }
+        func unlock(password: String) async throws { try await inner.unlock(password: password) }
+        func unlockWithBiometrics() async throws { try await inner.unlockWithBiometrics() }
+        func appWillResignActive() -> Bool { inner.appWillResignActive() }
+        func appDidEnterBackground() { inner.appDidEnterBackground() }
+        func appWillEnterForeground() { inner.appWillEnterForeground() }
+        func switchMode(to mode: LockMode) async throws { try await inner.switchMode(to: mode) }
+        func removeKeysAfterDecryption() async throws { try await inner.removeKeysAfterDecryption() }
+
+        func changePassword(current: String, new: String) async throws {
+            if holdsChangePassword { await changePasswordGate.wait() }
+            if let changePasswordError { throw changePasswordError }
+            try await inner.changePassword(current: current, new: new)
+        }
+
+        func prepareToAddLock(mode: LockMode, password: String) async throws {
+            if let prepareToAddLockError { throw prepareToAddLockError }
+            try await inner.prepareToAddLock(mode: mode, password: password)
+        }
     }
-
-    var state: LockState { inner.state }
-    var lockMode: LockMode { inner.lockMode }
-    var biometricKind: BiometricKind { inner.biometricKind }
-    var biometricsAvailable: Bool { inner.biometricsAvailable }
-
-    func stateUpdates() -> AsyncStream<LockState> { inner.stateUpdates() }
-    func setUp(mode: LockMode, password: String?) async throws { try await inner.setUp(mode: mode, password: password) }
-    func unlock(password: String) async throws { try await inner.unlock(password: password) }
-    func unlockWithBiometrics() async throws { try await inner.unlockWithBiometrics() }
-    func appWillResignActive() -> Bool { inner.appWillResignActive() }
-    func appDidEnterBackground() { inner.appDidEnterBackground() }
-    func appWillEnterForeground() { inner.appWillEnterForeground() }
-    func switchMode(to mode: LockMode) async throws { try await inner.switchMode(to: mode) }
-    func removeKeysAfterDecryption() async throws { try await inner.removeKeysAfterDecryption() }
-
-    func changePassword(current: String, new: String) async throws {
-        if holdsChangePassword { await changePasswordGate.wait() }
-        if let changePasswordError { throw changePasswordError }
-        try await inner.changePassword(current: current, new: new)
-    }
-
-    func prepareToAddLock(mode: LockMode, password: String) async throws {
-        if let prepareToAddLockError { throw prepareToAddLockError }
-        try await inner.prepareToAddLock(mode: mode, password: password)
-    }
-}
+#endif
 
 /// Wraps a `MockProUnlocking` and adds a chosen thrown error and held purchase / restore calls.
 @MainActor
@@ -205,6 +213,9 @@ final class SettingsScriptedMigrator: LockMigrating {
         case retryFailed
         case skipFailed
         case clearUnreadableTrash
+        // feature multiple-vaults-duress-password: signature updated
+        case encryptLeftovers
+        case cancel
     }
 
     private(set) var calls: [Call] = []
@@ -234,12 +245,13 @@ final class SettingsScriptedMigrator: LockMigrating {
         }
     }
 
-    func start(_ kind: MigrationKind, target: LockMode?) async {
-        calls.append(.start(kind, target))
+    // feature multiple-vaults-duress-password: signature updated
+    func encryptLeftovers(in store: any VaultStoring) async {
+        calls.append(.encryptLeftovers)
     }
 
-    func resumeIfPending() async {
-        calls.append(.resumeIfPending)
+    func cancel() {
+        calls.append(.cancel)
     }
 
     func retryFailed() async {

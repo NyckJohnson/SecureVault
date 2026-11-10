@@ -419,7 +419,9 @@ import Testing
         #expect(vault.indexIsPlaintextJSON(in: locked))
     }
 
-    @Test("finishDecryption throws io when a .vault_map can't be deleted")
+    @Test(
+        "finishDecryption throws io when a .vault_map can't be deleted",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in VaultStore unit 2"))
     func finishDecryptionCannotDeleteIndex() async throws {
         let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
         defer { vault.cleanUp() }

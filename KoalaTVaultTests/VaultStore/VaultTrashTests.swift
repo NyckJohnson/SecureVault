@@ -594,6 +594,7 @@ struct RestoreAttack: Sendable, CustomTestStringConvertible {
 
     @Test(
         "One unreadable trash file doesn't stop listing or restoring the others; migration steps stay strict",
+        .disabled("feature multiple-vaults-duress-password: rebuilt in VaultStore unit 2"),
         arguments: [LockMode.none, .password])
     func unreadableTrashFile(mode: LockMode) async throws {
         let vault = try VaultStoreFixture(lockMode: mode, headerAware: true)

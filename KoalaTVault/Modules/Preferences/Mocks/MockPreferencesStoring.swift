@@ -10,6 +10,7 @@ final class MockPreferencesStoring: PreferencesStoring {
         case sortOption(SortOption)
         case sortDirection(SortDirection)
         case pendingMigration(PendingMigration?)
+        case vaultsUpgraded(Bool)
     }
 
     private struct State: Sendable {
@@ -18,6 +19,7 @@ final class MockPreferencesStoring: PreferencesStoring {
         var sortOption: SortOption
         var sortDirection: SortDirection
         var pendingMigration: PendingMigration?
+        var vaultsUpgraded: Bool
         var writes: [Write] = []
     }
 
@@ -29,7 +31,8 @@ final class MockPreferencesStoring: PreferencesStoring {
         lockMode: LockMode = .none,
         sortOption: SortOption = .name,
         sortDirection: SortDirection = .ascending,
-        pendingMigration: PendingMigration? = nil
+        pendingMigration: PendingMigration? = nil,
+        vaultsUpgraded: Bool = false
     ) {
         state = OSAllocatedUnfairLock(
             initialState: State(
@@ -37,7 +40,8 @@ final class MockPreferencesStoring: PreferencesStoring {
                 lockMode: lockMode,
                 sortOption: sortOption,
                 sortDirection: sortDirection,
-                pendingMigration: pendingMigration))
+                pendingMigration: pendingMigration,
+                vaultsUpgraded: vaultsUpgraded))
     }
 
     /// Every write so far, in order.
@@ -84,6 +88,15 @@ final class MockPreferencesStoring: PreferencesStoring {
         set {
             state.withLock {
                 $0.pendingMigration = newValue; $0.writes.append(.pendingMigration(newValue))
+            }
+        }
+    }
+
+    var vaultsUpgraded: Bool {
+        get { state.withLock { $0.vaultsUpgraded } }
+        set {
+            state.withLock {
+                $0.vaultsUpgraded = newValue; $0.writes.append(.vaultsUpgraded(newValue))
             }
         }
     }
