@@ -12,28 +12,33 @@ vault. A one-time "Unlock Pro" purchase lifts the free limit of 100 files per va
 vault. The app is accepted by App Store Connect (1.2, build 4) but not yet released.
 
 ## User journeys
-1. **First launch** — a new user opens the app. The browser shows the unencrypted vault's root ("KoalaTVault"), empty,
-   with no setup wizard and no lock screen. Ends when the browser shows. (Changed by feature
+1. **First launch** — a new user opens the app. The lock screen shows (journey 2): password field, Open, "Open
+   Unencrypted Vault" and "Create New Vault"; no setup wizard. "Open Unencrypted Vault" → the browser shows the
+   unencrypted vault's root ("KoalaTVault"), empty. Ends when the browser shows. (Changed by feature
    multiple-vaults-duress-password: the setup wizard is gone; journey 10 creates an encrypted vault.)
-2. **Open a vault** — a user wants into an encrypted vault. On the root, the Vaults button opens the Vaults screen:
-   password field, Open, "Use <Face ID|Touch ID>" (only when a vault has Face ID turned on and biometrics are available),
-   "Create New Vault", "Close Vault" (only while an encrypted vault is open) and Cancel. A password opens the vault it
-   belongs to: the screen closes and the browser shows that vault's root, titled with its name. Face ID opens the vault
-   that has it. Ends when the browser shows the vault. Nothing on any screen says how many encrypted vaults exist.
+2. **Open a vault** — a user wants into a vault. The lock screen shows at launch, on every return from the background,
+   and after the Lock button on any vault's root (which closes the open vault): password field, Open, "Use <Face
+   ID|Touch ID>" (only when a vault has Face ID turned on and biometrics are available; tapped, never automatic), "Open
+   Unencrypted Vault" and "Create New Vault"; no Cancel. A password opens the vault it belongs to: the lock screen goes
+   and the browser shows that vault's root, titled with its name. Face ID opens the vault that has it. "Open Unencrypted
+   Vault" shows the unencrypted vault's root. Ends when the browser shows the vault. Nothing on any screen says how many
+   encrypted vaults exist.
    - Failure path: a password that opens no vault → "Incorrect password", field cleared; no lockout, no delay, no wipe.
    - Failure path: Face ID cancel → nothing shown; lockout → "Too many attempts. Use your password."; not enrolled →
      "Face ID is not set up."; no passcode → "Set a device passcode to use Face ID."; enrolment changed or item missing →
      "Face ID changed. Use your password." and Face ID is turned off for that vault (the button goes); other failures →
      "Biometric authentication failed". The password field always stays usable.
-   - Close Vault → the browser shows the unencrypted vault's root.
+   - Lock (the browser's root, any vault) → the open vault closes (an encrypted vault's key and plaintext temp files
+     wiped) and the lock screen shows.
    - Backgrounding with an encrypted vault open shows the privacy cover at once; entering the background closes the
-     vault (key and its plaintext temp files wiped, anything presented over the browser dismissed); returning shows the
-     unencrypted vault's root, with no lock screen.
+     vault (key and its plaintext temp files wiped, anything presented over the browser dismissed) and puts the lock
+     screen up, so the app switcher and the return both show the lock screen. In the unencrypted vault, entering the
+     background also puts the lock screen up.
    - Opening a vault that has files a 1.2 lock change left unencrypted (journey 12) shows the Migration screen
      ("Encrypting Files") until they are encrypted (journey 8's failure paths apply).
 3. **Browse** — the user wants to find and organise files. The browser shows a grid of folders and files (thumbnails,
    name, size), folders first, sorted by the global sort option. Tap a folder → push its browser; back returns. Bar
-   buttons: New Folder, New Document, Import, Sort, Select; the settings gear and the Vaults button (journey 2) only on the root. Sort sheet: Name, Type,
+   buttons: New Folder, New Document, Import, Sort, Select; the settings gear and the Lock button (journey 2) only on the root. Sort sheet: Name, Type,
    Date Modified; tapping the current option flips ↑/↓. Long press: Export, Move, Copy, Rename, Delete. Select mode: tap
    to toggle, "N Selected", bulk Delete, Move, Export, Copy, Cancel. Move opens the folder picker at the root ("Move
    Here", "Cancel"); Copy always copies into the current folder with " 1", " 2" names; drag a cell onto a folder cell to
@@ -85,7 +90,7 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
    successfully". Turning the switch on gives this vault Face ID and silently takes it from any other vault; off removes
    it. Delete This Vault → "Delete This Vault?" / "Everything in "<name>" will be erased. This can't be undone. Enter the
    vault's password to confirm." with a password field, Delete and Cancel → the vault (files, trash, key, Face ID) is
-   erased and the browser shows the unencrypted root. Ends when the change is in force.
+   erased and the lock screen shows. Ends when the change is in force.
    - Failure path: empty new password → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current
      → "Current password is incorrect"; a new password another vault uses → "Choose a different password."
    - Failure path: wrong password to delete → "Incorrect password", nothing erased.
@@ -105,8 +110,8 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
    closes, Settings shows "Pro Unlocked". Ends when Pro is unlocked.
    - Failure path: cancel → paywall stays; pending → "Purchase pending approval."; restore with nothing → "No previous
      purchase found to restore."; price unavailable → "Price unavailable" and Unlock still works.
-10. **Create a vault** — the user wants a new encrypted vault. Vaults screen → "Create New Vault" → Create Vault screen
-   (Name, Password, Confirm Password, Create) → "Creating Vault…" → both screens close and the browser shows the new,
+10. **Create a vault** — the user wants a new encrypted vault. Lock screen → "Create New Vault" → Create Vault screen
+   (Name, Password, Confirm Password, Create) → "Creating Vault…" → both screens go and the browser shows the new,
    empty vault's root, titled with its name. Ends when the new vault is open.
    - Failure path: free tier with one encrypted vault already → tapping "Create New Vault" opens the paywall instead (this
      tells whoever taps it that a vault exists; accepted, decision 2026-11-10); after unlocking, the user taps it again.
@@ -130,20 +135,22 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
    No Lock → the files are the unencrypted vault, unchanged. A lock (Password or Password + Face ID, or an unfinished
    change to one) → the whole vault (files, folders, trash, indexes) becomes an encrypted vault named "My Vault" with the
    same password (Face ID kept for it in Password + Face ID), and the unencrypted vault starts empty. Ends when the
-   browser shows the (unencrypted) root.
+   lock screen shows.
    - The upgrade is safe to interrupt: a kill part-way finishes it at the next launch; nothing is copied, only moved.
    - Files the old app left unencrypted in a locked vault (a skipped or unfinished lock change) are encrypted when "My
      Vault" is next opened (journey 2).
    - An unfinished lock change with no password on the device (an encrypt that never got its key) is dropped and the
      files are the unencrypted vault.
    - A failure (disk or Keychain) shows "Couldn't finish updating your vaults. Restart the app to try again." over the
-     unencrypted root; the next launch carries on.
+     lock screen; the next launch carries on.
 
 ## Screens and navigation
-- **Vaults**: open a vault by password or Face ID, create one, close the open one. UI: UIKit. Form-sheet navigation
-  controller from the Vaults button on the browser's root. Serves 2, 10. A privacy cover (no screen of its own) hides
-  content while the app is inactive with an encrypted vault open.
-- **Create Vault**: name and password. UI: UIKit. Pushed in the Vaults screen's navigation. Serves 10.
+- **Lock screen** (the Vaults screen; feature multiple-vaults-duress-password, revised at the prototype): open a vault by
+  password or Face ID, open the unencrypted vault, create one. UI: UIKit. Full-screen navigation controller over the
+  window's root, shown by the app lock coordinator at launch, on entering the background, and from the browser's Lock
+  button or a deleted vault. Serves 1, 2, 8, 10, 12. A privacy cover (no screen of its own) hides content while the app
+  is inactive with an encrypted vault open.
+- **Create Vault**: name and password. UI: UIKit. Pushed in the lock screen's navigation. Serves 10.
 - **File browser**: the open vault's grid; root of the navigation stack, one instance per folder; replaced as a whole
   when another vault opens or the vault closes. UI: UIKit. Serves 1, 3, 4, 6, 7, 11.
 - **Vault picker**: choose the target of "Move/Copy to Vault…". UI: UIKit. Form sheet from the browser. Serves 11.
@@ -156,7 +163,8 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
   such a vault opens. Serves 2, 8, 12.
 - **Recently Deleted**: the trash. UI: UIKit. Pushed from Settings. Serves 6.
 - **Paywall**: Unlock Pro. UI: UIKit. Form sheet from Settings, an import, a transfer or Create New Vault. Serves 9, 10, 11.
-- Removed by feature multiple-vaults-duress-password: the setup wizard and the lock screen.
+- Removed by feature multiple-vaults-duress-password: the setup wizard and the old password lock screen (the lock screen
+  above replaces it).
 - Import and export sheets, pickers and share sheets are presented by the Import and Export modules' presenters over the
   calling screen.
 
@@ -181,7 +189,8 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
   temporary directory, an in-memory Keychain and a throwaway UserDefaults suite; `UITEST_SEED_FILE_NAME`,
   `UITEST_SEED_FILE_COUNT` and `UITEST_FAIL_MIGRATION_FILE` keep their meaning in that mode only (seed files go in the
   unencrypted vault). From feature multiple-vaults-duress-password: `UITEST_PASSWORD` seeds an empty encrypted vault
-  named "Test Vault" with that password (the app still opens on the unencrypted root); `UITEST_LEGACY_LOCK` =
+  named "Test Vault" with that password (the app still opens on the lock screen; journey tests open the vault they need through it,
+  "Open Unencrypted Vault" for the unencrypted one); `UITEST_LEGACY_LOCK` =
   `password` / `biometric` seeds the 1.2 layout instead (the seed files, a blob for `UITEST_PASSWORD`, lock mode set, not
   upgraded) so the upgrade runs at launch; `UITEST_PENDING_MIGRATION` and `UITEST_PLAINTEXT_INDEX` go.
 
@@ -917,8 +926,9 @@ the upgrade clearing it.
 - Contract: see `docs/api/Export.md` (generated; do not edit by hand)
 
 ### LockScreens
-- Purpose: the Vaults and Create Vault screens, the privacy cover, and closing the open vault when the app goes to the
-  background (feature multiple-vaults-duress-password; before it: the setup wizard and the lock screen).
+- Purpose: the lock screen (the Vaults screen) and Create Vault, the privacy cover, and closing the open vault and
+  showing the lock screen at launch, on background and on Lock (feature multiple-vaults-duress-password; before it: the
+  setup wizard and the password lock screen).
 - Depends on: VaultLock, SharedUI
 - Files: SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift | Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift | VaultsViewModel.swift, CreateVaultViewModel.swift, Views/VaultsViewController.swift, Views/CreateVaultViewController.swift
 - Protocol (draft; lives in `Contracts/`):
@@ -931,42 +941,49 @@ the upgrade clearing it.
       func sceneWillResignActive()
       func sceneDidEnterBackground()
       func sceneDidBecomeActive()
+      /// Closes the open vault and shows the lock screen (the browser's Lock button, a deleted vault).
+      func lock()
   }
 
   @MainActor
   protocol VaultsScreenFactory: AnyObject {
-      /// The Vaults screen in its navigation controller. `onNeedsPro` is called with the screen to present the paywall
-      /// from (Create New Vault without Pro, an encrypted vault already there).
-      func makeVaults(onNeedsPro: @escaping (UIViewController) -> Void) -> UIViewController
+      /// The lock screen in its navigation controller. `onDone` is called when a vault is open (by password, Face ID,
+      /// a new vault, or the unencrypted vault). `onNeedsPro` is called with the screen to present the paywall from
+      /// (Create New Vault without Pro, an encrypted vault already there).
+      func makeLockScreen(onDone: @escaping () -> Void,
+                          onNeedsPro: @escaping (UIViewController) -> Void) -> UIViewController
   }
   ```
 - Behavior spec (feature multiple-vaults-duress-password):
-  - VaultsViewModel: password field, Open, "Use <`biometricKind` name>" shown when `hasBiometricVault` and biometrics
-    are available, "Create New Vault", "Close Vault" shown only when `current` is encrypted, Cancel. Open: empty
+  - VaultsViewModel (the lock screen): password field, Open, "Use <`biometricKind` name>" shown when `hasBiometricVault`
+    and biometrics are available, "Open Unencrypted Vault", "Create New Vault"; no Cancel and no Close Vault. Open: empty
     password ignored; busy ("Opening…", buttons disabled) while it runs; success → done (the screen closes); every
     error and a success clear the field; `.wrongPassword` → "Incorrect password"; other errors → their message.
     Face ID: no automatic prompt; cancel → nothing; lockout → "Too many attempts. Use your password."; not enrolled →
     "Face ID is not set up."; passcode → "Set a device passcode to use Face ID."; changed → "Face ID changed. Use your
     password." and the button hides; other → "Biometric authentication failed". The error clears when typing starts.
-    Create New Vault: `canCreateVault()` true → the Create Vault screen; false → `onNeedsPro`. Close Vault → `close()`,
-    done. Nothing in the model or its texts depends on how many vaults exist.
+    Create New Vault: `canCreateVault()` true → the Create Vault screen; false → `onNeedsPro`. Open Unencrypted Vault → `close()`
+    (the unencrypted vault becomes `current`), done. Nothing in the model or its texts depends on how many vaults exist.
   - CreateVaultViewModel: Name, Password, Confirm; Create: name trimmed empty → "Enter a name for the vault"; empty
     password → "Password cannot be empty"; mismatch → "Passwords do not match"; then `createVault`; busy ("Creating
     Vault…"); success → done (both screens close); `.passwordInUse` → "Choose a different password."; `.vaultLimitReached`
     → `onNeedsPro`; other errors → their message (the fields keep the name, the password fields clear).
-  - AppLockCoordinator: resign active with `appWillResignActive()` true → privacy cover over the window; background →
-    `appDidEnterBackground()` (closes the vault; the shell swaps the browser); active → the cover hidden. No lock screen,
-    no setup, no launch recovery.
+  - AppLockCoordinator: connect → the lock screen full-screen over the window's root, without animation; resign active
+    with `appWillResignActive()` true → privacy cover over the window; background → `appDidEnterBackground()` (closes
+    the vault; the shell swaps the browser) and the lock screen up (if not already), for every vault, before the app
+    switcher snapshot; active → the cover hidden (the lock screen stays); `lock()` → `close()` and the lock screen up;
+    the lock screen's `onDone` → the lock screen dismissed. At most one lock screen at a time; anything presented over
+    the browser is dismissed first. `onNeedsPro` is given by the shell (the paywall). No setup, no launch recovery.
   - Removed (the code-writer deletes the files and the test-writer their tests; the Files line drops them when the
     feature is accepted): SetupWizardViewModel.swift, LockScreenViewModel.swift, Views/SetupWizardViewController.swift,
-    Views/LockScreenViewController.swift, and `LockPresenter`'s lock-screen presenting (Views/LockPresenter.swift keeps
-    only the privacy cover, or goes if the coordinator shows the cover itself).
+    Views/LockScreenViewController.swift, and the old lock screen's presenting in `LockPresenter`
+    (Views/LockPresenter.swift now presents the new lock screen and the privacy cover).
   - Views: identifiers `vaults.passwordField`, `vaults.openButton`, `vaults.biometricButton`, `vaults.createButton`,
-    `vaults.closeVaultButton`, `vaults.cancelButton`, `vaults.errorLabel`, `createVault.nameField`,
+    `vaults.unencryptedButton`, `vaults.errorLabel`, `createVault.nameField`,
     `createVault.passwordField`, `createVault.confirmField`, `createVault.createButton`, `createVault.errorLabel`,
     `privacyCover`. (Views; covered by journey tests.) `LiveVaultsScreenFactory` lives in `Views/VaultsViewController.swift`.
-- Changes (multiple-vaults-duress-password): SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift, Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift
-- Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory`; LockScreens no longer depends on VaultCrypto or Preferences.
+- Changes (multiple-vaults-duress-password): SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift, Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift
+- Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory` (`makeLockScreen(onDone:onNeedsPro:)`); `AppLockCoordinating` gains `lock()` (both revised at the prototype, 2026-11-10); LockScreens no longer depends on VaultCrypto or Preferences.
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
 
 ### Viewer
@@ -1010,7 +1027,7 @@ the upgrade clearing it.
   - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" with a disclosure indicator, opens the paywall / "Pro Unlocked" with a checkmark, tapping does nothing; live from `unlockedUpdates`); Vault (only when the open vault is encrypted; the section title is the vault's name): "Change Password", "Use <biometric name>" switch (hidden when biometrics aren't available; on = `currentUsesBiometrics`), "Delete This Vault"; Storage ("Recently Deleted"). No Lock Mode section and no Re-encrypt Everything (removed).
   - Face ID switch: on → `setUsesBiometrics(true)`, off → `setUsesBiometrics(false)`; an error is shown and the switch shows the real state afterwards; busy while working.
   - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; `.passwordInUse` → "Choose a different password."; success → "Password changed successfully"; busy while working.
-  - Delete This Vault: prompt "Delete This Vault?" / "Everything in "<name>" will be erased. This can't be undone. Enter the vault's password to confirm." with a password field, "Delete" (destructive) and "Cancel"; empty password ignored; → `deleteCurrentVault`; `.wrongPassword` → "Incorrect password"; other errors → their message; success → Settings reports it is done (the shell's vault change replaces the browser and dismisses Settings); busy while working.
+  - Delete This Vault: prompt "Delete This Vault?" / "Everything in "<name>" will be erased. This can't be undone. Enter the vault's password to confirm." with a password field, "Delete" (destructive) and "Cancel"; empty password ignored; → `deleteCurrentVault`; `.wrongPassword` → "Incorrect password"; other errors → their message; success → Settings reports it is done (the shell calls the coordinator's `lock()`: Settings is dismissed and the lock screen shows); busy while working.
   - MigrationViewModel: title "Encrypting Files"; status "Preparing…", "N% complete", "Complete"; failures → "Some Files Failed" with "These files couldn't be encrypted: a, b" and Retry / Skip; an empty `names` failure → "Some files couldn't be encrypted." with Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; `.idle` after a run started (the vault closed) → dismiss at once, reporting not fully; `wantsBackgroundTime` is true while running and false when failed or completed.
   - MigrationViewModel, unreadable trash: `.unreadableTrash` → alert "Some Deleted Items Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or opened. Clear them to continue." with "Clear and Continue" (→ `clearUnreadableTrash`) and "Skip" (→ `skipFailed`); `wantsBackgroundTime` false while it shows; the alert reappears if the phase is reached again.
   - PaywallViewModel: "Store more than 100 files in a vault and keep more than one encrypted vault."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
@@ -1024,7 +1041,7 @@ the upgrade clearing it.
 ### Browser
 - Purpose: the file browser grid and the folder picker: browsing, sorting, selection, folder and file operations, drag and
   drop, and starting import, export, viewing and settings.
-- Depends on: VaultStore, VaultLock, VaultTransfer, Preferences, Media, Import, Export, SharedUI, Viewer, Settings, LockScreens
+- Depends on: VaultStore, VaultLock, VaultTransfer, Preferences, Media, Import, Export, SharedUI, Viewer, Settings
 - Files: FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift | Views/FileBrowserViewController.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift | VaultPickerViewModel.swift, Views/VaultPickerViewController.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
@@ -1038,7 +1055,7 @@ the upgrade clearing it.
   ```
 - Behavior spec:
   - FileBrowserViewModel load: items from `contents` with the global sort; a load error is shown once the vault is unlocked or open (never silently kept stale); empty → "No files yet"; the settings button only at the root.
-  - Feature multiple-vaults-duress-password: the browser shows the open vault (the shell builds a browser factory per vault; the contract is unchanged); the root's title is the vault's name (`root.name`); the root's bar has a Vaults button (identifier `vaultsButton`) that presents the Vaults screen (`VaultsScreenFactory`, with the paywall for `onNeedsPro`).
+  - Feature multiple-vaults-duress-password: the browser shows the open vault (the shell builds a browser factory per vault; the contract is unchanged); the root's title is the vault's name (`root.name`); the root's bar has a Lock button (identifier `lockButton`, every vault) that calls the `onLock` action the shell gives (the coordinator's `lock()`); Browser no longer depends on LockScreens (revised at the prototype, 2026-11-10).
   - Move/Copy to Vault: context menu "Move to Vault…" and "Copy to Vault…"; Select mode "To Vault" (identifier `browser.bulkVaultButton`; context menu items `browser.contextMenu.moveToVault`, `browser.contextMenu.copyToVault`) → "Move to Vault…" / "Copy to Vault…" / Cancel; → the vault picker; its target → `transfer(items, from: current store, to: target store, removingOriginals:)` with progress "Moving…" / "Copying…" (N of M); then the target is closed (`closeTransferTarget`, not for the unencrypted vault) and the grid reloads; `.limitReached` → the paywall; any failed → "N of M failed"; other errors → their message. One transfer at a time.
   - VaultPickerViewModel: "Unencrypted Vault" row only when the open vault is encrypted (→ `unencryptedVault`); password field and "Use Vault" (→ `openTransferTarget`); empty ignored; busy; `.wrongPassword` → "Incorrect password"; `.sameVault` → "These items are already in this vault."; other errors → their message; Cancel → no target. Identifiers `vaultPicker.unencryptedRow`, `vaultPicker.passwordField`, `vaultPicker.useButton`, `vaultPicker.cancelButton`, `vaultPicker.errorLabel`.
   - Sort: current option flips direction; another option → ascending; saved in Preferences; reload.
@@ -1069,8 +1086,9 @@ the upgrade clearing it.
   for each vault that becomes `current`, that vault's services (thumbnails, import and export presenters, viewer,
   settings and browser factories); the composition root keeps no vault-specific service beyond the current one's.
   SceneDelegate: at connect, `upgradeIfNeeded` (a failure shows "Couldn't finish updating your vaults. Restart the app
-  to try again." and the app carries on), then the root browser for `current`, then the unencrypted vault's trash
-  purge; on each `currentUpdates` change: dismiss everything presented, clear the old vault's thumbnail cache, cancel a
+  to try again." over the lock screen and the app carries on), then the root browser for `current` with the lock screen
+  over it (`AppLockCoordinator` built with the `VaultsScreenFactory` and the paywall for `onNeedsPro`; the browser's
+  `onLock` and Settings' vault-deleted callback call its `lock()`), then the unencrypted vault's trash purge; on each `currentUpdates` change: dismiss everything presented, clear the old vault's thumbnail cache, cancel a
   leftover encryption, build the new vault's services and replace the window's root browser; for an encrypted vault,
   then the post-open housekeeping (`PostUnlockMaintenance.run(vaultStore:now:)`: purge expired trash, then sweep orphans
   — no pending-migration check any more), then, if `hasUnencryptedFiles()`, the Migration screen with
@@ -1219,3 +1237,4 @@ the upgrade clearing it.
 - 2026-11-10: Feature multiple-vaults-duress-password design: encrypted vaults live in `Application Support/Vaults/<id>/` (outside Documents, so the unencrypted vault never sees them), each with its own blob account (the upgraded vault keeps the old one, so no Keychain item is rewritten) and an encrypted `.vault_info` name; no list of vaults is stored; the Face ID vault is named by a plain Keychain marker; one `VaultStoring` per vault with its mode fixed (VaultStore drops Preferences); VaultLock becomes the vault registry; LockMigration only encrypts an upgraded vault's leftovers, with no persisted record; new module VaultTransfer; Settings, Browser and the other screen modules are built per vault by the shell, so Import, Export, Media and Viewer don't change — orchestrator, approved with the memo
 - 2026-11-10: Feature multiple-vaults-duress-password transition: the skeleton applies the final contracts at once. Code in modules not yet rebuilt that calls a removed member becomes a loud "Not implemented" stub, and the unit tests that reach it are disabled with `.disabled("feature multiple-vaults-duress-password: rebuilt in <Module> unit <n>")`; each rebuilt unit's test-writer replaces them. The app doesn't run end to end from the skeleton until the shell step after Browser; previews (mocks) work throughout. VaultLock's new unit 2 is built before its reopened unit 1 — orchestrator, approved with the memo
 - 2026-11-10: Later-features item "Harden no sweep while a migration is pending" dropped: lock changes and their pending record are gone with feature multiple-vaults-duress-password — orchestrator, approved with the memo
+- 2026-11-10: Feature multiple-vaults-duress-password, prototype revision: a lock screen comes back, because opening straight into the unencrypted vault could confuse users. It is the Vaults screen made full-screen: password, Open, Use Face ID (tapped, never automatic, so it can't open the real vault under duress), "Open Unencrypted Vault", "Create New Vault"; it shows at launch, on every return from the background (in any vault) and after Delete This Vault; the browser's Vaults button becomes a Lock button (every vault's root) and the Vaults sheet and Close Vault go. Contract changes: `AppLockCoordinating.lock()`, `VaultsScreenFactory.makeLockScreen(onDone:onNeedsPro:)` replaces `makeVaults(onNeedsPro:)`; Browser drops its LockScreens dependency; VaultLock unchanged — decided by the human

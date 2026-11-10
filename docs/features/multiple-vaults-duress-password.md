@@ -108,3 +108,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   MigrationViewModelTests decryptTitle/failureText/singleFailureText/failureWithoutNames,
   SettingsMigrationViewControllerTests decryptTitle/failureAlert, PaywallViewModelTests.strings,
   PaywallViewControllerTests.staticContent.
+- 2026-11-10 (prototype review): the human wants a lock screen back (opening straight into the unencrypted vault could
+  confuse users). Decided: it shows at launch and on every return from the background (any vault); the browser's Vaults
+  button becomes a Lock button and the Vaults sheet goes (the lock screen is the Vaults screen, full-screen, with "Open
+  Unencrypted Vault" instead of Cancel / Close Vault); Face ID stays a tapped button (no automatic prompt, for duress).
+  Delete This Vault ends on the lock screen (orchestrator's call, for the same consistency). Memo revised; contract
+  changes in LockScreens (`lock()`, `makeLockScreen(onDone:onNeedsPro:)`) wait for the human's approval.
