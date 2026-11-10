@@ -15,7 +15,7 @@
       "name": "VaultCrypto",
       "path": "KoalaTVault/Modules/VaultCrypto",
       "dependsOn": [],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T11:52:40-08:00",
+  "updatedAt": "2026-11-10T11:54:07-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -492,7 +492,7 @@
       "slug": "multiple-vaults-duress-password",
       "title": "Multiple vaults / duress password",
       "state": "active",
-      "stage": 4,
+      "stage": 5,
       "brief": "docs/features/multiple-vaults-duress-password.md",
       "addedAt": "2026-10-24T12:11:48-07:00",
       "startedAt": "2026-11-10T00:16:56-08:00",

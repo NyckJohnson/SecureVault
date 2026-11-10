@@ -460,4 +460,190 @@ final class ScriptedKeychain: KeychainAccessing {
         #expect(seen == expected)
         #expect(!store.isKeyLoaded)
     }
+
+    // MARK: one store per vault (feature multiple-vaults-duress-password)
+
+    static let accountA = "com.KoalaTVault.masterKeyBlob.vaultA"
+    static let accountB = "com.KoalaTVault.masterKeyBlob.vaultB"
+
+    private func accountsTouched(_ keychain: ScriptedKeychain, excluding ignored: Set<String> = []) -> Set<String> {
+        let log = keychain.state.withLock { $0.log }
+        return Set(log.compactMap { entry -> String? in
+            let parts = entry.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            return parts.count >= 2 ? String(parts[1]) : nil
+        }).subtracting(ignored)
+    }
+
+    @Test("A store built with the default account uses the existing blob account")
+    func defaultAccountIsExistingBlobAccount() throws {
+        #expect(LiveMasterKeyStore.blobAccount == Self.blob)
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.blob)
+        try store.createMasterKey(password: "pw")
+        #expect(keychain.state.withLock { $0.items[Self.blob] } != nil)
+        let implicit = LiveMasterKeyStore(keychain: keychain)
+        try implicit.unlock(password: "pw")
+        #expect(try keyData(implicit) == keyData(store))
+    }
+
+    @Test("A custom-account store creates its blob only under that account")
+    func customAccountCreate() throws {
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        #expect(try !store.hasMasterKeyBlob())
+        try store.createMasterKey(password: "pw")
+        #expect(try store.hasMasterKeyBlob())
+        let state = keychain.state.withLock { $0 }
+        #expect(state.items[Self.accountA] != nil)
+        #expect(state.items[Self.blob] == nil)
+        #expect(state.accessibility[Self.accountA] == .whenUnlocked)
+        #expect(accountsTouched(keychain) == [Self.accountA])
+    }
+
+    @Test("A custom-account store unlocks only from its own account")
+    func customAccountUnlock() throws {
+        let keychain = ScriptedKeychain()
+        let creator = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try creator.createMasterKey(password: "pw")
+        keychain.state.withLock { $0.log = [] }
+        let second = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try second.unlock(password: "pw")
+        #expect(try keyData(second) == keyData(creator))
+        #expect(keychain.state.withLock { $0.log }.contains("read:\(Self.accountA):nil"))
+        #expect(!accountsTouched(keychain).contains(Self.blob))
+    }
+
+    @Test("A custom-account store rewraps only its own account")
+    func customAccountRewrap() throws {
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try store.createMasterKey(password: "old")
+        let key = try keyData(store)
+        keychain.state.withLock { $0.log = [] }
+        try store.rewrap(newPassword: "new")
+        #expect(keychain.state.withLock { $0.log }.contains("write:\(Self.accountA)"))
+        #expect(accountsTouched(keychain) == [Self.accountA])
+        #expect(keychain.state.withLock { $0.items[Self.blob] } == nil)
+        let fresh = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        #expect(throws: VaultCryptoError.wrongPassword) { try fresh.unlock(password: "old") }
+        try fresh.unlock(password: "new")
+        #expect(try keyData(fresh) == key)
+    }
+
+    @Test("A custom-account store deletes only its own blob account")
+    func customAccountDelete() throws {
+        let keychain = ScriptedKeychain()
+        let store = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try store.createMasterKey(password: "pw")
+        keychain.state.withLock { $0.log = [] }
+        try store.deleteMasterKeyBlob()
+        #expect(keychain.state.withLock { $0.log } == ["delete:\(Self.accountA)"])
+        #expect(try !store.hasMasterKeyBlob())
+    }
+
+    @Test("Two stores with different accounts on one keychain do not see each other's blob")
+    func accountsAreIsolated() throws {
+        let keychain = ScriptedKeychain()
+        let storeA = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        let storeB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        try storeA.createMasterKey(password: "passA")
+        #expect(try storeA.hasMasterKeyBlob())
+        #expect(try !storeB.hasMasterKeyBlob())
+        #expect(throws: VaultCryptoError.noMasterKeyBlob) { try storeB.unlock(password: "passA") }
+        try storeB.createMasterKey(password: "passB")
+        #expect(try storeB.hasMasterKeyBlob())
+        #expect(try keyData(storeA) != keyData(storeB))
+    }
+
+    @Test("Each store unlocks only with its own password")
+    func eachStoreOwnPassword() throws {
+        let keychain = ScriptedKeychain()
+        let storeA = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        let storeB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        try storeA.createMasterKey(password: "passA")
+        try storeB.createMasterKey(password: "passB")
+        let keyA = try keyData(storeA)
+        let keyB = try keyData(storeB)
+
+        let freshA = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        #expect(throws: VaultCryptoError.wrongPassword) { try freshA.unlock(password: "passB") }
+        try freshA.unlock(password: "passA")
+        #expect(try keyData(freshA) == keyA)
+
+        let freshB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        #expect(throws: VaultCryptoError.wrongPassword) { try freshB.unlock(password: "passA") }
+        try freshB.unlock(password: "passB")
+        #expect(try keyData(freshB) == keyB)
+    }
+
+    @Test("Rewrapping one store leaves the other store's blob untouched")
+    func rewrapLeavesOtherStore() throws {
+        let keychain = ScriptedKeychain()
+        let storeA = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        let storeB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        try storeA.createMasterKey(password: "passA")
+        try storeB.createMasterKey(password: "passB")
+        let blobB = keychain.state.withLock { $0.items[Self.accountB] }
+        try storeA.rewrap(newPassword: "newA")
+        #expect(keychain.state.withLock { $0.items[Self.accountB] } == blobB)
+    }
+
+    @Test("Deleting one store's blob leaves the other store's blob")
+    func deleteLeavesOtherStore() throws {
+        let keychain = ScriptedKeychain()
+        let storeA = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        let storeB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        try storeA.createMasterKey(password: "passA")
+        try storeB.createMasterKey(password: "passB")
+        let keyB = try keyData(storeB)
+        try storeA.deleteMasterKeyBlob()
+        #expect(try !storeA.hasMasterKeyBlob())
+        #expect(try storeB.hasMasterKeyBlob())
+        let freshB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        try freshB.unlock(password: "passB")
+        #expect(try keyData(freshB) == keyB)
+    }
+
+    @Test("Every store uses the same biometric account regardless of blob account")
+    func biometricAccountShared() throws {
+        let keychain = ScriptedKeychain()
+        let storeA = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try storeA.createMasterKey(password: "pw")
+        try storeA.storeBiometricKey()
+        #expect(keychain.state.withLock { $0.items[Self.bio] } == (try keyData(storeA)))
+        #expect(keychain.state.withLock { $0.accessibility[Self.bio] } == .biometryCurrentSetThisDeviceOnly)
+
+        // A store with another blob account reads the same biometric item.
+        let storeB = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountB)
+        try storeB.unlockWithBiometricKey(prompt: "p")
+        #expect(try keyData(storeB) == keyData(storeA))
+        #expect(keychain.state.withLock { $0.log }.contains("read:\(Self.bio):p"))
+
+        try storeB.deleteBiometricKey()
+        #expect(keychain.state.withLock { $0.items[Self.bio] } == nil)
+        #expect(keychain.state.withLock { $0.log }.contains("delete:\(Self.bio)"))
+    }
+
+    @Test("A custom-account store does not delete the legacy password item on unlock")
+    func customAccountKeepsLegacyItem() throws {
+        let keychain = ScriptedKeychain()
+        let creator = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try creator.createMasterKey(password: "pw")
+        keychain.state.withLock { $0.items[Self.legacy] = Data([1]) }
+        let second = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.accountA)
+        try second.unlock(password: "pw")
+        #expect(keychain.state.withLock { $0.items[Self.legacy] } == Data([1]))
+        #expect(!keychain.state.withLock { $0.log }.contains("delete:\(Self.legacy)"))
+    }
+
+    @Test("A store given the default account explicitly still deletes the legacy password item on unlock")
+    func explicitDefaultAccountDeletesLegacyItem() throws {
+        let keychain = ScriptedKeychain()
+        let creator = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.blob)
+        try creator.createMasterKey(password: "pw")
+        keychain.state.withLock { $0.items[Self.legacy] = Data([1]) }
+        let second = LiveMasterKeyStore(keychain: keychain, blobAccount: Self.blob)
+        try second.unlock(password: "pw")
+        #expect(keychain.state.withLock { $0.items[Self.legacy] } == nil)
+    }
 }
