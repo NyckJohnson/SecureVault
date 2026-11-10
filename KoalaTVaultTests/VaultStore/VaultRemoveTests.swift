@@ -33,6 +33,26 @@ import Testing
         #expect(try await vault.openedContent(kept) == "stay")
     }
 
+    @Test("remove of an encrypted file whose index entry is already gone just deletes the file")
+    func removeStaleEncryptedFile() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let stale = try await vault.add("stale.txt", "old", to: docs)
+        let kept = try await vault.add("kept.txt", "stay", to: docs)
+        let context = try #require(vault.indexContext(in: docs))
+        let keptEntry = [kept.diskURL.lastPathComponent: "kept.txt"]
+        try vault.writeIndex(keptEntry, in: docs, context: context)
+
+        try await vault.store.remove(stale)
+
+        #expect(!exists(stale.diskURL))
+        #expect(exists(kept.diskURL))
+        #expect(vault.indexEntries(in: docs) == keptEntry)
+        #expect(try await vault.names(docs) == ["kept.txt"])
+        #expect(try await vault.openedContent(kept) == "stay")
+    }
+
     @Test("remove of the only encrypted file leaves no entry for it and an empty listing")
     func removeOnlyEncryptedFile() async throws {
         let vault = try VaultStoreFixture(lockMode: .password)
