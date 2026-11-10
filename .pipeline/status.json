@@ -499,7 +499,8 @@
       "finishedAt": null,
       "checkpoints": {
         "outline-approved": "2026-11-10T00:42:22-08:00",
-        "skeleton": "2026-11-10T01:03:16-08:00"
+        "skeleton": "2026-11-10T01:03:16-08:00",
+        "ui-approved": "2026-11-10T11:52:40-08:00"
       },
       "plan": {
         "newModules": [],
