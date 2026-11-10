@@ -295,7 +295,7 @@ final class VaultLockFixture {
             makeStore: registry.build)
     }
 
-    private static func makeCipher(failing error: VaultCryptoError?) -> MockFileCipher {
+    private nonisolated static func makeCipher(failing error: VaultCryptoError?) -> MockFileCipher {
         let cipher = MockFileCipher()
         cipher.errorToThrow = error
         return cipher

@@ -3,6 +3,11 @@ import Testing
 
 @testable import KoalaTVault
 
+struct BiometricFailureCase: Sendable {
+    let crypto: VaultCryptoError
+    let expected: VaultLockError
+}
+
 /// The vault registry: launch state, opening (password and Face ID), creating and closing vaults.
 /// Management of an open vault (password, Face ID, delete, transfer, upgrade) is in the extension file.
 @MainActor
@@ -242,16 +247,11 @@ import Testing
             #expect(fixture.lock.current.id == "unencrypted")
         }
 
-        struct FailureCase: Sendable {
-            let crypto: VaultCryptoError
-            let expected: VaultLockError
-        }
-
         static let failureCases = [
-            FailureCase(crypto: .biometricCancelled, expected: .biometricCancelled),
-            FailureCase(crypto: .biometryLockedOut, expected: .biometryLockedOut),
-            FailureCase(crypto: .biometryNotEnrolled, expected: .biometryNotEnrolled),
-            FailureCase(crypto: .passcodeNotSet, expected: .passcodeNotSet),
+            BiometricFailureCase(crypto: .biometricCancelled, expected: .biometricCancelled),
+            BiometricFailureCase(crypto: .biometryLockedOut, expected: .biometryLockedOut),
+            BiometricFailureCase(crypto: .biometryNotEnrolled, expected: .biometryNotEnrolled),
+            BiometricFailureCase(crypto: .passcodeNotSet, expected: .passcodeNotSet),
         ]
 
         @Test("Cancel, lockout, not enrolled and no passcode map to their own errors and keep the Face ID setup")
