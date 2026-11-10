@@ -9,7 +9,7 @@ struct VaultIndexEntry: Codable, Sendable, Equatable {
 
 /// How one store operation treats the vault, decided once at its start.
 struct VaultOperationMode: Sendable {
-    /// `lockMode != .none`: new content and indexes are written encrypted.
+    /// The store's fixed encryption flag: new content and indexes are written encrypted.
     let isEncrypted: Bool
     /// Whether a master key was loaded when the operation started.
     let keyLoaded: Bool

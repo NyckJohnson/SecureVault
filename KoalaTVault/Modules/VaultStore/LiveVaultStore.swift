@@ -6,47 +6,46 @@ import Foundation
 /// work synchronously, without suspending, so concurrent imports, moves and migration steps never
 /// interleave and never lose an index entry.
 ///
-/// Encrypted mode is `lockMode != .none`, read from preferences at the start of each operation (never
-/// "a key happens to be loaded"). In encrypted mode with no key, operations throw `.locked` before
-/// changing anything, and nothing is ever written in plaintext instead.
+/// One store per vault: the root's display name and whether the vault is encrypted are fixed at init
+/// (never "a key happens to be loaded"). Each operation checks for the key once at its start; in encrypted
+/// mode with no key, operations throw `.locked` before changing anything, and nothing is ever written in
+/// plaintext instead.
 actor LiveVaultStore: VaultStoring {
     nonisolated let root: VaultDirectory
 
-    nonisolated var isEncrypted: Bool {
-        fatalError("Not implemented: LiveVaultStore.isEncrypted (feature multiple-vaults-duress-password)")
-    }
+    nonisolated let isEncrypted: Bool
 
     let keyStore: any MasterKeyStoring
     let cipher: any FileCipher
-    let preferences: any PreferencesStoring
     /// The folder the store's own temporary folder is created in (the app's temp folder in the app).
     nonisolated let temporaryRoot: URL
     /// The per-folder index reader and writer.
     let index: VaultIndex
 
-    /// A store over the vault folder `root`, writing temporary files under `temporaryRoot`.
+    /// A store over the vault folder `root`, named `name` (the root's display name), encrypted or not
+    /// for its whole life as `isEncrypted` says, writing temporary files under `temporaryRoot`.
     init(
         root: URL,
+        name: String,
+        isEncrypted: Bool,
         keyStore: any MasterKeyStoring,
         cipher: any FileCipher,
-        preferences: any PreferencesStoring,
         temporaryRoot: URL
     ) {
-        let directory = VaultDirectory(name: "KoalaTVault", diskURL: root, rootURL: root)
+        let directory = VaultDirectory(name: name, diskURL: root, rootURL: root)
         self.root = directory
+        self.isEncrypted = isEncrypted
         self.keyStore = keyStore
         self.cipher = cipher
-        self.preferences = preferences
         self.temporaryRoot = temporaryRoot
         self.index = VaultIndex(cipher: cipher, rootURL: root, rootName: directory.name)
     }
 
     // MARK: - Operation mode
 
-    /// Reads the lock mode and checks for the key once, at the start of an operation.
+    /// Checks for the key once, at the start of an operation, with the store's fixed encryption flag.
     /// - Throws: `.locked` in encrypted mode with no key loaded.
     func beginOperation() throws -> VaultOperationMode {
-        let isEncrypted = preferences.lockMode != .none
         let keyLoaded = keyStore.isKeyLoaded
         if isEncrypted, !keyLoaded { throw VaultStoreError.locked }
         return VaultOperationMode(isEncrypted: isEncrypted, keyLoaded: keyLoaded)

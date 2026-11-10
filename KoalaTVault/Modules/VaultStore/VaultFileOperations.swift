@@ -197,11 +197,54 @@ extension LiveVaultStore {
         return try makeItem(diskName: diskName, in: directory, displayName: displayName, isEncrypted: true)
     }
 
-    // MARK: - Rename
+    // MARK: - Remove
 
+    /// Deletes the item for good, never into the trash. An encrypted file's index entry is removed and the
+    /// index written before the file is deleted, so a failed index write deletes nothing and a failed delete
+    /// restores the entry (best-effort). A folder is deleted with its whole tree, its indexes included.
+    /// - Throws: `.notFound` for an unknown item or anything in the trash (that is `deletePermanently`);
+    ///   `.locked` in encrypted mode without the key, before anything is deleted; `.io` when a deletion
+    ///   fails part-way (what it hasn't reached is left).
     func remove(_ item: VaultItem) throws {
-        fatalError("Not implemented: LiveVaultStore.remove (feature multiple-vaults-duress-password)")
+        let mode = try beginOperation()
+        if item.deletedAt != nil || Self.isSameOrInside(item.diskURL, trashMap.folderURL) {
+            throw VaultStoreError.notFound
+        }
+        try requireExists(item.diskURL)
+        guard item.isEncrypted, !item.isDirectory else {
+            try deleteFromDisk(item.diskURL)
+            return
+        }
+        let folder = item.diskURL.deletingLastPathComponent()
+        let diskName = item.diskURL.lastPathComponent
+        let entries = try index.read(in: folder, mode: mode)
+        guard entries[diskName] != nil else {
+            try deleteFromDisk(item.diskURL)
+            return
+        }
+        var remaining = entries
+        remaining.removeValue(forKey: diskName)
+        try index.write(remaining, in: folder, mode: mode)
+        do {
+            try deleteFromDisk(item.diskURL)
+        } catch {
+            // Put the entry back so the file that's still there stays listed; the delete failure is reported.
+            try? index.write(entries, in: folder, mode: mode)
+            throw error
+        }
     }
+
+    /// Deletes the file or folder tree at `url`; any failure is `.io` (the item existed when checked).
+    private func deleteFromDisk(_ url: URL) throws {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            let mapped = VaultStoreError.from(error)
+            throw mapped == .notFound ? VaultStoreError.io(error.localizedDescription) : mapped
+        }
+    }
+
+    // MARK: - Rename
 
     func rename(_ item: VaultItem, to name: String) throws -> VaultItem {
         try VaultNaming.validateUserName(name)
