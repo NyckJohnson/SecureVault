@@ -6,7 +6,9 @@
     "outline-approved": "2026-10-24T13:06:36-07:00",
     "setup": "2026-10-24T13:39:18-07:00",
     "baseline": "2026-10-27T10:37:27-07:00",
-    "scaffold": "2026-10-27T12:21:18-07:00"
+    "scaffold": "2026-10-27T12:21:18-07:00",
+    "adopted": "2026-11-09T23:58:04-08:00",
+    "app-accepted": "2026-11-09T23:58:04-08:00"
   },
   "modules": [
     {
@@ -562,7 +564,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T23:56:20-08:00",
+  "updatedAt": "2026-11-09T23:58:04-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -711,9 +713,9 @@
   ],
   "activeFeature": null,
   "adopt": {
-    "state": "active",
+    "state": "finished",
     "startedAt": "2026-10-24T11:49:56-07:00",
-    "finishedAt": null
+    "finishedAt": "2026-11-09T23:58:04-08:00"
   },
   "plan": {
     "label": "verify",
@@ -772,7 +774,7 @@
       },
       {
         "name": "device-test",
-        "done": false
+        "done": true
       },
       {
         "name": "backlog",
