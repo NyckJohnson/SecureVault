@@ -6,7 +6,7 @@ import os
 @testable import KoalaTVault
 
 /// Samples the process's physical memory footprint from a background thread, so the peak during a call is caught.
-private final class FootprintSampler: @unchecked Sendable {
+private final class FootprintSampler: Sendable {
     private let peakValue = OSAllocatedUnfairLock(initialState: UInt64(0))
     private let running = OSAllocatedUnfairLock(initialState: true)
     private let finished = DispatchSemaphore(value: 0)
@@ -90,6 +90,8 @@ private struct BigFileVault {
 }
 
 @Suite(.serialized) struct VaultMigrationMemoryTests {
+    // Whole-process footprint: parallel suites can inflate the peak. The 1/4-of-file headroom
+    // (48 MiB vs ~1 MiB chunks) is the guard against that noise.
     private let limit = BigFileVault.fileSize / 4
 
     @Test("migrateToEncrypted of a large file keeps memory growth far below the file size")
