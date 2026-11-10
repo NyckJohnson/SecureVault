@@ -594,7 +594,6 @@ struct RestoreAttack: Sendable, CustomTestStringConvertible {
 
     @Test(
         "One unreadable trash file doesn't stop listing or restoring the others; migration steps stay strict",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in VaultStore unit 2"),
         arguments: [LockMode.none, .password])
     func unreadableTrashFile(mode: LockMode) async throws {
         let vault = try VaultStoreFixture(lockMode: mode, headerAware: true)
@@ -620,11 +619,9 @@ struct RestoreAttack: Sendable, CustomTestStringConvertible {
         #expect(try await vault.openedContent(restored) == "fine content")
         #expect(try await vault.store.trashContents().map(\.name) == ["broken.txt"])
 
-        let toEncrypt = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: true) }
-        let toDecrypt = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: false) }
-        let finish = await caught { try await vault.store.finishDecryption() }
-        #expect(toEncrypt != nil)
-        #expect(toDecrypt != nil)
-        #expect(finish != nil)
+        if storedFlag {
+            let toEncrypt = await caught { _ = try await vault.store.itemsToEncrypt() }
+            #expect(toEncrypt != nil)
+        }
     }
 }

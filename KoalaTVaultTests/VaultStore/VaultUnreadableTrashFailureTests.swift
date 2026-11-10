@@ -559,9 +559,9 @@ import Testing
     }
 
     @Test(
-        "With an unwritable temp folder, a strict migration step over a trash file throws io",
-        arguments: [true, false])
-    func unwritableTempRootMigrationStepThrowsIO(toEncrypted: Bool) async throws {
+        "With an unwritable temp folder, a strict migration step over a trash file throws io"
+    )
+    func unwritableTempRootMigrationStepThrowsIO() async throws {
         let vault = try makeVault()
         defer { vault.cleanUp() }
         try await trashFile(vault, "a.txt", "content")
@@ -570,13 +570,7 @@ import Testing
         let restore = try vault.restrictStoreTempFolder()
         defer { restore() }
 
-        let error = await caught {
-            if toEncrypted {
-                try await vault.store.migrateToEncrypted(item)
-            } else {
-                try await vault.store.migrateToDecrypted(item)
-            }
-        }
+        let error = await caught { try await vault.store.migrateToEncrypted(item) }
 
         restore()
         #expect(isIOError(error), "expected io, got \(String(describing: error))")
@@ -587,9 +581,9 @@ import Testing
     // MARK: - 10. Migration-step header reads
 
     @Test(
-        "A migration step over an unreadable trash file throws io and never treats it as plaintext",
-        arguments: [true, false])
-    func migrationStepUnreadableFileThrowsIO(toEncrypted: Bool) async throws {
+        "A migration step over an unreadable trash file throws io and never treats it as plaintext"
+    )
+    func migrationStepUnreadableFileThrowsIO() async throws {
         let vault = try makeVault()
         defer { vault.cleanUp() }
         try await trashFile(vault, "a.txt")
@@ -598,13 +592,7 @@ import Testing
         let restore = try restrict(item.diskURL, to: 0o000)
         defer { restore() }
 
-        let error = await caught {
-            if toEncrypted {
-                try await vault.store.migrateToEncrypted(item)
-            } else {
-                try await vault.store.migrateToDecrypted(item)
-            }
-        }
+        let error = await caught { try await vault.store.migrateToEncrypted(item) }
 
         restore()
         #expect(isIOError(error), "expected io, got \(String(describing: error))")
@@ -614,9 +602,9 @@ import Testing
     }
 
     @Test(
-        "A key lost while reading a trash file's header throws locked, moves nothing and leaves no temp copy",
-        arguments: [true, false])
-    func migrationStepKeyLostThrowsLocked(toEncrypted: Bool) async throws {
+        "A key lost while reading a trash file's header throws locked, moves nothing and leaves no temp copy"
+    )
+    func migrationStepKeyLostThrowsLocked() async throws {
         let vault = try makeVault(selective: true)
         defer { vault.cleanUp() }
         try await trashFile(vault, "a.txt")
@@ -624,35 +612,10 @@ import Testing
         let before = try vaultState(vault)
         vault.failing?.streamInfoError = VaultCryptoError.noKeyLoaded
 
-        let error = await caught {
-            if toEncrypted {
-                try await vault.store.migrateToEncrypted(item)
-            } else {
-                try await vault.store.migrateToDecrypted(item)
-            }
-        }
+        let error = await caught { try await vault.store.migrateToEncrypted(item) }
 
         #expect(error as? VaultStoreError == .locked, "got \(String(describing: error))")
         #expect(try vaultState(vault) == before)
-        #expect(vault.tempContents().isEmpty)
-    }
-
-    @Test(
-        "Any other header-read error on the copy treats the trash file as plaintext",
-        arguments: [VaultCryptoError.corruptBlob, VaultCryptoError.decryptionFailed])
-    func migrationStepOtherHeaderErrorMeansPlaintext(error: VaultCryptoError) async throws {
-        let vault = try makeVault(selective: true)
-        defer { vault.cleanUp() }
-        try await trashFile(vault, "a.txt")
-        let item = try #require(try await vault.store.trashContents().first)
-        let bytes = try Data(contentsOf: item.diskURL)
-        vault.failing?.streamInfoError = error
-
-        try await vault.store.migrateToDecrypted(item)
-
-        // Seen as plaintext, the file is already decrypted: its bytes stay and the entry is corrected.
-        #expect(try Data(contentsOf: item.diskURL) == bytes)
-        #expect(vault.trashEntries()?.values.first?["isEncrypted"] as? Bool == false)
         #expect(vault.tempContents().isEmpty)
     }
 }
