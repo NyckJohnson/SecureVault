@@ -15,7 +15,7 @@
       "name": "VaultCrypto",
       "path": "KoalaTVault/Modules/VaultCrypto",
       "dependsOn": [],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T11:58:42-08:00",
+  "updatedAt": "2026-11-10T12:05:41-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
