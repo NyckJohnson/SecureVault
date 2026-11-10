@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T00:44:25-08:00",
+  "updatedAt": "2026-11-10T01:03:16-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -498,7 +498,8 @@
       "startedAt": "2026-11-10T00:16:56-08:00",
       "finishedAt": null,
       "checkpoints": {
-        "outline-approved": "2026-11-10T00:42:22-08:00"
+        "outline-approved": "2026-11-10T00:42:22-08:00",
+        "skeleton": "2026-11-10T01:03:16-08:00"
       },
       "plan": {
         "newModules": [],
