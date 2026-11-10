@@ -82,3 +82,11 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - Out of scope: hiding vaults from someone examining the device itself (vault folders and Keychain items can be counted
   with device-level access); timing of the password search; renaming a vault; lockout, password strength, password
   recovery (their own features); making large moves fast (feature `faster-lock-changes-in-large-folders`).
+
+## Build notes
+- 2026-11-10: `feature plan` reopened Viewer unit 2 and gave LockScreens unit 2 an extra file only because the memo's
+  Files lines name `Views/LiveViewerFactory.swift` and `Views/LockPresenter.swift`, which the adoption-era status units
+  lacked. Viewer needs no change: at build, run `ios-pipeline gates Viewer` and, on a pass, mark unit 2 done with no
+  subagents. LockPresenter.swift is handled with LockScreens unit 2 as the memo says.
+- Skeleton next (`MODE: feature multiple-vaults-duress-password`), then prototype for the Vaults, Create Vault, vault
+  picker and changed Settings screens; no manual project setup is needed (Face ID usage text already exists).
