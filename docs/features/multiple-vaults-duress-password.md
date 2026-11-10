@@ -114,3 +114,4 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   Unencrypted Vault" instead of Cancel / Close Vault); Face ID stays a tapped button (no automatic prompt, for duress).
   Delete This Vault ends on the lock screen (orchestrator's call, for the same consistency). Memo revised; contract
   changes in LockScreens (`lock()`, `makeLockScreen(onDone:onNeedsPro:)`) wait for the human's approval.
+  Approved by the human 2026-11-10; `status feature plan` rerun.

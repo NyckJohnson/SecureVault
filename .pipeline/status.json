@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T11:15:49-08:00",
+  "updatedAt": "2026-11-10T11:32:43-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -531,7 +531,8 @@
             "AppLockCoordinator.swift",
             "Views/SetupWizardViewController.swift",
             "Views/LockScreenViewController.swift",
-            "Views/PrivacyCoverView.swift"
+            "Views/PrivacyCoverView.swift",
+            "Views/LockPresenter.swift"
           ],
           "Settings": [
             "SecuritySettingsViewModel.swift",
@@ -550,7 +551,7 @@
           "VaultStore": "`VaultStoring` gains `isEncrypted` and `remove(_:)`; `itemsToMigrate(toEncrypted:)` becomes `itemsToEncrypt()`; `migrateToDecrypted(_:)` and `finishDecryption()` are removed; `VaultStoreError.stillEncrypted(count:)` is removed (and its `errorDescription` case, in `Contracts/VaultStoring.swift`).",
           "VaultLock": "the `VaultLocking` protocol, `OpenVault` and `VaultLockError` above replace the lock-mode contract (`LockState` removed); VaultLock now depends on Entitlements.",
           "LockMigration": "`LockMigrating` above replaces `pending`, `start(_:target:)` and `resumeIfPending()` with `encryptLeftovers(in:)` and `cancel()`; `MigrationPhase.paused` removed.",
-          "LockScreens": "`AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory`; LockScreens no longer depends on VaultCrypto or Preferences."
+          "LockScreens": "`AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory` (`makeLockScreen(onDone:onNeedsPro:)`); `AppLockCoordinating` gains `lock()` (both revised at the prototype, 2026-11-10); LockScreens no longer depends on VaultCrypto or Preferences."
         },
         "reopenedUnits": [
           "VaultCrypto / unit 1 (KeychainStore.swift, MasterKeyBlob.swift, LiveMasterKeyStore.swift)",
