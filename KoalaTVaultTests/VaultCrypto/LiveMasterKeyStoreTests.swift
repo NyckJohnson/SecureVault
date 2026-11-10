@@ -468,10 +468,13 @@ final class ScriptedKeychain: KeychainAccessing {
 
     private func accountsTouched(_ keychain: ScriptedKeychain, excluding ignored: Set<String> = []) -> Set<String> {
         let log = keychain.state.withLock { $0.log }
-        return Set(log.compactMap { entry -> String? in
-            let parts = entry.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
-            return parts.count >= 2 ? String(parts[1]) : nil
-        }).subtracting(ignored)
+        let accounts = log.compactMap { entry in accountName(inLogEntry: entry) }
+        return Set(accounts).subtracting(ignored)
+    }
+
+    private func accountName(inLogEntry entry: String) -> String? {
+        let parts = entry.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        return parts.count >= 2 ? String(parts[1]) : nil
     }
 
     @Test("A store built with the default account uses the existing blob account")
