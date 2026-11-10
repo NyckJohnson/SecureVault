@@ -269,8 +269,8 @@ the upgrade clearing it.
   encrypted vault's root (same layout as an encrypted root above), always encrypted mode. `vaultID` is a new UUID
   string, or `primary` for the vault the upgrade made. The vault's name is in `<root>/.vault_info`: JSON
   `{ "name": "…" }` sealed like an index (AES-256-GCM with the vault's key, AAD ".vault_info"); missing or unreadable →
-  the name "My Vault" (written on the next open). A folder there with no blob in the Keychain is not a vault (an
-  interrupted creation) and is removed at launch.
+  the name "My Vault" (written on the next open). A folder there with no blob in the Keychain is not a vault; an empty one (an
+  interrupted creation) is removed at launch, a non-empty one is left alone.
 - **Keychain per vault**: the blob of vault `primary` is the old account "com.KoalaTVault.masterKeyBlob"; any other
   vault's is "com.KoalaTVault.masterKeyBlob.<vaultID>" (same v1 format). The biometric item (account
   "com.KoalaTVault.biometricMasterKey", unchanged) holds the key of the one vault that has Face ID, named by the plain
@@ -680,7 +680,7 @@ the upgrade clearing it.
     in-memory Keychain and fakes; nothing touches the real ones.
   - VaultCatalog (VaultCatalog.swift): lists the vaults (each folder under `Vaults/` whose blob exists; the blob account
     rule in Data models); reads a vault's name from `.vault_info` (missing or unreadable → "My Vault") and writes it
-    sealed; removes at launch a folder whose blob is missing (an interrupted creation, so it holds no files); reads and
+    sealed; removes at launch a folder whose blob is missing only when it is empty (an interrupted creation holds no files; a blobless folder with anything in it is left alone and not listed, so files are never deleted); reads and
     writes the Face ID vault marker ("com.KoalaTVault.biometricVaultID"). A Keychain error reading a blob counts as the
     blob existing (a vault is never removed on an error).
   - current / currentUpdates: launch → the unencrypted vault (id "unencrypted", name "KoalaTVault", plaintext store over
@@ -1240,3 +1240,4 @@ the upgrade clearing it.
 - 2026-11-10: Feature multiple-vaults-duress-password, prototype revision: a lock screen comes back, because opening straight into the unencrypted vault could confuse users. It is the Vaults screen made full-screen: password, Open, Use Face ID (tapped, never automatic, so it can't open the real vault under duress), "Open Unencrypted Vault", "Create New Vault"; it shows at launch, on every return from the background (in any vault) and after Delete This Vault; the browser's Vaults button becomes a Lock button (every vault's root) and the Vaults sheet and Close Vault go. Contract changes: `AppLockCoordinating.lock()`, `VaultsScreenFactory.makeLockScreen(onDone:onNeedsPro:)` replaces `makeVaults(onNeedsPro:)`; Browser drops its LockScreens dependency; VaultLock unchanged — decided by the human
 - 2026-11-10: VaultStore `remove`: a failed file delete after the index write puts the entry back, best-effort, so the item stays findable (reviewer finding, VaultStore unit 1 of feature multiple-vaults-duress-password) — orchestrator
 - 2026-11-10: VaultStore `remove` on an encrypted file whose index entry is already gone deletes the file (no error) — decided by the human (VaultStore coverage triage, feature multiple-vaults-duress-password)
+- 2026-11-10: VaultCatalog removes a blobless vault folder at launch only when it is empty, so an upgraded vault whose Keychain blob is missing (e.g. after a restore) never has its files deleted (reviewer finding, VaultLock unit 2) — orchestrator

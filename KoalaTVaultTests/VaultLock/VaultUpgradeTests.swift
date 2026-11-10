@@ -64,6 +64,12 @@ import Testing
         var primaryExists: Bool { FileManager.default.fileExists(atPath: primary.path) }
     }
 
+    private struct UnchangedCase {
+        let mode: LockMode
+        let migration: PendingMigration?
+        let blob: Bool
+    }
+
     private typealias KeychainCall = MockKeychainAccessing.Call
     private static let expectedEntries = [".trash", ".vault_map", "11111111", "sub"]
 
@@ -231,12 +237,16 @@ import Testing
     @Test("hasCompletedSetup and lockMode are unchanged in every case")
     func setupAndLockModeUnchanged() throws {
         let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
-        let cases: [(LockMode, PendingMigration?, Bool)] = [
-            (.password, nil, true), (.passwordAndBiometrics, nil, true), (.none, pending, true),
-            (.none, pending, false), (.none, nil, false),
+        let cases = [
+            UnchangedCase(mode: .password, migration: nil, blob: true),
+            UnchangedCase(mode: .passwordAndBiometrics, migration: nil, blob: true),
+            UnchangedCase(mode: .none, migration: pending, blob: true),
+            UnchangedCase(mode: .none, migration: pending, blob: false),
+            UnchangedCase(mode: .none, migration: nil, blob: false),
         ]
-        for (mode, migration, blob) in cases {
-            let fixture = try Fixture(lockMode: mode, pending: migration, hasBlob: blob, setup: true)
+        for item in cases {
+            let mode = item.mode
+            let fixture = try Fixture(lockMode: mode, pending: item.migration, hasBlob: item.blob, setup: true)
             try fixture.upgrade.run()
             #expect(fixture.preferences.hasCompletedSetup)
             #expect(fixture.preferences.lockMode == mode)
