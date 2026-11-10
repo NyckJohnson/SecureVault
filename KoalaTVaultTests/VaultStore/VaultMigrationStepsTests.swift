@@ -170,11 +170,11 @@ import Testing
 
     @Test("migrateToEncrypted re-encrypts a trash item in place and updates its entry")
     func migrateToEncryptedTrashItem() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let item = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(item)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
 
         let pending = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
         try await vault.store.migrateToEncrypted(pending)
@@ -330,7 +330,7 @@ import Testing
         "finishDecryption deletes every .vault_map, rewrites .trash_map as plaintext and the vault lists with no key",
         .disabled("feature multiple-vaults-duress-password: rebuilt in VaultStore unit 2"))
     func finishDecryptionCleansUp() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
+        var vault = try VaultStoreFixture(lockMode: .password)
         defer { vault.cleanUp() }
         let docs = try vault.folder("Docs")
         let inner = try vault.folder("Inner", in: docs)
@@ -348,7 +348,7 @@ import Testing
         #expect(vault.trashMapIsPlaintextJSON())
         #expect(vault.trashEntries()?.count == 1)
 
-        vault.prefs.lockMode = .none
+        vault.reopen(encrypted: false)
         vault.keys.wipeKey()
         #expect(try await vault.names() == ["Docs", "a.txt"])
         #expect(try await vault.names(docs) == ["Inner", "b.txt"])
@@ -413,13 +413,13 @@ import Testing
 
     @Test("finishEncryption seals a plaintext .trash_map with the .trash_map context and the same entries")
     func finishEncryptionSealsTrashMap() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let first = try await vault.add("one.txt", "1")
         let second = try await vault.add("two.txt", "2")
         try await vault.store.moveToTrash(first)
         try await vault.store.moveToTrash(second)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         #expect(vault.trashMapIsPlaintextJSON())
         let before = try #require(vault.trashEntries())
         #expect(before.count == 2)

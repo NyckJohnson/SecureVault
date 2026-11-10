@@ -59,8 +59,8 @@ private struct BigFileVault {
         for url in [rootURL, tempRoot] { try manager.createDirectory(at: url, withIntermediateDirectories: true) }
         let keys = MockMasterKeyStoring(password: "pw", keyLoaded: true)
         store = LiveVaultStore(
-            root: rootURL, keyStore: keys, cipher: LiveFileCipher(keyStore: keys),
-            preferences: MockPreferencesStoring(lockMode: .password), temporaryRoot: tempRoot)
+            root: rootURL, name: "KoalaTVault", isEncrypted: true, keyStore: keys,
+            cipher: LiveFileCipher(keyStore: keys), temporaryRoot: tempRoot)
     }
 
     func cleanUp() { try? FileManager.default.removeItem(at: base) }

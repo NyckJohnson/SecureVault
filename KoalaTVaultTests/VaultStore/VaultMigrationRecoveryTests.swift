@@ -25,11 +25,11 @@ import Testing
         "A trash item whose entry says encrypted but whose file is still plaintext is listed and encrypted on rerun",
         arguments: [false, true])
     func interruptedTrashEncryption(withLeftover: Bool) async throws {
-        let vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
+        var vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
         defer { vault.cleanUp() }
         let source = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(source)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         try vault.rewriteTrashEntries { $0["isEncrypted"] = true }
         let trashed = try #require(try await vault.store.trashContents().first)
         if withLeftover {
@@ -60,11 +60,11 @@ import Testing
         "finishDecryption does not count a plaintext trash file whose entry wrongly says encrypted",
         .disabled("feature multiple-vaults-duress-password: rebuilt in VaultStore unit 2"))
     func plaintextTrashFileWithEncryptedFlagIsNotCounted() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
+        var vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
         defer { vault.cleanUp() }
         let source = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(source)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         try vault.rewriteTrashEntries { $0["isEncrypted"] = true }
         try await vault.store.finishDecryption()
         #expect(vault.indexFilePaths().isEmpty)

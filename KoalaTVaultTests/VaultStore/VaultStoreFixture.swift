@@ -12,11 +12,11 @@ func caught(_ body: () async throws -> Void) async -> (any Error)? {
     }
 }
 
-/// A `LiveVaultStore` over a unique temporary vault, with mock key store, cipher and preferences.
+/// A `LiveVaultStore` over a unique temporary vault, with mock key store and cipher.
 ///
 /// Expected initializer of the store (the code-writer matches it):
-/// `LiveVaultStore(root: URL, keyStore: any MasterKeyStoring, cipher: any FileCipher,
-/// preferences: any PreferencesStoring, temporaryRoot: URL)`.
+/// `LiveVaultStore(root: URL, name: String, isEncrypted: Bool, keyStore: any MasterKeyStoring,
+/// cipher: any FileCipher, temporaryRoot: URL)`.
 struct VaultStoreFixture {
     /// Prefix the mock cipher puts before data: `mock-sealed:<context>:`.
     static let sealedPrefix = Data("mock-sealed:".utf8)
@@ -27,9 +27,14 @@ struct VaultStoreFixture {
     let sourcesURL: URL
     let keys: MockMasterKeyStoring
     let cipher: MockFileCipher
-    let prefs: MockPreferencesStoring
     let store: LiveVaultStore
     let root: VaultDirectory
+    /// The vault's display name (the root's name).
+    let name: String
+    /// Whether the store was built encrypted.
+    let encrypted: Bool
+    /// The cipher the store was built with (possibly a decorator around `cipher`).
+    private let storeCipher: any FileCipher
 
     /// The cipher the store uses when built `headerAware`; nil for the plain mock.
     let headerCipher: HeaderAwareTestCipher?
@@ -37,12 +42,15 @@ struct VaultStoreFixture {
     /// The failure-injecting decorator the store uses when built `selective`; nil otherwise.
     let failing: SelectiveFailingCipher?
 
+    /// - Parameter lockMode: anything but `.none` builds an encrypted store.
+    /// - Parameter name: the vault's name (the root's display name).
     /// - Parameter headerAware: use a cipher whose files carry an SVC5 header (see `HeaderAwareTestCipher`), so
     ///   encrypted and plaintext files can be told apart by their header.
     /// - Parameter selective: wrap the cipher in a `SelectiveFailingCipher` (reachable as `failing`) that can be told
     ///   to fail single methods.
     init(
-        lockMode: LockMode = .none, keyLoaded: Bool = true, headerAware: Bool = false, selective: Bool = false
+        lockMode: LockMode = .none, keyLoaded: Bool = true, headerAware: Bool = false, selective: Bool = false,
+        name: String = "KoalaTVault"
     ) throws {
         let manager = FileManager.default
         let raw = manager.temporaryDirectory.appendingPathComponent(
@@ -57,7 +65,6 @@ struct VaultStoreFixture {
         }
         let keys = MockMasterKeyStoring(password: "pw", keyLoaded: keyLoaded)
         let cipher = MockFileCipher()
-        let prefs = MockPreferencesStoring(lockMode: lockMode)
         let headerCipher = headerAware ? HeaderAwareTestCipher(wrapping: cipher) : nil
         let innerCipher: any FileCipher
         if let headerCipher { innerCipher = headerCipher } else { innerCipher = cipher }
@@ -70,12 +77,43 @@ struct VaultStoreFixture {
         self.sourcesURL = sourcesURL
         self.keys = keys
         self.cipher = cipher
-        self.prefs = prefs
         self.headerCipher = headerCipher
         self.failing = failing
-        self.root = VaultDirectory(name: "KoalaTVault", diskURL: rootURL, rootURL: rootURL)
+        self.name = name
+        self.encrypted = lockMode != .none
+        self.storeCipher = storeCipher
+        self.root = VaultDirectory(name: name, diskURL: rootURL, rootURL: rootURL)
         self.store = LiveVaultStore(
-            root: rootURL, keyStore: keys, cipher: storeCipher, preferences: prefs, temporaryRoot: tempRoot)
+            root: rootURL, name: name, isEncrypted: lockMode != .none, keyStore: keys, cipher: storeCipher,
+            temporaryRoot: tempRoot)
+    }
+
+    private init(copying other: VaultStoreFixture, encrypted: Bool) {
+        self.base = other.base
+        self.rootURL = other.rootURL
+        self.tempRoot = other.tempRoot
+        self.sourcesURL = other.sourcesURL
+        self.keys = other.keys
+        self.cipher = other.cipher
+        self.headerCipher = other.headerCipher
+        self.failing = other.failing
+        self.name = other.name
+        self.encrypted = encrypted
+        self.storeCipher = other.storeCipher
+        self.root = other.root
+        self.store = LiveVaultStore(
+            root: other.rootURL, name: other.name, isEncrypted: encrypted, keyStore: other.keys,
+            cipher: other.storeCipher, temporaryRoot: other.tempRoot)
+    }
+
+    /// A fixture over the same folders, key store and cipher with a new store built with the other flag.
+    func reopened(encrypted: Bool) -> VaultStoreFixture {
+        VaultStoreFixture(copying: self, encrypted: encrypted)
+    }
+
+    /// Replaces the store with a new one over the same folders built with the given flag.
+    mutating func reopen(encrypted: Bool) {
+        self = reopened(encrypted: encrypted)
     }
 
     func cleanUp() {

@@ -184,23 +184,23 @@ import Testing
 
     @Test("A plaintext trash map is read once a lock is on")
     func plaintextTrashMapReadableInEncryptedMode() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let item = try await vault.add("old.txt", "old")
         try await vault.store.moveToTrash(item)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         let trashed = try await vault.store.trashContents()
         #expect(trashed.map(\.name) == ["old.txt"])
     }
 
     @Test("A plaintext trash map is rewritten encrypted by the next trash write, keeping the earlier entry")
     func plaintextTrashMapResealedOnNextWrite() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let old = try await vault.add("old.txt", "old")
         try await vault.store.moveToTrash(old)
         #expect(vault.trashMapIsPlaintextJSON())
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         let fresh = try await vault.add("fresh.txt", "fresh")
         try await vault.store.moveToTrash(fresh)
         #expect(!vault.trashMapIsPlaintextJSON())

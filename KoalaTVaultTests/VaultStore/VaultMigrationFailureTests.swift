@@ -37,10 +37,10 @@ import Testing
 
     /// A trash item that is plaintext on disk, with the vault now in password mode.
     private func plaintextTrashVault() async throws -> (VaultStoreFixture, VaultItem) {
-        let vault = try VaultStoreFixture(lockMode: .none, headerAware: true, selective: true)
+        var vault = try VaultStoreFixture(lockMode: .none, headerAware: true, selective: true)
         let source = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(source)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         return (vault, try await trashedItem(vault, toEncrypted: true))
     }
 
@@ -360,11 +360,11 @@ import Testing
 
     @Test("A plaintext trash item whose entry says encrypted gets its entry corrected and its bytes left alone")
     func plaintextTrashItemWithEncryptedFlag() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none, headerAware: true, selective: true)
+        var vault = try VaultStoreFixture(lockMode: .none, headerAware: true, selective: true)
         defer { vault.cleanUp() }
         let source = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(source)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         try vault.rewriteTrashEntries { $0["isEncrypted"] = true }
         let item = try #require(try await vault.store.trashContents().first)
         let fileURL = vault.trashURL.appendingPathComponent((item.id as NSString).lastPathComponent)
