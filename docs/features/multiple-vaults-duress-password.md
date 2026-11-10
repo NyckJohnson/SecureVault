@@ -121,3 +121,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   `showsLockButton`, `lockTapped()`, button `lockButton` calling `BrowserVaultServices.onLock`. `AppLockCoordinator.lock()`
   is still a stub and nothing presents the lock screen yet (LockScreens' build units and the shell rework).
   Prototype flow approved by the human 2026-11-10 (ui-approved).
+- 2026-11-10 (build): `gates --after-merge` can't skip on the feature branch yet (no earlier `--all` pass there: the
+  skeleton passed with `--skip-coverage`), so it runs `--all`. That run fails only on coverage of modules not yet built
+  in this feature (skeleton/prototype code), which each module's own coverage triage clears; build, tests, lint and api
+  pass. The `gates --all` after the last module must be fully green.
