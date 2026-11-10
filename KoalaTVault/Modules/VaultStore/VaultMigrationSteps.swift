@@ -265,23 +265,26 @@ extension LiveVaultStore {
         var found = false
         let sameName = entries.filter { $0.value.originalName == item.name }.keys.sorted()
         for diskName in sameName {
-            let copy = folder.appendingPathComponent(diskName)
-            guard Self.isRegularFile(copy) else { continue }
-            guard try isCompleteEncryptedCopy(at: copy), let info = try streamInfo(of: copy) else {
-                entries.removeValue(forKey: diskName)
-                incomplete.append(copy)
-                continue
-            }
-            if info.totalSize == plaintextSize {
-                // A further complete copy is kept as it is, as before; only the first match needs comparing.
-                if !found, try encryptedFile(at: copy, matches: item.diskURL) { found = true }
-                continue
-            }
-            // The header's size is wrong for this content: read the copy as a plaintext-sized file.
-            let asPlaintextSize = StreamInfo(totalSize: plaintextSize, chunkSize: info.chunkSize)
-            if try encryptedFile(at: copy, matches: item.diskURL, info: asPlaintextSize) {
-                entries.removeValue(forKey: diskName)
-                incomplete.append(copy)
+            // A pool per copy frees the buffers its header and last-chunk reads leave behind.
+            try autoreleasepool { () throws in
+                let copy = folder.appendingPathComponent(diskName)
+                guard Self.isRegularFile(copy) else { return }
+                guard try isCompleteEncryptedCopy(at: copy), let info = try streamInfo(of: copy) else {
+                    entries.removeValue(forKey: diskName)
+                    incomplete.append(copy)
+                    return
+                }
+                if info.totalSize == plaintextSize {
+                    // A further complete copy is kept as it is, as before; only the first match needs comparing.
+                    if !found, try encryptedFile(at: copy, matches: item.diskURL) { found = true }
+                    return
+                }
+                // The header's size is wrong for this content: read the copy as a plaintext-sized file.
+                let asPlaintextSize = StreamInfo(totalSize: plaintextSize, chunkSize: info.chunkSize)
+                if try encryptedFile(at: copy, matches: item.diskURL, info: asPlaintextSize) {
+                    entries.removeValue(forKey: diskName)
+                    incomplete.append(copy)
+                }
             }
         }
         return found
@@ -548,23 +551,28 @@ extension LiveVaultStore {
             return false
         }
         for chunk in 0..<Self.chunkCount(info) {
-            let decrypted: Data
-            do {
-                decrypted = try cipher.decryptChunk(chunk, of: url, info: info)
-            } catch VaultCryptoError.noKeyLoaded {
-                throw VaultStoreError.locked
-            } catch {
-                return false
+            // Each chunk's buffers (decrypted and read) are autoreleased; a pool per chunk frees them before the
+            // next, so a large file is checked in about two chunks of memory instead of several times its size.
+            let chunkMatches = try autoreleasepool { () throws -> Bool in
+                let decrypted: Data
+                do {
+                    decrypted = try cipher.decryptChunk(chunk, of: url, info: info)
+                } catch VaultCryptoError.noKeyLoaded {
+                    throw VaultStoreError.locked
+                } catch {
+                    return false
+                }
+                let original: Data
+                do {
+                    original = try plain.read(upToCount: decrypted.count) ?? Data()
+                } catch {
+                    // coverage-exempt-begin: read on an open handle can't fail
+                    throw VaultStoreError.from(error)
+                    // coverage-exempt-end
+                }
+                return original == decrypted
             }
-            let original: Data
-            do {
-                original = try plain.read(upToCount: decrypted.count) ?? Data()
-            } catch {
-                // coverage-exempt-begin: read on an open handle can't fail
-                throw VaultStoreError.from(error)
-                // coverage-exempt-end
-            }
-            guard original == decrypted else { return false }
+            guard chunkMatches else { return false }
         }
         // The plaintext must end here too.
         do {

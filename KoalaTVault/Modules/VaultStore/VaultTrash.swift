@@ -639,6 +639,11 @@ final class TrashFileProbe {
     /// - Returns: nil when the cipher finds no SVC5 header there (`decryptionFailed`): a plaintext file.
     /// - Throws: `CopyError` when the store's read or the copy fails; any other cipher error as it is.
     func streamInfo(of url: URL) throws -> StreamInfo? {
+        // Each probe is one file of a loop over the trash: a pool per call frees its read buffers right away.
+        try autoreleasepool { try unpooledStreamInfo(of: url) }
+    }
+
+    private func unpooledStreamInfo(of url: URL) throws -> StreamInfo? {
         let copy = try copyLeadingBytes(of: url, count: Self.headerReadSize).copy
         do {
             return try store.cipher.streamInfo(of: copy)
@@ -650,6 +655,11 @@ final class TrashFileProbe {
     /// The verdict on one regular file: plaintext (no SVC5 header) or a first chunk that opens is readable; a
     /// first chunk that fails authentication or is incomplete is foreign; anything else is uncertain.
     func check(_ url: URL) -> TrashSealCheck {
+        // Each check is one file of a loop over the trash: a pool per call frees its read buffers right away.
+        autoreleasepool { unpooledCheck(url) }
+    }
+
+    private func unpooledCheck(_ url: URL) -> TrashSealCheck {
         let head: (copy: URL, length: Int)
         let info: StreamInfo
         do {
