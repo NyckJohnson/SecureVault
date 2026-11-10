@@ -140,7 +140,9 @@ struct BiometricFailureCase: Sendable {
             #expect(collector.ids.isEmpty)
             #expect(fixture.lock.current.id == "aaaa-1")
             #expect(fixture.isLoaded("aaaa-1"))
-            #expect(!fixture.shelf.events.contains("wipeKey:aaaa-1"))
+            let first = try #require(fixture.shelf.instances(account: fixture.blobAccount("aaaa-1")).first)
+            #expect(first.isKeyLoaded)
+            #expect(first.wipeCalls == 0)
         }
 
         @Test("Opening another vault first closes the open one: key wiped, temp files removed")

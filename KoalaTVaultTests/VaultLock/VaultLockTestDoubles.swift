@@ -49,6 +49,9 @@ final class KeyShelf: Sendable {
         var instances: [String: [FastKeyStore]] = [:]
         var failures: [String: VaultCryptoError] = [:]
         var events: [String] = []
+        var gates: [String: KeyGate] = [:]
+        var claimed: Set<String> = []
+        var entered: [String: Int] = [:]
     }
 
     let keychain: MockKeychainAccessing
@@ -91,6 +94,37 @@ final class KeyShelf: Sendable {
 
     var events: [String] { state.withLock { $0.events } }
 
+    /// Makes the first call of `operation` block (on its own thread) until `release(_:)`.
+    func hold(_ operation: String) { state.withLock { $0.gates[operation] = KeyGate() } }
+
+    /// Lets the held call of `operation` go on; later calls are not held.
+    func release(_ operation: String) {
+        let gate = state.withLock { $0.gates.removeValue(forKey: operation) }
+        gate?.open()
+    }
+
+    /// How many calls of `operation` have started (held or not).
+    func enteredCount(_ operation: String) -> Int { state.withLock { $0.entered[operation] ?? 0 } }
+
+    /// Counts the call and returns the gate it must wait on, if it is the held one.
+    func enter(_ operation: String) -> KeyGate? {
+        state.withLock { state in
+            state.entered[operation, default: 0] += 1
+            guard let gate = state.gates[operation], !state.claimed.contains(operation) else { return nil }
+            state.claimed.insert(operation)
+            return gate
+        }
+    }
+
+    /// Every key store made for `account`, oldest first.
+    func instances(account: String) -> [FastKeyStore] { state.withLock { $0.instances[account] ?? [] } }
+
+    /// The accounts that have a key store with its key loaded, sorted.
+    func loadedAccounts() -> [String] {
+        let all = state.withLock { $0.instances }
+        return all.filter { $0.value.contains { $0.isKeyLoaded } }.map(\.key).sorted()
+    }
+
     func failure(for operation: String) -> VaultCryptoError? { state.withLock { $0.failures[operation] } }
 
     func record(_ event: String) { state.withLock { $0.events.append(event) } }
@@ -102,11 +136,29 @@ final class KeyShelf: Sendable {
     }
 }
 
+/// Blocks the thread that waits on it until opened.
+final class KeyGate: Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func wait() { _ = semaphore.wait(timeout: .now() + 8) }
+
+    func open() {
+        for _ in 0..<8 { semaphore.signal() }
+    }
+}
+
 /// A key store whose blob is the password's bytes in the Keychain item `account`.
 final class FastKeyStore: MasterKeyStoring {
     private let shelf: KeyShelf
-    private let account: String
+    let account: String
     private let loaded = OSAllocatedUnfairLock<Data?>(initialState: nil)
+    private let unlocks = OSAllocatedUnfairLock(initialState: 0)
+    private let wipes = OSAllocatedUnfairLock(initialState: 0)
+
+    /// How many times `unlock(password:)` was called.
+    var unlockCalls: Int { unlocks.withLock { $0 } }
+    /// How many times `wipeKey()` was called.
+    var wipeCalls: Int { wipes.withLock { $0 } }
 
     init(shelf: KeyShelf, account: String) {
         self.shelf = shelf
@@ -131,6 +183,7 @@ final class FastKeyStore: MasterKeyStoring {
     }
 
     func unlock(password: String) throws {
+        unlocks.withLock { $0 += 1 }
         try begin("unlock")
         shelf.record("unlock:\(shelf.vaultID(of: account))")
         guard let blob = try shelf.keychain.read(account: account, prompt: nil) else {
@@ -155,8 +208,8 @@ final class FastKeyStore: MasterKeyStoring {
     }
 
     func storeBiometricKey() throws {
-        try begin("storeBiometricKey")
         guard let key = loadedKeyData else { throw VaultCryptoError.noKeyLoaded }
+        try begin("storeBiometricKey")
         try shelf.keychain.write(
             key, account: KeyShelf.biometricAccount, accessibility: .biometryCurrentSetThisDeviceOnly)
     }
@@ -175,6 +228,7 @@ final class FastKeyStore: MasterKeyStoring {
     }
 
     func wipeKey() {
+        wipes.withLock { $0 += 1 }
         shelf.record("wipeKey:\(shelf.vaultID(of: account))")
         loaded.withLock { $0 = nil }
     }
@@ -185,6 +239,7 @@ final class FastKeyStore: MasterKeyStoring {
     }
 
     private func begin(_ operation: String) throws {
+        shelf.enter(operation)?.wait()
         if let error = shelf.failure(for: operation) { throw error }
     }
 
@@ -359,6 +414,55 @@ final class VaultLockFixture {
     }
 
     func isLoaded(_ id: String) -> Bool { shelf.isLoaded(account: blobAccount(id)) }
+
+    /// Waits (up to three seconds) until a call of `operation` has started on a key store.
+    func waitUntilEntered(_ operation: String) async {
+        for _ in 0..<600 {
+            if shelf.enteredCount(operation) > 0 { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        Issue.record("\(operation) was never called")
+    }
+
+    /// Runs `call` with the first `operation` held, runs `interrupt` while it is held, then releases it.
+    func runHeld(
+        _ operation: String, interrupt: Interrupt, call: @escaping @MainActor () async throws -> Void
+    ) async -> Result<Void, any Error> {
+        shelf.hold(operation)
+        let task = Task { @MainActor in try await call() }
+        await waitUntilEntered(operation)
+        await interrupt.run(on: lock)
+        shelf.release(operation)
+        return await task.result
+    }
+}
+
+/// What happens to the lock while a password check is in progress.
+enum Interrupt: Sendable, CaseIterable {
+    case close, background, openBravo
+
+    /// The vault ID that is current afterwards.
+    var currentID: String { self == .openBravo ? "bbbb-2" : "unencrypted" }
+
+    @MainActor
+    func run(on lock: LiveVaultLock) async {
+        switch self {
+        case .close: lock.close()
+        case .background: lock.appDidEnterBackground()
+        case .openBravo: try? await lock.open(password: "bravo pw")
+        }
+    }
+}
+
+/// Records an issue unless `result` is a failure with exactly `expected`.
+func expectFailure(
+    _ result: Result<Void, any Error>, _ expected: VaultLockError, sourceLocation: SourceLocation = #_sourceLocation
+) {
+    switch result {
+    case .success: Issue.record("Expected \(expected) but the call succeeded", sourceLocation: sourceLocation)
+    case .failure(let error):
+        #expect((error as? VaultLockError) == expected, sourceLocation: sourceLocation)
+    }
 }
 
 /// Collects the vault IDs `currentUpdates()` publishes.
