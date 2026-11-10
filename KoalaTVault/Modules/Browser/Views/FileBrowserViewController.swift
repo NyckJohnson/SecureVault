@@ -27,9 +27,9 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 
     private lazy var settingsButton = makeButton(
         image: "gear", id: "settingsButton", action: #selector(settingsTapped))
-    private lazy var vaultsButton: UIBarButtonItem = {
-        let button = makeButton(image: "lock.rectangle.stack", id: "vaultsButton", action: #selector(vaultsTapped))
-        button.accessibilityLabel = "Vaults"
+    private lazy var lockButton: UIBarButtonItem = {
+        let button = makeButton(image: "lock", id: "lockButton", action: #selector(lockTapped))
+        button.accessibilityLabel = "Lock"
         return button
     }()
     private lazy var sortButton = makeButton(
@@ -95,7 +95,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     ///   - importPresenter: presents the Import flow.
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
-    ///   - vaultServices: the app's vaults, the transfer and the Lock action; nil leaves out the Vaults button
+    ///   - vaultServices: the app's vaults, the transfer and the Lock action; nil leaves out the Lock button
     ///     and Move/Copy to Vault.
     init(
         directory: VaultDirectory, store: any VaultStoring, preferences: any PreferencesStoring,
@@ -231,7 +231,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         } else {
             var leftButtons: [UIBarButtonItem] = []
             if viewModel.showsSettingsButton { leftButtons.append(settingsButton) }
-            if viewModel.showsVaultsButton { leftButtons.append(vaultsButton) }
+            if viewModel.showsLockButton { leftButtons.append(lockButton) }
             navigationItem.leftBarButtonItems = leftButtons
             navigationItem.rightBarButtonItems = [
                 newFolderButton, newDocumentButton, importButton, sortButton, selectButton,
@@ -268,7 +268,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
             present(viewerFactory.makeViewer(items: items, startingAt: index), animated: true)
         case .settings:
             present(settingsFactory.makeSettings(), animated: true)
-        case .vaults:
+        case .lock:
             vaultServices?.onLock()
         }
     }
@@ -285,8 +285,8 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         viewModel.openSettings()
     }
 
-    @objc private func vaultsTapped() {
-        viewModel.openVaults()
+    @objc private func lockTapped() {
+        viewModel.lockTapped()
     }
 
     @objc private func sortTapped() {
@@ -731,7 +731,7 @@ struct BrowserVaultServices {
 
 #if DEBUG
     @available(iOS 17.0, *)
-    #Preview("Browser: root of an encrypted vault") {
+    #Preview("Browser: root of an encrypted vault, Lock button") {
         let store = MockVaultStoring(name: "Travel", isEncrypted: true)
         let exporter = MockVaultExporting()
         let lock = MockVaultLocking(

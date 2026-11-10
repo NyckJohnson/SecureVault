@@ -115,3 +115,8 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   Delete This Vault ends on the lock screen (orchestrator's call, for the same consistency). Memo revised; contract
   changes in LockScreens (`lock()`, `makeLockScreen(onDone:onNeedsPro:)`) wait for the human's approval.
   Approved by the human 2026-11-10; `status feature plan` rerun.
+- 2026-11-10 (prototype, lock screen): VaultsViewModel loses Close Vault / Cancel / `observeCurrentVault`, gains
+  `unencryptedTapped()` (ignored while busy; `close()` then `onDone`); the view is full-screen (icon `koalaT`, name,
+  centred column ≤ 420 pt, keyboard-safe, nav bar hidden except on Create Vault). Browser: `Route.lock`,
+  `showsLockButton`, `lockTapped()`, button `lockButton` calling `BrowserVaultServices.onLock`. `AppLockCoordinator.lock()`
+  is still a stub and nothing presents the lock screen yet (LockScreens' build units and the shell rework).

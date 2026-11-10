@@ -4,7 +4,7 @@ import Foundation
 /// The logic of one file browser screen: the folder's items, sorting, opening, New Folder / New Document,
 /// select mode with bulk actions, the context menu, moving through the folder picker, drag and drop, and
 /// the refreshes after restore, import, editor close and unlock; and (feature multiple-vaults-duress-password) the
-/// Vaults button and Move/Copy to Vault through the vault picker.
+/// Lock button and Move/Copy to Vault through the vault picker.
 @MainActor
 final class FileBrowserViewModel: ObservableObject {
     /// Where the browser asks its view controller to go.
@@ -17,8 +17,8 @@ final class FileBrowserViewModel: ObservableObject {
         case viewer(items: [VaultItem], startingAt: Int)
         /// Present Settings.
         case settings
-        /// Present the Vaults screen (root only).
-        case vaults
+        /// Lock: close the open vault and show the lock screen (root only).
+        case lock
     }
 
     /// An entry of an item's context menu.
@@ -91,7 +91,7 @@ final class FileBrowserViewModel: ObservableObject {
     ///   - preferences: holds the sort and the lock state the drag-out rule reads.
     ///   - exporter: prepares items for the share sheet.
     ///   - alerts: shows errors (held weakly; usually the view controller that owns this).
-    ///   - lock: the app's vaults, to close a transfer target; with `transfer`, enables the Vaults button and
+    ///   - lock: the app's vaults, to close a transfer target; with `transfer`, enables the Lock button and
     ///     Move/Copy to Vault. Nil (the default) leaves both out.
     ///   - transfer: moves and copies items between vaults.
     init(
@@ -118,8 +118,8 @@ final class FileBrowserViewModel: ObservableObject {
     /// The settings button shows at the vault root only.
     var showsSettingsButton: Bool { directory == store.root }
 
-    /// The Vaults button shows at the vault root only, when the browser knows the app's vaults.
-    var showsVaultsButton: Bool { canTransferBetweenVaults && directory == store.root }
+    /// The Lock button shows at the root of every vault, when the browser knows the app's vaults.
+    var showsLockButton: Bool { canTransferBetweenVaults && directory == store.root }
 
     /// Whether Move/Copy to Vault are offered.
     var canTransferBetweenVaults: Bool { lock != nil && transfer != nil }
@@ -193,10 +193,10 @@ final class FileBrowserViewModel: ObservableObject {
         onRoute(.settings)
     }
 
-    /// Asks for the Vaults screen; only where the Vaults button shows.
-    func openVaults() {
-        guard showsVaultsButton else { return }
-        onRoute(.vaults)
+    /// Lock: asks to close the open vault and show the lock screen; only where the Lock button shows.
+    func lockTapped() {
+        guard showsLockButton else { return }
+        onRoute(.lock)
     }
 
     // MARK: - New Folder / New Document

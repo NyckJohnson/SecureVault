@@ -1,24 +1,27 @@
 import Combine
 import UIKit
 
-/// The Vaults screen: binds `VaultsViewModel` to the password field, the buttons and the error label
-/// (feature multiple-vaults-duress-password).
+/// The lock screen (the Vaults screen): a full-screen column with the app's icon and name, the password field,
+/// Open, "Use <biometric>", "Open Unencrypted Vault" and "Create New Vault", bound to `VaultsViewModel`
+/// (feature multiple-vaults-duress-password). No Cancel: a vault must be opened to leave it.
 final class VaultsViewController: UIViewController {
+    /// The column's widest width, so the screen reads well on iPad and in landscape.
+    private static let maximumContentWidth: CGFloat = 420
+
     private let viewModel: VaultsViewModel
     private var subscriptions = Set<AnyCancellable>()
-    private var observation: Task<Void, Never>?
 
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
-    private let iconImageView = UIImageView(image: UIImage(systemName: "lock.rectangle.stack"))
+    private let iconImageView = UIImageView(
+        image: UIImage(named: "koalaT") ?? UIImage(systemName: "lock.shield.fill"))
+    private let appNameLabel = UILabel()
     private let passwordField = UITextField()
     private let errorLabel = UILabel()
     private let openButton = UIButton(type: .system)
     private let biometricButton = UIButton(type: .system)
+    private let unencryptedButton = UIButton(type: .system)
     private let createButton = UIButton(type: .system)
-    private let closeVaultButton = UIButton(type: .system)
-    private lazy var cancelItem = UIBarButtonItem(
-        barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped))
 
     /// - Parameter viewModel: the screen's logic and state.
     init(viewModel: VaultsViewModel) {
@@ -31,6 +34,7 @@ final class VaultsViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // The back button title on Create Vault.
         title = "Vaults"
         view.backgroundColor = .systemBackground
         configureViews()
@@ -40,8 +44,13 @@ final class VaultsViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        guard observation == nil else { return }
-        observation = Task { [viewModel] in await viewModel.observeCurrentVault() }
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Create Vault, pushed over this screen, needs the bar for its back button.
+        navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -49,21 +58,20 @@ final class VaultsViewController: UIViewController {
         passwordField.becomeFirstResponder()
     }
 
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        observation?.cancel()
-        observation = nil
-    }
-
     private func configureViews() {
-        cancelItem.accessibilityIdentifier = "vaults.cancelButton"
-        cancelItem.accessibilityLabel = "Cancel"
-        navigationItem.leftBarButtonItem = cancelItem
-
-        iconImageView.tintColor = .systemBlue
         iconImageView.contentMode = .scaleAspectFit
-        iconImageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .largeTitle)
+        iconImageView.tintColor = .systemBlue
+        iconImageView.layer.cornerRadius = 18
+        iconImageView.layer.cornerCurve = .continuous
+        iconImageView.clipsToBounds = true
         iconImageView.isAccessibilityElement = false
+
+        appNameLabel.text = Self.appName
+        appNameLabel.font = .preferredFont(forTextStyle: .largeTitle)
+        appNameLabel.adjustsFontForContentSizeCategory = true
+        appNameLabel.textAlignment = .center
+        appNameLabel.numberOfLines = 0
+        appNameLabel.accessibilityTraits = .header
 
         passwordField.placeholder = "Password"
         passwordField.isSecureTextEntry = true
@@ -92,12 +100,11 @@ final class VaultsViewController: UIViewController {
             biometricButton, title: viewModel.biometricButtonTitle, style: .tinted(),
             identifier: "vaults.biometricButton", action: #selector(biometricTapped))
         configure(
+            unencryptedButton, title: "Open Unencrypted Vault", style: .plain(),
+            identifier: "vaults.unencryptedButton", action: #selector(unencryptedTapped))
+        configure(
             createButton, title: "Create New Vault", style: .plain(), identifier: "vaults.createButton",
             action: #selector(createTapped))
-        configure(
-            closeVaultButton, title: "Close Vault", style: .plain(), identifier: "vaults.closeVaultButton",
-            action: #selector(closeVaultTapped))
-        closeVaultButton.configuration?.baseForegroundColor = .systemRed
     }
 
     private func configure(
@@ -127,11 +134,16 @@ final class VaultsViewController: UIViewController {
         stack.spacing = 16
         stack.alignment = .fill
         for subview in [
-            iconImageView, passwordField, errorLabel, openButton, biometricButton, createButton, closeVaultButton,
+            iconImageView, appNameLabel, passwordField, errorLabel, openButton, biometricButton, unencryptedButton,
+            createButton,
         ] as [UIView] {
             stack.addArrangedSubview(subview)
         }
+        stack.setCustomSpacing(8, after: iconImageView)
+        stack.setCustomSpacing(32, after: appNameLabel)
         stack.setCustomSpacing(8, after: passwordField)
+        stack.setCustomSpacing(32, after: biometricButton)
+        stack.setCustomSpacing(4, after: unencryptedButton)
 
         scrollView.alwaysBounceVertical = true
         scrollView.keyboardDismissMode = .interactive
@@ -142,16 +154,30 @@ final class VaultsViewController: UIViewController {
 
         let content = scrollView.contentLayoutGuide
         let frame = scrollView.frameLayoutGuide
-        var constraints: [NSLayoutConstraint] = []
-        constraints.append(scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor))
-        constraints.append(scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor))
-        constraints.append(scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor))
-        constraints.append(scrollView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor))
-        constraints.append(stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 32))
-        constraints.append(stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24))
-        constraints.append(stack.leadingAnchor.constraint(equalTo: frame.leadingAnchor, constant: 24))
-        constraints.append(stack.trailingAnchor.constraint(equalTo: frame.trailingAnchor, constant: -24))
-        NSLayoutConstraint.activate(constraints)
+        let iconSize = UIFontMetrics(forTextStyle: .largeTitle).scaledValue(for: 88)
+
+        // Centred vertically while it fits; the scroll view takes over when it doesn't (keyboard, large text).
+        let centred = stack.centerYAnchor.constraint(equalTo: frame.centerYAnchor)
+        centred.priority = .defaultLow
+        // Full width up to the readable maximum.
+        let fullWidth = stack.widthAnchor.constraint(equalTo: frame.widthAnchor, constant: -48)
+        fullWidth.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: content.topAnchor, constant: 32),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -24),
+            content.heightAnchor.constraint(greaterThanOrEqualTo: frame.heightAnchor),
+            centred,
+            stack.centerXAnchor.constraint(equalTo: frame.centerXAnchor),
+            stack.widthAnchor.constraint(lessThanOrEqualToConstant: Self.maximumContentWidth),
+            stack.widthAnchor.constraint(lessThanOrEqualTo: frame.widthAnchor, constant: -48),
+            fullWidth,
+            iconImageView.heightAnchor.constraint(equalToConstant: iconSize),
+        ])
     }
 
     private func bindViewModel() {
@@ -177,19 +203,21 @@ final class VaultsViewController: UIViewController {
         viewModel.$showsBiometricButton
             .sink { [weak self] shows in self?.biometricButton.isHidden = !shows }
             .store(in: &subscriptions)
-        viewModel.$showsCloseVaultButton
-            .sink { [weak self] shows in self?.closeVaultButton.isHidden = !shows }
-            .store(in: &subscriptions)
     }
 
     private func showBusy(_ isBusy: Bool) {
         openButton.configuration?.title = isBusy ? VaultsViewModel.busyMessage : "Open"
         openButton.configuration?.showsActivityIndicator = isBusy
         openButton.accessibilityLabel = isBusy ? VaultsViewModel.busyMessage : "Open"
-        for button in [openButton, biometricButton, createButton, closeVaultButton] {
+        for button in [openButton, biometricButton, unencryptedButton, createButton] {
             button.isEnabled = !isBusy
         }
-        cancelItem.isEnabled = !isBusy
+    }
+
+    /// The app's name as the home screen shows it.
+    private static var appName: String {
+        let info = Bundle.main.infoDictionary
+        return info?["CFBundleDisplayName"] as? String ?? info?["CFBundleName"] as? String ?? "KoalaTVault"
     }
 
     @objc private func passwordEdited() {
@@ -204,16 +232,12 @@ final class VaultsViewController: UIViewController {
         Task { [viewModel] in await viewModel.biometricTapped() }
     }
 
+    @objc private func unencryptedTapped() {
+        viewModel.unencryptedTapped()
+    }
+
     @objc private func createTapped() {
         Task { [viewModel] in await viewModel.createTapped() }
-    }
-
-    @objc private func closeVaultTapped() {
-        viewModel.closeVaultTapped()
-    }
-
-    @objc private func cancelTapped() {
-        viewModel.cancelTapped()
     }
 }
 
@@ -224,8 +248,8 @@ extension VaultsViewController: UITextFieldDelegate {
     }
 }
 
-/// The live `VaultsScreenFactory`: the Vaults screen in a form-sheet navigation controller; Create New Vault
-/// pushes the Create Vault screen.
+/// The live `VaultsScreenFactory`: the lock screen in a full-screen navigation controller; Create New Vault pushes
+/// the Create Vault screen. The presenter dismisses it when `onDone` is called.
 @MainActor
 final class LiveVaultsScreenFactory: VaultsScreenFactory {
     private let lock: any VaultLocking
@@ -241,7 +265,7 @@ final class LiveVaultsScreenFactory: VaultsScreenFactory {
     ) -> UIViewController {
         let viewModel = VaultsViewModel(lock: lock)
         let navigation = UINavigationController(rootViewController: VaultsViewController(viewModel: viewModel))
-        navigation.modalPresentationStyle = .formSheet
+        navigation.modalPresentationStyle = .fullScreen
         viewModel.onDone = { onDone() }
         viewModel.onCreateVault = { [weak navigation, lock] in
             let createViewModel = CreateVaultViewModel(lock: lock)
@@ -262,28 +286,65 @@ final class LiveVaultsScreenFactory: VaultsScreenFactory {
 
 #if DEBUG
     @available(iOS 17.0, *)
-    #Preview("Vaults: unencrypted vault open") {
+    #Preview("Lock screen: no Face ID vault") {
         LiveVaultsScreenFactory(lock: MockVaultLocking()).makeLockScreen(onDone: {}, onNeedsPro: { _ in })
     }
 
     @available(iOS 17.0, *)
-    #Preview("Vaults: encrypted vault open") {
-        let lock = MockVaultLocking()
-        Task { try? await lock.open(password: "correct horse") }
-        return LiveVaultsScreenFactory(lock: lock).makeLockScreen(onDone: {}, onNeedsPro: { _ in })
-    }
-
-    @available(iOS 17.0, *)
-    #Preview("Vaults: Face ID available") {
+    #Preview("Lock screen: Face ID") {
         LiveVaultsScreenFactory(lock: MockVaultLocking(biometricVaultID: "primary"))
             .makeLockScreen(onDone: {}, onNeedsPro: { _ in })
     }
 
     @available(iOS 17.0, *)
-    #Preview("Vaults: error shown") {
+    #Preview("Lock screen: busy") {
+        let viewModel = VaultsViewModel(lock: PreviewSlowVaultLocking())
+        viewModel.passwordEdited("correct horse")
+        Task { await viewModel.openTapped() }
+        return UINavigationController(rootViewController: VaultsViewController(viewModel: viewModel))
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Lock screen: incorrect password") {
         let viewModel = VaultsViewModel(lock: MockVaultLocking())
         viewModel.passwordEdited("not a password")
         Task { await viewModel.openTapped() }
         return UINavigationController(rootViewController: VaultsViewController(viewModel: viewModel))
+    }
+
+    /// A preview-only `VaultLocking` whose open by password never finishes, so the lock screen stays on "Opening…";
+    /// everything else is `MockVaultLocking`'s.
+    @MainActor
+    private final class PreviewSlowVaultLocking: VaultLocking {
+        private let mock = MockVaultLocking()
+
+        var current: OpenVault { mock.current }
+        var unencryptedVault: OpenVault { mock.unencryptedVault }
+        func currentUpdates() -> AsyncStream<OpenVault> { mock.currentUpdates() }
+        var biometricKind: BiometricKind { mock.biometricKind }
+        var biometricsAvailable: Bool { mock.biometricsAvailable }
+        var hasBiometricVault: Bool { mock.hasBiometricVault }
+        var currentUsesBiometrics: Bool { mock.currentUsesBiometrics }
+        func upgradeIfNeeded() async throws { try await mock.upgradeIfNeeded() }
+        func canCreateVault() async -> Bool { await mock.canCreateVault() }
+        func createVault(name: String, password: String) async throws {
+            try await mock.createVault(name: name, password: password)
+        }
+        func open(password: String) async throws {
+            try await Task.sleep(for: .seconds(3600))
+        }
+        func openWithBiometrics() async throws { try await mock.openWithBiometrics() }
+        func close() { mock.close() }
+        func appWillResignActive() -> Bool { mock.appWillResignActive() }
+        func appDidEnterBackground() { mock.appDidEnterBackground() }
+        func changePassword(current: String, new: String) async throws {
+            try await mock.changePassword(current: current, new: new)
+        }
+        func setUsesBiometrics(_ enabled: Bool) async throws { try await mock.setUsesBiometrics(enabled) }
+        func deleteCurrentVault(password: String) async throws { try await mock.deleteCurrentVault(password: password) }
+        func openTransferTarget(password: String) async throws -> OpenVault {
+            try await mock.openTransferTarget(password: password)
+        }
+        func closeTransferTarget(_ vault: OpenVault) { mock.closeTransferTarget(vault) }
     }
 #endif

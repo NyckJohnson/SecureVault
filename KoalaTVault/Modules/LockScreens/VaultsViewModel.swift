@@ -1,8 +1,9 @@
 import Combine
 import Foundation
 
-/// The logic of the Vaults screen: open a vault by password or Face ID, create a vault, close the open vault
-/// (feature multiple-vaults-duress-password). Nothing here, or in its texts, depends on how many vaults exist.
+/// The logic of the lock screen (the Vaults screen): open a vault by password or Face ID, open the unencrypted vault,
+/// create a vault (feature multiple-vaults-duress-password). Nothing here, or in its texts, depends on how many vaults
+/// exist.
 @MainActor
 final class VaultsViewModel: ObservableObject {
     /// The text the Open button shows while an open runs.
@@ -16,10 +17,8 @@ final class VaultsViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     /// True when a vault has Face ID turned on and biometrics are available.
     @Published private(set) var showsBiometricButton: Bool
-    /// True only while an encrypted vault is open.
-    @Published private(set) var showsCloseVaultButton: Bool
 
-    /// Called when the screen should close: a vault opened, the open vault closed, or Cancel.
+    /// Called when a vault is open (by password, Face ID or the unencrypted vault): the screen closes.
     var onDone: (@MainActor () -> Void)?
     /// Called when Create New Vault may go ahead: show the Create Vault screen.
     var onCreateVault: (@MainActor () -> Void)?
@@ -32,20 +31,11 @@ final class VaultsViewModel: ObservableObject {
     init(lock: any VaultLocking) {
         self.lock = lock
         showsBiometricButton = lock.hasBiometricVault && lock.biometricsAvailable
-        showsCloseVaultButton = lock.current.isEncrypted
     }
 
     /// The biometric button's title, naming the device's biometric kind.
     var biometricButtonTitle: String {
         "Use \(lock.biometricKind.vaultsScreenName)"
-    }
-
-    /// Keeps "Close Vault" in step with the open vault until the calling task is cancelled.
-    func observeCurrentVault() async {
-        showsCloseVaultButton = lock.current.isEncrypted
-        for await vault in lock.currentUpdates() {
-            showsCloseVaultButton = vault.isEncrypted
-        }
     }
 
     /// The user changed the password field; any error clears.
@@ -97,15 +87,10 @@ final class VaultsViewModel: ObservableObject {
         }
     }
 
-    /// Close Vault: closes the open vault and the screen.
-    func closeVaultTapped() {
+    /// Open Unencrypted Vault: closes any open vault, so the unencrypted vault is `current`, and the screen.
+    func unencryptedTapped() {
         guard !isBusy else { return }
         lock.close()
-        onDone?()
-    }
-
-    /// Cancel: closes the screen.
-    func cancelTapped() {
         onDone?()
     }
 
