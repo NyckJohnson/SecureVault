@@ -3,7 +3,8 @@ import UIKit
 
 /// The vault grid for one folder: binds `FileBrowserViewModel` to a collection view and the bar buttons, and
 /// presents what the view model asks for (subfolder browsers, the viewer and editor, Settings, the folder
-/// picker) and the Import and Export flows. Every decision is the view model's.
+/// picker) and the Import and Export flows; with `BrowserVaultServices`, also the Vaults screen and Move/Copy to
+/// Vault through the vault picker (feature multiple-vaults-duress-password). Every decision is the view model's.
 @MainActor
 final class FileBrowserViewController: UIViewController, AlertPresenting {
     private let directory: VaultDirectory
@@ -15,15 +16,22 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private let importPresenter: ImportPresenter
     private let viewerFactory: any ViewerFactory
     private let settingsFactory: any SettingsFactory
+    private let vaultServices: BrowserVaultServices?
 
     private lazy var viewModel = FileBrowserViewModel(
-        directory: directory, store: store, preferences: preferences, exporter: exporter, alerts: self)
+        directory: directory, store: store, preferences: preferences, exporter: exporter, alerts: self,
+        lock: vaultServices?.lock, transfer: vaultServices?.transfer)
 
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: Self.makeLayout())
     private let emptyStateLabel = UILabel()
 
     private lazy var settingsButton = makeButton(
         image: "gear", id: "settingsButton", action: #selector(settingsTapped))
+    private lazy var vaultsButton: UIBarButtonItem = {
+        let button = makeButton(image: "lock.rectangle.stack", id: "vaultsButton", action: #selector(vaultsTapped))
+        button.accessibilityLabel = "Vaults"
+        return button
+    }()
     private lazy var sortButton = makeButton(
         image: "arrow.up.arrow.down", id: "sortButton", action: #selector(sortTapped))
     private lazy var newFolderButton = makeButton(
@@ -55,6 +63,14 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         image: "square.and.arrow.up", id: "browser.bulkExportButton", action: #selector(bulkExportTapped))
     private lazy var bulkCopyButton = makeButton(
         image: "doc.on.doc", id: "browser.bulkCopyButton", action: #selector(bulkCopyTapped))
+    private lazy var bulkVaultButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(
+            title: "To Vault", style: .plain, target: self, action: #selector(bulkVaultTapped))
+        button.accessibilityIdentifier = "browser.bulkVaultButton"
+        return button
+    }()
+    /// The transfer's progress overlay while one runs.
+    private var transferOverlay: ProgressOverlayView?
 
     /// The items the grid shows: the view model's items as of the last render, so the grid's counts and
     /// cells always agree with each other.
@@ -79,10 +95,13 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     ///   - importPresenter: presents the Import flow.
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
+    ///   - vaultServices: the app's vaults, the transfer and the Vaults screen; nil leaves out the Vaults button
+    ///     and Move/Copy to Vault.
     init(
         directory: VaultDirectory, store: any VaultStoring, preferences: any PreferencesStoring,
         thumbnails: any ThumbnailProviding, exporter: any VaultExporting, exportPresenter: ExportPresenter,
-        importPresenter: ImportPresenter, viewerFactory: any ViewerFactory, settingsFactory: any SettingsFactory
+        importPresenter: ImportPresenter, viewerFactory: any ViewerFactory, settingsFactory: any SettingsFactory,
+        vaultServices: BrowserVaultServices? = nil
     ) {
         self.directory = directory
         self.store = store
@@ -93,6 +112,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         self.importPresenter = importPresenter
         self.viewerFactory = viewerFactory
         self.settingsFactory = settingsFactory
+        self.vaultServices = vaultServices
         let folderIcon = FileIconMapping.icon(for: .other, isDirectory: true, folderAssetAvailable: true)
         self.folderAssetAvailable = UIImage(named: folderIcon.symbolName) != nil
         super.init(nibName: nil, bundle: nil)
@@ -185,6 +205,11 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private func bindViewModel() {
         viewModel.onRoute = { [weak self] route in self?.go(to: route) }
         viewModel.onPresentPicker = { [weak self] moving in self?.presentPickerWhenReady(for: moving) }
+        viewModel.onPresentVaultPicker = { [weak self] isMove in
+            self?.whenContextMenuClosed { self?.presentVaultPicker(isMove: isMove) }
+        }
+        viewModel.onTransferProgress = { [weak self] progress in self?.showTransferProgress(progress) }
+        viewModel.onNeedsPro = { [weak self] in self?.presentPaywall(from: self) }
         // Fires before a change; render once the change is in place.
         viewModel.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -196,13 +221,18 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         navigationItem.title = viewModel.title
         if viewModel.isSelecting {
             navigationItem.leftBarButtonItems = [cancelSelectButton]
-            navigationItem.rightBarButtonItems = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton]
+            var bulkButtons = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton]
+            if viewModel.canTransferBetweenVaults { bulkButtons.append(bulkVaultButton) }
+            navigationItem.rightBarButtonItems = bulkButtons
             let hasSelection = !viewModel.selectedItems.isEmpty
-            for button in [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton] {
+            for button in bulkButtons {
                 button.isEnabled = hasSelection
             }
         } else {
-            navigationItem.leftBarButtonItems = viewModel.showsSettingsButton ? [settingsButton] : []
+            var leftButtons: [UIBarButtonItem] = []
+            if viewModel.showsSettingsButton { leftButtons.append(settingsButton) }
+            if viewModel.showsVaultsButton { leftButtons.append(vaultsButton) }
+            navigationItem.leftBarButtonItems = leftButtons
             navigationItem.rightBarButtonItems = [
                 newFolderButton, newDocumentButton, importButton, sortButton, selectButton,
             ]
@@ -229,7 +259,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
             let browser = FileBrowserViewController(
                 directory: folder, store: store, preferences: preferences, thumbnails: thumbnails,
                 exporter: exporter, exportPresenter: exportPresenter, importPresenter: importPresenter,
-                viewerFactory: viewerFactory, settingsFactory: settingsFactory)
+                viewerFactory: viewerFactory, settingsFactory: settingsFactory, vaultServices: vaultServices)
             navigationController?.pushViewController(browser, animated: true)
         case .editor(let item):
             isEditorPresented = true
@@ -238,13 +268,29 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
             present(viewerFactory.makeViewer(items: items, startingAt: index), animated: true)
         case .settings:
             present(settingsFactory.makeSettings(), animated: true)
+        case .vaults:
+            guard let vaultServices else { return }
+            let vaults = vaultServices.vaultsScreens.makeVaults(onNeedsPro: { [weak self] screen in
+                self?.presentPaywall(from: screen)
+            })
+            present(vaults, animated: true)
         }
+    }
+
+    /// Presents the paywall over `presenter` (this screen when nil).
+    private func presentPaywall(from presenter: UIViewController?) {
+        let host = presenter ?? self
+        host.present(settingsFactory.makePaywall(onUnlock: {}), animated: true)
     }
 
     // MARK: - Bar button actions
 
     @objc private func settingsTapped() {
         viewModel.openSettings()
+    }
+
+    @objc private func vaultsTapped() {
+        viewModel.openVaults()
     }
 
     @objc private func sortTapped() {
@@ -324,6 +370,23 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         Task { await viewModel.copy(selected) }
     }
 
+    @objc private func bulkVaultTapped() {
+        let selected = viewModel.selectedItems
+        guard !selected.isEmpty else { return }
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(
+            UIAlertAction(title: "Move to Vault…", style: .default) { [weak self] _ in
+                self?.viewModel.beginVaultTransfer(selected, isMove: true)
+            })
+        sheet.addAction(
+            UIAlertAction(title: "Copy to Vault…", style: .default) { [weak self] _ in
+                self?.viewModel.beginVaultTransfer(selected, isMove: false)
+            })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.popoverPresentationController?.barButtonItem = bulkVaultButton
+        present(sheet, animated: true)
+    }
+
     // MARK: - Prompts
 
     /// An alert with one text field, Cancel and Create; Create hands over the field's text.
@@ -376,10 +439,15 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     /// Presents the picker now, or once the context menu it was asked from has closed (UIKit can't present
     /// a sheet while the menu is still dismissing).
     private func presentPickerWhenReady(for moving: [VaultItem]) {
+        whenContextMenuClosed { [weak self] in self?.presentPicker(for: moving) }
+    }
+
+    /// Runs `action` now, or once the context menu on screen has closed.
+    private func whenContextMenuClosed(_ action: @escaping () -> Void) {
         if isContextMenuShown {
-            actionAfterContextMenu = { [weak self] in self?.presentPicker(for: moving) }
+            actionAfterContextMenu = action
         } else {
-            presentPicker(for: moving)
+            action()
         }
     }
 
@@ -399,6 +467,33 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         present(navigation, animated: true)
     }
 
+    // MARK: - Vault picker and transfer progress
+
+    private func presentVaultPicker(isMove: Bool) {
+        guard let vaultServices else { return }
+        let pickerModel = VaultPickerViewModel(lock: vaultServices.lock, isMove: isMove)
+        pickerModel.onFinish = { [weak self] target in
+            self?.closePicker { await self?.viewModel.vaultPickerFinished(target) }
+        }
+        let sheet = VaultPickerViewController.makeSheet(viewModel: pickerModel)
+        // A swipe-down closes the picker as Cancel does.
+        sheet.presentationController?.delegate = self
+        present(sheet, animated: true)
+    }
+
+    /// Shows, updates or (for nil) removes the "Moving…" / "Copying…" overlay.
+    private func showTransferProgress(_ progress: FileBrowserViewModel.TransferProgress?) {
+        guard let progress else {
+            transferOverlay?.dismiss()
+            transferOverlay = nil
+            return
+        }
+        if transferOverlay == nil {
+            transferOverlay = ProgressOverlayView.show(in: self, title: progress.title, status: progress.status)
+        }
+        transferOverlay?.update(progress: progress.fraction, status: progress.status)
+    }
+
     /// Dismisses the picker, then runs `then`, so an error it shows appears over this screen.
     private func closePicker(then: @escaping @MainActor () async -> Void) {
         guard presentedViewController != nil else {
@@ -416,6 +511,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 extension FileBrowserViewController: UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         viewModel.pickerCancelled()
+        viewModel.vaultPickerCancelled()
     }
 }
 
@@ -541,6 +637,16 @@ extension FileBrowserViewController: UICollectionViewDelegate {
             ) { [weak self] _ in
                 self?.presentRename(item)
             }
+        case .moveToVault, .copyToVault:
+            let isMove = action == .moveToVault
+            return UIAction(
+                title: isMove ? "Move to Vault…" : "Copy to Vault…",
+                image: UIImage(systemName: isMove ? "arrow.right.square" : "plus.square.on.square"),
+                identifier: UIAction.Identifier(
+                    isMove ? "browser.contextMenu.moveToVault" : "browser.contextMenu.copyToVault")
+            ) { [weak self] _ in
+                self?.viewModel.beginVaultTransfer([item], isMove: isMove)
+            }
         case .delete:
             return UIAction(
                 title: "Delete", image: UIImage(systemName: "trash"),
@@ -617,3 +723,34 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
         }
     }
 }
+
+/// What the browser needs for the Vaults button and Move/Copy to Vault (feature multiple-vaults-duress-password):
+/// the app's vaults, the transfer between them, and the Vaults screen.
+@MainActor
+struct BrowserVaultServices {
+    let lock: any VaultLocking
+    let transfer: any VaultTransferring
+    let vaultsScreens: any VaultsScreenFactory
+}
+
+#if DEBUG
+    @available(iOS 17.0, *)
+    #Preview("Browser: root of an encrypted vault") {
+        let store = MockVaultStoring(name: "Travel", isEncrypted: true)
+        let exporter = MockVaultExporting()
+        let lock = MockVaultLocking(
+            vaults: [MockVaultLocking.Vault(id: "primary", name: "My Vault", password: "correct horse")], isPro: true)
+        let browser = FileBrowserViewController(
+            directory: store.root, store: store, preferences: MockPreferencesStoring(),
+            thumbnails: MockThumbnailProviding(), exporter: exporter,
+            exportPresenter: ExportPresenter(exporter: exporter),
+            importPresenter: ImportPresenter(
+                importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
+            viewerFactory: MockViewerFactory(), settingsFactory: MockSettingsFactory(),
+            vaultServices: BrowserVaultServices(
+                lock: lock, transfer: MockVaultTransferring(), vaultsScreens: MockVaultsScreenFactory()))
+        let navigation = UINavigationController(rootViewController: browser)
+        navigation.navigationBar.prefersLargeTitles = true
+        return navigation
+    }
+#endif

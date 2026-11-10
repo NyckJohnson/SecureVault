@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T01:16:37-08:00",
+  "updatedAt": "2026-11-10T01:20:43-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -677,7 +677,7 @@
       },
       {
         "name": "VaultPicker",
-        "done": false
+        "done": true
       },
       {
         "name": "Browser",
