@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T11:32:43-08:00",
+  "updatedAt": "2026-11-10T11:52:40-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -664,30 +664,5 @@
     "state": "finished",
     "startedAt": "2026-10-24T11:49:56-07:00",
     "finishedAt": "2026-11-09T23:58:04-08:00"
-  },
-  "plan": {
-    "label": "prototype",
-    "items": [
-      {
-        "name": "Vaults",
-        "done": true
-      },
-      {
-        "name": "CreateVault",
-        "done": true
-      },
-      {
-        "name": "VaultPicker",
-        "done": true
-      },
-      {
-        "name": "Browser",
-        "done": true
-      },
-      {
-        "name": "Settings",
-        "done": true
-      }
-    ]
   }
 }

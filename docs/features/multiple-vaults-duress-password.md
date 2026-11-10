@@ -120,3 +120,4 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   centred column ≤ 420 pt, keyboard-safe, nav bar hidden except on Create Vault). Browser: `Route.lock`,
   `showsLockButton`, `lockTapped()`, button `lockButton` calling `BrowserVaultServices.onLock`. `AppLockCoordinator.lock()`
   is still a stub and nothing presents the lock screen yet (LockScreens' build units and the shell rework).
+  Prototype flow approved by the human 2026-11-10 (ui-approved).
