@@ -564,7 +564,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T23:58:04-08:00",
+  "updatedAt": "2026-11-10T00:00:48-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -716,70 +716,5 @@
     "state": "finished",
     "startedAt": "2026-10-24T11:49:56-07:00",
     "finishedAt": "2026-11-09T23:58:04-08:00"
-  },
-  "plan": {
-    "label": "verify",
-    "items": [
-      {
-        "name": "legacy-check",
-        "done": true
-      },
-      {
-        "name": "final-switch",
-        "done": true
-      },
-      {
-        "name": "j1-setup",
-        "done": true
-      },
-      {
-        "name": "j2-unlock",
-        "done": true
-      },
-      {
-        "name": "j3-browse",
-        "done": true
-      },
-      {
-        "name": "j4-import",
-        "done": true
-      },
-      {
-        "name": "j5-view-edit",
-        "done": true
-      },
-      {
-        "name": "j6-delete-restore",
-        "done": true
-      },
-      {
-        "name": "j7-export",
-        "done": true
-      },
-      {
-        "name": "j8-lock-mode",
-        "done": true
-      },
-      {
-        "name": "j9-paywall",
-        "done": true
-      },
-      {
-        "name": "app-review",
-        "done": true
-      },
-      {
-        "name": "fixes",
-        "done": true
-      },
-      {
-        "name": "device-test",
-        "done": true
-      },
-      {
-        "name": "backlog",
-        "done": false
-      }
-    ]
   }
 }
