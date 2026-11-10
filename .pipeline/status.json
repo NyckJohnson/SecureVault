@@ -562,7 +562,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-09T19:24:51-08:00",
+  "updatedAt": "2026-11-09T23:56:20-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -691,6 +691,18 @@
       "stage": null,
       "brief": "docs/features/settings-screen-polish.md",
       "addedAt": "2026-11-03T12:53:17-08:00",
+      "startedAt": null,
+      "finishedAt": null,
+      "checkpoints": {},
+      "plan": null
+    },
+    {
+      "slug": "faster-lock-changes-in-large-folders",
+      "title": "Faster lock changes in large folders",
+      "state": "queued",
+      "stage": null,
+      "brief": "docs/features/faster-lock-changes-in-large-folders.md",
+      "addedAt": "2026-11-09T23:56:20-08:00",
       "startedAt": null,
       "finishedAt": null,
       "checkpoints": {},
