@@ -723,10 +723,9 @@ the upgrade clearing it.
     `appWillEnterForeground`, `switchMode`, `prepareToAddLock`, `removeKeysAfterDecryption`, the empty-vault check, and
     the errors `existingPasswordRequired`, `passwordMissing`, `notUnlocked`. LockState.swift keeps the open-vault state
     (`current` and its publishing).
-  - Build note: the new unit 3 (VaultCatalog.swift, VaultUpgrade.swift) is built before the reopened unit 1, which uses it.
+  - Build note: the new unit 2 (VaultCatalog.swift, VaultUpgrade.swift) is built before the reopened unit 1, which uses it.
 - Changes (multiple-vaults-duress-password): LockState.swift, BiometricInfo.swift, LiveVaultLock.swift
-- Contract changes (multiple-vaults-duress-password): the `VaultLocking` protocol, `OpenVault` and `VaultLockError` above replace the lock-mode
-  contract (`LockState` removed); VaultLock now depends on Entitlements.
+- Contract changes (multiple-vaults-duress-password): the `VaultLocking` protocol, `OpenVault` and `VaultLockError` above replace the lock-mode contract (`LockState` removed); VaultLock now depends on Entitlements.
 - Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
 
 ### LockMigration
@@ -777,8 +776,7 @@ the upgrade clearing it.
   - Removed: `pending`, `start(_:target:)`, `resumeIfPending`, `.paused`, decrypting, lock-mode switching, and the
     dependencies on VaultLock and Preferences.
 - Changes (multiple-vaults-duress-password): MigrationProgress.swift, LiveLockMigrator.swift
-- Contract changes (multiple-vaults-duress-password): `LockMigrating` above replaces `pending`, `start(_:target:)` and `resumeIfPending()` with
-  `encryptLeftovers(in:)` and `cancel()`; `MigrationPhase.paused` removed.
+- Contract changes (multiple-vaults-duress-password): `LockMigrating` above replaces `pending`, `start(_:target:)` and `resumeIfPending()` with `encryptLeftovers(in:)` and `cancel()`; `MigrationPhase.paused` removed.
 - Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
 
 ### VaultTransfer
@@ -968,8 +966,7 @@ the upgrade clearing it.
     `createVault.passwordField`, `createVault.confirmField`, `createVault.createButton`, `createVault.errorLabel`,
     `privacyCover`. (Views; covered by journey tests.) `LiveVaultsScreenFactory` lives in `Views/VaultsViewController.swift`.
 - Changes (multiple-vaults-duress-password): SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift, Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift
-- Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed;
-  new `VaultsScreenFactory`; LockScreens no longer depends on VaultCrypto or Preferences.
+- Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory`; LockScreens no longer depends on VaultCrypto or Preferences.
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
 
 ### Viewer
@@ -1220,5 +1217,5 @@ the upgrade clearing it.
 - 2026-11-09: Adoption finished and the app accepted (checkpoints `adopted` and `app-accepted`): all 14 modules adopted, no legacy code left, journeys and the device test pass. Memo cleaned: per-module `Legacy files` / `Legacy tests` / `Callers to repoint` lines removed, `## Legacy code` reduced to `## App shell` (shell files, shell tests, shell responsibilities), `## Known issues` keeps only open items — decided by the human
 - 2026-11-10: Feature multiple-vaults-duress-password (multiple vaults / duress password): one always-there unencrypted vault the app opens to, plus named encrypted vaults opened by typing their password on the Vaults screen (the password finds its vault, so any vault can be a decoy); the app-wide lock (setup wizard, lock screen, Lock Mode, encrypt/decrypt-everything) is removed; backgrounding closes an encrypted vault and returns to the unencrypted root with no lock screen; Face ID can open one chosen vault (iOS can't tell faces apart); free: one encrypted vault and 100 files per vault, Pro: more of both; the paywall on Create New Vault may reveal that a vault exists (accepted); vaults can be deleted (by password) but not renamed; Move/Copy to Vault replaces encrypting an existing vault; a 1.2 vault is upgraded once (locked → "My Vault", unlocked → the unencrypted vault) — decided by the human
 - 2026-11-10: Feature multiple-vaults-duress-password design: encrypted vaults live in `Application Support/Vaults/<id>/` (outside Documents, so the unencrypted vault never sees them), each with its own blob account (the upgraded vault keeps the old one, so no Keychain item is rewritten) and an encrypted `.vault_info` name; no list of vaults is stored; the Face ID vault is named by a plain Keychain marker; one `VaultStoring` per vault with its mode fixed (VaultStore drops Preferences); VaultLock becomes the vault registry; LockMigration only encrypts an upgraded vault's leftovers, with no persisted record; new module VaultTransfer; Settings, Browser and the other screen modules are built per vault by the shell, so Import, Export, Media and Viewer don't change — orchestrator, approved with the memo
-- 2026-11-10: Feature multiple-vaults-duress-password transition: the skeleton applies the final contracts at once. Code in modules not yet rebuilt that calls a removed member becomes a loud "Not implemented" stub, and the unit tests that reach it are disabled with `.disabled("feature multiple-vaults-duress-password: rebuilt in <Module> unit <n>")`; each rebuilt unit's test-writer replaces them. The app doesn't run end to end from the skeleton until the shell step after Browser; previews (mocks) work throughout. VaultLock's new unit 3 is built before its reopened unit 1 — orchestrator, approved with the memo
+- 2026-11-10: Feature multiple-vaults-duress-password transition: the skeleton applies the final contracts at once. Code in modules not yet rebuilt that calls a removed member becomes a loud "Not implemented" stub, and the unit tests that reach it are disabled with `.disabled("feature multiple-vaults-duress-password: rebuilt in <Module> unit <n>")`; each rebuilt unit's test-writer replaces them. The app doesn't run end to end from the skeleton until the shell step after Browser; previews (mocks) work throughout. VaultLock's new unit 2 is built before its reopened unit 1 — orchestrator, approved with the memo
 - 2026-11-10: Later-features item "Harden no sweep while a migration is pending" dropped: lock changes and their pending record are gone with feature multiple-vaults-duress-password — orchestrator, approved with the memo

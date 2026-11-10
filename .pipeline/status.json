@@ -15,7 +15,7 @@
       "name": "VaultCrypto",
       "path": "KoalaTVault/Modules/VaultCrypto",
       "dependsOn": [],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -24,8 +24,8 @@
             "MasterKeyBlob.swift",
             "LiveMasterKeyStore.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -35,19 +35,6 @@
           ],
           "state": "done",
           "attempts": 2
-        },
-        {
-          "number": 3,
-          "files": [
-            "AppDelegate.swift",
-            "Model/AuthService.swift",
-            "Model/FileSystem.swift",
-            "Model/VaultResourceLoaderDelegate.swift",
-            "View/Migration.swift"
-          ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
         }
       ]
     },
@@ -55,31 +42,15 @@
       "name": "Preferences",
       "path": "KoalaTVault/Modules/Preferences",
       "dependsOn": [],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
           "files": [
             "UserDefaultsPreferences.swift"
           ],
-          "state": "done",
-          "attempts": 2
-        },
-        {
-          "number": 2,
-          "files": [
-            "AppDelegate.swift",
-            "SceneDelegate.swift",
-            "Model/AuthService.swift",
-            "Model/FileSystem.swift",
-            "View/SetupWizard.swift",
-            "View/Migration.swift",
-            "View/FileBrowser.swift",
-            "View/SecuritySettings.swift"
-          ],
-          "state": "done",
-          "attempts": 1,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -96,18 +67,6 @@
           ],
           "state": "done",
           "attempts": 0
-        },
-        {
-          "number": 2,
-          "files": [
-            "AppDelegate.swift",
-            "Model/FileSystem.swift",
-            "View/SecuritySettings.swift",
-            "View/PaywallViewController.swift"
-          ],
-          "state": "done",
-          "attempts": 2,
-          "kind": "switch-over"
         }
       ]
     },
@@ -115,10 +74,9 @@
       "name": "VaultStore",
       "path": "KoalaTVault/Modules/VaultStore",
       "dependsOn": [
-        "VaultCrypto",
-        "Preferences"
+        "VaultCrypto"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -128,8 +86,8 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -139,32 +97,8 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "done",
-          "attempts": 1
-        },
-        {
-          "number": 3,
-          "files": [
-            "AppDelegate.swift",
-            "SceneDelegate.swift",
-            "Model/AuthService.swift",
-            "Model/ExportService.swift",
-            "Model/ImportService.swift",
-            "Model/ThumbnailService.swift",
-            "View/FileBrowser.swift",
-            "View/FileCell.swift",
-            "View/FileIconProvider.swift",
-            "View/FilePage.swift",
-            "View/FileViewer.swift",
-            "View/FolderPicker.swift",
-            "View/Migration.swift",
-            "View/RecentlyDeleted.swift",
-            "View/SecuritySettings.swift",
-            "View/TextEditor.swift"
-          ],
-          "state": "done",
-          "attempts": 1,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -186,27 +120,6 @@
           ],
           "state": "done",
           "attempts": 0
-        },
-        {
-          "number": 2,
-          "files": [
-            "SceneDelegate.swift",
-            "Model/AuthService.swift",
-            "Model/ExportService.swift",
-            "Model/ImportService.swift",
-            "Model/ThumbnailService.swift",
-            "View/FileBrowser.swift",
-            "View/FileCell.swift",
-            "View/Migration.swift",
-            "View/PaywallViewController.swift",
-            "View/RecentlyDeleted.swift",
-            "View/SecuritySettings.swift",
-            "View/SetupWizard.swift",
-            "View/TextEditor.swift"
-          ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
         }
       ]
     },
@@ -216,9 +129,10 @@
       "dependsOn": [
         "VaultCrypto",
         "Preferences",
-        "VaultStore"
+        "VaultStore",
+        "Entitlements"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -227,23 +141,17 @@
             "BiometricInfo.swift",
             "LiveVaultLock.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
           "files": [
-            "AppDelegate.swift",
-            "SceneDelegate.swift",
-            "View/FileBrowser.swift",
-            "View/LockScreen.swift",
-            "View/Migration.swift",
-            "View/SecuritySettings.swift",
-            "View/SetupWizard.swift"
+            "VaultCatalog.swift",
+            "VaultUpgrade.swift"
           ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -251,11 +159,9 @@
       "name": "LockMigration",
       "path": "KoalaTVault/Modules/LockMigration",
       "dependsOn": [
-        "VaultStore",
-        "VaultLock",
-        "Preferences"
+        "VaultStore"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -263,18 +169,28 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
-        },
+        }
+      ]
+    },
+    {
+      "name": "VaultTransfer",
+      "path": "KoalaTVault/Modules/VaultTransfer",
+      "dependsOn": [
+        "VaultStore",
+        "Entitlements"
+      ],
+      "state": "pending",
+      "units": [
         {
-          "number": 2,
+          "number": 1,
           "files": [
-            "SceneDelegate.swift",
-            "View/SecuritySettings.swift"
+            "TransferPlan.swift",
+            "LiveVaultTransfer.swift"
           ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -283,7 +199,8 @@
       "path": "KoalaTVault/Modules/Media",
       "dependsOn": [
         "VaultStore",
-        "VaultCrypto"
+        "VaultCrypto",
+        "Preferences"
       ],
       "state": "done",
       "units": [
@@ -296,18 +213,6 @@
           ],
           "state": "done",
           "attempts": 1
-        },
-        {
-          "number": 2,
-          "files": [
-            "SceneDelegate.swift",
-            "Model/AuthService.swift",
-            "View/FileCell.swift",
-            "View/FilePage.swift"
-          ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
         }
       ]
     },
@@ -339,15 +244,6 @@
           ],
           "state": "done",
           "attempts": 1
-        },
-        {
-          "number": 3,
-          "files": [
-            "View/FileBrowser.swift"
-          ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
         }
       ]
     },
@@ -376,16 +272,6 @@
           ],
           "state": "done",
           "attempts": 0
-        },
-        {
-          "number": 3,
-          "files": [
-            "View/FileBrowser.swift",
-            "View/FileViewer.swift"
-          ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
         }
       ]
     },
@@ -396,7 +282,7 @@
         "VaultLock",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -405,27 +291,30 @@
             "LockScreenViewModel.swift",
             "AppLockCoordinator.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
           "files": [
             "Views/SetupWizardViewController.swift",
             "Views/LockScreenViewController.swift",
-            "Views/PrivacyCoverView.swift"
+            "Views/PrivacyCoverView.swift",
+            "Views/LockPresenter.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 3,
           "files": [
-            "SceneDelegate.swift"
+            "VaultsViewModel.swift",
+            "CreateVaultViewModel.swift",
+            "Views/VaultsViewController.swift",
+            "Views/CreateVaultViewController.swift"
           ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -438,7 +327,7 @@
         "Export",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -455,19 +344,11 @@
           "files": [
             "Views/FileViewerViewController.swift",
             "Views/FilePageViewController.swift",
-            "Views/TextEditorViewController.swift"
+            "Views/TextEditorViewController.swift",
+            "Views/LiveViewerFactory.swift"
           ],
-          "state": "done",
-          "attempts": 2
-        },
-        {
-          "number": 3,
-          "files": [
-            "View/FileBrowser.swift"
-          ],
-          "state": "done",
-          "attempts": 2,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -481,7 +362,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -491,7 +372,7 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         },
         {
@@ -502,18 +383,8 @@
             "Views/PaywallViewController.swift",
             "Views/RecentlyDeletedViewController.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
-        },
-        {
-          "number": 3,
-          "files": [
-            "SceneDelegate.swift",
-            "View/FileBrowser.swift"
-          ],
-          "state": "done",
-          "attempts": 0,
-          "kind": "switch-over"
         }
       ]
     },
@@ -522,15 +393,18 @@
       "path": "KoalaTVault/Modules/Browser",
       "dependsOn": [
         "VaultStore",
+        "VaultLock",
+        "VaultTransfer",
         "Preferences",
         "Media",
         "Import",
         "Export",
         "SharedUI",
         "Viewer",
-        "Settings"
+        "Settings",
+        "LockScreens"
       ],
-      "state": "done",
+      "state": "pending",
       "units": [
         {
           "number": 1,
@@ -539,8 +413,8 @@
             "FolderPickerViewModel.swift",
             "FileCellModel.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -549,22 +423,22 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         },
         {
           "number": 3,
           "files": [
-            "SceneDelegate.swift"
+            "VaultPickerViewModel.swift",
+            "Views/VaultPickerViewController.swift"
           ],
-          "state": "done",
-          "attempts": 1,
-          "kind": "switch-over"
+          "state": "pending",
+          "attempts": 0
         }
       ]
     }
   ],
-  "updatedAt": "2026-11-10T00:31:48-08:00",
+  "updatedAt": "2026-11-10T00:42:18-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -624,7 +498,77 @@
       "startedAt": "2026-11-10T00:16:56-08:00",
       "finishedAt": null,
       "checkpoints": {},
-      "plan": null
+      "plan": {
+        "newModules": [],
+        "changes": {
+          "VaultCrypto": [
+            "LiveMasterKeyStore.swift"
+          ],
+          "Preferences": [
+            "UserDefaultsPreferences.swift"
+          ],
+          "VaultStore": [
+            "LiveVaultStore.swift",
+            "VaultIndex.swift",
+            "VaultFileOperations.swift",
+            "VaultMigrationSteps.swift"
+          ],
+          "VaultLock": [
+            "LockState.swift",
+            "BiometricInfo.swift",
+            "LiveVaultLock.swift"
+          ],
+          "LockMigration": [
+            "MigrationProgress.swift",
+            "LiveLockMigrator.swift"
+          ],
+          "LockScreens": [
+            "SetupWizardViewModel.swift",
+            "LockScreenViewModel.swift",
+            "AppLockCoordinator.swift",
+            "Views/SetupWizardViewController.swift",
+            "Views/LockScreenViewController.swift",
+            "Views/PrivacyCoverView.swift"
+          ],
+          "Settings": [
+            "SecuritySettingsViewModel.swift",
+            "MigrationViewModel.swift",
+            "PaywallViewModel.swift",
+            "Views/SecuritySettingsViewController.swift",
+            "Views/MigrationViewController.swift"
+          ],
+          "Browser": [
+            "FileBrowserViewModel.swift",
+            "Views/FileBrowserViewController.swift"
+          ]
+        },
+        "contractChanges": {
+          "Preferences": "`PreferencesStoring` gains `var vaultsUpgraded: Bool { get set }`.",
+          "VaultStore": "`VaultStoring` gains `isEncrypted` and `remove(_:)`; `itemsToMigrate(toEncrypted:)` becomes `itemsToEncrypt()`; `migrateToDecrypted(_:)` and `finishDecryption()` are removed; `VaultStoreError.stillEncrypted(count:)` is removed (and its `errorDescription` case, in `Contracts/VaultStoring.swift`).",
+          "VaultLock": "the `VaultLocking` protocol, `OpenVault` and `VaultLockError` above replace the lock-mode contract (`LockState` removed); VaultLock now depends on Entitlements.",
+          "LockMigration": "`LockMigrating` above replaces `pending`, `start(_:target:)` and `resumeIfPending()` with `encryptLeftovers(in:)` and `cancel()`; `MigrationPhase.paused` removed.",
+          "LockScreens": "`AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory`; LockScreens no longer depends on VaultCrypto or Preferences."
+        },
+        "reopenedUnits": [
+          "VaultCrypto / unit 1 (KeychainStore.swift, MasterKeyBlob.swift, LiveMasterKeyStore.swift)",
+          "Preferences / unit 1 (UserDefaultsPreferences.swift)",
+          "VaultStore / unit 1 (VaultIndex.swift, VaultNaming.swift, LiveVaultStore.swift, VaultFileOperations.swift)",
+          "VaultStore / unit 2 (VaultTrash.swift, VaultMigrationSteps.swift, OrphanSweep.swift, VaultTempFiles.swift)",
+          "VaultLock / unit 1 (LockState.swift, BiometricInfo.swift, LiveVaultLock.swift)",
+          "VaultLock / unit 2 (VaultCatalog.swift, VaultUpgrade.swift)",
+          "LockMigration / unit 1 (MigrationProgress.swift, LiveLockMigrator.swift)",
+          "VaultTransfer / unit 1 (TransferPlan.swift, LiveVaultTransfer.swift)",
+          "LockScreens / unit 1 (SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift)",
+          "LockScreens / unit 2 (Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift)",
+          "LockScreens / unit 3 (VaultsViewModel.swift, CreateVaultViewModel.swift, Views/VaultsViewController.swift, Views/CreateVaultViewController.swift)",
+          "Viewer / unit 2 (Views/FileViewerViewController.swift, Views/FilePageViewController.swift, Views/TextEditorViewController.swift, Views/LiveViewerFactory.swift)",
+          "Settings / unit 1 (SecuritySettingsViewModel.swift, MigrationViewModel.swift, PaywallViewModel.swift, RecentlyDeletedViewModel.swift)",
+          "Settings / unit 2 (Views/SecuritySettingsViewController.swift, Views/MigrationViewController.swift, Views/PaywallViewController.swift, Views/RecentlyDeletedViewController.swift)",
+          "Browser / unit 1 (FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift)",
+          "Browser / unit 2 (Views/FileBrowserViewController.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift)",
+          "Browser / unit 3 (VaultPickerViewModel.swift, Views/VaultPickerViewController.swift)"
+        ]
+      }
     },
     {
       "slug": "timed-lockout-for-failed-passwords",
