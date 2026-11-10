@@ -3,7 +3,7 @@ import UIKit
 
 /// The vault grid for one folder: binds `FileBrowserViewModel` to a collection view and the bar buttons, and
 /// presents what the view model asks for (subfolder browsers, the viewer and editor, Settings, the folder
-/// picker) and the Import and Export flows; with `BrowserVaultServices`, also the Vaults screen and Move/Copy to
+/// picker) and the Import and Export flows; with `BrowserVaultServices`, also the Lock action and Move/Copy to
 /// Vault through the vault picker (feature multiple-vaults-duress-password). Every decision is the view model's.
 @MainActor
 final class FileBrowserViewController: UIViewController, AlertPresenting {
@@ -95,7 +95,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     ///   - importPresenter: presents the Import flow.
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
-    ///   - vaultServices: the app's vaults, the transfer and the Vaults screen; nil leaves out the Vaults button
+    ///   - vaultServices: the app's vaults, the transfer and the Lock action; nil leaves out the Vaults button
     ///     and Move/Copy to Vault.
     init(
         directory: VaultDirectory, store: any VaultStoring, preferences: any PreferencesStoring,
@@ -269,11 +269,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         case .settings:
             present(settingsFactory.makeSettings(), animated: true)
         case .vaults:
-            guard let vaultServices else { return }
-            let vaults = vaultServices.vaultsScreens.makeVaults(onNeedsPro: { [weak self] screen in
-                self?.presentPaywall(from: screen)
-            })
-            present(vaults, animated: true)
+            vaultServices?.onLock()
         }
     }
 
@@ -724,13 +720,13 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
     }
 }
 
-/// What the browser needs for the Vaults button and Move/Copy to Vault (feature multiple-vaults-duress-password):
-/// the app's vaults, the transfer between them, and the Vaults screen.
+/// What the browser needs for the Lock button and Move/Copy to Vault (feature multiple-vaults-duress-password):
+/// the app's vaults, the transfer between them, and the Lock action the shell gives.
 @MainActor
 struct BrowserVaultServices {
     let lock: any VaultLocking
     let transfer: any VaultTransferring
-    let vaultsScreens: any VaultsScreenFactory
+    let onLock: () -> Void
 }
 
 #if DEBUG
@@ -748,7 +744,7 @@ struct BrowserVaultServices {
                 importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
             viewerFactory: MockViewerFactory(), settingsFactory: MockSettingsFactory(),
             vaultServices: BrowserVaultServices(
-                lock: lock, transfer: MockVaultTransferring(), vaultsScreens: MockVaultsScreenFactory()))
+                lock: lock, transfer: MockVaultTransferring(), onLock: {}))
         let navigation = UINavigationController(rootViewController: browser)
         navigation.navigationBar.prefersLargeTitles = true
         return navigation

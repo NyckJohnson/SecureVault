@@ -24,7 +24,7 @@ final class LiveBrowserFactory: BrowserFactory {
     ///   - importPresenter: the app's one import presenter.
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
-    ///   - vaultServices: the app's vaults, the transfer and the Vaults screen, for the Vaults button and
+    ///   - vaultServices: the app's vaults, the transfer and the Lock action, for the Vaults button and
     ///     Move/Copy to Vault (feature multiple-vaults-duress-password); nil leaves both out.
     init(
         store: any VaultStoring, preferences: any PreferencesStoring, thumbnails: any ThumbnailProviding,

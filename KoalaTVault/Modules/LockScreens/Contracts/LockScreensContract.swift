@@ -13,12 +13,18 @@ protocol AppLockCoordinating: AnyObject {
     func sceneDidEnterBackground()
     /// Hides the privacy cover.
     func sceneDidBecomeActive()
+    /// Closes the open vault and shows the lock screen (the browser's Lock button, a deleted vault).
+    func lock()
 }
 
-/// Builds the Vaults screen.
+/// Builds the lock screen.
 @MainActor
 protocol VaultsScreenFactory: AnyObject {
-    /// The Vaults screen in its navigation controller. `onNeedsPro` is called with the screen to present the paywall
-    /// from (Create New Vault without Pro, an encrypted vault already there).
-    func makeVaults(onNeedsPro: @escaping (UIViewController) -> Void) -> UIViewController
+    /// The lock screen in its navigation controller. `onDone` is called when a vault is open (by password, Face ID,
+    /// a new vault, or the unencrypted vault). `onNeedsPro` is called with the screen to present the paywall from
+    /// (Create New Vault without Pro, an encrypted vault already there).
+    func makeLockScreen(
+        onDone: @escaping () -> Void,
+        onNeedsPro: @escaping (UIViewController) -> Void
+    ) -> UIViewController
 }

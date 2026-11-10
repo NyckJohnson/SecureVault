@@ -9,6 +9,7 @@ final class MockAppLockCoordinating: AppLockCoordinating {
         case sceneWillResignActive
         case sceneDidEnterBackground
         case sceneDidBecomeActive
+        case lock
     }
 
     /// Every call so far, in order.
@@ -30,5 +31,9 @@ final class MockAppLockCoordinating: AppLockCoordinating {
 
     func sceneDidBecomeActive() {
         calls.append(.sceneDidBecomeActive)
+    }
+
+    func lock() {
+        calls.append(.lock)
     }
 }

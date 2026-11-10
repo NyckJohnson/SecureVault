@@ -235,18 +235,17 @@ final class LiveVaultsScreenFactory: VaultsScreenFactory {
         self.lock = lock
     }
 
-    func makeVaults(onNeedsPro: @escaping (UIViewController) -> Void) -> UIViewController {
+    func makeLockScreen(
+        onDone: @escaping () -> Void,
+        onNeedsPro: @escaping (UIViewController) -> Void
+    ) -> UIViewController {
         let viewModel = VaultsViewModel(lock: lock)
         let navigation = UINavigationController(rootViewController: VaultsViewController(viewModel: viewModel))
         navigation.modalPresentationStyle = .formSheet
-        viewModel.onDone = { [weak navigation] in
-            navigation?.dismiss(animated: true)
-        }
+        viewModel.onDone = { onDone() }
         viewModel.onCreateVault = { [weak navigation, lock] in
             let createViewModel = CreateVaultViewModel(lock: lock)
-            createViewModel.onDone = { [weak navigation] in
-                navigation?.dismiss(animated: true)
-            }
+            createViewModel.onDone = { onDone() }
             createViewModel.onNeedsPro = { [weak navigation] in
                 guard let navigation else { return }
                 onNeedsPro(navigation)
@@ -264,20 +263,20 @@ final class LiveVaultsScreenFactory: VaultsScreenFactory {
 #if DEBUG
     @available(iOS 17.0, *)
     #Preview("Vaults: unencrypted vault open") {
-        LiveVaultsScreenFactory(lock: MockVaultLocking()).makeVaults(onNeedsPro: { _ in })
+        LiveVaultsScreenFactory(lock: MockVaultLocking()).makeLockScreen(onDone: {}, onNeedsPro: { _ in })
     }
 
     @available(iOS 17.0, *)
     #Preview("Vaults: encrypted vault open") {
         let lock = MockVaultLocking()
         Task { try? await lock.open(password: "correct horse") }
-        return LiveVaultsScreenFactory(lock: lock).makeVaults(onNeedsPro: { _ in })
+        return LiveVaultsScreenFactory(lock: lock).makeLockScreen(onDone: {}, onNeedsPro: { _ in })
     }
 
     @available(iOS 17.0, *)
     #Preview("Vaults: Face ID available") {
         LiveVaultsScreenFactory(lock: MockVaultLocking(biometricVaultID: "primary"))
-            .makeVaults(onNeedsPro: { _ in })
+            .makeLockScreen(onDone: {}, onNeedsPro: { _ in })
     }
 
     @available(iOS 17.0, *)

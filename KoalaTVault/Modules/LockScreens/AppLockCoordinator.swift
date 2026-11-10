@@ -23,7 +23,7 @@ protocol LockPresenting: AnyObject {
 /// the vault lock's state, and recovers an interrupted encryption at launch.
 @MainActor
 final class AppLockCoordinator: AppLockCoordinating {
-    private let lock: any VaultLocking
+    private let vaults: any VaultLocking
     private let preferences: any PreferencesStoring
     private let masterKeys: any MasterKeyStoring
     private let presenter: any LockPresenting
@@ -43,7 +43,7 @@ final class AppLockCoordinator: AppLockCoordinating {
         masterKeys: any MasterKeyStoring,
         presenter: any LockPresenting
     ) {
-        self.lock = lock
+        self.vaults = lock
         self.preferences = preferences
         self.masterKeys = masterKeys
         self.presenter = presenter
@@ -54,15 +54,19 @@ final class AppLockCoordinator: AppLockCoordinating {
     }
 
     func sceneWillResignActive() {
-        guard lock.appWillResignActive(), let window else { return }
+        guard vaults.appWillResignActive(), let window else { return }
         presenter.showPrivacyCover(in: window)
     }
 
     func sceneDidEnterBackground() {
-        lock.appDidEnterBackground()
+        vaults.appDidEnterBackground()
     }
 
     func sceneDidBecomeActive() {
         fatalError("Not implemented: AppLockCoordinator.sceneDidBecomeActive (feature multiple-vaults-duress-password)")
+    }
+
+    func lock() {
+        fatalError("Not implemented: AppLockCoordinator.lock (feature multiple-vaults-duress-password)")
     }
 }
