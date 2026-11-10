@@ -8,7 +8,8 @@ import UIKit
 final class PaywallViewModel: ObservableObject {
     /// The paywall's title.
     let title = "Unlock Pro"
-    /// What Pro gives.
+    /// What Pro gives. The old copy, kept until Settings' build updates its tests and journey 9; the spec's is
+    /// "Store more than 100 files in a vault and keep more than one encrypted vault."
     let message = "Store more than \(ProUnlock.freeFileLimit) files."
     /// The price; a blank line until it loads, so the layout doesn't move.
     @Published private(set) var priceText = " "

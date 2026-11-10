@@ -37,8 +37,9 @@ private final class BackgroundExpirationBox {
     }
 }
 
-/// The migration screen: binds `MigrationViewModel` to the title, progress bar, status line and failure alert
-/// (failed files, or unreadable trash), holds background time while files migrate, and goes away at the end.
+/// The migration screen ("Encrypting Files"): binds `MigrationViewModel` to the title, progress bar, status line
+/// and failure alert (failed files, or unreadable trash), holds background time while files are encrypted, and
+/// goes away at the end, or at once if the run stops because the vault closed.
 final class MigrationViewController: UIViewController, AlertPresenting {
     private let backgroundTime: any BackgroundTimeProviding
     private let onFinish: @MainActor (Bool) -> Void
@@ -54,15 +55,15 @@ final class MigrationViewController: UIViewController, AlertPresenting {
     private let statusLabel = UILabel()
 
     /// - Parameters:
-    ///   - kind: encrypt or decrypt; sets the title.
-    ///   - migrator: the app's one lock migration.
-    ///   - waitsForNewRun: true when the caller starts a migration right after making this screen (see
+    ///   - kind: sets the title; only `.encrypt` is used now (kept until Settings' build updates its tests).
+    ///   - migrator: the leftover encryption; the caller starts it once this screen is shown.
+    ///   - waitsForNewRun: true when the caller starts the encryption right after making this screen (see
     ///     `MigrationViewModel`).
     ///   - sleep: waits before the screen goes away (a stand-in in tests).
     ///   - backgroundTime: grants background time while files migrate.
     ///   - onFinish: called once, after the screen is dismissed, with whether the migration completed fully.
     init(
-        kind: MigrationKind, migrator: any LockMigrating, waitsForNewRun: Bool = false,
+        kind: MigrationKind = .encrypt, migrator: any LockMigrating, waitsForNewRun: Bool = false,
         sleep: @escaping @Sendable (Duration) async throws -> Void = MigrationViewModel.liveSleep,
         backgroundTime: any BackgroundTimeProviding = UIApplication.shared,
         onFinish: @escaping @MainActor (Bool) -> Void
@@ -97,7 +98,7 @@ final class MigrationViewController: UIViewController, AlertPresenting {
         super.viewDidAppear(animated)
         // A failure reported before the screen was on screen shows now.
         showFailureIfNeeded()
-        // Appears again when a lock screen is dismissed over it; the view model runs only once.
+        // May appear again after something shown over it goes away; the view model runs only once.
         guard runTask == nil else { return }
         runTask = Task { [viewModel] in await viewModel.run() }
     }
@@ -205,8 +206,8 @@ final class MigrationViewController: UIViewController, AlertPresenting {
     private func beginBackgroundTime() {
         guard backgroundTaskID == .invalid else { return }
         backgroundTaskID = backgroundTime.beginBackgroundTask(withName: "MigrationCompletion") { [weak self] in
-            // Time is nearly up. Nothing needs aborting: the migrator pauses on the key wipe and resumes
-            // after the next unlock.
+            // Time is nearly up. Nothing needs aborting: the vault closes and the rest is encrypted the next
+            // time it opens.
             self?.endBackgroundTime()
         }
     }
@@ -223,3 +224,44 @@ final class MigrationViewController: UIViewController, AlertPresenting {
 private final class MigrationFinishRelay {
     weak var controller: MigrationViewController?
 }
+
+#if DEBUG
+    /// A leftover encryption that stays in one phase. Previews only.
+    @MainActor
+    private final class PreviewFixedMigrator: LockMigrating {
+        let phase: MigrationPhase
+
+        init(phase: MigrationPhase) {
+            self.phase = phase
+        }
+
+        func phaseUpdates() -> AsyncStream<MigrationPhase> { AsyncStream { _ in } }
+        func encryptLeftovers(in store: any VaultStoring) async {}
+        func retryFailed() async {}
+        func skipFailed() async {}
+        func clearUnreadableTrash() async {}
+        func cancel() {}
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Migration: in progress") {
+        MigrationViewController(
+            migrator: PreviewFixedMigrator(phase: .running(done: 5, total: 12)), onFinish: { _ in })
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Migration: some files failed") {
+        let migrator = MockLockMigrating(failingNames: ["IMG_0042.jpg", "Notes.rtf"])
+        let controller = MigrationViewController(migrator: migrator, waitsForNewRun: true, onFinish: { _ in })
+        Task { await migrator.encryptLeftovers(in: MockVaultStoring(name: "My Vault", isEncrypted: true)) }
+        return controller
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Migration: unreadable deleted items") {
+        let migrator = MockLockMigrating(unreadableTrash: true)
+        let controller = MigrationViewController(migrator: migrator, waitsForNewRun: true, onFinish: { _ in })
+        Task { await migrator.encryptLeftovers(in: MockVaultStoring(name: "My Vault", isEncrypted: true)) }
+        return controller
+    }
+#endif

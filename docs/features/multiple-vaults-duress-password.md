@@ -97,3 +97,14 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   still also checks the old `lockMode`/`pendingMigration` (existing tests depend on it); Browser's build drops them.
   VaultPickerViewModel is `init(lock:isMove:)`. Vaults/CreateVault view models are `ObservableObject` (as the
   existing screens), with `onDone`/`onNeedsPro`/`onCreateVault` closures set by `LiveVaultsScreenFactory`.
+- 2026-11-10 (prototype, Settings): SecuritySettingsViewController is `init(lock:store:pro:onRestore:)` (no migrator);
+  Settings reads `lock.current` once when made; `onVaultDeleted` closes Settings unless the shell already has.
+  `makeMigration` is live (`waitsForNewRun: true`; the shell calls `encryptLeftovers(in:)` after showing it). New
+  identifiers (2026-11-03 naming): `settings.biometricSwitch`, `settings.biometricRow`, `settings.deleteVaultRow`,
+  `settings.deleteVaultPasswordField`; nav title stays "Security". Kept for existing tests, for Settings' build units to
+  change to the spec (comments mark each): paywall copy "Store more than 100 files." (also J9 line 58); "Decrypting
+  Files" for `kind: .decrypt` and the `kind:` parameter (a Preferences `MigrationKind`; drop it); "These files couldn't
+  be migrated: a, b"; the no-names failure "The migration couldn't finish. Retry, or Skip to stop for now.". Tests:
+  MigrationViewModelTests decryptTitle/failureText/singleFailureText/failureWithoutNames,
+  SettingsMigrationViewControllerTests decryptTitle/failureAlert, PaywallViewModelTests.strings,
+  PaywallViewControllerTests.staticContent.

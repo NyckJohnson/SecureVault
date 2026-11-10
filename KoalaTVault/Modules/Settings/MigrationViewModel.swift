@@ -1,11 +1,13 @@
 import Combine
 import Foundation
 
-/// The logic of the migration screen: shows what the app's one `LockMigrating` reports, forwards Retry and
-/// Skip, and reports the end once.
+/// The logic of the migration screen, which encrypts an opened vault's leftover unencrypted files: shows what
+/// `LockMigrating` reports, forwards Retry, Skip and Clear and Continue, and reports the end once. The caller
+/// starts the work (`encryptLeftovers(in:)`) and stops it (`cancel()`); this screen never does.
 @MainActor
 final class MigrationViewModel: ObservableObject {
-    /// The screen's title.
+    /// The screen's title. "Decrypting Files" for `.decrypt` is kept only until Settings' build updates the
+    /// tests that check it; the live factory always passes `.encrypt`.
     let title: String
     /// The status line.
     @Published private(set) var statusText = "Preparing…"
@@ -30,21 +32,23 @@ final class MigrationViewModel: ObservableObject {
     private var initialPhase = MigrationPhase.idle
     private var isFinishing = false
     private var hasStartedRunning = false
+    /// True once a run has been seen (running, failed or unreadable trash), so a later `.idle` means it stopped.
+    private var hasSeenRun = false
 
     /// - Parameters:
-    ///   - kind: encrypt or decrypt; sets the title.
-    ///   - migrator: the app's one lock migration.
-    ///   - waitsForNewRun: true when the caller starts a migration right after making this: a `.completed`
-    ///     or `.idle` phase at hand then belongs to an earlier migration and is ignored. False when showing
-    ///     a resume, where `.completed` is this migration's end.
+    ///   - kind: sets the title; only `.encrypt` is used now (kept until Settings' build updates its tests).
+    ///   - migrator: the leftover encryption.
+    ///   - waitsForNewRun: true when the caller starts the encryption right after making this: a `.completed`
+    ///     phase at hand then belongs to an earlier run and is ignored. False when following a run already
+    ///     under way, where `.completed` is this run's end.
     ///   - sleep: waits before reporting the end (a stand-in in tests).
     ///   - onFinish: called once at the end, with whether the migration completed fully.
     init(
-        kind: MigrationKind, migrator: any LockMigrating, waitsForNewRun: Bool = false,
+        kind: MigrationKind = .encrypt, migrator: any LockMigrating, waitsForNewRun: Bool = false,
         sleep: @escaping @Sendable (Duration) async throws -> Void = MigrationViewModel.liveSleep,
         onFinish: @escaping @MainActor (Bool) -> Void
     ) {
-        title = kind == .encrypt ? "Encrypting Files" : "Decrypting Files"
+        title = kind == .decrypt ? "Decrypting Files" : "Encrypting Files"
         self.migrator = migrator
         self.sleep = sleep
         self.onFinish = onFinish
@@ -61,7 +65,7 @@ final class MigrationViewModel: ObservableObject {
     }
 
     /// Follows the migration to its end, then reports it, unless the calling task is cancelled first. Only
-    /// the first call does anything: a screen appears again when a lock screen is dismissed over it.
+    /// the first call does anything, however often the screen appears.
     func run() async {
         guard !hasStartedRunning else { return }
         hasStartedRunning = true
@@ -70,6 +74,14 @@ final class MigrationViewModel: ObservableObject {
             return
         }
         for await phase in phases {
+            if phase == .idle, hasSeenRun {
+                // The run stopped without finishing (the vault closed): go at once, reporting not fully.
+                isFinishing = true
+                wantsBackgroundTime = false
+                clearFailure()
+                onFinish(false)
+                return
+            }
             apply(phase)
             if case .completed(let fully) = phase {
                 await finish(fully: fully)
@@ -101,18 +113,22 @@ final class MigrationViewModel: ObservableObject {
         case .idle:
             break
         case .running(let done, let total):
+            hasSeenRun = true
             clearFailure()
             wantsBackgroundTime = true
             guard total > 0 else { return }
             progress = Float(done) / Float(total)
             statusText = "\(done * 100 / total)% complete"
         case .failed(let names):
+            hasSeenRun = true
             wantsBackgroundTime = false
             isUnreadableTrash = false
             failureTitle = "Some Files Failed"
             // No names: a step other than a file failed (listing the files, or a closing step).
             failureMessage =
                 names.isEmpty
+                // The old wording, kept until Settings' build updates its tests; the spec's is "Some files
+                // couldn't be encrypted." and "These files couldn't be encrypted: a, b".
                 ? "The migration couldn't finish. Retry, or Skip to stop for now."
                 : "These files couldn't be migrated: \(names.joined(separator: ", "))"
         case .completed:
@@ -122,6 +138,7 @@ final class MigrationViewModel: ObservableObject {
             progress = 1
             statusText = "Complete"
         case .unreadableTrash:
+            hasSeenRun = true
             wantsBackgroundTime = false
             isUnreadableTrash = true
             failureTitle = "Some Deleted Items Can't Be Read"
