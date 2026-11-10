@@ -14,6 +14,7 @@ final class UserDefaultsPreferences: PreferencesStoring {
         static let sortDirection = "sortDirection"
         static let pendingMigrationType = "pendingMigrationType"
         static let pendingMigrationTargetLockMode = "pendingMigrationTargetLockMode"
+        static let vaultsUpgraded = "vaultsUpgraded"
     }
 
     /// The suite, reachable only while holding the lock. `UserDefaults` is not `Sendable`, so the
@@ -72,15 +73,8 @@ final class UserDefaultsPreferences: PreferencesStoring {
     }
 
     var vaultsUpgraded: Bool {
-        get {
-            fatalError(
-                "Not implemented: UserDefaultsPreferences.vaultsUpgraded (feature multiple-vaults-duress-password)")
-        }
-        set {
-            _ = newValue
-            fatalError(
-                "Not implemented: UserDefaultsPreferences.vaultsUpgraded (feature multiple-vaults-duress-password)")
-        }
+        get { suite.withLock { defaults in defaults.bool(forKey: Key.vaultsUpgraded) } }
+        set { suite.withLock { defaults in defaults.set(newValue, forKey: Key.vaultsUpgraded) } }
     }
 }
 
