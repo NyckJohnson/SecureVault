@@ -416,9 +416,9 @@ final class VaultLockFixture {
     func isLoaded(_ id: String) -> Bool { shelf.isLoaded(account: blobAccount(id)) }
 
     /// Waits (up to three seconds) until a call of `operation` has started on a key store.
-    func waitUntilEntered(_ operation: String) async {
+    func waitUntilEntered(_ operation: String, above baseline: Int = 0) async {
         for _ in 0..<600 {
-            if shelf.enteredCount(operation) > 0 { return }
+            if shelf.enteredCount(operation) > baseline { return }
             try? await Task.sleep(for: .milliseconds(5))
         }
         Issue.record("\(operation) was never called")
@@ -428,9 +428,10 @@ final class VaultLockFixture {
     func runHeld(
         _ operation: String, interrupt: Interrupt, call: @escaping @MainActor () async throws -> Void
     ) async -> Result<Void, any Error> {
+        let baseline = shelf.enteredCount(operation)
         shelf.hold(operation)
         let task = Task { @MainActor in try await call() }
-        await waitUntilEntered(operation)
+        await waitUntilEntered(operation, above: baseline)
         await interrupt.run(on: lock)
         shelf.release(operation)
         return await task.result

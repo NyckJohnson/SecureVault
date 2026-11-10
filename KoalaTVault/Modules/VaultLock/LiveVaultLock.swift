@@ -8,6 +8,11 @@ import os
 /// The lock never lists or counts encrypted vaults for the user: a password opens whichever vault it belongs to,
 /// and every failure reads the same (`.wrongPassword`). Key work (PBKDF2, Keychain reads behind a Face ID prompt,
 /// the upgrade's file moves) runs off the main actor; the state (`current`, the open key stores) lives on it.
+///
+/// Races: a password is always tried on a fresh key store, never on the open vault's own. Every close, background
+/// or change of `current` bumps `epoch`; a call that awaited key work checks it afterwards and, if it moved, wipes
+/// the key it loaded and drops the result (`.notOpen`, except `createVault`, which keeps the finished vault but
+/// doesn't open it). `createVault` calls run one at a time.
 @MainActor
 final class LiveVaultLock: VaultLocking {
     private static let logger = Logger(subsystem: "com.KoalaTVault", category: "VaultLock")
@@ -16,12 +21,10 @@ final class LiveVaultLock: VaultLocking {
     private static let unencryptedID = "unencrypted"
     private static let unencryptedName = "KoalaTVault"
 
-    /// A vault whose key a key store has loaded, found by a password.
+    /// A vault whose key a fresh key store has loaded, found by a password.
     private struct Match: Sendable {
         let id: String
         let keyStore: any MasterKeyStoring
-        /// Whether `keyStore` is the open vault's own key store (never wiped by a probe).
-        let isOpenKeyStore: Bool
     }
 
     /// An encrypted vault in use (current or a transfer target) and the key store holding its key.
@@ -45,6 +48,11 @@ final class LiveVaultLock: VaultLocking {
     private var openEncrypted: LoadedVault?
     /// The open transfer targets, by vault ID.
     private var transferTargets: [String: LoadedVault] = [:]
+    /// Bumped by every close (background included) and every change of `current`; see the type's notes.
+    private var epoch = 0
+    /// Whether a `createVault` call is running; later calls wait in `createWaiters`, in order.
+    private var isCreating = false
+    private var createWaiters: [CheckedContinuation<Void, Never>] = []
 
     let unencryptedVault: OpenVault
 
@@ -122,9 +130,16 @@ final class LiveVaultLock: VaultLocking {
 
     func open(password: String) async throws {
         guard !password.isEmpty else { throw VaultLockError.emptyPassword }
-        guard let match = await findVault(password: password) else { throw VaultLockError.wrongPassword }
-        guard !match.isOpenKeyStore else { return }  // the vault already open: no change
+        let started = epoch
+        let match = await findVault(password: password)
+        try ensureUninterrupted(since: started, wiping: match?.keyStore)
+        guard let match else { throw VaultLockError.wrongPassword }
+        guard match.id != openEncrypted?.vault.id else {
+            match.keyStore.wipeKey()  // the vault already open: no change
+            return
+        }
         let loaded = try await load(match, verifyKey: false)
+        try ensureUninterrupted(since: started, wiping: loaded.keyStore)
         makeCurrent(loaded)
     }
 
@@ -134,24 +149,30 @@ final class LiveVaultLock: VaultLocking {
         }
         guard biometricInfo.isAvailable else { throw VaultLockError.biometricsUnavailable }
         guard id != openEncrypted?.vault.id else { return }
+        let started = epoch
         let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
         do {
             try await Self.offMain { try keyStore.unlockWithBiometricKey(prompt: Self.biometricPrompt) }
         } catch VaultCryptoError.biometricItemMissing, VaultCryptoError.invalidKeyData {
+            try ensureUninterrupted(since: started, wiping: keyStore)
             forgetFaceID(keyStore: keyStore)
             throw VaultLockError.biometricChanged
         } catch {
             keyStore.wipeKey()
+            try ensureUninterrupted(since: started, wiping: nil)
             throw Self.lockError(from: error)
         }
+        try ensureUninterrupted(since: started, wiping: keyStore)
         let loaded: LoadedVault
         do {
-            loaded = try await load(Match(id: id, keyStore: keyStore, isOpenKeyStore: false), verifyKey: true)
+            loaded = try await load(Match(id: id, keyStore: keyStore), verifyKey: true)
         } catch {
+            try ensureUninterrupted(since: started, wiping: keyStore)
             // The biometric key does not open this vault (Face ID was re-enrolled or the item is stale).
             forgetFaceID(keyStore: keyStore)
             throw error
         }
+        try ensureUninterrupted(since: started, wiping: keyStore)
         makeCurrent(loaded)
     }
 
@@ -162,12 +183,15 @@ final class LiveVaultLock: VaultLocking {
     }
 
     func createVault(name: String, password: String) async throws {
+        await beginCreating()
+        defer { endCreating() }
+        let started = epoch
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw VaultLockError.emptyName }
         guard !password.isEmpty else { throw VaultLockError.emptyPassword }
         guard await canCreateVault() else { throw VaultLockError.vaultLimitReached }
         if let match = await findVault(password: password) {
-            if !match.isOpenKeyStore { match.keyStore.wipeKey() }
+            match.keyStore.wipeKey()
             throw VaultLockError.passwordInUse
         }
 
@@ -181,6 +205,11 @@ final class LiveVaultLock: VaultLocking {
             blobMade = true
             let cipher = makeCipher(keyStore)
             try catalog.writeName(trimmed, of: id, cipher: cipher)
+            guard epoch == started else {
+                // Closed meanwhile: the finished vault stays (it opens by its password) but is not opened.
+                keyStore.wipeKey()
+                return
+            }
             let store = makeStore(folder, trimmed, true, keyStore, cipher)
             let vault = OpenVault(id: id, name: trimmed, isEncrypted: true, store: store)
             makeCurrent(LoadedVault(vault: vault, keyStore: keyStore))
@@ -202,6 +231,7 @@ final class LiveVaultLock: VaultLocking {
     // MARK: Closing
 
     func close() {
+        epoch += 1
         closeTransferTargets()
         guard openEncrypted != nil else { return }
         closeOpenVault()
@@ -221,26 +251,44 @@ final class LiveVaultLock: VaultLocking {
     func changePassword(current currentPassword: String, new newPassword: String) async throws {
         guard let open = openEncrypted else { throw VaultLockError.notOpen }
         guard !newPassword.isEmpty else { throw VaultLockError.emptyPassword }
-        try await verify(currentPassword, of: open)
-        if let match = await findVault(password: newPassword, excluding: open.vault.id) {
+        let started = epoch
+        // The fresh store that checked the password holds the key and does the rewrap, so a close meanwhile
+        // can't wipe the key under it.
+        let checked = try await check(currentPassword, of: open.vault.id, since: started)
+        defer { checked.wipeKey() }
+        let match = await findVault(password: newPassword, excluding: open.vault.id)
+        try ensureUninterrupted(since: started, wiping: match?.keyStore)
+        if let match {
             match.keyStore.wipeKey()
             throw VaultLockError.passwordInUse
         }
-        let keyStore = open.keyStore
         do {
-            try await Self.offMain { try keyStore.rewrap(newPassword: newPassword) }
+            try await Self.offMain { try checked.rewrap(newPassword: newPassword) }
         } catch {
             throw Self.lockError(from: error)
         }
     }
 
     func setUsesBiometrics(_ enabled: Bool) async throws {
-        guard let open = openEncrypted else { throw VaultLockError.notOpen }
+        guard let open = openEncrypted else {
+            if enabled { throw VaultLockError.notOpen }
+            return  // turning Face ID off in the unencrypted vault: nothing to do
+        }
         do {
             if enabled {
                 guard biometricInfo.isAvailable else { throw VaultLockError.biometricsUnavailable }
+                let started = epoch
+                let previousMarker = catalog.biometricVaultID()
+                let keyStore = open.keyStore
                 // The item is replaced first; the marker moves only once the item holds this vault's key.
-                try open.keyStore.storeBiometricKey()
+                try await Self.offMain { try keyStore.storeBiometricKey() }
+                guard epoch == started else {
+                    restoreBiometricItem(previousMarker: previousMarker, keyStore: keyStore)
+                    throw VaultLockError.notOpen
+                }
+                // If this write fails, the item holds this vault's key while the marker still names the previous
+                // vault: that vault's next Face ID open fails `keyMatchesVault` and ends in `.biometricChanged`,
+                // which forgets Face ID (accepted).
                 try catalog.setBiometricVaultID(open.vault.id)
             } else if catalog.biometricVaultID() == open.vault.id {
                 try open.keyStore.deleteBiometricKey()
@@ -253,7 +301,10 @@ final class LiveVaultLock: VaultLocking {
 
     func deleteCurrentVault(password: String) async throws {
         guard let open = openEncrypted else { throw VaultLockError.notOpen }
-        try await verify(password, of: open)
+        let started = epoch
+        let checked = try await check(password, of: open.vault.id, since: started)
+        checked.wipeKey()
+        // From here on nothing awaits: the vault cannot be closed part-way.
         let id = open.vault.id
         do {
             if catalog.biometricVaultID() == id {
@@ -278,9 +329,16 @@ final class LiveVaultLock: VaultLocking {
 
     func openTransferTarget(password: String) async throws -> OpenVault {
         guard !password.isEmpty else { throw VaultLockError.emptyPassword }
-        guard let match = await findVault(password: password) else { throw VaultLockError.wrongPassword }
-        guard !match.isOpenKeyStore else { throw VaultLockError.sameVault }
+        let started = epoch
+        let match = await findVault(password: password)
+        try ensureUninterrupted(since: started, wiping: match?.keyStore)
+        guard let match else { throw VaultLockError.wrongPassword }
+        guard match.id != openEncrypted?.vault.id else {
+            match.keyStore.wipeKey()
+            throw VaultLockError.sameVault
+        }
         let loaded = try await load(match, verifyKey: false)
+        try ensureUninterrupted(since: started, wiping: loaded.keyStore)
         if let previous = transferTargets[match.id] { Self.release(previous) }
         transferTargets[match.id] = loaded
         return loaded.vault
@@ -294,39 +352,56 @@ final class LiveVaultLock: VaultLocking {
     // MARK: Helpers
 
     /// The first vault, in sorted ID order, that `password` unlocks (one PBKDF2 per vault tried, off the main
-    /// actor), with its key loaded; nil when none does. The open vault is tried with its own key store, so
-    /// finding it leaves its key as it was.
+    /// actor), on a fresh key store that then holds its key; nil when none does. The caller adopts or wipes it.
     private func findVault(password: String, excluding excludedID: String? = nil) async -> Match? {
         let ids = catalog.vaultIDs().filter { $0 != excludedID }
-        let open = openEncrypted.map { Match(id: $0.vault.id, keyStore: $0.keyStore, isOpenKeyStore: true) }
         let makeKeyStore = self.makeKeyStore
-        return await Task.detached(priority: .userInitiated) { () -> Match? in
+        return try? await Self.offMain { () -> Match? in
             for id in ids {
-                let match: Match
-                if let open, open.id == id {
-                    match = open
-                } else {
-                    match = Match(
-                        id: id, keyStore: makeKeyStore(VaultCatalog.blobAccount(for: id)), isOpenKeyStore: false)
-                }
+                let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
                 do {
-                    try match.keyStore.unlock(password: password)
-                    return match
+                    try keyStore.unlock(password: password)
+                    return Match(id: id, keyStore: keyStore)
                 } catch {
                     continue  // not this vault (or its blob can't be read): try the next one
                 }
             }
             return nil
-        }.value
+        }
     }
 
-    /// Throws `.wrongPassword` unless `password` opens `vault` (re-loading the same key).
-    private func verify(_ password: String, of vault: LoadedVault) async throws {
-        let keyStore = vault.keyStore
+    /// Checks that `password` opens vault `id` on a fresh key store, which is returned with the key loaded (the
+    /// caller wipes it).
+    /// - Throws: `.notOpen` if the lock changed since `started` (the store is wiped), else the mapped key error
+    ///   (`.wrongPassword` for a wrong password).
+    private func check(_ password: String, of id: String, since started: Int) async throws -> any MasterKeyStoring {
+        let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
         do {
             try await Self.offMain { try keyStore.unlock(password: password) }
         } catch {
+            try ensureUninterrupted(since: started, wiping: keyStore)
             throw Self.lockError(from: error)
+        }
+        try ensureUninterrupted(since: started, wiping: keyStore)
+        return keyStore
+    }
+
+    /// Throws `.notOpen`, after wiping `keyStore`, when a close or a change of `current` happened since `started`.
+    private func ensureUninterrupted(since started: Int, wiping keyStore: (any MasterKeyStoring)?) throws {
+        guard epoch != started else { return }
+        keyStore?.wipeKey()
+        throw VaultLockError.notOpen
+    }
+
+    /// After an interrupted `setUsesBiometrics(true)`: puts the biometric item back as it was where possible. With
+    /// no Face ID vault before, the item is deleted. The previous vault's key can't be written back (it isn't
+    /// loaded), so its next Face ID open ends in `.biometricChanged`; the same vault's key is already right.
+    private func restoreBiometricItem(previousMarker: String?, keyStore: any MasterKeyStoring) {
+        guard previousMarker == nil else { return }
+        do {
+            try keyStore.deleteBiometricKey()
+        } catch {
+            Self.logger.error("Could not delete the biometric key: \(error, privacy: .public)")
         }
     }
 
@@ -355,6 +430,7 @@ final class LiveVaultLock: VaultLocking {
 
     /// Closes the open vault and any transfer target, then makes `loaded` current.
     private func makeCurrent(_ loaded: LoadedVault) {
+        epoch += 1
         closeTransferTargets()
         closeOpenVault()
         openEncrypted = loaded
@@ -378,6 +454,25 @@ final class LiveVaultLock: VaultLocking {
     private static func release(_ loaded: LoadedVault) {
         loaded.keyStore.wipeKey()
         loaded.vault.store.removeAllTemporaryFiles()
+    }
+
+    /// Waits until no other `createVault` runs, then marks one as running.
+    private func beginCreating() async {
+        guard isCreating else {
+            isCreating = true
+            return
+        }
+        // `endCreating` hands the running mark straight to the first waiter.
+        await withCheckedContinuation { createWaiters.append($0) }
+    }
+
+    /// Lets the next waiting `createVault` run, or clears the running mark.
+    private func endCreating() {
+        if createWaiters.isEmpty {
+            isCreating = false
+        } else {
+            createWaiters.removeFirst().resume()
+        }
     }
 
     /// Wipes the key and forgets Face ID: the biometric item and the marker are deleted (best effort).
@@ -405,9 +500,14 @@ final class LiveVaultLock: VaultLocking {
         }
     }
 
-    /// Runs `work` off the main actor.
+    /// Runs `work` off the main actor, on a GCD queue rather than the Swift concurrency pool: key work blocks
+    /// (PBKDF2, a Keychain read waiting on Face ID) and must not hold one of the pool's few threads.
     private static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(priority: .userInitiated) { try work() }.value
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: Result { try work() })
+            }
+        }
     }
 
     /// Maps a failure to the lock's error: crypto errors to the same-named case, a Keychain status to
