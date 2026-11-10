@@ -120,6 +120,45 @@ import Testing
         #expect(fixture.exists("b"))
     }
 
+    @Test("removeInterruptedCreations keeps a blobless folder holding a file and removes an empty one")
+    func removeInterruptedKeepsFolderWithFile() throws {
+        let fixture = try Fixture()
+        try fixture.makeFolder("full")
+        try fixture.makeFolder("empty")
+        try Data("x".utf8).write(to: fixture.vaults.appendingPathComponent("full").appendingPathComponent("a"))
+        fixture.catalog.removeInterruptedCreations()
+        #expect(fixture.exists("full"))
+        #expect(!fixture.exists("empty"))
+        #expect(fixture.catalog.vaultIDs().isEmpty)
+    }
+
+    @Test("removeInterruptedCreations keeps a blobless folder holding only a hidden file")
+    func removeInterruptedKeepsFolderWithHiddenFile() throws {
+        let fixture = try Fixture()
+        try fixture.makeFolder("hidden")
+        try fixture.makeFolder("empty")
+        try Data("x".utf8).write(
+            to: fixture.vaults.appendingPathComponent("hidden").appendingPathComponent(".vault_map"))
+        fixture.catalog.removeInterruptedCreations()
+        #expect(fixture.exists("hidden"))
+        #expect(!fixture.exists("empty"))
+        #expect(fixture.catalog.vaultIDs().isEmpty)
+    }
+
+    @Test("removeInterruptedCreations keeps a blobless folder holding a subfolder")
+    func removeInterruptedKeepsFolderWithSubfolder() throws {
+        let fixture = try Fixture()
+        try fixture.makeFolder("nested")
+        try fixture.makeFolder("empty")
+        try FileManager.default.createDirectory(
+            at: fixture.vaults.appendingPathComponent("nested").appendingPathComponent("sub"),
+            withIntermediateDirectories: true)
+        fixture.catalog.removeInterruptedCreations()
+        #expect(fixture.exists("nested"))
+        #expect(!fixture.exists("empty"))
+        #expect(fixture.catalog.vaultIDs().isEmpty)
+    }
+
     @Test("removeInterruptedCreations with a missing vaults folder does nothing")
     func removeInterruptedMissingFolder() {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -302,6 +341,14 @@ import Testing
         try fixture.catalog.setBiometricVaultID("primary")
         fixture.keychain.errorToThrow = .keychain(-25308)
         #expect(fixture.catalog.biometricVaultID() == nil)
+    }
+
+    @Test("The marker reads as nil when its data is empty")
+    func markerEmpty() {
+        let keychain = MockKeychainAccessing(items: [VaultCatalog.markerAccount: Data()])
+        let catalog = VaultCatalog(
+            vaultsFolder: FileManager.default.temporaryDirectory, keychain: keychain)
+        #expect(catalog.biometricVaultID() == nil)
     }
 
     @Test("The marker reads as nil when its data is not UTF-8")

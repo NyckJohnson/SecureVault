@@ -42,11 +42,13 @@ struct VaultCatalog: Sendable {
         folderIDs().filter(blobExists).sorted()
     }
 
-    /// Removes every folder under `Vaults/` whose blob is missing (an interrupted creation, which holds no files).
-    /// A Keychain error counts as the blob existing, so a vault is never removed on an error. A folder that cannot
-    /// be removed is left for the next launch.
+    /// Removes every folder under `Vaults/` whose blob is missing and that is completely empty (an interrupted
+    /// creation holds no files). A blobless folder with any entry in it, hidden ones included, is left alone (and
+    /// `vaultIDs()` does not list it), so files are never deleted. A Keychain error counts as the blob existing and
+    /// an unreadable folder listing counts as not empty: nothing is removed on doubt. A folder that cannot be
+    /// removed is left for the next launch.
     func removeInterruptedCreations() {
-        for id in folderIDs() where !blobExists(id) {
+        for id in folderIDs() where !blobExists(id) && isEmptyFolder(folderURL(for: id)) {
             try? FileManager.default.removeItem(at: folderURL(for: id))
         }
     }
@@ -97,6 +99,12 @@ struct VaultCatalog: Sendable {
             let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             return isFolder ? url.lastPathComponent : nil
         }
+    }
+
+    /// Whether `url` lists no entries at all (hidden ones included); false when the listing cannot be read.
+    private func isEmptyFolder(_ url: URL) -> Bool {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: url.path) else { return false }
+        return entries.isEmpty
     }
 
     /// Whether `vaultID`'s blob exists; a Keychain error counts as existing.
