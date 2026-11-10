@@ -24,6 +24,14 @@ final class HeaderAwareTestCipher: FileCipher {
         set { truncatesCopies.withLock { $0 = newValue } }
     }
 
+    private let declaredSizes = OSAllocatedUnfairLock<Int?>(initialState: nil)
+
+    /// When set, every file this cipher encrypts records this total size in its header, whatever its content holds.
+    var declaredSizeForNewCopies: Int? {
+        get { declaredSizes.withLock { $0 } }
+        set { declaredSizes.withLock { $0 = newValue } }
+    }
+
     /// `content` as a sealed file would hold it.
     /// - Parameter declaredSize: the total size the header records; the content's own size when nil.
     static func sealed(_ content: Data, truncatedBy missing: Int = 0, declaredSize: Int? = nil) -> Data {
@@ -51,7 +59,9 @@ final class HeaderAwareTestCipher: FileCipher {
         try mock.encryptFile(at: source, to: destination)
         guard source.standardizedFileURL != destination.standardizedFileURL else { return }
         let content = try Data(contentsOf: source)
-        try Self.sealed(content, truncatedBy: truncatesNewCopies ? 1 : 0).write(to: destination, options: .atomic)
+        try Self.sealed(
+            content, truncatedBy: truncatesNewCopies ? 1 : 0, declaredSize: declaredSizeForNewCopies
+        ).write(to: destination, options: .atomic)
     }
 
     func decryptFile(at source: URL, to destination: URL) throws {

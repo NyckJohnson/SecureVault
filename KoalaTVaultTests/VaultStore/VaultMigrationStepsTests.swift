@@ -475,4 +475,22 @@ import Testing
         #expect(error as? VaultStoreError == .locked)
         #expect(try vault.snapshot() == before)
     }
+
+    @Test("migrateToEncrypted with a same-name copy of a different length keeps both, the new one as ' 1'")
+    func migrateToEncryptedDifferentLength() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let existing = try await vault.add("a.txt", "short")
+        try vault.diskFile("a.txt", "a much longer plaintext version")
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
+        try await vault.store.migrateToEncrypted(item)
+
+        let listed = try await vault.list()
+        #expect(listed.map(\.name) == ["a 1.txt", "a.txt"])
+        #expect(!FileManager.default.fileExists(atPath: item.diskURL.path))
+        let renamed = try #require(listed.first { $0.name == "a 1.txt" })
+        #expect(try await vault.openedContent(renamed) == "a much longer plaintext version")
+        #expect(try await vault.openedContent(existing) == "short")
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
+    }
 }

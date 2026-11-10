@@ -618,4 +618,23 @@ import Testing
         #expect(try vaultState(vault) == before)
         #expect(vault.tempContents().isEmpty)
     }
+
+    @Test("trashContents lists a trash file whose header read fails with its stored flag, and restore still works")
+    func trashFileWithFailingHeaderReadKeepsStoredFlag() async throws {
+        let vault = try makeVault(.none, selective: true)
+        defer { vault.cleanUp() }
+        try await trashFile(vault, "plain.txt", "plain data")
+        let failing = try #require(vault.failing)
+        failing.streamInfoError = VaultCryptoError.invalidKeyData
+
+        let listed = try await vault.store.trashContents()
+
+        #expect(listed.map(\.name) == ["plain.txt"])
+        #expect(listed.first?.isEncrypted == false)
+        let item = try #require(listed.first)
+        let restored = try await vault.store.restore(item)
+        failing.streamInfoError = nil
+        #expect(try await vault.openedContent(restored) == "plain data")
+        #expect(try await vault.names() == ["plain.txt"])
+    }
 }

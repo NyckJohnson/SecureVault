@@ -279,4 +279,68 @@ import Testing
         #expect(vault.rawIndex(in: locked) == indexBefore)
         #expect(vault.indexIsPlaintextJSON(in: locked))
     }
+
+    // MARK: - Content checks that can't read
+
+    @Test("migrateToEncrypted with an unreadable plaintext never takes it as different: it throws and keeps both")
+    func unreadablePlaintextIsNeverDifferent() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let existing = try await vault.add("a.txt", "same")
+        let plaintext = try vault.diskFile("a.txt", "same")
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
+        let entriesBefore = vault.indexEntries()
+        let restore = try restrict(plaintext, to: 0o000)
+        defer { restore() }
+
+        let error = await caught { try await vault.store.migrateToEncrypted(item) }
+
+        restore()
+        #expect(error is VaultStoreError, "unexpected error \(String(describing: error))")
+        #expect(fileExists(plaintext))
+        #expect(fileExists(existing.diskURL))
+        #expect(vault.indexEntries() == entriesBefore)
+        #expect(try await vault.names().contains("a 1.txt") == false)
+        #expect(try await vault.openedContent(existing) == "same")
+        #expect(try vault.content(plaintext) == "same")
+    }
+
+    @Test("migrateToEncrypted whose last step can't remove the plaintext throws and keeps the copy, entry and plaintext")
+    func plaintextRemovalFailureKeepsEverything() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let existing = try await vault.add("a.txt", "same", to: docs)
+        let plaintext = try vault.diskFile("a.txt", "same", in: docs)
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
+        let entriesBefore = vault.indexEntries(in: docs)
+        let restore = try restrict(docs.diskURL)
+        defer { restore() }
+
+        let error = await caught { try await vault.store.migrateToEncrypted(item) }
+
+        restore()
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(fileExists(plaintext))
+        #expect(fileExists(existing.diskURL))
+        #expect(vault.indexEntries(in: docs) == entriesBefore)
+        #expect(try vault.content(plaintext) == "same")
+        #expect(try await vault.openedContent(existing) == "same")
+    }
+
+    @Test("migrateToEncrypted whose new copy records a different size than the plaintext throws io and keeps the plaintext")
+    func copyWithWrongHeaderSizeIsAMismatch() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let plaintext = try vault.diskFile("a.txt", "full content")
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
+        vault.headerCipher?.declaredSizeForNewCopies = 3
+
+        let error = await caught { try await vault.store.migrateToEncrypted(item) }
+
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(try vault.content(plaintext) == "full content")
+        #expect(try vault.diskNames().filter { $0 != ".vault_map" } == ["a.txt"])
+        #expect(vault.indexEntries()?.isEmpty ?? true)
+    }
 }

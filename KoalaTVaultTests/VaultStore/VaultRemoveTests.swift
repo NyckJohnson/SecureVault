@@ -300,4 +300,25 @@ import Testing
         #expect(exists(top.diskURL))
         #expect(vault.trashDiskNames().isEmpty)
     }
+
+    @Test("remove of an encrypted file whose delete fails puts its entry back and throws io")
+    func removeEncryptedFileDeleteFailsRestoresEntry() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let doomed = try await vault.add("doomed.txt", "bye")
+        let kept = try await vault.add("kept.txt", "stay")
+        let entriesBefore = vault.indexEntries()
+        // An immutable file can't be deleted, while the folder (and so the index) stays writable.
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: doomed.diskURL.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: doomed.diskURL.path) }
+
+        let error = await caught { try await vault.store.remove(doomed) }
+
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(exists(doomed.diskURL))
+        #expect(vault.indexEntries() == entriesBefore)
+        #expect(try await vault.names() == ["doomed.txt", "kept.txt"])
+        #expect(try await vault.openedContent(doomed) == "bye")
+        #expect(try await vault.openedContent(kept) == "stay")
+    }
 }
