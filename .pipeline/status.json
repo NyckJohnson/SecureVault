@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T01:03:16-08:00",
+  "updatedAt": "2026-11-10T01:06:38-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -492,7 +492,7 @@
       "slug": "multiple-vaults-duress-password",
       "title": "Multiple vaults / duress password",
       "state": "active",
-      "stage": 3,
+      "stage": 4,
       "brief": "docs/features/multiple-vaults-duress-password.md",
       "addedAt": "2026-10-24T12:11:48-07:00",
       "startedAt": "2026-11-10T00:16:56-08:00",
@@ -663,5 +663,30 @@
     "state": "finished",
     "startedAt": "2026-10-24T11:49:56-07:00",
     "finishedAt": "2026-11-09T23:58:04-08:00"
+  },
+  "plan": {
+    "label": "prototype",
+    "items": [
+      {
+        "name": "Vaults",
+        "done": false
+      },
+      {
+        "name": "CreateVault",
+        "done": false
+      },
+      {
+        "name": "VaultPicker",
+        "done": false
+      },
+      {
+        "name": "Browser",
+        "done": false
+      },
+      {
+        "name": "Settings",
+        "done": false
+      }
+    ]
   }
 }
