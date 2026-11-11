@@ -404,7 +404,7 @@
         "Settings",
         "LockScreens"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -433,12 +433,12 @@
             "Views/VaultPickerViewController.swift"
           ],
           "state": "done",
-          "attempts": 1
+          "attempts": 0
         }
       ]
     }
   ],
-  "updatedAt": "2026-11-11T07:08:18-08:00",
+  "updatedAt": "2026-11-11T07:10:39-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
