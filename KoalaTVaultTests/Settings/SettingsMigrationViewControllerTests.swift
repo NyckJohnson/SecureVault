@@ -9,7 +9,7 @@ import UIKit
 ///     func beginBackgroundTask(withName taskName: String?, expirationHandler handler: (() -> Void)?) -> UIBackgroundTaskIdentifier
 ///     func endBackgroundTask(_ identifier: UIBackgroundTaskIdentifier)
 /// }   // declared in Views/MigrationViewController.swift; `UIApplication` conforms in the same file
-/// MigrationViewController(kind: MigrationKind, migrator: any LockMigrating, waitsForNewRun: Bool = false,
+/// MigrationViewController(migrator: any LockMigrating, waitsForNewRun: Bool = false,
 ///     sleep: @escaping @Sendable (Duration) async throws -> Void = MigrationViewModel.liveSleep,
 ///     backgroundTime: any BackgroundTimeProviding = UIApplication.shared,
 ///     onFinish: @escaping @MainActor (Bool) -> Void)
@@ -25,13 +25,13 @@ import UIKit
         let finished: SettingsRecorder<Bool>
     }
 
-    private func makeRig(kind: MigrationKind = .encrypt, phase: MigrationPhase = .idle) -> Rig {
+    private func makeRig(phase: MigrationPhase = .idle) -> Rig {
         let migrator = SettingsScriptedMigrator(phase: phase)
         let sleeper = SettingsManualSleeper()
         let background = SettingsFakeBackgroundTime()
         let finished = SettingsRecorder<Bool>()
         let controller = MigrationViewController(
-            kind: kind, migrator: migrator, sleep: { try await sleeper.sleep($0) }, backgroundTime: background,
+            migrator: migrator, sleep: { try await sleeper.sleep($0) }, backgroundTime: background,
             onFinish: { finished.record($0) })
         let host = SettingsViewHost.presenting(controller)
         return Rig(host: host, migrator: migrator, sleeper: sleeper, background: background, finished: finished)
@@ -45,15 +45,10 @@ import UIKit
 
     @Test("An encrypt migration is titled Encrypting Files and starts at Preparing…")
     func encryptContent() async {
-        let rig = makeRig(kind: .encrypt)
+        let rig = makeRig()
         #expect(label("migration.titleLabel", rig) == "Encrypting Files")
         #expect(status(rig) == "Preparing…")
         #expect((rig.host.element("migration.progressBar") as? UIProgressView)?.progress == 0)
-    }
-
-    @Test("A decrypt migration is titled Decrypting Files")
-    func decryptTitle() {
-        #expect(label("migration.titleLabel", makeRig(kind: .decrypt)) == "Decrypting Files")
     }
 
     @Test("Running progress shows N% complete and moves the progress bar")
@@ -86,7 +81,7 @@ import UIKit
         rig.migrator.send(.failed(names: ["a.txt", "b.txt"]))
         let alert = try #require(await rig.host.alert())
         #expect(alert.title == "Some Files Failed")
-        #expect(alert.message == "These files couldn't be migrated: a.txt, b.txt")
+        #expect(alert.message == "These files couldn't be encrypted: a.txt, b.txt")
         #expect(alert.actionTitles == ["Retry", "Skip"])
     }
 
@@ -277,7 +272,7 @@ import UIKit
     private func makeRig() -> Rig {
         let migrator = SettingsScriptedMigrator()
         let controller = MigrationViewController(
-            kind: .decrypt, migrator: migrator, sleep: { _ in }, backgroundTime: SettingsFakeBackgroundTime(),
+            migrator: migrator, sleep: { _ in }, backgroundTime: SettingsFakeBackgroundTime(),
             onFinish: { _ in })
         return Rig(host: SettingsViewHost.presenting(controller), migrator: migrator)
     }

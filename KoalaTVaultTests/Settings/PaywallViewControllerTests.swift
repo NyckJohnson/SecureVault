@@ -36,7 +36,9 @@ import UIKit
     func staticContent() async {
         let rig = await makeRig()
         #expect(text("paywall.titleLabel", rig) == "Unlock Pro")
-        #expect(text("paywall.descriptionLabel", rig) == "Store more than 100 files.")
+        #expect(
+            text("paywall.descriptionLabel", rig)
+                == "Store more than 100 files in a vault and keep more than one encrypted vault.")
         #expect(rig.host.element("paywallUnlockButton") is UIButton)
         #expect(rig.host.element("restoreButton") is UIButton)
         #expect(rig.host.element("paywall.closeButton") != nil)
