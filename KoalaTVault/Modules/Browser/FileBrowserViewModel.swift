@@ -88,7 +88,7 @@ final class FileBrowserViewModel: ObservableObject {
     /// - Parameters:
     ///   - directory: the folder to show.
     ///   - store: the vault store.
-    ///   - preferences: holds the sort and the lock state the drag-out rule reads.
+    ///   - preferences: holds the sort.
     ///   - exporter: prepares items for the share sheet.
     ///   - alerts: shows errors (held weakly; usually the view controller that owns this).
     ///   - lock: the app's vaults, to close a transfer target; with `transfer`, enables the Lock button and
@@ -356,12 +356,11 @@ final class FileBrowserViewModel: ObservableObject {
     }
 
     /// A drag may leave the app only for a known, unencrypted item of the unencrypted vault: it stays in when the
-    /// store `isEncrypted` or the item `isEncrypted` (feature multiple-vaults-duress-password), since the on-disk
-    /// file could be ciphertext. The 1.2 lock state (a lock mode or a pending migration) still keeps it in until
-    /// the Browser unit of the feature drops it with its tests.
+    /// item is unknown (nil), the store `isEncrypted` or the item `isEncrypted`, since the on-disk file of an
+    /// encrypted item is ciphertext.
     func canDragOut(_ item: VaultItem?) -> Bool {
-        guard let item, !store.isEncrypted, !item.isEncrypted else { return false }
-        return preferences.lockMode == .none && preferences.pendingMigration == nil
+        guard let item else { return false }
+        return !store.isEncrypted && !item.isEncrypted
     }
 
     // MARK: - Move/Copy to Vault
