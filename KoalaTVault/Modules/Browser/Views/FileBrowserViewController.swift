@@ -3,7 +3,8 @@ import UIKit
 
 /// The vault grid for one folder: binds `FileBrowserViewModel` to a collection view and the bar buttons, and
 /// presents what the view model asks for (subfolder browsers, the viewer and editor, Settings, the folder
-/// picker), the Import and Export flows, the Lock action, and Move/Copy to Vault through the vault picker (feature multiple-vaults-duress-password). Every decision is the view model's.
+/// picker), the Import and Export flows, the Lock action, and Move/Copy to Vault through the vault picker
+/// (feature multiple-vaults-duress-password). Every decision is the view model's.
 @MainActor
 final class FileBrowserViewController: UIViewController, AlertPresenting {
     private let directory: VaultDirectory
@@ -208,7 +209,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
             self?.whenContextMenuClosed { self?.presentVaultPicker(isMove: isMove) }
         }
         viewModel.onTransferProgress = { [weak self] progress in self?.showTransferProgress(progress) }
-        viewModel.onNeedsPro = { [weak self] in self?.presentPaywall(from: self) }
+        viewModel.onNeedsPro = { [weak self] in self?.presentPaywall() }
         // Fires before a change; render once the change is in place.
         viewModel.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -272,9 +273,8 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     }
 
     /// Presents the paywall over `presenter` (this screen when nil).
-    private func presentPaywall(from presenter: UIViewController?) {
-        let host = presenter ?? self
-        host.present(settingsFactory.makePaywall(onUnlock: {}), animated: true)
+    private func presentPaywall() {
+        present(settingsFactory.makePaywall(onUnlock: {}), animated: true)
     }
 
     // MARK: - Bar button actions
