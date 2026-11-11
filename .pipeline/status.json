@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T14:01:49-08:00",
+  "updatedAt": "2026-11-11T14:25:37-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -703,7 +703,7 @@
       },
       {
         "name": "j8-manage-vault",
-        "done": false
+        "done": true
       },
       {
         "name": "j9-paywall",
@@ -711,7 +711,7 @@
       },
       {
         "name": "j10-create-vault",
-        "done": false
+        "done": true
       },
       {
         "name": "j11-transfer",
