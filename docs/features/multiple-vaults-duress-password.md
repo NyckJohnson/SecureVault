@@ -162,3 +162,10 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   `scratch/create-vault-autofill-experiment`, kept for reference): name field without content type didn't help; the
   password in an alert did. Human approved the alert (memo e1517d9); LockScreens unit 3 reopened and merged via
   `fix/create-vault-alert`. Journey-test helper `fillCreateVaultForm` must type into the alert next.
+- 2026-11-11 (verify, feature review): reviewer pass, no blockers; duress model, key wiping, upgrade crash-safety,
+  transfer safety, identifiers, Dynamic Type, dark mode checked. Minors for the human: wrong-password timing reveals
+  zero vs some encrypted vaults (timing of the password search is out of scope per Agreed scope); `.vault_info` written
+  without `.completeFileProtection` (sealed, but unlike other store files; not in the spec); vault listing + Keychain
+  reads on the main actor when the lock screen is made (fast for few vaults); Preferences `hasCompletedSetup` /
+  `PendingMigration.Kind.decrypt` unused outside the upgrade/seeds (contract clean-up later); the two shell minors
+  already recorded (thumbnail hop, VaultCiphers).
