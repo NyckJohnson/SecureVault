@@ -191,6 +191,75 @@ import os
         }
     }
 
+    // MARK: - Edge cases
+
+    @Test("A moved file whose original can't be removed counts as failed; the copy stays in the target")
+    func removeFailureFailsFileItem() async throws {
+        let fixture = TransferFixture()
+        fixture.source.failRemove(["Beach.jpg"])
+        let result = try await run(fixture, ids: ["Beach.jpg"], removing: true)
+        #expect(result == TransferResult(done: 0, failed: 1))
+        #expect(fixture.target.item("Beach.jpg") != nil)
+        #expect(fixture.source.item("Beach.jpg") != nil)
+    }
+
+    @Test("A moved folder whose original can't be removed counts as failed; the copy stays in the target")
+    func removeFailureFailsFolderItem() async throws {
+        let fixture = TransferFixture()
+        fixture.source.failRemove(["Photos"])
+        let result = try await run(fixture, ids: ["Photos"], removing: true)
+        #expect(result == TransferResult(done: 0, failed: 1))
+        #expect(fixture.target.itemIDs.isSuperset(of: ["Photos", "Photos/Sunset.heic", "Photos/Birthday.mp4"]))
+        #expect(fixture.source.item("Photos") != nil)
+    }
+
+    private func addNestedFile(_ fixture: TransferFixture) async throws {
+        let photos = try #require(fixture.source.item("Photos")?.asDirectory)
+        let deep = try await fixture.source.inner.createFolder(named: "Deep", in: photos)
+        let deepDirectory = try #require(deep.asDirectory)
+        _ = try await fixture.source.inner.addFile(
+            from: URL(fileURLWithPath: "/dev/null"), named: "Nested.txt", to: deepDirectory)
+    }
+
+    @Test("A folder that can't be created fails its whole item: nothing copied or removed, progress reaches the total")
+    func createFolderFailureFailsWholeItem() async throws {
+        let fixture = TransferFixture()
+        try await addNestedFile(fixture)
+        fixture.target.failCreateFolder(["Photos"])
+        let recorder = TransferProgressRecorder()
+        let result = try await run(fixture, ids: ["Photos"], removing: true, progress: recorder.callback)
+        #expect(result == TransferResult(done: 0, failed: 1))
+        #expect(fixture.log.events.filter { $0.hasPrefix("tgt.addFile:") }.isEmpty)
+        #expect(fixture.log.events.filter { $0.hasPrefix("src.remove:") }.isEmpty)
+        #expect(fixture.source.itemIDs.isSuperset(of: ["Photos", "Photos/Sunset.heic", "Photos/Deep/Nested.txt"]))
+        #expect(recorder.calls.last == [3, 3])
+    }
+
+    @Test("A createFolder that returns a non-folder item fails the whole item the same way")
+    func createFolderReturningFileFailsWholeItem() async throws {
+        let fixture = TransferFixture()
+        try await addNestedFile(fixture)
+        fixture.target.createFolderReturnsFile(["Photos"])
+        let recorder = TransferProgressRecorder()
+        let result = try await run(fixture, ids: ["Photos"], removing: true, progress: recorder.callback)
+        #expect(result == TransferResult(done: 0, failed: 1))
+        #expect(fixture.log.events.filter { $0.hasPrefix("tgt.addFile:") }.isEmpty)
+        #expect(fixture.log.events.filter { $0.hasPrefix("src.remove:") }.isEmpty)
+        #expect(fixture.source.itemIDs.isSuperset(of: ["Photos", "Photos/Sunset.heic", "Photos/Deep/Nested.txt"]))
+        #expect(recorder.calls.last == [3, 3])
+    }
+
+    @Test("An empty folder that can't be created fails its item without any progress call")
+    func emptyFolderCreateFailure() async throws {
+        let fixture = TransferFixture()
+        fixture.target.failCreateFolder(["Documents"])
+        let recorder = TransferProgressRecorder()
+        let result = try await run(fixture, ids: ["Documents"], removing: true, progress: recorder.callback)
+        #expect(result == TransferResult(done: 0, failed: 1))
+        #expect(recorder.calls.isEmpty)
+        #expect(fixture.source.item("Documents") != nil)
+    }
+
     // MARK: - Copy mode
 
     @Test("Copying never removes anything from the source")

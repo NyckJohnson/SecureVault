@@ -39,6 +39,8 @@ final class TransferTestStore: VaultStoring {
         var open: Set<String> = []
         var addFile: Set<String> = []
         var remove: Set<String> = []
+        var createFolder: Set<String> = []
+        var createFolderReturnsFile: Set<String> = []
     }
 
     init(label: String, log: TransferEventLog, name: String, withSampleContent: Bool, isEncrypted: Bool = false) {
@@ -53,6 +55,10 @@ final class TransferTestStore: VaultStoring {
     func failAddFile(_ names: Set<String>) { failures.withLock { $0.addFile = names } }
     /// Ids of items whose `remove` throws.
     func failRemove(_ ids: Set<String>) { failures.withLock { $0.remove = ids } }
+    /// Names whose `createFolder` throws.
+    func failCreateFolder(_ names: Set<String>) { failures.withLock { $0.createFolder = names } }
+    /// Names whose `createFolder` succeeds but returns a plain file item instead of a folder.
+    func createFolderReturnsFile(_ names: Set<String>) { failures.withLock { $0.createFolderReturnsFile = names } }
     /// Runs `hook` after every successful `addFile`.
     func afterAddFile(_ hook: @escaping @Sendable () -> Void) { addFileHook.withLock { $0 = hook } }
 
@@ -91,6 +97,10 @@ final class TransferTestStore: VaultStoring {
 
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
         log.append("\(label).createFolder:\(name)")
+        if failures.withLock({ $0.createFolder.contains(name) }) { throw VaultStoreError.io("createFolder failed") }
+        if failures.withLock({ $0.createFolderReturnsFile.contains(name) }) {
+            return try await inner.addFile(from: URL(fileURLWithPath: "/dev/null"), named: name, to: directory)
+        }
         return try await inner.createFolder(named: name, in: directory)
     }
 
