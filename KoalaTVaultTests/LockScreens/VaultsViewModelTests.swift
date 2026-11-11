@@ -9,11 +9,16 @@ import Testing
         available: Bool = true
     ) -> (VaultsViewModel, MockVaultLocking) {
         let mock = MockVaultLocking(
-            biometricVaultID: biometricVaultID, isPro: isPro, biometricKind: kind, biometricsAvailable: available)
+            biometricVaultID: biometricVaultID, isPro: isPro, biometricKind: kind,
+            biometricsAvailable: available)
         return (VaultsViewModel(lock: mock), mock)
     }
 
-    private final class Counter { var done = 0; var pro = 0; var create = 0 }
+    private final class Counter {
+        var done = 0
+        var pro = 0
+        var create = 0
+    }
 
     private func wire(_ model: VaultsViewModel) -> Counter {
         let counter = Counter()
@@ -42,7 +47,7 @@ import Testing
         model.passwordEdited("correct horse")
         await model.openTapped()
         #expect(counter.done == 1)
-        #expect(model.password == "")
+        #expect(model.password.isEmpty)
         #expect(model.errorMessage == nil)
         #expect(mock.current.isEncrypted)
     }
@@ -54,7 +59,7 @@ import Testing
         model.passwordEdited("nope")
         await model.openTapped()
         #expect(model.errorMessage == "Incorrect password")
-        #expect(model.password == "")
+        #expect(model.password.isEmpty)
         #expect(counter.done == 0)
         #expect(model.isBusy == false)
     }
@@ -66,7 +71,7 @@ import Testing
         model.passwordEdited("x")
         await model.openTapped()
         #expect(model.errorMessage == VaultLockError.io("disk full").errorDescription)
-        #expect(model.password == "")
+        #expect(model.password.isEmpty)
     }
 
     @Test("While opening the model is busy with Opening… and done only follows afterwards")
@@ -120,13 +125,17 @@ import Testing
     func biometricVisibility() {
         #expect(makeModel(biometricVaultID: "primary").0.showsBiometricButton)
         #expect(makeModel(biometricVaultID: nil).0.showsBiometricButton == false)
-        #expect(makeModel(biometricVaultID: "primary", available: false).0.showsBiometricButton == false)
+        #expect(
+            makeModel(biometricVaultID: "primary", available: false).0.showsBiometricButton == false)
     }
 
     @Test("The button title names the biometric kind")
     func biometricTitle() {
-        #expect(makeModel(biometricVaultID: "primary", kind: .faceID).0.biometricButtonTitle == "Use Face ID")
-        #expect(makeModel(biometricVaultID: "primary", kind: .touchID).0.biometricButtonTitle == "Use Touch ID")
+        #expect(
+            makeModel(biometricVaultID: "primary", kind: .faceID).0.biometricButtonTitle == "Use Face ID")
+        #expect(
+            makeModel(biometricVaultID: "primary", kind: .touchID).0.biometricButtonTitle
+                == "Use Touch ID")
     }
 
     @Test("No biometric prompt happens automatically")
@@ -147,13 +156,15 @@ import Testing
         #expect(model.errorMessage == nil)
     }
 
-    @Test("Face ID errors show their texts", arguments: [
-        (VaultLockError.biometryLockedOut, "Too many attempts. Use your password."),
-        (.biometryNotEnrolled, "Face ID is not set up."),
-        (.passcodeNotSet, "Set a device passcode to use Face ID."),
-        (.biometricChanged, "Face ID changed. Use your password."),
-        (.keychain(1), "Biometric authentication failed"),
-    ])
+    @Test(
+        "Face ID errors show their texts",
+        arguments: [
+            (VaultLockError.biometryLockedOut, "Too many attempts. Use your password."),
+            (.biometryNotEnrolled, "Face ID is not set up."),
+            (.passcodeNotSet, "Set a device passcode to use Face ID."),
+            (.biometricChanged, "Face ID changed. Use your password."),
+            (.keychain(1), "Biometric authentication failed"),
+        ])
     func biometricErrors(error: VaultLockError, text: String) async {
         let (model, mock) = makeModel(biometricVaultID: "primary")
         mock.biometricError = error

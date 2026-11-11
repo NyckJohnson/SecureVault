@@ -4,15 +4,24 @@ import Testing
 
 @MainActor
 @Suite struct CreateVaultViewModelTests {
-    private final class Counter { var done = 0; var pro = 0 }
+    private final class Counter {
+        var done = 0
+        var pro = 0
+    }
 
-    private func makeModel(isPro: Bool = false) -> (CreateVaultViewModel, MockVaultLocking, Counter) {
+    private struct Fixture {
+        let model: CreateVaultViewModel
+        let mock: MockVaultLocking
+        let counter: Counter
+    }
+
+    private func makeModel(isPro: Bool = false) -> Fixture {
         let mock = MockVaultLocking(isPro: isPro)
         let model = CreateVaultViewModel(lock: mock)
         let counter = Counter()
         model.onDone = { counter.done += 1 }
         model.onNeedsPro = { counter.pro += 1 }
-        return (model, mock, counter)
+        return Fixture(model: model, mock: mock, counter: counter)
     }
 
     private func fill(_ model: CreateVaultViewModel, name: String, password: String, confirm: String) {
@@ -23,7 +32,10 @@ import Testing
 
     @Test("An empty or blank name shows Enter a name for the vault", arguments: ["", "   ", "\n "])
     func emptyName(name: String) async {
-        let (model, mock, counter) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let mock = fixture.mock
+        let counter = fixture.counter
         fill(model, name: name, password: "pw", confirm: "pw")
         await model.createTapped()
         #expect(model.errorMessage == "Enter a name for the vault")
@@ -33,7 +45,9 @@ import Testing
 
     @Test("An empty password shows Password cannot be empty")
     func emptyPassword() async {
-        let (model, mock, _) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let mock = fixture.mock
         fill(model, name: "Work", password: "", confirm: "")
         await model.createTapped()
         #expect(model.errorMessage == "Password cannot be empty")
@@ -42,7 +56,9 @@ import Testing
 
     @Test("Mismatched passwords show Passwords do not match")
     func mismatch() async {
-        let (model, mock, _) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let mock = fixture.mock
         fill(model, name: "Work", password: "a", confirm: "b")
         await model.createTapped()
         #expect(model.errorMessage == "Passwords do not match")
@@ -51,7 +67,8 @@ import Testing
 
     @Test("The name is checked before the password, the password before the confirmation")
     func checkOrder() async {
-        let (model, _, _) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
         fill(model, name: " ", password: "", confirm: "x")
         await model.createTapped()
         #expect(model.errorMessage == "Enter a name for the vault")
@@ -62,7 +79,10 @@ import Testing
 
     @Test("A valid form creates the vault with the trimmed name and password, then calls done")
     func success() async {
-        let (model, mock, counter) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let mock = fixture.mock
+        let counter = fixture.counter
         fill(model, name: "  Work  ", password: "secret", confirm: "secret")
         await model.createTapped()
         #expect(mock.calls.contains(.createVault(name: "Work")))
@@ -92,21 +112,26 @@ import Testing
         #expect(done == 1)
     }
 
-    @Test("A password used by another vault shows Choose a different password. and clears the passwords")
+    @Test(
+        "A password used by another vault shows Choose a different password. and clears the passwords")
     func passwordInUse() async {
-        let (model, _, counter) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let counter = fixture.counter
         fill(model, name: "Work", password: "correct horse", confirm: "correct horse")
         await model.createTapped()
         #expect(model.errorMessage == "Choose a different password.")
         #expect(model.name == "Work")
-        #expect(model.password == "")
-        #expect(model.confirmation == "")
+        #expect(model.password.isEmpty)
+        #expect(model.confirmation.isEmpty)
         #expect(counter.done == 0)
     }
 
     @Test("The vault limit asks for Pro")
     func limit() async {
-        let (model, _, counter) = makeModel(isPro: false)
+        let fixture = makeModel(isPro: false)
+        let model = fixture.model
+        let counter = fixture.counter
         fill(model, name: "Work", password: "other", confirm: "other")
         await model.createTapped()
         #expect(counter.pro == 1)
@@ -115,14 +140,17 @@ import Testing
 
     @Test("Another error shows its message, keeps the name and clears the passwords")
     func otherError() async {
-        let (model, mock, counter) = makeModel(isPro: true)
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let mock = fixture.mock
+        let counter = fixture.counter
         mock.errorToThrow = .io("disk full")
         fill(model, name: "Work", password: "x", confirm: "x")
         await model.createTapped()
         #expect(model.errorMessage == VaultLockError.io("disk full").errorDescription)
         #expect(model.name == "Work")
-        #expect(model.password == "")
-        #expect(model.confirmation == "")
+        #expect(model.password.isEmpty)
+        #expect(model.confirmation.isEmpty)
         #expect(counter.done == 0)
     }
 }
