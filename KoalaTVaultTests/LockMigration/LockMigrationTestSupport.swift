@@ -273,7 +273,7 @@ final class MigrationHarness {
             FakeLeftoverStore.file("a.jpg", encrypted: false),
             FakeLeftoverStore.file("b.pdf", encrypted: false),
             FakeLeftoverStore.file("c.mov", encrypted: false),
-            FakeLeftoverStore.file("Old.txt", encrypted: false, trashed: true)
+            FakeLeftoverStore.file("Old.txt", encrypted: false, trashed: true),
         ]
     }
 

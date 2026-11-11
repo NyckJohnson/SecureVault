@@ -50,8 +50,11 @@ import Testing
         await harness.migrator.retryFailed()
         await recorder.wait { $0 == .failed(names: ["b.pdf"]) }
         await recorder.finish()
-        #expect(recorder.phases == [.running(done: 0, total: 1), .running(done: 1, total: 1), .failed(names: ["b.pdf"])]
-            || recorder.phases == [.running(done: 0, total: 1), .failed(names: ["b.pdf"])])
+        let withProgress: [MigrationPhase] = [
+            .running(done: 0, total: 1), .running(done: 1, total: 1), .failed(names: ["b.pdf"]),
+        ]
+        let withoutProgress: [MigrationPhase] = [.running(done: 0, total: 1), .failed(names: ["b.pdf"])]
+        #expect(recorder.phases == withProgress || recorder.phases == withoutProgress)
         #expect(harness.migrator.phase == .failed(names: ["b.pdf"]))
     }
 

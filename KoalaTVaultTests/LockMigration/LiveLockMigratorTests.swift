@@ -60,7 +60,7 @@ import Testing
         let files = [
             FakeLeftoverStore.file("a.jpg", encrypted: true),
             FakeLeftoverStore.file("b.pdf", encrypted: false),
-            FakeLeftoverStore.file("c.mov", encrypted: true)
+            FakeLeftoverStore.file("c.mov", encrypted: true),
         ]
         let harness = MigrationHarness(files: files)
         let recorder = harness.recorder()
