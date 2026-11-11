@@ -111,11 +111,13 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
    - Failure path: cancel → paywall stays; pending → "Purchase pending approval."; restore with nothing → "No previous
      purchase found to restore."; price unavailable → "Price unavailable" and Unlock still works.
 10. **Create a vault** — the user wants a new encrypted vault. Lock screen → "Create New Vault" → Create Vault screen
-   (Name, Password, Confirm Password, Create) → "Creating Vault…" → both screens go and the browser shows the new,
+   (Name, Create) → Create opens the "Set Password" alert ("Choose a password for this vault.", Password, Confirm
+   Password, Cancel, Create) → "Creating Vault…" → both screens go and the browser shows the new,
    empty vault's root, titled with its name. Ends when the new vault is open.
    - Failure path: free tier with one encrypted vault already → tapping "Create New Vault" opens the paywall instead (this
      tells whoever taps it that a vault exists; accepted, decision 2026-11-10); after unlocking, the user taps it again.
-   - Failure path: name empty after trimming → "Enter a name for the vault"; empty password → "Password cannot be empty";
+   - Failure path: name empty after trimming → "Enter a name for the vault" (no alert); after the alert's Create, errors
+     show on the Create Vault screen and Create asks again: empty password → "Password cannot be empty";
      mismatch → "Passwords do not match"; a password another vault already uses → "Choose a different password."; a
      Keychain or disk failure shows the error and leaves no half-made vault.
 11. **Move or copy to another vault** — the user wants files in a different vault. Long press → "Move to Vault…" or "Copy
@@ -150,7 +152,7 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
   window's root, shown by the app lock coordinator at launch, on entering the background, and from the browser's Lock
   button or a deleted vault. Serves 1, 2, 8, 10, 12. A privacy cover (no screen of its own) hides content while the app
   is inactive with an encrypted vault open.
-- **Create Vault**: name and password. UI: UIKit. Pushed in the lock screen's navigation. Serves 10.
+- **Create Vault**: name on the screen, password and confirmation in a "Set Password" alert. UI: UIKit. Pushed in the lock screen's navigation. Serves 10.
 - **File browser**: the open vault's grid; root of the navigation stack, one instance per folder; replaced as a whole
   when another vault opens or the vault closes. UI: UIKit. Serves 1, 3, 4, 6, 7, 11.
 - **Vault picker**: choose the target of "Move/Copy to Vault…". UI: UIKit. Form sheet from the browser. Serves 11.
@@ -995,10 +997,17 @@ the upgrade clearing it.
     (Views/LockPresenter.swift now presents the new lock screen and the privacy cover).
   - Views: identifiers `vaults.passwordField`, `vaults.openButton`, `vaults.biometricButton`, `vaults.createButton`,
     `vaults.unencryptedButton`, `vaults.errorLabel`, `createVault.nameField`,
-    `createVault.passwordField`, `createVault.confirmField`, `createVault.createButton`, `createVault.errorLabel`,
+    `createVault.createButton`, `createVault.errorLabel`, the alert's `createVault.alertPasswordField`,
+    `createVault.alertConfirmField`, `createVault.alertCreateButton`,
     `privacyCover`. (Views; covered by journey tests.) `LiveVaultsScreenFactory` lives in `Views/VaultsViewController.swift`.
-    Vault password fields (lock screen, Create Vault) set no password `textContentType` (`nil`), so iOS never offers to
-    save a vault password to the Keychain / password manager or suggest a strong one (decided 2026-11-11).
+    Vault password fields (lock screen, Create Vault's alert) set no `textContentType` (`nil`), so iOS never offers to
+    save a vault password to the Keychain / password manager or suggest a strong one (decided 2026-11-11). Create Vault
+    shows only the Name field (no content type) and Create on the screen; Create with a trimmed-empty name goes straight
+    to the view model (the name error), otherwise it opens the "Set Password" alert (title "Set Password", message
+    "Choose a password for this vault.", secure Password and Confirm Password fields, Cancel, Create); the alert's Create
+    passes both fields to the view model and runs Create; Cancel changes nothing. Name field Return = Create. (A
+    name + password + confirm form on one screen gets iOS Strong Password autofill even with no content type, which
+    gave vaults passwords the user never typed; decided 2026-11-11, verify.)
 - Changes (multiple-vaults-duress-password): SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift, Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift
 - Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory` (`makeLockScreen(onDone:onNeedsPro:)`); `AppLockCoordinating` gains `lock()` (both revised at the prototype, 2026-11-10); LockScreens no longer depends on VaultCrypto or Preferences.
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
@@ -1266,3 +1275,8 @@ the upgrade clearing it.
 - 2026-11-10: LockMigration: an `encryptLeftovers` during a cancelled run's last file waits for it, and a second cancel drops the waiting call; the store is held only while a run exists; a non-encrypted store sets `.idle` (reviewer findings, LockMigration unit 1) — orchestrator
 - 2026-11-10: Settings' Views identifier line corrected to the names the code and journey tests use (2026-11-03 naming; the prototype's new `settings.*` identifiers); no behavior change — orchestrator
 - 2026-11-11: vault password fields (lock screen, Create Vault, vault picker; Settings' alert fields already set none) set no password `textContentType`, so iOS never offers to save or suggest a vault password; Create Vault clears its password fields on success too — decided by the human (LockScreens unit 3 review, feature multiple-vaults-duress-password)
+- 2026-11-11 (verify): Create Vault asks for the password and confirmation in a "Set Password" alert after Create, with
+  only the name on the screen. On one screen, iOS Strong Password autofill took over the password fields despite no
+  content type, so a new vault got a password the user never typed (5 journey tests); an experiment showed the
+  alert avoids it, as the 1.2 setup wizard did. `.oneTimeCode` rejected (misdescribes the field). No contract change;
+  LockScreens unit 3 reopened — decided by the human (feature multiple-vaults-duress-password)
