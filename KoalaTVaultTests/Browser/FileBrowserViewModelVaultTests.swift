@@ -228,7 +228,9 @@ import Testing
         let rig = try makeRig()
         rig.transfer.errorToThrow = .limitReached
         rig.viewModel.beginVaultTransfer(try twoItems(rig), isMove: true)
-        await rig.viewModel.vaultPickerFinished(try await openTarget(rig))
+        let target = try await openTarget(rig)
+        await rig.viewModel.vaultPickerFinished(target)
+        #expect(rig.lock.calls.contains(.closeTransferTarget(target.id)))
         #expect(rig.recorder.needsProCount == 1)
         #expect(rig.alerts.alerts.isEmpty)
         #expect(rig.recorder.progress.last == .some(nil))
@@ -240,11 +242,23 @@ import Testing
         let items = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: rig.store) }
         rig.transfer.failingIDs = [items[0].id]
         rig.viewModel.beginVaultTransfer(items, isMove: true)
-        await rig.viewModel.vaultPickerFinished(try await openTarget(rig))
+        let target = try await openTarget(rig)
+        await rig.viewModel.vaultPickerFinished(target)
+        #expect(rig.lock.calls.contains(.closeTransferTarget(target.id)))
         let messages = errorMessages(rig.alerts)
         #expect(messages.count == 1)
         #expect(messages.first?.hasPrefix("1 of 3 failed") == true)
         #expect(rig.recorder.needsProCount == 0)
+    }
+
+    @Test("A thrown error with the unencrypted vault as target does not close it")
+    func errorWithUnencryptedTargetNotClosed() async throws {
+        let rig = try makeRig(encryptedStore: true, vaultName: "Work")
+        rig.transfer.errorToThrow = .limitReached
+        rig.viewModel.beginVaultTransfer(try twoItems(rig), isMove: true)
+        await rig.viewModel.vaultPickerFinished(rig.lock.unencryptedVault)
+        #expect(!rig.lock.calls.contains { if case .closeTransferTarget = $0 { true } else { false } })
+        #expect(rig.recorder.needsProCount == 1)
     }
 
     @Test("Another error shows its message")
@@ -252,10 +266,29 @@ import Testing
         let rig = try makeRig()
         rig.transfer.errorToThrow = .sameVault
         rig.viewModel.beginVaultTransfer(try twoItems(rig), isMove: true)
-        await rig.viewModel.vaultPickerFinished(try await openTarget(rig))
+        let target = try await openTarget(rig)
+        await rig.viewModel.vaultPickerFinished(target)
+        #expect(rig.lock.calls.contains(.closeTransferTarget(target.id)))
         let expected = try #require(VaultTransferError.sameVault.errorDescription)
         #expect(errorMessages(rig.alerts) == [expected])
         #expect(rig.recorder.needsProCount == 0)
+    }
+
+    @Test("A second target arriving during a transfer is closed and starts no second transfer")
+    func secondTargetDuringTransferClosed() async throws {
+        let held = HeldTransfer()
+        let rig = try makeRig(transfer: held)
+        rig.viewModel.beginVaultTransfer(try twoItems(rig), isMove: true)
+        let target = try await openTarget(rig)
+        let task = Task { await rig.viewModel.vaultPickerFinished(target) }
+        while !held.isWaiting { await Task.yield() }
+        let second = try await openTarget(rig)
+        await rig.viewModel.vaultPickerFinished(second)
+        #expect(rig.lock.calls.contains(.closeTransferTarget(second.id)))
+        #expect(held.calls == 1)
+        held.release()
+        await task.value
+        #expect(held.calls == 1)
     }
 
     // MARK: - Cancel
@@ -274,8 +307,10 @@ import Testing
         let rig = try makeRig()
         rig.viewModel.beginVaultTransfer(try twoItems(rig), isMove: true)
         await rig.viewModel.vaultPickerFinished(nil)
-        await rig.viewModel.vaultPickerFinished(try await openTarget(rig))
+        let target = try await openTarget(rig)
+        await rig.viewModel.vaultPickerFinished(target)
         #expect(rig.transfer.calls.isEmpty)
+        #expect(rig.lock.calls.contains(.closeTransferTarget(target.id)))
     }
 
     @Test("A picker dismissed without a choice clears the pending transfer")
@@ -283,7 +318,9 @@ import Testing
         let rig = try makeRig()
         rig.viewModel.beginVaultTransfer(try twoItems(rig), isMove: true)
         rig.viewModel.vaultPickerCancelled()
-        await rig.viewModel.vaultPickerFinished(try await openTarget(rig))
+        let target = try await openTarget(rig)
+        await rig.viewModel.vaultPickerFinished(target)
         #expect(rig.transfer.calls.isEmpty)
+        #expect(rig.lock.calls.contains(.closeTransferTarget(target.id)))
     }
 }
