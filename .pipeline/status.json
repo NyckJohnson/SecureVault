@@ -404,7 +404,7 @@
         "Settings",
         "LockScreens"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -413,8 +413,8 @@
             "FolderPickerViewModel.swift",
             "FileCellModel.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 2,
@@ -423,8 +423,8 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 3,
@@ -432,13 +432,13 @@
             "VaultPickerViewModel.swift",
             "Views/VaultPickerViewController.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         }
       ]
     }
   ],
-  "updatedAt": "2026-11-10T21:28:21-08:00",
+  "updatedAt": "2026-11-10T21:46:34-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

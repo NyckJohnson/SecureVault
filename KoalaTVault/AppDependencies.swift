@@ -460,10 +460,11 @@ final class AppDependencies {
         let vaultLock = Self.makeVaultLock(
             storage: storage, unencryptedStore: vaultStore, proUnlock: proUnlock, temporaryRoot: temporaryRoot)
         self.vaultLock = vaultLock
-        lockCoordinator = AppLockCoordinator(
+        let lockCoordinator = AppLockCoordinator(
             lock: vaultLock, screens: LiveVaultsScreenFactory(lock: vaultLock), presenter: LockPresenter(),
             // shell rework (feature multiple-vaults-duress-password) wires the paywall
             onNeedsPro: { _ in })
+        self.lockCoordinator = lockCoordinator
         let lockMigrator = LiveLockMigrator(uiTestFailFileName: Self.failMigrationFileName(storage: storage))
         self.lockMigrator = lockMigrator
         let reloadRelay = BrowserReloadRelay()
@@ -474,7 +475,10 @@ final class AppDependencies {
         let browserFactory = LiveBrowserFactory(
             store: vaultStore, preferences: storage.preferences, thumbnails: thumbnails, exporter: exporter,
             exportPresenter: exportPresenter, importPresenter: importPresenter, viewerFactory: viewerFactory,
-            settingsFactory: settingsFactory)
+            settingsFactory: settingsFactory,
+            vaultServices: BrowserVaultServices(
+                lock: vaultLock, transfer: LiveVaultTransfer(pro: proUnlock),
+                onLock: { [weak lockCoordinator] in lockCoordinator?.lock() }))
         reloadRelay.browserFactory = browserFactory
         self.browserFactory = browserFactory
     }

@@ -24,7 +24,7 @@ final class FileBrowserViewModel: ObservableObject {
     /// An entry of an item's context menu.
     enum ContextAction: Equatable {
         case export, move, copy, rename, delete
-        /// Move to Vault… / Copy to Vault… (only when the browser can transfer between vaults).
+        /// Move to Vault… / Copy to Vault….
         case moveToVault, copyToVault
     }
 
@@ -74,8 +74,8 @@ final class FileBrowserViewModel: ObservableObject {
     private let preferences: any PreferencesStoring
     private let exporter: any VaultExporting
     private weak var alerts: (any AlertPresenting)?
-    private let lock: (any VaultLocking)?
-    private let transfer: (any VaultTransferring)?
+    private let lock: any VaultLocking
+    private let transfer: any VaultTransferring
     /// The items and kind of the transfer waiting for the vault picker's choice.
     private var pendingTransfer: (items: [VaultItem], isMove: Bool)?
     /// True while a transfer runs; only one runs at a time.
@@ -88,16 +88,15 @@ final class FileBrowserViewModel: ObservableObject {
     /// - Parameters:
     ///   - directory: the folder to show.
     ///   - store: the vault store.
-    ///   - preferences: holds the sort and the lock state the drag-out rule reads.
+    ///   - preferences: holds the sort.
     ///   - exporter: prepares items for the share sheet.
     ///   - alerts: shows errors (held weakly; usually the view controller that owns this).
-    ///   - lock: the app's vaults, to close a transfer target; with `transfer`, enables the Lock button and
-    ///     Move/Copy to Vault. Nil (the default) leaves both out.
+    ///   - lock: the app's vaults, to close a transfer target.
     ///   - transfer: moves and copies items between vaults.
     init(
         directory: VaultDirectory, store: any VaultStoring, preferences: any PreferencesStoring,
         exporter: any VaultExporting, alerts: any AlertPresenting,
-        lock: (any VaultLocking)? = nil, transfer: (any VaultTransferring)? = nil
+        lock: any VaultLocking, transfer: any VaultTransferring
     ) {
         self.directory = directory
         self.store = store
@@ -118,11 +117,8 @@ final class FileBrowserViewModel: ObservableObject {
     /// The settings button shows at the vault root only.
     var showsSettingsButton: Bool { directory == store.root }
 
-    /// The Lock button shows at the root of every vault, when the browser knows the app's vaults.
-    var showsLockButton: Bool { canTransferBetweenVaults && directory == store.root }
-
-    /// Whether Move/Copy to Vault are offered.
-    var canTransferBetweenVaults: Bool { lock != nil && transfer != nil }
+    /// The Lock button shows at the root of every vault.
+    var showsLockButton: Bool { directory == store.root }
 
     /// The folder's name (at the root, the open vault's name: `root.name`), or "Select Items" / "N Selected" in
     /// select mode.
@@ -313,11 +309,9 @@ final class FileBrowserViewModel: ObservableObject {
 
     // MARK: - Context menu
 
-    /// Every item's menu: Export, Move, Copy, Rename, Delete; then Move to Vault… and Copy to Vault… when the
-    /// browser can transfer between vaults.
+    /// Every item's menu: Export, Move, Copy, Rename, Delete, Move to Vault…, Copy to Vault….
     func contextActions(for item: VaultItem) -> [ContextAction] {
-        let actions: [ContextAction] = [.export, .move, .copy, .rename, .delete]
-        return canTransferBetweenVaults ? actions + [.moveToVault, .copyToVault] : actions
+        [.export, .move, .copy, .rename, .delete, .moveToVault, .copyToVault]
     }
 
     /// The Rename field starts with the current name.
@@ -356,20 +350,19 @@ final class FileBrowserViewModel: ObservableObject {
     }
 
     /// A drag may leave the app only for a known, unencrypted item of the unencrypted vault: it stays in when the
-    /// store `isEncrypted` or the item `isEncrypted` (feature multiple-vaults-duress-password), since the on-disk
-    /// file could be ciphertext. The 1.2 lock state (a lock mode or a pending migration) still keeps it in until
-    /// the Browser unit of the feature drops it with its tests.
+    /// item is unknown (nil), the store `isEncrypted` or the item `isEncrypted`, since the on-disk file of an
+    /// encrypted item is ciphertext.
     func canDragOut(_ item: VaultItem?) -> Bool {
-        guard let item, !store.isEncrypted, !item.isEncrypted else { return false }
-        return preferences.lockMode == .none && preferences.pendingMigration == nil
+        guard let item else { return false }
+        return !store.isEncrypted && !item.isEncrypted
     }
 
     // MARK: - Move/Copy to Vault
 
     /// Remembers the items to move or copy to another vault and asks for the vault picker. Ignored while a
-    /// transfer runs, with nothing to transfer, or when the browser can't transfer.
+    /// transfer runs or with nothing to transfer.
     func beginVaultTransfer(_ items: [VaultItem], isMove: Bool) {
-        guard canTransferBetweenVaults, !isTransferring, !items.isEmpty else { return }
+        guard !isTransferring, !items.isEmpty else { return }
         pendingTransfer = (items, isMove)
         onPresentVaultPicker(isMove)
     }
@@ -383,7 +376,7 @@ final class FileBrowserViewModel: ObservableObject {
             pendingTransfer = nil
             return
         }
-        guard let pending = pendingTransfer, let transfer, !isTransferring else {
+        guard let pending = pendingTransfer, !isTransferring else {
             // No transfer waits for this target (e.g. the picker was swiped away while it opened): close it.
             closeTarget(target)
             return
@@ -433,7 +426,7 @@ final class FileBrowserViewModel: ObservableObject {
     /// Closes a transfer target; the unencrypted vault is never closed.
     private func closeTarget(_ target: OpenVault) {
         guard target.isEncrypted else { return }
-        lock?.closeTransferTarget(target)
+        lock.closeTransferTarget(target)
     }
 
     // MARK: - Refresh triggers

@@ -271,7 +271,8 @@ import Testing
         let alerts = MockAlertPresenting()
         let viewModel = FileBrowserViewModel(
             directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
-            exporter: MockVaultExporting(), alerts: alerts)
+            exporter: MockVaultExporting(), alerts: alerts,
+            lock: MockVaultLocking(), transfer: MockVaultTransferring())
         await viewModel.load()
         let three = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: mock) }
         let task = Task { await viewModel.delete(three) }
@@ -290,7 +291,8 @@ import Testing
         let alerts = MockAlertPresenting()
         let viewModel = FileBrowserViewModel(
             directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
-            exporter: MockVaultExporting(), alerts: alerts)
+            exporter: MockVaultExporting(), alerts: alerts,
+            lock: MockVaultLocking(), transfer: MockVaultTransferring())
         await viewModel.load()
         let three = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: mock) }
         let task = Task { await viewModel.delete(three) }
