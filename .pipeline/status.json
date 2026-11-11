@@ -169,7 +169,7 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "tests",
+          "state": "code",
           "attempts": 0
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T17:41:39-08:00",
+  "updatedAt": "2026-11-10T17:45:08-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
