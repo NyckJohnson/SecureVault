@@ -72,9 +72,11 @@ import UIKit
     private func makeRig(
         folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false,
         waitForCells: Bool = true,
-        regularWidth: Bool = false
+        regularWidth: Bool = false, encryptedStore: Bool = false
     ) async throws -> Rig {
-        let store = MockVaultStoring(withSampleContent: withSampleContent)
+        let store = MockVaultStoring(
+            withSampleContent: withSampleContent, name: encryptedStore ? "Work" : "KoalaTVault",
+            isEncrypted: encryptedStore)
         let directory: VaultDirectory
         if let folder {
             let item = try #require(store.allItems.first { $0.name == folder && $0.isDirectory })
@@ -588,7 +590,7 @@ import UIKit
         #expect(!rig.store.calls.contains { if case .move = $0 { return true } else { return false } })
     }
 
-    @Test("In a no-lock vault an unencrypted item can be dragged out to other apps")
+    @Test("In the unencrypted vault an unencrypted item can be dragged out to other apps")
     func dragOutAllowed() async throws {
         let rig = try await makeRig()
         let items = rig.controller.dragItems(at: try #require(rig.indexPath("Beach.jpg")))
@@ -596,10 +598,9 @@ import UIKit
         #expect(items.first?.itemProvider.registeredTypeIdentifiers.isEmpty == false)
     }
 
-    @Test("With a lock set the drag stays inside the app")
-    func dragOutRefusedWithLock() async throws {
-        let rig = try await makeRig()
-        rig.preferences.lockMode = .password
+    @Test("In an encrypted vault the drag stays inside the app")
+    func dragOutRefusedInEncryptedVault() async throws {
+        let rig = try await makeRig(encryptedStore: true)
         let items = rig.controller.dragItems(at: try #require(rig.indexPath("Beach.jpg")))
         #expect(items.count == 1)
         #expect(items.first?.itemProvider.registeredTypeIdentifiers.isEmpty == true)
