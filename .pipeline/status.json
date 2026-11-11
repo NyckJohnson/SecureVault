@@ -291,7 +291,7 @@
             "LockScreenViewModel.swift",
             "AppLockCoordinator.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T20:41:00-08:00",
+  "updatedAt": "2026-11-10T20:41:37-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
