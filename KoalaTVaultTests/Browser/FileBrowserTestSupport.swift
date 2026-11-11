@@ -8,6 +8,11 @@ final class FileBrowserRecorder {
     var routes: [FileBrowserViewModel.Route] = []
     var shared: [[URL]] = []
     var pickerRequests: [[String]] = []
+    /// One entry per vault picker request: true for Move to Vault, false for Copy to Vault.
+    var vaultPickerRequests: [Bool] = []
+    /// Every progress report; nil when the transfer ends.
+    var progress: [FileBrowserViewModel.TransferProgress?] = []
+    var needsProCount = 0
 }
 
 struct FileBrowserRig {
@@ -17,6 +22,8 @@ struct FileBrowserRig {
     let exporter: MockVaultExporting
     let alerts: MockAlertPresenting
     let recorder: FileBrowserRecorder
+    let lock: MockVaultLocking
+    let transfer: MockVaultTransferring
 }
 
 /// Shared rig-building helpers for the FileBrowserViewModel suites.
@@ -26,11 +33,13 @@ protocol FileBrowserTestSupport {}
 extension FileBrowserTestSupport {
     func makeRig(
         inFolder folderName: String? = nil,
-        lockMode: LockMode = .none,
-        pendingMigration: PendingMigration? = nil,
-        withSampleContent: Bool = true
+        encryptedStore: Bool = false,
+        vaultName: String = "KoalaTVault",
+        withSampleContent: Bool = true,
+        transfer transferOverride: (any VaultTransferring)? = nil
     ) throws -> FileBrowserRig {
-        let store = MockVaultStoring(withSampleContent: withSampleContent)
+        let store = MockVaultStoring(
+            withSampleContent: withSampleContent, name: vaultName, isEncrypted: encryptedStore)
         let directory: VaultDirectory
         if let folderName {
             let folder = try #require(store.allItems.first { $0.name == folderName && $0.isDirectory })
@@ -38,18 +47,24 @@ extension FileBrowserTestSupport {
         } else {
             directory = store.root
         }
-        let preferences = MockPreferencesStoring(lockMode: lockMode, pendingMigration: pendingMigration)
+        let preferences = MockPreferencesStoring()
         let exporter = MockVaultExporting()
         let alerts = MockAlertPresenting()
         let recorder = FileBrowserRecorder()
+        let lock = MockVaultLocking()
+        let transfer = MockVaultTransferring()
         let viewModel = FileBrowserViewModel(
-            directory: directory, store: store, preferences: preferences, exporter: exporter, alerts: alerts)
+            directory: directory, store: store, preferences: preferences, exporter: exporter, alerts: alerts,
+            lock: lock, transfer: transferOverride ?? transfer)
         viewModel.onRoute = { recorder.routes.append($0) }
         viewModel.onShare = { recorder.shared.append($0.urls) }
         viewModel.onPresentPicker = { recorder.pickerRequests.append($0.map(\.id)) }
+        viewModel.onPresentVaultPicker = { recorder.vaultPickerRequests.append($0) }
+        viewModel.onTransferProgress = { recorder.progress.append($0) }
+        viewModel.onNeedsPro = { recorder.needsProCount += 1 }
         return FileBrowserRig(
             viewModel: viewModel, store: store, preferences: preferences, exporter: exporter, alerts: alerts,
-            recorder: recorder)
+            recorder: recorder, lock: lock, transfer: transfer)
     }
 
     func item(_ name: String, in store: MockVaultStoring) throws -> VaultItem {
@@ -69,6 +84,36 @@ extension FileBrowserTestSupport {
             if case .error(let message) = alert { return message }
             return nil
         }
+    }
+}
+
+/// A transfer that reports 2 of N, then waits until the test releases it.
+final class HeldTransfer: VaultTransferring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var callCount = 0
+
+    var calls: Int { lock.withLock { callCount } }
+    var isWaiting: Bool { lock.withLock { continuation != nil } }
+
+    func release() {
+        let pending = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume()
+    }
+
+    func transfer(
+        _ items: [VaultItem], from source: any VaultStoring, to target: any VaultStoring,
+        removingOriginals: Bool, progress: @escaping @Sendable (Int, Int) -> Void
+    ) async throws -> TransferResult {
+        lock.withLock { callCount += 1 }
+        progress(2, items.count)
+        await withCheckedContinuation { continuation in
+            lock.withLock { self.continuation = continuation }
+        }
+        return TransferResult(done: items.count, failed: 0)
     }
 }
 
