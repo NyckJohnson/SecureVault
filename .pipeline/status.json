@@ -181,7 +181,7 @@
         "VaultStore",
         "Entitlements"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -189,8 +189,8 @@
             "TransferPlan.swift",
             "LiveVaultTransfer.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         }
       ]
     },
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T17:56:28-08:00",
+  "updatedAt": "2026-11-10T18:33:40-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
