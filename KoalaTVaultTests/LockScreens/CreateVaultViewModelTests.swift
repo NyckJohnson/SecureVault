@@ -102,6 +102,28 @@ import Testing
         #expect(model.isBusy == false)
     }
 
+    @Test("A successful create clears both password fields, keeps the name, and calls done")
+    func successClearsPasswords() async {
+        let fixture = makeModel(isPro: true)
+        let model = fixture.model
+        let counter = fixture.counter
+        var passwordAtDone: String?
+        var confirmationAtDone: String?
+        model.onDone = {
+            counter.done += 1
+            passwordAtDone = model.password
+            confirmationAtDone = model.confirmation
+        }
+        fill(model, name: "Work", password: "secret", confirm: "secret")
+        await model.createTapped()
+        #expect(counter.done == 1)
+        #expect(passwordAtDone?.isEmpty == true)
+        #expect(confirmationAtDone?.isEmpty == true)
+        #expect(model.password.isEmpty)
+        #expect(model.confirmation.isEmpty)
+        #expect(model.name == "Work")
+    }
+
     @Test("While creating the model is busy with Creating Vault…")
     func busy() async {
         let mock = MockVaultLocking(isPro: true)

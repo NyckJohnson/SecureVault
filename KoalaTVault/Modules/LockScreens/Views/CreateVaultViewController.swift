@@ -55,13 +55,14 @@ final class CreateVaultViewController: UIViewController {
             passwordField, placeholder: "Password", identifier: "createVault.passwordField", returnKey: .next,
             action: #selector(passwordEdited))
         passwordField.isSecureTextEntry = true
-        passwordField.textContentType = .newPassword
+        // No password content type: iOS must never offer to save or suggest a vault password.
+        passwordField.textContentType = nil
 
         configure(
             confirmField, placeholder: "Confirm Password", identifier: "createVault.confirmField", returnKey: .go,
             action: #selector(confirmationEdited))
         confirmField.isSecureTextEntry = true
-        confirmField.textContentType = .newPassword
+        confirmField.textContentType = nil
 
         errorLabel.textColor = .systemRed
         errorLabel.font = .preferredFont(forTextStyle: .footnote)
