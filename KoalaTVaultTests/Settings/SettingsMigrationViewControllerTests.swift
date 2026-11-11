@@ -61,18 +61,6 @@ import UIKit
         #expect((rig.host.element("migration.progressBar") as? UIProgressView)?.progress == 0.5)
     }
 
-    @Test(
-        "A paused migration shows Paused — unlock to continue",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
-    func pausedStatus() async {
-        #if false
-            let rig = makeRig()
-            rig.migrator.send(.paused(done: 2, total: 10))
-            await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
-            #expect(status(rig) == "Paused — unlock to continue")
-        #endif
-    }
-
     // MARK: - Failure alert
 
     @Test("Failed files show the Some Files Failed alert naming them, with Retry and Skip")
@@ -151,8 +139,6 @@ import UIKit
         #expect(rig.finished.values == [true])
     }
 
-    // MARK: - Reappearing
-
     // MARK: - Background time
 
     @Test("Background time is requested once while running, however many progress updates arrive")
@@ -172,21 +158,6 @@ import UIKit
         let rig = makeRig()
         await SettingsTestSupport.settle()
         #expect(rig.background.begun.isEmpty)
-    }
-
-    @Test(
-        "Pausing ends the background task that running began",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
-    func pauseEndsBackground() async {
-        #if false
-            let rig = makeRig()
-            await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
-            rig.migrator.send(.running(done: 1, total: 10))
-            await SettingsTestSupport.waitUntil { rig.background.begun.count == 1 }
-            rig.migrator.send(.paused(done: 1, total: 10))
-            await SettingsTestSupport.waitUntil { rig.background.ended.count == 1 }
-            #expect(rig.background.ended == rig.background.begun)
-        #endif
     }
 
     @Test("A failure ends the background task, and running again begins a new one")
