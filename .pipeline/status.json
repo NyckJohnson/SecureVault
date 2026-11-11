@@ -362,7 +362,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "pending",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -372,8 +372,8 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         },
         {
           "number": 2,
@@ -383,8 +383,8 @@
             "Views/PaywallViewController.swift",
             "Views/RecentlyDeletedViewController.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         }
       ]
     },
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T21:01:39-08:00",
+  "updatedAt": "2026-11-10T21:21:40-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

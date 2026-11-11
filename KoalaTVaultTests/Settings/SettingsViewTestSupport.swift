@@ -44,8 +44,10 @@ final class SettingsViewHost {
         return topmost as? UIAlertController
     }
 
-    /// True when no alert is up after giving pending work time to run.
+    /// True when no alert is up: waits for any alert on its way out to be gone, then gives pending work time to run
+    /// (so an alert that would still appear has the chance to).
     func noAlert() async -> Bool {
+        await SettingsTestSupport.waitUntil { !(self.topmost is UIAlertController) }
         await SettingsTestSupport.settle()
         return !(topmost is UIAlertController)
     }
