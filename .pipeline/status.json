@@ -161,7 +161,7 @@
       "dependsOn": [
         "VaultStore"
       ],
-      "state": "in_progress",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
