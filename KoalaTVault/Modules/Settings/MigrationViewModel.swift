@@ -6,9 +6,8 @@ import Foundation
 /// starts the work (`encryptLeftovers(in:)`) and stops it (`cancel()`); this screen never does.
 @MainActor
 final class MigrationViewModel: ObservableObject {
-    /// The screen's title. "Decrypting Files" for `.decrypt` is kept only until Settings' build updates the
-    /// tests that check it; the live factory always passes `.encrypt`.
-    let title: String
+    /// The screen's title.
+    let title = "Encrypting Files"
     /// The status line.
     @Published private(set) var statusText = "Preparing…"
     /// How far the migration is, from 0 to 1.
@@ -36,7 +35,6 @@ final class MigrationViewModel: ObservableObject {
     private var hasSeenRun = false
 
     /// - Parameters:
-    ///   - kind: sets the title; only `.encrypt` is used now (kept until Settings' build updates its tests).
     ///   - migrator: the leftover encryption.
     ///   - waitsForNewRun: true when the caller starts the encryption right after making this: a `.completed`
     ///     phase at hand then belongs to an earlier run and is ignored. False when following a run already
@@ -44,11 +42,10 @@ final class MigrationViewModel: ObservableObject {
     ///   - sleep: waits before reporting the end (a stand-in in tests).
     ///   - onFinish: called once at the end, with whether the migration completed fully.
     init(
-        kind: MigrationKind = .encrypt, migrator: any LockMigrating, waitsForNewRun: Bool = false,
+        migrator: any LockMigrating, waitsForNewRun: Bool = false,
         sleep: @escaping @Sendable (Duration) async throws -> Void = MigrationViewModel.liveSleep,
         onFinish: @escaping @MainActor (Bool) -> Void
     ) {
-        title = kind == .decrypt ? "Decrypting Files" : "Encrypting Files"
         self.migrator = migrator
         self.sleep = sleep
         self.onFinish = onFinish
@@ -127,10 +124,8 @@ final class MigrationViewModel: ObservableObject {
             // No names: a step other than a file failed (listing the files, or a closing step).
             failureMessage =
                 names.isEmpty
-                // The old wording, kept until Settings' build updates its tests; the spec's is "Some files
-                // couldn't be encrypted." and "These files couldn't be encrypted: a, b".
-                ? "The migration couldn't finish. Retry, or Skip to stop for now."
-                : "These files couldn't be migrated: \(names.joined(separator: ", "))"
+                ? "Some files couldn't be encrypted."
+                : "These files couldn't be encrypted: \(names.joined(separator: ", "))"
         case .completed:
             clearFailure()
             wantsBackgroundTime = false

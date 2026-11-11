@@ -55,7 +55,6 @@ final class MigrationViewController: UIViewController, AlertPresenting {
     private let statusLabel = UILabel()
 
     /// - Parameters:
-    ///   - kind: sets the title; only `.encrypt` is used now (kept until Settings' build updates its tests).
     ///   - migrator: the leftover encryption; the caller starts it once this screen is shown.
     ///   - waitsForNewRun: true when the caller starts the encryption right after making this screen (see
     ///     `MigrationViewModel`).
@@ -63,7 +62,7 @@ final class MigrationViewController: UIViewController, AlertPresenting {
     ///   - backgroundTime: grants background time while files migrate.
     ///   - onFinish: called once, after the screen is dismissed, with whether the migration completed fully.
     init(
-        kind: MigrationKind = .encrypt, migrator: any LockMigrating, waitsForNewRun: Bool = false,
+        migrator: any LockMigrating, waitsForNewRun: Bool = false,
         sleep: @escaping @Sendable (Duration) async throws -> Void = MigrationViewModel.liveSleep,
         backgroundTime: any BackgroundTimeProviding = UIApplication.shared,
         onFinish: @escaping @MainActor (Bool) -> Void
@@ -73,7 +72,7 @@ final class MigrationViewController: UIViewController, AlertPresenting {
         // The view model reports its end here; the relay reaches this controller once it exists.
         let relay = MigrationFinishRelay()
         viewModel = MigrationViewModel(
-            kind: kind, migrator: migrator, waitsForNewRun: waitsForNewRun, sleep: sleep,
+            migrator: migrator, waitsForNewRun: waitsForNewRun, sleep: sleep,
             onFinish: { relay.controller?.finish(completedFully: $0) })
         super.init(nibName: nil, bundle: nil)
         relay.controller = self
