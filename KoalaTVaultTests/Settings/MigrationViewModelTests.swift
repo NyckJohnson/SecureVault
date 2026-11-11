@@ -13,7 +13,6 @@ import Testing
     }
 
     private func makeRig(
-        kind: MigrationKind = .encrypt,
         phase: MigrationPhase = .idle,
         waitsForNewRun: Bool = false
     ) -> Rig {
@@ -21,7 +20,7 @@ import Testing
         let sleeper = SettingsManualSleeper()
         let finished = SettingsRecorder<Bool>()
         let viewModel = MigrationViewModel(
-            kind: kind, migrator: migrator, waitsForNewRun: waitsForNewRun,
+            migrator: migrator, waitsForNewRun: waitsForNewRun,
             sleep: { try await sleeper.sleep($0) }, onFinish: { finished.record($0) })
         return Rig(viewModel: viewModel, migrator: migrator, sleeper: sleeper, finished: finished)
     }
@@ -36,14 +35,9 @@ import Testing
 
     // MARK: - Titles and status
 
-    @Test("The title is Encrypting Files for an encrypt migration")
+    @Test("The title is Encrypting Files")
     func encryptTitle() {
-        #expect(makeRig(kind: .encrypt).viewModel.title == "Encrypting Files")
-    }
-
-    @Test("The title is Decrypting Files for a decrypt migration")
-    func decryptTitle() {
-        #expect(makeRig(kind: .decrypt).viewModel.title == "Decrypting Files")
+        #expect(makeRig().viewModel.title == "Encrypting Files")
     }
 
     @Test("Before any progress the status is Preparing…")
@@ -62,20 +56,6 @@ import Testing
         await SettingsTestSupport.waitUntil { rig.viewModel.statusText == expected }
         #expect(rig.viewModel.statusText == expected)
         task.cancel()
-    }
-
-    @Test(
-        "A paused phase shows Paused — unlock to continue",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 1"))
-    func pausedStatus() async {
-        #if false
-            let rig = makeRig()
-            let task = await startRunning(rig)
-            rig.migrator.send(.paused(done: 3, total: 10))
-            await SettingsTestSupport.waitUntil { rig.viewModel.statusText == "Paused — unlock to continue" }
-            #expect(rig.viewModel.statusText == "Paused — unlock to continue")
-            task.cancel()
-        #endif
     }
 
     @Test("A completed phase shows Complete")
@@ -107,9 +87,8 @@ import Testing
         task.cancel()
     }
 
-    // feature multiple-vaults-duress-password: signature updated (`MigrationPhase.paused` is gone, so it left the arguments)
     @Test(
-        "Background time is not wanted once the migration is paused, failed or completed",
+        "Background time is not wanted once the migration failed or completed",
         arguments: [MigrationPhase.failed(names: ["a.jpg"]), .completed(fully: true)]
     )
     func noBackgroundTimeAfterStopping(phase: MigrationPhase) async {
@@ -137,7 +116,7 @@ import Testing
         rig.migrator.send(.failed(names: ["a.jpg", "b.png"]))
         await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
         #expect(rig.viewModel.failureTitle == "Some Files Failed")
-        #expect(rig.viewModel.failureMessage == "These files couldn't be migrated: a.jpg, b.png")
+        #expect(rig.viewModel.failureMessage == "These files couldn't be encrypted: a.jpg, b.png")
         task.cancel()
     }
 
@@ -147,7 +126,7 @@ import Testing
         let task = await startRunning(rig)
         rig.migrator.send(.failed(names: ["only.mov"]))
         await SettingsTestSupport.waitUntil { rig.viewModel.failureMessage != nil }
-        #expect(rig.viewModel.failureMessage == "These files couldn't be migrated: only.mov")
+        #expect(rig.viewModel.failureMessage == "These files couldn't be encrypted: only.mov")
         task.cancel()
     }
 
@@ -241,32 +220,11 @@ import Testing
         task.cancel()
     }
 
-    @Test(
-        "Paused, running, then completed finishes exactly once",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 1"))
-    func pausedRunningCompletedFinishesOnce() async {
-        #if false
-            let rig = makeRig()
-            let task = await startRunning(rig)
-            rig.migrator.send(.running(done: 1, total: 4))
-            rig.migrator.send(.paused(done: 1, total: 4))
-            rig.migrator.send(.running(done: 2, total: 4))
-            rig.migrator.send(.completed(fully: true))
-            await SettingsTestSupport.waitUntil { rig.sleeper.pendingCount == 1 }
-            rig.sleeper.advance()
-            await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
-            await SettingsTestSupport.settle()
-            #expect(rig.finished.values == [true])
-            task.cancel()
-        #endif
-    }
-
-    @Test("Nothing finishes while the migration is running, paused or failed")
+    @Test("Nothing finishes while the migration is running or failed")
     func noFinishBeforeCompletion() async {
         let rig = makeRig()
         let task = await startRunning(rig)
         rig.migrator.send(.running(done: 1, total: 4))
-        // feature multiple-vaults-duress-password: signature updated (`MigrationPhase.paused` is gone, so it is no longer sent)
         rig.migrator.send(.failed(names: ["a.jpg"]))
         await SettingsTestSupport.settle()
         #expect(rig.sleeper.requestedDurations.isEmpty)
@@ -274,14 +232,53 @@ import Testing
         task.cancel()
     }
 
-    @Test("A failure with no file names shows the generic message")
+    @Test("A failure with no file names shows the generic message, with Retry and Skip available")
     func failureWithoutNames() async {
         let rig = makeRig()
         let task = await startRunning(rig)
         rig.migrator.send(.failed(names: []))
         await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
         #expect(rig.viewModel.failureTitle == "Some Files Failed")
-        #expect(rig.viewModel.failureMessage == "The migration couldn't finish. Retry, or Skip to stop for now.")
+        #expect(rig.viewModel.failureMessage == "Some files couldn't be encrypted.")
+        task.cancel()
+    }
+
+    @Test("A failure with no file names can still be retried or skipped")
+    func failureWithoutNamesRetrySkip() async {
+        let rig = makeRig()
+        rig.migrator.phaseAfterRetry = .running(done: 0, total: 1)
+        let task = await startRunning(rig)
+        rig.migrator.send(.failed(names: []))
+        await SettingsTestSupport.waitUntil { rig.viewModel.failureTitle != nil }
+        await rig.viewModel.retry()
+        await rig.viewModel.skip()
+        #expect(rig.migrator.calls.contains(.retryFailed))
+        #expect(rig.migrator.calls.contains(.skipFailed))
+        task.cancel()
+    }
+
+    // MARK: - The vault closing
+
+    @Test("Going idle after a run started dismisses at once, reporting not fully")
+    func idleAfterRunDismissesAtOnce() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.running(done: 1, total: 4))
+        await SettingsTestSupport.waitUntil { rig.viewModel.statusText == "25% complete" }
+        rig.migrator.send(.idle)
+        await SettingsTestSupport.waitUntil { !rig.finished.values.isEmpty }
+        #expect(rig.finished.values == [false])
+        #expect(rig.sleeper.requestedDurations.isEmpty)
+        task.cancel()
+    }
+
+    @Test("Idle before any run started does not dismiss")
+    func idleBeforeRunDoesNotDismiss() async {
+        let rig = makeRig()
+        let task = await startRunning(rig)
+        rig.migrator.send(.idle)
+        await SettingsTestSupport.settle()
+        #expect(rig.finished.values.isEmpty)
         task.cancel()
     }
 
@@ -359,7 +356,7 @@ import Testing
         let migrator = SettingsScriptedMigrator(phase: .completed(fully: true))
         let finished = SettingsRecorder<Bool>()
         let viewModel = MigrationViewModel(
-            kind: .encrypt, migrator: migrator, onFinish: { finished.record($0) })
+            migrator: migrator, onFinish: { finished.record($0) })
         let task = Task { await viewModel.run() }
         #expect(finished.values.isEmpty)
         await SettingsTestSupport.waitUntil { !finished.values.isEmpty }
@@ -372,7 +369,7 @@ import Testing
         let migrator = SettingsScriptedMigrator(phase: .completed(fully: true))
         let finished = SettingsRecorder<Bool>()
         let viewModel = MigrationViewModel(
-            kind: .encrypt, migrator: migrator, onFinish: { finished.record($0) })
+            migrator: migrator, onFinish: { finished.record($0) })
         let task = Task { await viewModel.run() }
         for _ in 0..<20 { await Task.yield() }
         task.cancel()
@@ -391,7 +388,7 @@ import Testing
     private func makeRig(phase: MigrationPhase = .idle) -> Rig {
         let migrator = SettingsScriptedMigrator(phase: phase)
         let viewModel = MigrationViewModel(
-            kind: .decrypt, migrator: migrator, sleep: { _ in }, onFinish: { _ in })
+            migrator: migrator, sleep: { _ in }, onFinish: { _ in })
         return Rig(viewModel: viewModel, migrator: migrator)
     }
 
