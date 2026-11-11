@@ -194,7 +194,7 @@ vault. The app is accepted by App Store Connect (1.2, build 4) but not yet relea
   named "Test Vault" with that password (the app still opens on the lock screen; journey tests open the vault they need through it,
   "Open Unencrypted Vault" for the unencrypted one); `UITEST_LEGACY_LOCK` =
   `password` / `biometric` seeds the 1.2 layout instead (the seed files, a blob for `UITEST_PASSWORD`, lock mode set, not
-  upgraded) so the upgrade runs at launch; `UITEST_PENDING_MIGRATION` and `UITEST_PLAINTEXT_INDEX` go.
+  upgraded; `hasCompletedSetup` is no longer seeded) so the upgrade runs at launch; `UITEST_PENDING_MIGRATION` and `UITEST_PLAINTEXT_INDEX` go.
 
 ## Out of scope
 - New features: the queued backlog (below) is built after the adoption through `/feature`.
@@ -256,13 +256,10 @@ extension matching ignores case.
 | originalName | String | |
 | rootURL | String | kept for compatibility, not read |
 
-### PendingMigration (UserDefaults `pendingMigrationType` = "encrypt"/"decrypt", `pendingMigrationTargetLockMode`)
-Read only by the upgrade (journey 12) since feature multiple-vaults-duress-password; nothing writes it any more, except
-the upgrade clearing it.
-| Field | Type | Notes |
-| --- | --- | --- |
-| kind | MigrationKind | encrypt / decrypt |
-| targetLockMode | LockMode? | encrypt only |
+### Pending migration (UserDefaults `pendingMigrationType` = "encrypt"/"decrypt", `pendingMigrationTargetLockMode`)
+Left by 1.2 when a lock migration didn't finish. Since feature multiple-vaults-duress-password only the upgrade (journey 12)
+reads it, and only whether it is an encrypt; then it clears both keys. Nothing writes it. (The `PendingMigration` /
+`MigrationKind` types went in the minors clean-up, 2026-11-11.)
 
 ### On-disk and Keychain formats (kept as they are)
 - **Unencrypted vault root**: the app's Documents folder; real subfolders with plaintext names; always plaintext mode.
@@ -293,10 +290,10 @@ the upgrade clearing it.
   NFC-normalised UTF-8 password.
 - **Biometric item** (account "com.KoalaTVault.biometricMasterKey", `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` +
   `.biometryCurrentSet`): the raw 32-byte master key. Legacy item account "com.KoalaTVault.password" is deleted on unlock.
-- **UserDefaults**: `hasCompletedSetup` (false), `lockMode` ("none"; unknown → none), `sortOption` ("name"),
+- **UserDefaults**: `lockMode` ("none"; unknown → none), `sortOption` ("name"),
   `sortDirection` ("ascending"), `pendingMigrationType`, `pendingMigrationTargetLockMode`, `entitlement.isUnlocked`,
-  `vaultsUpgraded` (false; feature multiple-vaults-duress-password). `hasCompletedSetup`, `lockMode` and the pending
-  migration are read only by the upgrade.
+  `vaultsUpgraded` (false; feature multiple-vaults-duress-password). `lockMode` and the pending migration are read only
+  by the upgrade. 1.2's `hasCompletedSetup` key is no longer read or written (left on disk as it is).
 
 ## Build order
 1. VaultCrypto (depends on: none)
@@ -412,32 +409,31 @@ the upgrade clearing it.
       var displayName: String { get }
   }
   enum SortDirection: String, Sendable, Codable, CaseIterable { case ascending, descending }
-  enum MigrationKind: String, Sendable, Codable { case encrypt, decrypt }
-  struct PendingMigration: Sendable, Codable, Equatable, Hashable {
-      var kind: MigrationKind
-      var targetLockMode: LockMode?
-  }
 
   protocol PreferencesStoring: AnyObject, Sendable {
-      var hasCompletedSetup: Bool { get set }
       var lockMode: LockMode { get set }
       var sortOption: SortOption { get set }
       var sortDirection: SortDirection { get set }
-      var pendingMigration: PendingMigration? { get set }
+      /// Whether 1.2 left an encrypt migration unfinished (`pendingMigrationType` == "encrypt").
+      var hasPendingEncryptMigration: Bool { get }
+      /// Removes both pending-migration keys.
+      func clearPendingMigration()
       var vaultsUpgraded: Bool { get set }
   }
   ```
 - Behavior spec:
-  - Defaults on an empty store: `hasCompletedSetup` false, `lockMode` .none, `sortOption` .name, `sortDirection` .ascending, `pendingMigration` nil, `vaultsUpgraded` false.
+  - Defaults on an empty store: `lockMode` .none, `sortOption` .name, `sortDirection` .ascending, `hasPendingEncryptMigration` false, `vaultsUpgraded` false.
   - vaultsUpgraded (feature multiple-vaults-duress-password): round-trips under the key `vaultsUpgraded`; persists across stores on the same suite.
-  - Each property round-trips through the injected UserDefaults under the keys in Data models, with raw values "none"/"password"/"passwordAndBiometrics", "name"/"type"/"dateModified", "ascending"/"descending", "encrypt"/"decrypt".
+  - Each property round-trips through the injected UserDefaults under the keys in Data models, with raw values "none"/"password"/"passwordAndBiometrics", "name"/"type"/"dateModified", "ascending"/"descending".
   - Values written by a store are read by a new store on the same suite (persistence).
-  - Unknown raw values read as the defaults (an unknown `pendingMigrationType` reads as nil; an unknown or missing target of an encrypt migration reads as a nil target).
-  - pendingMigration nil removes both keys; a target is stored only for `.encrypt` and ignored for `.decrypt`.
+  - Unknown raw values read as the defaults.
+  - hasPendingEncryptMigration (minors clean-up 2026-11-11): true only when `pendingMigrationType` is "encrypt" ("decrypt", unknown or missing → false; `pendingMigrationTargetLockMode` is never read). clearPendingMigration removes `pendingMigrationType` and `pendingMigrationTargetLockMode`; other keys untouched.
   - displayName: "Name", "Type", "Date Modified". (Contract logic in `Contracts/PreferencesModels.swift`; unit 1 tests it.)
   - Thread-safe: reads and writes from several threads don't crash or tear.
 - Changes (multiple-vaults-duress-password): UserDefaultsPreferences.swift
 - Contract changes (multiple-vaults-duress-password): `PreferencesStoring` gains `var vaultsUpgraded: Bool { get set }`.
+  Minors clean-up (approved by the human 2026-11-11): `hasCompletedSetup` removed; `MigrationKind`, `PendingMigration` and
+  `pendingMigration` replaced by `hasPendingEncryptMigration` (get-only) and `clearPendingMigration()`.
 - Contract: see `docs/api/Preferences.md` (generated; do not edit by hand)
 
 ### Entitlements
@@ -682,13 +678,15 @@ the upgrade clearing it.
     in-memory Keychain and fakes; nothing touches the real ones.
   - VaultCatalog (VaultCatalog.swift): lists the vaults (each folder under `Vaults/` whose blob exists; the blob account
     rule in Data models); reads a vault's name from `.vault_info` (missing or unreadable → "My Vault") and writes it
-    sealed; removes at launch a folder whose blob is missing only when it is empty (an interrupted creation holds no files; a blobless folder with anything in it is left alone and not listed, so files are never deleted); reads and
+    sealed (written atomically with complete file protection, like the other store files; minors clean-up 2026-11-11); removes at launch a folder whose blob is missing only when it is empty (an interrupted creation holds no files; a blobless folder with anything in it is left alone and not listed, so files are never deleted); reads and
     writes the Face ID vault marker ("com.KoalaTVault.biometricVaultID"). A Keychain error reading a blob counts as the
     blob existing (a vault is never removed on an error).
   - current / currentUpdates: launch → the unencrypted vault (id "unencrypted", name "KoalaTVault", plaintext store over
     Documents). Each change of `current` is published once (only changes; subscribers read `current` first).
   - open(password): empty → `.emptyPassword`; tries the password against each vault's blob (PBKDF2 once per vault) and
-    stops at the first that unlocks; none → `.wrongPassword` (no other information); the vault already open → no change;
+    stops at the first that unlocks; none → `.wrongPassword` (no other information); with no encrypted vault to try,
+    the search still runs one decoy derivation at the blob's cost (see "Decoy derivation" below), so a wrong password
+    doesn't come back faster when there are no encrypted vaults; the vault already open → no change;
     otherwise the open vault (if any) is closed first (key wiped, its temp files removed), the found vault's name is read
     (and written if missing), and it becomes `current`.
   - openWithBiometrics: no marker or its vault is gone → `.noBiometricVault`; not available → `.biometricsUnavailable`;
@@ -723,13 +721,22 @@ the upgrade clearing it.
     `deleteCurrentVault` and `setUsesBiometrics` throw `.notOpen` and change nothing; `createVault` keeps the finished
     vault but doesn't open it (no error). `createVault` calls run one at a time (a second waits, then makes its own
     checks), so two vaults never share a password. `setUsesBiometrics(false)` in the unencrypted vault does nothing.
+  - Decoy derivation (minors clean-up 2026-11-11, closes "timing reveals zero vs some vaults"): every password search
+    (open, createVault's and changePassword's in-use checks, openTransferTarget) that has no vault to try (none listed,
+    or none left after excluding the open one) runs one PBKDF2 derivation of the typed password at the real cost
+    (600,000 iterations) and discards it; nothing is stored or compared. The live lock takes a decoy key-store factory;
+    the shell gives a `LiveMasterKeyStore` over a private in-memory Keychain (never the real one). The lock creates the
+    decoy's blob for a random password (key wiped at once) once, off the main thread, starting when the lock is made,
+    so the first search isn't slower than later ones (a search that comes before it's ready waits for it); the decoy's `unlock(password:)` is the derivation and its `.wrongPassword` is ignored. The decoy
+    never unlocks, never becomes a vault and is never listed. With one or more vaults to try, nothing changes (the count of
+    vaults can still be told from timing; out of scope).
   - VaultUpgrade (VaultUpgrade.swift), `upgradeIfNeeded` (journey 12), run once at launch before anything shows:
-    `vaultsUpgraded` true → nothing. A lock (`lockMode` not .none, or a pending encrypt while a blob exists; a Keychain
+    `vaultsUpgraded` true → nothing. A lock (`lockMode` not .none, or `hasPendingEncryptMigration` while a blob exists; a Keychain
     error counts as a blob) → `Vaults/primary/` is created and every entry of Documents (hidden ones included) is moved
     into it (moves only; an entry whose name is already there is left in Documents and logged, never overwritten);
-    `passwordAndBiometrics` → marker = "primary"; then the pending migration is cleared and `vaultsUpgraded` set (last).
+    `passwordAndBiometrics` → marker = "primary"; then `clearPendingMigration()` (always, whatever was stored) and `vaultsUpgraded` set (last).
     No lock (a pending encrypt with no blob is dropped) → `vaultsUpgraded` set, nothing moved. A failure throws; the next
-    launch carries on from what is left. `hasCompletedSetup` and `lockMode` are not changed (nothing reads them after).
+    launch carries on from what is left. `lockMode` is not changed (nothing reads it after).
   - errorDescription (logic in `Contracts/VaultLockContract.swift`; one asserting test per case): wrongPassword
     "Incorrect password"; emptyPassword "Password cannot be empty"; emptyName "Enter a name for the vault"; passwordInUse
     "Choose a different password."; vaultLimitReached "More vaults with Pro."; sameVault "These items are already in this
@@ -742,7 +749,9 @@ the upgrade clearing it.
     the errors `existingPasswordRequired`, `passwordMissing`, `notUnlocked`. LockState.swift keeps the open-vault state
     (`current` and its publishing).
   - Build note: the new unit 2 (VaultCatalog.swift, VaultUpgrade.swift) is built before the reopened unit 1, which uses it.
-- Changes (multiple-vaults-duress-password): LockState.swift, BiometricInfo.swift, LiveVaultLock.swift
+- Changes (multiple-vaults-duress-password): LockState.swift, BiometricInfo.swift, LiveVaultLock.swift; minors clean-up
+  2026-11-11: LiveVaultLock.swift (decoy derivation), VaultCatalog.swift (file protection), VaultUpgrade.swift (new
+  Preferences calls). No VaultLock contract change.
 - Contract changes (multiple-vaults-duress-password): the `VaultLocking` protocol, `OpenVault` and `VaultLockError` above replace the lock-mode contract (`LockState` removed); VaultLock now depends on Entitlements.
 - Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
 
@@ -1121,6 +1130,10 @@ the upgrade clearing it.
   `encryptLeftovers(in:)`. On return to the foreground the unencrypted vault's trash is purged. The setup wizard, launch
   recovery, `onUnlocked` and the resume of a pending migration go. Debug seeds per the Constraints section;
   `SlowMigrationVaultStore` keeps only the encrypt step's delay.
+- Shell changes (minors clean-up 2026-11-11, feature multiple-vaults-duress-password): `AppDependencies` passes the vault
+  lock its decoy key-store factory (a `LiveMasterKeyStore` over a private in-memory Keychain, in Release too, so the
+  in-memory Keychain type is no longer Debug-only or a second, minimal one is added); the `UITEST_LEGACY_LOCK` seed no
+  longer writes `hasCompletedSetup`.
 
 ## Known issues
 - Case-only rename of a plaintext item ("a.txt" → "A.txt"): the tests pass in both modes, but `rename`'s conflict check calls `fileExists` on a case-insensitive volume, which by reading should give "A 1.txt"; why the tests pass is unexplained. Check on device (verify) and, if it misnumbers, apply the case-insensitive self-match fix — VaultFileOperations.swift (rename) — open, VaultStore
@@ -1280,3 +1293,9 @@ the upgrade clearing it.
   content type, so a new vault got a password the user never typed (5 journey tests); an experiment showed the
   alert avoids it, as the 1.2 setup wizard did. `.oneTimeCode` rejected (misdescribes the field). No contract change;
   LockScreens unit 3 reopened — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-11 (verify, review minors): (1) a password search with no encrypted vault runs one decoy PBKDF2 derivation, so
+  a wrong password no longer reveals "no encrypted vaults" by its speed (VaultLock + shell; counting vaults by timing stays
+  out of scope); (2) `.vault_info` written with complete file protection; (3) Preferences contract clean-up:
+  `hasCompletedSetup` removed, `PendingMigration`/`MigrationKind`/`pendingMigration` replaced by
+  `hasPendingEncryptMigration` + `clearPendingMigration()` (contract change approved); (4) lock-screen vault listing and
+  Keychain reads on the main actor accepted as they are — decided by the human (feature multiple-vaults-duress-password)

@@ -80,7 +80,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - Contract changes: VaultCrypto (per-vault key store), Preferences, VaultStore, VaultLock, LockMigration, LockScreens,
   Settings, Browser (exact shapes in the outline).
 - Out of scope: hiding vaults from someone examining the device itself (vault folders and Keychain items can be counted
-  with device-level access); timing of the password search; renaming a vault; lockout, password strength, password
+  with device-level access); timing of the password search (except: no vaults vs some, closed 2026-11-11); renaming a vault; lockout, password strength, password
   recovery (their own features); making large moves fast (feature `faster-lock-changes-in-large-folders`).
 
 ## Build notes
@@ -183,3 +183,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
      `canCreateVault`; `VaultsViewModel.init`). Proposed: accept.
   Also kept from the shell review: `VaultDeletionRelay` could become `onVaultDeleted` on `SettingsFactory` later.
   Then: device test (all journeys; watch for iOS offering to save/suggest passwords, and Face ID), triage, acceptance.
+- 2026-11-11 (verify, review minors settled): the human decided: 1 and 2 fixed now (VaultLock units 1 and 2 reopened:
+  decoy derivation when no vault to try, `.vault_info` complete file protection); 3 removed now (Preferences contract
+  change approved: `hasCompletedSetup` out, `PendingMigration`/`MigrationKind` → `hasPendingEncryptMigration` +
+  `clearPendingMigration()`; Preferences unit 1 reopened, VaultUpgrade and the shell follow); 4 accepted. Order:
+  contract + mock (skeleton-builder, feature mode), Preferences unit 1, VaultLock unit 2, VaultLock unit 1, shell, then
+  `gates --all`, journeys, device test.
