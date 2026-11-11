@@ -97,7 +97,29 @@ import UIKit
         let actions = alert.actions
         #expect(actions.count == 2)
         #expect(actions.contains { $0.title == "Cancel" && $0.style == .cancel })
-        #expect(actions.contains { $0.title == "Create" })
+        let create = actions.first { $0.title == "Create" }
+        #expect(create != nil)
+        #expect(create?.accessibilityIdentifier == "createVault.alertCreateButton")
+    }
+
+    @Test("The name field's Return key is Go")
+    func nameFieldReturnKeyIsGo() throws {
+        let (window, controller) = showCreateVault()
+        defer { window.isHidden = true }
+        let name = try #require(field("createVault.nameField", in: controller.view))
+        #expect(name.returnKeyType == .go)
+    }
+
+    @Test("Return in the name field with a name presents the Set Password alert")
+    func returnInNameFieldPresentsAlert() throws {
+        let (window, controller) = showCreateVault()
+        defer { window.isHidden = true }
+        let name = try #require(field("createVault.nameField", in: controller.view))
+        name.text = "Work"
+        let delegate = try #require(name.delegate)
+        _ = delegate.textFieldShouldReturn?(name)
+        let alert = try #require(controller.presentedViewController as? UIAlertController)
+        #expect(alert.title == "Set Password")
     }
 
     @Test("The Set Password alert has secure password and confirm fields with no textContentType")
