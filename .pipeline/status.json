@@ -372,7 +372,7 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         },
         {
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T21:10:33-08:00",
+  "updatedAt": "2026-11-10T21:11:49-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
