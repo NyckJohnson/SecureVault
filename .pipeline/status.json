@@ -282,7 +282,7 @@
         "VaultLock",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -314,7 +314,7 @@
             "Views/CreateVaultViewController.swift"
           ],
           "state": "done",
-          "attempts": 1
+          "attempts": 0
         }
       ]
     },
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T13:12:32-08:00",
+  "updatedAt": "2026-11-11T13:57:40-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
