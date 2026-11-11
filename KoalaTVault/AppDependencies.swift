@@ -457,17 +457,8 @@ final class AppDependencies {
             Self.seedPassword(password, storage: storage)
         }
         #endif
-        let vaultRoot = storage.vaultRootURL
-        let vaultLock = LiveVaultLock(
-            masterKeys: storage.masterKeyStore,
-            keychain: storage.keychain,
-            preferences: storage.preferences,
-            store: vaultStore,
-            biometricInfo: BiometricInfo(probe: LiveBiometricProbe()),
-            vaultHoldsEncryptedData: {
-                VaultEncryptedDataCheck.holdsEncryptedData(at: vaultRoot, fileManager: .default)
-            }
-        )
+        let vaultLock = Self.makeVaultLock(
+            storage: storage, unencryptedStore: vaultStore, proUnlock: proUnlock, temporaryRoot: temporaryRoot)
         self.vaultLock = vaultLock
         lockCoordinator = AppLockCoordinator(
             lock: vaultLock, preferences: storage.preferences, masterKeys: storage.masterKeyStore,
@@ -508,6 +499,41 @@ final class AppDependencies {
         }
         #endif
         return liveStore
+    }
+
+    // Interim (feature multiple-vaults-duress-password): the shell rework after Browser replaces this wiring.
+    /// The vault lock over `storage`: the unencrypted vault's `unencryptedStore`, the vaults in
+    /// `Application Support/Vaults` (in `-uiTesting` mode next to the temporary vault), and per vault a
+    /// `LiveMasterKeyStore`, a `LiveFileCipher` and a `LiveVaultStore` with its own folder under `temporaryRoot`.
+    private static func makeVaultLock(
+        storage: AppStorage, unencryptedStore: any VaultStoring, proUnlock: any ProUnlocking, temporaryRoot: URL
+    ) -> LiveVaultLock {
+        let keychain = storage.keychain
+        let vaultsFolder: URL = {
+            #if DEBUG
+            if storage.uiTestSettings != nil {  // next to the temporary vault
+                return storage.vaultRootURL.deletingLastPathComponent().appendingPathComponent("Vaults")
+            }
+            #endif
+            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Vaults", isDirectory: true)
+        }()
+        return LiveVaultLock(
+            documents: storage.vaultRootURL,
+            vaultsFolder: vaultsFolder,
+            unencryptedStore: unencryptedStore,
+            keychain: keychain,
+            preferences: storage.preferences,
+            pro: proUnlock,
+            biometricInfo: BiometricInfo(probe: LiveBiometricProbe()),
+            makeKeyStore: { LiveMasterKeyStore(keychain: keychain, blobAccount: $0) },
+            makeCipher: { LiveFileCipher(keyStore: $0) },
+            makeStore: { root, name, isEncrypted, keyStore, cipher in
+                LiveVaultStore(
+                    root: root, name: name, isEncrypted: isEncrypted, keyStore: keyStore, cipher: cipher,
+                    temporaryRoot: temporaryRoot.appendingPathComponent(UUID().uuidString, isDirectory: true))
+            }
+        )
     }
 
     /// `UITEST_FAIL_MIGRATION_FILE`: the file the lock migration fails. `uiTestSettings` is non-nil only in
