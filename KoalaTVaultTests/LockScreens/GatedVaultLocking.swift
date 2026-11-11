@@ -9,6 +9,8 @@ final class GatedVaultLocking: VaultLocking {
     let base: MockVaultLocking
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var isWaiting = false
+    /// When set, `openWithBiometrics()` throws this error at once instead of waiting.
+    var biometricFailure: (any Error)?
 
     init(base: MockVaultLocking) { self.base = base }
 
@@ -44,6 +46,7 @@ final class GatedVaultLocking: VaultLocking {
         try await base.open(password: password)
     }
     func openWithBiometrics() async throws {
+        if let biometricFailure { throw biometricFailure }
         await gate()
         try await base.openWithBiometrics()
     }

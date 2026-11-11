@@ -24,13 +24,20 @@ import Testing
         return Fixture(model: model, mock: mock, counter: counter)
     }
 
+    private func createCalls(_ mock: MockVaultLocking) -> Int {
+        mock.calls.filter {
+            if case .createVault = $0 { return true }
+            return false
+        }.count
+    }
+
     private func fill(_ model: CreateVaultViewModel, name: String, password: String, confirm: String) {
         model.nameEdited(name)
         model.passwordEdited(password)
         model.confirmationEdited(confirm)
     }
 
-    @Test("An empty or blank name shows Enter a name for the vault", arguments: ["", "   ", "\n "])
+    @Test("An empty or blank name shows Enter a name for the vault", arguments: ["", " ", "   ", "\n "])
     func emptyName(name: String) async {
         let fixture = makeModel(isPro: true)
         let model = fixture.model
@@ -39,7 +46,7 @@ import Testing
         fill(model, name: name, password: "pw", confirm: "pw")
         await model.createTapped()
         #expect(model.errorMessage == "Enter a name for the vault")
-        #expect(mock.calls.contains(.createVault(name: "")) == false)
+        #expect(createCalls(mock) == 0)
         #expect(counter.done == 0)
     }
 
@@ -51,6 +58,7 @@ import Testing
         fill(model, name: "Work", password: "", confirm: "")
         await model.createTapped()
         #expect(model.errorMessage == "Password cannot be empty")
+        #expect(createCalls(mock) == 0)
         #expect(mock.vaults.count == 1)
     }
 
@@ -62,6 +70,7 @@ import Testing
         fill(model, name: "Work", password: "a", confirm: "b")
         await model.createTapped()
         #expect(model.errorMessage == "Passwords do not match")
+        #expect(createCalls(mock) == 0)
         #expect(mock.vaults.count == 1)
     }
 
@@ -136,6 +145,9 @@ import Testing
         await model.createTapped()
         #expect(counter.pro == 1)
         #expect(counter.done == 0)
+        #expect(model.name == "Work")
+        #expect(model.password.isEmpty)
+        #expect(model.confirmation.isEmpty)
     }
 
     @Test("Another error shows its message, keeps the name and clears the passwords")

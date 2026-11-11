@@ -146,6 +146,65 @@ import Testing
         #expect(mock.calls.contains(.openWithBiometrics) == false)
     }
 
+    @Test("Tapping Face ID is ignored while busy")
+    func biometricIgnoredWhileBusy() async {
+        let mock = MockVaultLocking(biometricVaultID: "primary")
+        let gated = GatedVaultLocking(base: mock)
+        let model = VaultsViewModel(lock: gated)
+        model.passwordEdited("correct horse")
+        let first = Task { await model.openTapped() }
+        while !gated.isWaiting { await Task.yield() }
+        let second = Task { await model.biometricTapped() }
+        for _ in 0..<10 { await Task.yield() }
+        gated.release()
+        await first.value
+        await second.value
+        #expect(mock.calls.contains(.openWithBiometrics) == false)
+    }
+
+    @Test("Create New Vault is ignored while busy")
+    func createIgnoredWhileBusy() async {
+        let mock = MockVaultLocking(isPro: true)
+        let gated = GatedVaultLocking(base: mock)
+        let model = VaultsViewModel(lock: gated)
+        let counter = wire(model)
+        model.passwordEdited("correct horse")
+        let task = Task { await model.openTapped() }
+        while !gated.isWaiting { await Task.yield() }
+        await model.createTapped()
+        #expect(counter.create == 0)
+        #expect(counter.pro == 0)
+        gated.release()
+        await task.value
+    }
+
+    @Test("Without biometric hardware the button title is Use Biometrics")
+    func biometricTitleNone() {
+        #expect(makeModel(biometricVaultID: "primary", kind: .none).0.biometricButtonTitle == "Use Biometrics")
+    }
+
+    @Test("A Face ID error that is not a vault lock error shows Biometric authentication failed")
+    func biometricUnknownError() async {
+        struct Unknown: Error {}
+        let mock = MockVaultLocking(biometricVaultID: "primary")
+        let gated = GatedVaultLocking(base: mock)
+        gated.biometricFailure = Unknown()
+        let model = VaultsViewModel(lock: gated)
+        let counter = wire(model)
+        await model.biometricTapped()
+        #expect(model.errorMessage == "Biometric authentication failed")
+        #expect(counter.done == 0)
+    }
+
+    @Test("A typed password is cleared when Face ID succeeds")
+    func biometricSuccessClearsField() async {
+        let (model, _) = makeModel(biometricVaultID: "primary")
+        _ = wire(model)
+        model.passwordEdited("partial")
+        await model.biometricTapped()
+        #expect(model.password.isEmpty)
+    }
+
     @Test("Tapping Face ID opens the vault and calls done")
     func biometricSuccess() async {
         let (model, mock) = makeModel(biometricVaultID: "primary")
