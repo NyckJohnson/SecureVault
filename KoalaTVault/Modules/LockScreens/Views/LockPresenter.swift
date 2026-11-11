@@ -23,7 +23,9 @@ final class LockPresenter: LockPresenting {
 
     func dismissLockScreen(_ screen: UIViewController) {
         // Asking the presenter removes the lock screen and anything over it (such as the paywall).
-        screen.presentingViewController?.dismiss(animated: true)
+        // Not animated: a lock requested right after an unlock (unlock, then background) must never find a
+        // dismissal still in flight, or UIKit can drop the new presentation and leave the browser uncovered.
+        screen.presentingViewController?.dismiss(animated: false)
     }
 
     func showPrivacyCover(in window: UIWindow) {
