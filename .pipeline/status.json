@@ -282,7 +282,7 @@
         "VaultLock",
         "SharedUI"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T20:51:38-08:00",
+  "updatedAt": "2026-11-10T20:56:49-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
