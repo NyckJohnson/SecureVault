@@ -56,8 +56,10 @@ import UIKit
 
     @Test(
         "Create Vault has no password or confirmation field on the screen",
-        arguments: ["createVault.passwordField", "createVault.confirmField",
-                    "createVault.alertPasswordField", "createVault.alertConfirmField"])
+        arguments: [
+            "createVault.passwordField", "createVault.confirmField",
+            "createVault.alertPasswordField", "createVault.alertConfirmField",
+        ])
     func createVaultScreenHasNoPasswordFields(identifier: String) {
         let (window, controller) = showCreateVault()
         defer { window.isHidden = true }
@@ -108,8 +110,10 @@ import UIKit
         let alert = try #require(controller.presentedViewController as? UIAlertController)
         let fields = try #require(alert.textFields)
         #expect(fields.count == 2)
-        let password = try #require(fields.first { $0.accessibilityIdentifier == "createVault.alertPasswordField" })
-        let confirm = try #require(fields.first { $0.accessibilityIdentifier == "createVault.alertConfirmField" })
+        let password = try #require(
+            fields.first { $0.accessibilityIdentifier == "createVault.alertPasswordField" })
+        let confirm = try #require(
+            fields.first { $0.accessibilityIdentifier == "createVault.alertConfirmField" })
         #expect(password.isSecureTextEntry)
         #expect(confirm.isSecureTextEntry)
         #expect(password.textContentType == nil)
@@ -125,8 +129,10 @@ import UIKit
         let nameField = try #require(field("createVault.nameField", in: controller.view))
         nameField.text = name
         try tapCreate(in: controller)
-        for _ in 0..<20 where (view("createVault.errorLabel", in: controller.view) as? UILabel)?.text
-            != "Enter a name for the vault" {
+        let expected = "Enter a name for the vault"
+        for _ in 0..<20 {
+            let label = view("createVault.errorLabel", in: controller.view) as? UILabel
+            if label?.text == expected { break }
             try await Task.sleep(for: .milliseconds(50))
         }
         #expect(controller.presentedViewController == nil)
