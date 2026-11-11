@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T08:45:32-08:00",
+  "updatedAt": "2026-11-11T13:12:32-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -675,31 +675,31 @@
       },
       {
         "name": "j1-first-launch",
-        "done": false
+        "done": true
       },
       {
         "name": "j2-open-vault",
-        "done": false
+        "done": true
       },
       {
         "name": "j3-browse",
-        "done": false
+        "done": true
       },
       {
         "name": "j4-import",
-        "done": false
+        "done": true
       },
       {
         "name": "j5-view-edit",
-        "done": false
+        "done": true
       },
       {
         "name": "j6-delete-restore",
-        "done": false
+        "done": true
       },
       {
         "name": "j7-export",
-        "done": false
+        "done": true
       },
       {
         "name": "j8-manage-vault",
@@ -707,7 +707,7 @@
       },
       {
         "name": "j9-paywall",
-        "done": false
+        "done": true
       },
       {
         "name": "j10-create-vault",
@@ -715,11 +715,11 @@
       },
       {
         "name": "j11-transfer",
-        "done": false
+        "done": true
       },
       {
         "name": "j12-upgrade",
-        "done": false
+        "done": true
       },
       {
         "name": "app-review",
