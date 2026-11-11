@@ -360,9 +360,7 @@ import UIKit
         let rig = try await makeRig()
         select("settings.deleteVaultRow", rig)
         try #require(await rig.host.alert()).fire("Cancel")
-        await SettingsTestSupport.waitUntil { !(rig.host.topmost is UIAlertController) }
-        await SettingsTestSupport.settle()
-        #expect(!(rig.host.topmost is UIAlertController))
+        #expect(await rig.host.noAlert())
         #expect(!rig.mock.calls.contains(.deleteCurrentVault))
         #expect(rig.navigation != nil)
     }
