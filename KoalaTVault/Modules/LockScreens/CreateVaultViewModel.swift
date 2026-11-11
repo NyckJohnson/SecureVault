@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// The logic of the Create Vault screen: name, password and confirmation, then `createVault`
-/// (feature multiple-vaults-duress-password; built in LockScreens unit 3).
+/// (feature multiple-vaults-duress-password). The name is trimmed of surrounding whitespace before use.
 @MainActor
 final class CreateVaultViewModel: ObservableObject {
     /// The text the Create button shows while a creation runs.
@@ -49,7 +49,8 @@ final class CreateVaultViewModel: ObservableObject {
     /// Create: checks the fields, then creates and opens the vault.
     func createTapped() async {
         guard !isBusy else { return }
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
             fail("Enter a name for the vault")
             return
         }
@@ -64,7 +65,7 @@ final class CreateVaultViewModel: ObservableObject {
         isBusy = true
         defer { isBusy = false }
         do {
-            try await lock.createVault(name: name, password: password)
+            try await lock.createVault(name: trimmedName, password: password)
             errorMessage = nil
             onDone?()
         } catch VaultLockError.vaultLimitReached {

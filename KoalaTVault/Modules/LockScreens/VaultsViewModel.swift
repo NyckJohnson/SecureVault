@@ -67,6 +67,7 @@ final class VaultsViewModel: ObservableObject {
         defer { isBusy = false }
         do {
             try await lock.openWithBiometrics()
+            password = ""
             errorMessage = nil
             onDone?()
         } catch {
