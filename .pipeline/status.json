@@ -161,7 +161,7 @@
       "dependsOn": [
         "VaultStore"
       ],
-      "state": "coverage",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T17:49:22-08:00",
+  "updatedAt": "2026-11-10T17:56:28-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
