@@ -16,12 +16,12 @@ final class J4ImportJourneyTests: JourneyTestCase {
     private let seedName = "alpha.txt"
 
     override var launchEnvironment: [String: String] {
-        ["UITEST_SEED_FILE_NAME": seedName]
+        ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password]
     }
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     private func openImportSheet() -> XCUIElement {
@@ -36,6 +36,19 @@ final class J4ImportJourneyTests: JourneyTestCase {
     private func assertGridUnchanged(file: StaticString = #filePath, line: UInt = #line) {
         let names = app.collectionViews["fileGrid"].cells.allElementsBoundByIndex.map(\.identifier)
         XCTAssertEqual(names, ["browser.cell.\(seedName)"], "Nothing should have been imported", file: file, line: line)
+    }
+
+    /// Each vault imports on its own: the sheet is the same in an encrypted vault.
+    func testJourney4_ImportSheetInAnEncryptedVaultOffersTheSameChoices() {
+        lockApp()
+        unlockWithPassword()
+        let sheet = openImportSheet()
+        XCTAssertTrue(sheet.buttons["Choose Files"].exists)
+        XCTAssertTrue(sheet.buttons["Choose Folder"].exists)
+        XCTAssertTrue(sheet.buttons["Choose Photos"].exists)
+        dismissActionSheetByTappingOutside()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(app.collectionViews["fileGrid"].cells.count, 0, "Test Vault is empty, nothing imported")
     }
 
     func testJourney4_ImportSheetListsChooseFilesFolderPhotosAndCancel() {

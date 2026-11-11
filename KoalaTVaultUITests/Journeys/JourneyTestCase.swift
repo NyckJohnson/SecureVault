@@ -7,6 +7,7 @@
 //
 
 import XCTest
+import StoreKitTest
 
 @MainActor
 class JourneyTestCase: XCTestCase {
@@ -41,13 +42,69 @@ class JourneyTestCase: XCTestCase {
 
     // MARK: - Screens
 
-    /// Finishes the first-launch wizard with No Lock if it is showing, then waits for the browser.
-    func completeSetupWithNoLockIfShown() {
-        let wizardTitle = app.staticTexts["setupWizard.titleLabel"]
-        if wizardTitle.waitForExistence(timeout: 5) {
-            app.buttons["continueButton"].tap()
+    /// Waits for the lock screen (shown at every launch, return from the background and after Lock).
+    @discardableResult
+    func waitForLockScreen(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let field = app.secureTextFields["vaults.passwordField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "The lock screen did not appear", file: file, line: line)
+        return field
+    }
+
+    /// From the lock screen, taps "Open Unencrypted Vault" and waits for the browser.
+    func openUnencryptedVault(file: StaticString = #filePath, line: UInt = #line) {
+        waitForLockScreen(file: file, line: line)
+        let button = app.buttons["vaults.unencryptedButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "Open Unencrypted Vault missing", file: file, line: line)
+        button.tap()
+        waitForBrowser(file: file, line: line)
+    }
+
+    /// Types `password` on the lock screen and taps Open, without waiting for anything after.
+    func attemptOpen(with password: String, file: StaticString = #filePath, line: UInt = #line) {
+        type(password, into: waitForLockScreen(file: file, line: line), file: file, line: line)
+        app.buttons["vaults.openButton"].tap()
+    }
+
+    /// Lock button on the browser's root -> the lock screen.
+    func lockApp(file: StaticString = #filePath, line: UInt = #line) {
+        let lock = app.buttons["lockButton"]
+        if !lock.waitForExistence(timeout: 5) {
+            tapBarButton("lockButton", fallbackLabel: "Lock", file: file, line: line)
+        } else {
+            lock.tap()
         }
-        waitForBrowser()
+        waitForLockScreen(file: file, line: line)
+    }
+
+    /// Moves the file `name` from the open vault to the encrypted vault with `password` through the vault picker,
+    /// and waits for the item to leave the grid (a move). Leaves the browser in the current vault.
+    func moveToVault(_ name: String, password: String = JourneyTestCase.password,
+                     file: StaticString = #filePath, line: UInt = #line) {
+        longPressCell(name, file: file, line: line)
+        tapMenuAction("browser.contextMenu.moveToVault", title: "Move to Vault…", file: file, line: line)
+        usePickedVault(password: password, file: file, line: line)
+        XCTAssertTrue(cell(name).waitForNonExistence(timeout: 15), "\(name) should have left the grid",
+                      file: file, line: line)
+    }
+
+    /// In the vault picker: types `password` and taps Use Vault.
+    func usePickedVault(password: String, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.secureTextFields["vaultPicker.passwordField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "The vault picker did not appear", file: file, line: line)
+        type(password, into: field, file: file, line: line)
+        app.buttons["vaultPicker.useButton"].tap()
+    }
+
+    /// Launch environment for a journey that works in the encrypted "Test Vault": seed `fileName` (plaintext, in the
+    /// unencrypted vault) is moved into it. Call after `launch` (the lock screen showing): opens the unencrypted vault,
+    /// moves the seed file to Test Vault, locks, and opens Test Vault with the password.
+    func openTestVaultHolding(_ fileName: String, file: StaticString = #filePath, line: UInt = #line) {
+        openUnencryptedVault(file: file, line: line)
+        moveToVault(fileName, file: file, line: line)
+        lockApp(file: file, line: line)
+        unlockWithPassword(file: file, line: line)
+        XCTAssertTrue(cell(fileName).waitForExistence(timeout: 10), "\(fileName) should be in Test Vault",
+                      file: file, line: line)
     }
 
     func waitForBrowser(file: StaticString = #filePath, line: UInt = #line) {
@@ -218,8 +275,7 @@ class JourneyTestCase: XCTestCase {
     /// Unlocks the lock screen with `password` and waits for the browser (journeys seeded with `UITEST_PASSWORD`).
     func unlockWithPassword(_ password: String = JourneyTestCase.password,
                             file: StaticString = #filePath, line: UInt = #line) {
-        type(password, into: app.secureTextFields["passwordField"], file: file, line: line)
-        app.buttons["unlockButton"].tap()
+        attemptOpen(with: password, file: file, line: line)
         waitForBrowser(file: file, line: line)
     }
 
@@ -256,5 +312,73 @@ class JourneyTestCase: XCTestCase {
         type(name, into: alert.textFields["browser.newFolderNameField"], file: file, line: line)
         tapAlertButton("Create", in: alert, file: file, line: line)
         XCTAssertTrue(cell(name).waitForExistence(timeout: 5), "Folder \(name) missing from grid", file: file, line: line)
+    }
+}
+
+// MARK: - StoreKit
+
+/// Base for journeys that buy Pro: runs against premiumTesting.storekit through an in-process `SKTestSession`
+/// (dialogs disabled). Journeys launch the app themselves (`launchesInSetUp` is false).
+class StoreKitJourneyTestCase: JourneyTestCase {
+
+    var session: SKTestSession!
+    let productID = "nej.KoalaTVault.unlockpro"
+
+    override var launchesInSetUp: Bool { false }
+
+    override func setUp() async throws {
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(forResource: "premiumTesting", withExtension: "storekit"),
+            "premiumTesting.storekit is not in the KoalaTVaultUITests bundle")
+        session = try SKTestSession(contentsOf: url)
+        session.resetToDefaultState()
+        session.clearTransactions()
+        session.disableDialogs = true
+        try await super.setUp()
+    }
+
+    override func tearDown() async throws {
+        session?.clearTransactions()
+        session?.resetToDefaultState()
+        try await super.tearDown()
+    }
+
+    /// Settings gear -> Upgrade to Pro -> Unlock; waits for "Pro Unlocked", then closes Settings.
+    func buyProThroughSettings(file: StaticString = #filePath, line: UInt = #line) {
+        openSettings(file: file, line: line)
+        let pro = app.cells["upgradeToProCell"]
+        XCTAssertTrue(pro.waitForExistence(timeout: 5), "Pro row missing", file: file, line: line)
+        pro.tap()
+        let unlock = app.buttons["paywallUnlockButton"]
+        XCTAssertTrue(unlock.waitForExistence(timeout: 5), "Paywall did not open", file: file, line: line)
+        unlock.tap()
+        XCTAssertTrue(unlock.waitForNonExistence(timeout: 15), "Paywall did not close after the purchase",
+                      file: file, line: line)
+        XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 10),
+                      "Settings should show \"Pro Unlocked\"", file: file, line: line)
+        dismissSettingsSheet(file: file, line: line)
+    }
+
+    /// Lock screen -> Create New Vault -> fills the form and taps Create (does not wait for the result).
+    func createVault(name: String, password: String, confirm: String? = nil,
+                     file: StaticString = #filePath, line: UInt = #line) {
+        waitForLockScreen(file: file, line: line)
+        app.buttons["vaults.createButton"].tap()
+        fillCreateVaultForm(name: name, password: password, confirm: confirm, file: file, line: line)
+    }
+
+    /// On the Create Vault screen: fills the fields and taps Create.
+    func fillCreateVaultForm(name: String, password: String, confirm: String? = nil,
+                             file: StaticString = #filePath, line: UInt = #line) {
+        let nameField = app.textFields["createVault.nameField"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "The Create Vault screen did not appear",
+                      file: file, line: line)
+        if !name.isEmpty { type(name, into: nameField, file: file, line: line) }
+        if !password.isEmpty { type(password, into: app.secureTextFields["createVault.passwordField"], file: file, line: line) }
+        let confirmation = confirm ?? password
+        if !confirmation.isEmpty {
+            type(confirmation, into: app.secureTextFields["createVault.confirmField"], file: file, line: line)
+        }
+        app.buttons["createVault.createButton"].tap()
     }
 }

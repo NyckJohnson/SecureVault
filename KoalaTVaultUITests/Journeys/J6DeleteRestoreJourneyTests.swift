@@ -13,12 +13,12 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
     private let seedName = "alpha.txt"
 
     override var launchEnvironment: [String: String] {
-        ["UITEST_SEED_FILE_NAME": seedName]
+        ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password]
     }
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     private func trashRow(_ name: String) -> XCUIElement {
@@ -197,37 +197,26 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell("inner.rtf").waitForExistence(timeout: 5), "The file should be inside the recreated folder")
     }
 
-    // MARK: - Regression: trash across adding a lock (baseline fix 12)
+    // MARK: - Each vault has its own Recently Deleted
 
-    func testJourney6_TrashStaysReadableAfterAddingLock() {
+    func testJourney6_EncryptedVaultHasItsOwnTrash() {
+        deleteViaContextMenu(seedName)
+        openRecentlyDeleted()
+        XCTAssertTrue(trashRow(seedName).waitForExistence(timeout: 5))
+        leaveTrash()
+
+        lockApp()
+        unlockWithPassword()
+        XCTAssertTrue(app.navigationBars["Test Vault"].waitForExistence(timeout: 5), "Browser is titled with the vault")
+        XCTAssertFalse(cell(seedName).exists)
         createDocument(named: "A")
         deleteViaContextMenu("A.rtf")
-
-        app.buttons["settingsButton"].tap()
-        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 5), "Settings did not open")
-        app.cells["settings.lockMode.passwordRow"].tap()
-        let setAlert = app.alerts["Set Password"]
-        XCTAssertTrue(setAlert.waitForExistence(timeout: 5), "Set Password alert missing")
-        type(Self.password, into: setAlert.secureTextFields["settings.passwordField"])
-        type(Self.password, into: setAlert.secureTextFields["settings.confirmPasswordField"])
-        tapAlertButton("Set", in: setAlert)
-        XCTAssertTrue(app.staticTexts["migration.titleLabel"].waitForNonExistence(timeout: 30), "Migration did not close")
-        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 10), "Settings should be back")
-        XCTAssertTrue(app.cells["settings.lockMode.passwordRow"].isSelected, "Password should be the lock mode")
-        dismissSettingsSheet()
-
-        createDocument(named: "B")
-        deleteViaContextMenu("B.rtf")
-        XCTAssertFalse(app.alerts.firstMatch.exists, "Deleting under a lock must not fail")
-
         openRecentlyDeleted()
-        XCTAssertTrue(trashRow("A.rtf").waitForExistence(timeout: 5), "A.rtf (deleted before the lock) should be listed")
-        XCTAssertTrue(trashRow("B.rtf").exists, "B.rtf (deleted after the lock) should be listed")
-
+        XCTAssertTrue(trashRow("A.rtf").waitForExistence(timeout: 5), "A.rtf should be in Test Vault's trash")
+        XCTAssertFalse(trashRow(seedName).exists, "The unencrypted vault's trash is not shown here")
         trashRow("A.rtf").tap()
         tapSheetButton("Restore")
-        XCTAssertTrue(trashRow("A.rtf").waitForNonExistence(timeout: 5), "A.rtf should leave the trash")
-        XCTAssertTrue(trashRow("B.rtf").exists)
+        XCTAssertTrue(trashRow("A.rtf").waitForNonExistence(timeout: 5))
         leaveTrash()
         XCTAssertTrue(cell("A.rtf").waitForExistence(timeout: 5), "A.rtf should be back in the grid")
     }

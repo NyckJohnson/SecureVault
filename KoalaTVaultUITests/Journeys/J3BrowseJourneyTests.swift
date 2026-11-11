@@ -17,7 +17,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     // MARK: - Helpers
@@ -84,6 +84,15 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertTrue(app.buttons["importButton"].exists)
         XCTAssertTrue(app.buttons["browser.newDocumentButton"].exists)
         XCTAssertFalse(app.staticTexts["browser.emptyStateLabel"].exists)
+    }
+
+    func testJourney3_LockButtonOnlyOnTheRoot() {
+        createFolder(named: "Sub")
+        XCTAssertTrue(app.buttons["lockButton"].waitForExistence(timeout: 5), "The root has a Lock button")
+        cell("Sub").tap()
+        XCTAssertTrue(app.navigationBars["Sub"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["lockButton"].exists, "A subfolder has no Lock button")
+        XCTAssertFalse(app.buttons["settingsButton"].exists, "A subfolder has no settings gear")
     }
 
     func testJourney3_FoldersAreListedBeforeFiles() {

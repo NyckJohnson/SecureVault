@@ -22,7 +22,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     private var exportSheet: XCUIElement { app.sheets.firstMatch }
@@ -126,7 +126,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
 // MARK: - Regression: export from an encrypted vault is decrypted (baseline fix 20)
 
-/// In a password vault the disk holds UUID-named encrypted files and `.vault_map` indexes. Export must hand the
+/// In an encrypted vault (the seed file moved into Test Vault, journey 11) the disk holds UUID-named encrypted files and `.vault_map` indexes. Export must hand the
 /// document picker a decrypted copy under the real name. The picker's "Save as" field (`DOCPicker.filenameTextField`)
 /// shows the name of the single item being saved, which is the one thing XCUITest can see of the hand-off; the
 /// bytes written into Files and the contents of an exported folder are not observable.
@@ -139,7 +139,7 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
     override func setUp() async throws {
         try await super.setUp()
         launch(environment: ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password])
-        unlockWithPassword()
+        openTestVaultHolding(seedName)
     }
 
     private var exportSheet: XCUIElement { app.sheets.firstMatch }
