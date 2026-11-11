@@ -25,6 +25,7 @@ struct BiometricInfo: Sendable {
 
 /// The live probe: a fresh `LAContext` per call, so the answer reflects the current enrollment.
 struct LiveBiometricProbe: BiometricProbing {
+    // coverage-exempt-begin: real LAContext probe; tests use FakeBiometricProbe
     func probe() -> (kind: BiometricKind, canEvaluate: Bool) {
         let context = LAContext()
         var error: NSError?
@@ -38,4 +39,5 @@ struct LiveBiometricProbe: BiometricProbing {
         }
         return (kind, canEvaluate)
     }
+    // coverage-exempt-end
 }

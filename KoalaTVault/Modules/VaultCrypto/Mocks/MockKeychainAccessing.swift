@@ -14,6 +14,7 @@ final class MockKeychainAccessing: KeychainAccessing {
         var items: [String: Data]
         var calls: [Call] = []
         var errorToThrow: VaultCryptoError?
+        var deleteErrors: [String: VaultCryptoError] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -33,6 +34,11 @@ final class MockKeychainAccessing: KeychainAccessing {
     var errorToThrow: VaultCryptoError? {
         get { state.withLock { $0.errorToThrow } }
         set { state.withLock { $0.errorToThrow = newValue } }
+    }
+
+    /// Makes every `delete` of `account` throw `error` (other accounts and other calls are unaffected).
+    func failDeletes(of account: String, with error: VaultCryptoError) {
+        state.withLock { $0.deleteErrors[account] = error }
     }
 
     func read(account: String, prompt: String?) throws -> Data? {
@@ -55,6 +61,7 @@ final class MockKeychainAccessing: KeychainAccessing {
         try state.withLock { state in
             state.calls.append(.delete(account: account))
             if let error = state.errorToThrow { throw error }
+            if let error = state.deleteErrors[account] { throw error }
             state.items[account] = nil
         }
     }
