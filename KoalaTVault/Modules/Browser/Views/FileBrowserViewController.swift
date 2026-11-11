@@ -3,8 +3,7 @@ import UIKit
 
 /// The vault grid for one folder: binds `FileBrowserViewModel` to a collection view and the bar buttons, and
 /// presents what the view model asks for (subfolder browsers, the viewer and editor, Settings, the folder
-/// picker) and the Import and Export flows; with `BrowserVaultServices`, also the Lock action and Move/Copy to
-/// Vault through the vault picker (feature multiple-vaults-duress-password). Every decision is the view model's.
+/// picker), the Import and Export flows, the Lock action, and Move/Copy to Vault through the vault picker (feature multiple-vaults-duress-password). Every decision is the view model's.
 @MainActor
 final class FileBrowserViewController: UIViewController, AlertPresenting {
     private let directory: VaultDirectory
@@ -16,11 +15,11 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private let importPresenter: ImportPresenter
     private let viewerFactory: any ViewerFactory
     private let settingsFactory: any SettingsFactory
-    private let vaultServices: BrowserVaultServices?
+    private let vaultServices: BrowserVaultServices
 
     private lazy var viewModel = FileBrowserViewModel(
         directory: directory, store: store, preferences: preferences, exporter: exporter, alerts: self,
-        lock: vaultServices?.lock, transfer: vaultServices?.transfer)
+        lock: vaultServices.lock, transfer: vaultServices.transfer)
 
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: Self.makeLayout())
     private let emptyStateLabel = UILabel()
@@ -95,13 +94,13 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     ///   - importPresenter: presents the Import flow.
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
-    ///   - vaultServices: the app's vaults, the transfer and the Lock action; nil leaves out the Lock button
-    ///     and Move/Copy to Vault.
+    ///   - vaultServices: the app's vaults, the transfer and the Lock action, for the Lock button and
+    ///     Move/Copy to Vault.
     init(
         directory: VaultDirectory, store: any VaultStoring, preferences: any PreferencesStoring,
         thumbnails: any ThumbnailProviding, exporter: any VaultExporting, exportPresenter: ExportPresenter,
         importPresenter: ImportPresenter, viewerFactory: any ViewerFactory, settingsFactory: any SettingsFactory,
-        vaultServices: BrowserVaultServices? = nil
+        vaultServices: BrowserVaultServices
     ) {
         self.directory = directory
         self.store = store
@@ -221,8 +220,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         navigationItem.title = viewModel.title
         if viewModel.isSelecting {
             navigationItem.leftBarButtonItems = [cancelSelectButton]
-            var bulkButtons = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton]
-            if viewModel.canTransferBetweenVaults { bulkButtons.append(bulkVaultButton) }
+            let bulkButtons = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton, bulkVaultButton]
             navigationItem.rightBarButtonItems = bulkButtons
             let hasSelection = !viewModel.selectedItems.isEmpty
             for button in bulkButtons {
@@ -269,7 +267,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         case .settings:
             present(settingsFactory.makeSettings(), animated: true)
         case .lock:
-            vaultServices?.onLock()
+            vaultServices.onLock()
         }
     }
 
@@ -466,7 +464,6 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     // MARK: - Vault picker and transfer progress
 
     private func presentVaultPicker(isMove: Bool) {
-        guard let vaultServices else { return }
         let pickerModel = VaultPickerViewModel(lock: vaultServices.lock, isMove: isMove)
         pickerModel.onFinish = { [weak self] target in
             self?.closePicker { await self?.viewModel.vaultPickerFinished(target) }

@@ -11,7 +11,7 @@ final class LiveBrowserFactory: BrowserFactory {
     private let importPresenter: ImportPresenter
     private let viewerFactory: any ViewerFactory
     private let settingsFactory: any SettingsFactory
-    private let vaultServices: BrowserVaultServices?
+    private let vaultServices: BrowserVaultServices
     /// The navigation controllers `makeRootBrowser()` made, held weakly so a dropped one goes away.
     private var navigations: [WeakNavigation] = []
 
@@ -25,12 +25,12 @@ final class LiveBrowserFactory: BrowserFactory {
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
     ///   - vaultServices: the app's vaults, the transfer and the Lock action, for the Lock button and
-    ///     Move/Copy to Vault (feature multiple-vaults-duress-password); nil leaves both out.
+    ///     Move/Copy to Vault (feature multiple-vaults-duress-password).
     init(
         store: any VaultStoring, preferences: any PreferencesStoring, thumbnails: any ThumbnailProviding,
         exporter: any VaultExporting, exportPresenter: ExportPresenter, importPresenter: ImportPresenter,
         viewerFactory: any ViewerFactory, settingsFactory: any SettingsFactory,
-        vaultServices: BrowserVaultServices? = nil
+        vaultServices: BrowserVaultServices
     ) {
         self.store = store
         self.preferences = preferences
