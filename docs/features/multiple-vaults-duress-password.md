@@ -147,3 +147,13 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   login form). Only a non-password content type blocks this for sure, which would be a spec change. Check on a device
   during verify.
   Next, before verify: the shell rework (above).
+- 2026-11-11 (verify, shell rework): the UI-test writer found the shell rework hadn't run (`status next` jumped to verify);
+  done before the journey tests: test-writer (PostUnlockMaintenanceTests, d013e45), code-writer (7c1f586,
+  `gates --all --skip-coverage` green), reviewer pass. Accepted minors: `VaultDeletionRelay` wraps `VaultLocking` in the
+  shell to call `lock()` after Delete This Vault, because `SettingsFactory` has no vault-deleted callback (candidate small
+  contract change later: `onVaultDeleted` on `SettingsFactory`); the old vault's thumbnails stay in memory for one
+  main-actor hop after Lock/background (the key and temp files are wiped at once, the lock screen covers the window);
+  a transfer target's cipher object (no key) is held until the next vault change. Shell structure added:
+  `VaultRootViewController` (root container), `LockScreenTracker`, `VaultCiphers`, `NoKeyStore`.
+  Journey tests must drop `UITEST_PENDING_MIGRATION` / `UITEST_PLAINTEXT_INDEX` (J8). Pro in journey tests: buy through the
+  StoreKit test session, as J9 does (no Pro seed in the spec).
