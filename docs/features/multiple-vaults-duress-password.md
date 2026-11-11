@@ -137,3 +137,13 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   2. Create Vault keeps the typed password in its view model after success (errors clear it); clearing on success is
      hygiene but not in the spec.
   Accepted minors: a late transfer-progress report could show against the next transfer (tiny window).
+- 2026-11-11 (build, fix-up): both open questions answered by the human (memo decisions log 2026-11-11). LockScreens unit 3
+  reopened: lock screen and Create Vault password fields set `textContentType = nil`; Create Vault clears both password
+  fields on success. Browser unit 3 reopened for the same change on the vault picker's password field. Both merged (via
+  `fix/password-fields` and `fix/vault-picker-password`; the module branches had already merged and share their names
+  with the module tags, which stay on the first merges). `gates --all` green at ee9b6cf.
+  Reviewer note (not in the spec, for the human): a secure text field with no content type can still show the keyboard's
+  Passwords shortcut, and iOS may still offer to save after a submit (the Create Vault name + password pair looks like a
+  login form). Only a non-password content type blocks this for sure, which would be a spec change. Check on a device
+  during verify.
+  Next, before verify: the shell rework (above).
