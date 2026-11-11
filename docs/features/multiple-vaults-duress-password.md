@@ -157,3 +157,8 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   `VaultRootViewController` (root container), `LockScreenTracker`, `VaultCiphers`, `NoKeyStore`.
   Journey tests must drop `UITEST_PENDING_MIGRATION` / `UITEST_PLAINTEXT_INDEX` (J8). Pro in journey tests: buy through the
   StoreKit test session, as J9 does (no Pro seed in the spec).
+- 2026-11-11 (verify, Create Vault autofill): journey tests showed iOS Strong Password autofill taking over Create Vault's
+  password fields (vault got a password nobody typed). Scratch experiment (branch
+  `scratch/create-vault-autofill-experiment`, kept for reference): name field without content type didn't help; the
+  password in an alert did. Human approved the alert (memo e1517d9); LockScreens unit 3 reopened and merged via
+  `fix/create-vault-alert`. Journey-test helper `fillCreateVaultForm` must type into the alert next.
