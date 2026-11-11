@@ -14,9 +14,8 @@ import UIKit
         let restored: SettingsRecorder<Void>
     }
 
-    private func makeRig(pending: PendingMigration? = nil, store: MockVaultStoring? = nil) -> Rig {
+    private func makeRig(store: MockVaultStoring? = nil) -> Rig {
         let migrator = SettingsScriptedMigrator()
-        migrator.pending = pending
         let store = store ?? MockVaultStoring(withSampleContent: false)
         let pro = MockProUnlocking(isUnlocked: false)
         let restored = SettingsRecorder<Void>()
@@ -56,28 +55,10 @@ import UIKit
     }
 
     @Test(
-        "makeMigration is titled Decrypting Files when a decrypt migration is pending",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
-    func migrationUsesPendingDecrypt() {
-        let rig = makeRig(pending: PendingMigration(kind: .decrypt, targetLockMode: nil))
-        let host = SettingsViewHost.presenting(rig.factory.makeMigration(onFinish: { _ in }))
-        #expect((host.element("migration.titleLabel") as? UILabel)?.text == "Decrypting Files")
-    }
-
-    @Test(
-        "makeMigration is titled Encrypting Files when a migration is pending encrypt",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
-    func migrationUsesPendingEncrypt() {
-        let rig = makeRig(pending: PendingMigration(kind: .encrypt, targetLockMode: .password))
-        let host = SettingsViewHost.presenting(rig.factory.makeMigration(onFinish: { _ in }))
-        #expect((host.element("migration.titleLabel") as? UILabel)?.text == "Encrypting Files")
-    }
-
-    @Test(
-        "makeMigration is titled Encrypting Files when no migration is pending",
+        "makeMigration is titled Encrypting Files",
         .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
     func migrationDefaultsToEncrypt() {
-        let rig = makeRig(pending: nil)
+        let rig = makeRig()
         let host = SettingsViewHost.presenting(rig.factory.makeMigration(onFinish: { _ in }))
         #expect((host.element("migration.titleLabel") as? UILabel)?.text == "Encrypting Files")
     }

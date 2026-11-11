@@ -153,34 +153,6 @@ import UIKit
 
     // MARK: - Reappearing
 
-    @Test(
-        "A paused migration whose screen disappears and appears again is not started again",
-        .disabled("feature multiple-vaults-duress-password: rebuilt in Settings unit 2"))
-    func reappearingWhilePausedDoesNotRestart() async {
-        #if false
-            let rig = makeRig()
-            await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
-            rig.migrator.send(.paused(done: 2, total: 10))
-            await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
-            func runs() -> Int {
-                rig.migrator.calls.filter {
-                    if case .start = $0 { return true }
-                    return $0 == .resumeIfPending
-                }.count
-            }
-            let before = runs()
-            let cover = UIViewController()
-            cover.modalPresentationStyle = .fullScreen
-            rig.host.topmost.present(cover, animated: false)
-            await SettingsTestSupport.settle()
-            cover.dismiss(animated: false)
-            await SettingsTestSupport.waitUntil { rig.host.topmost !== cover }
-            await SettingsTestSupport.settle()
-            #expect(runs() == before)
-            #expect(status(rig) == "Paused — unlock to continue")
-        #endif
-    }
-
     // MARK: - Background time
 
     @Test("Background time is requested once while running, however many progress updates arrive")

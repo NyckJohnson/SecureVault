@@ -204,19 +204,15 @@ final class SettingsScriptedPro: ProUnlocking {
 final class SettingsScriptedMigrator: LockMigrating {
     enum Call: Equatable {
         case phaseUpdates
-        case start(MigrationKind, LockMode?)
-        case resumeIfPending
         case retryFailed
         case skipFailed
         case clearUnreadableTrash
-        // feature multiple-vaults-duress-password: signature updated
         case encryptLeftovers
         case cancel
     }
 
     private(set) var calls: [Call] = []
     private(set) var phase: MigrationPhase
-    var pending: PendingMigration?
     /// The phase sent when `retryFailed()` is called, if any.
     var phaseAfterRetry: MigrationPhase?
     /// The phase sent when `skipFailed()` is called, if any.
@@ -241,7 +237,6 @@ final class SettingsScriptedMigrator: LockMigrating {
         }
     }
 
-    // feature multiple-vaults-duress-password: signature updated
     func encryptLeftovers(in store: any VaultStoring) async {
         calls.append(.encryptLeftovers)
     }
