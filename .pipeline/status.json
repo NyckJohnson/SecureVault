@@ -181,7 +181,7 @@
         "VaultStore",
         "Entitlements"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T18:33:40-08:00",
+  "updatedAt": "2026-11-10T18:44:27-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
