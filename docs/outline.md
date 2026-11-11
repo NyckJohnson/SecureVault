@@ -1147,6 +1147,9 @@ the upgrade clearing it.
 
 - A cached grid thumbnail now arrives one main-actor turn after the cell is configured (async `ThumbnailProviding`), so a cell may flash its kind icon while scrolling — Browser/Views/FileCell.swift — open, cosmetic; a fix needs a sync cache accessor (contract change)
 - Once, after an earlier crashed lock-change run, subfolders showed empty while the main screen listed them (files intact; decrypting showed them); not reproduced after a completed run. Suspected: a listing that throws `.locked` is hidden by the browser while no lock screen shows — FileBrowserViewModel.swift, LiveVaultLock.swift — open, watch for it on device
+- `setUsesBiometrics(true)` interrupted by a close or switch while the Keychain write runs, when another vault held Face ID: that vault's biometric item is already replaced and can't be restored, so its next Face ID open ends in `.biometricChanged` (Face ID forgotten; password still works) — LiveVaultLock.swift:284-288 — open, rare (VaultLock unit 1 review, feature multiple-vaults-duress-password)
+- `setUsesBiometrics(true)` whose key is wiped by a close mid-write reports `.io` instead of `.notOpen` — LiveVaultLock.swift:284, 298 — open, minor
+- An overlapping `changePassword` and `createVault` (or two `changePassword`s) could leave two vaults sharing a password; only `createVault` calls are serialized. Needs two password sheets at once, which the UI doesn't allow — LiveVaultLock.swift:185-270 — open, minor
 ## Features
 <!-- Accepted features, oldest first. -->
 
