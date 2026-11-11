@@ -383,7 +383,7 @@
             "Views/PaywallViewController.swift",
             "Views/RecentlyDeletedViewController.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T21:18:07-08:00",
+  "updatedAt": "2026-11-10T21:18:56-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
