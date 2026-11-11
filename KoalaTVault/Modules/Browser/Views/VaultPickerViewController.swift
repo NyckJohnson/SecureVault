@@ -71,7 +71,8 @@ final class VaultPickerViewController: UIViewController {
 
         passwordField.placeholder = "Password"
         passwordField.isSecureTextEntry = true
-        passwordField.textContentType = .password
+        // No password content type: iOS must never offer to save or suggest a vault password.
+        passwordField.textContentType = nil
         passwordField.borderStyle = .roundedRect
         passwordField.returnKeyType = .go
         passwordField.font = .preferredFont(forTextStyle: .body)
