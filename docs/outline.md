@@ -838,6 +838,9 @@ the upgrade clearing it.
     failed, the folder is kept in the source (its copied files stay in both). `progress(done, total)` after each file.
   - A failure of one item doesn't stop the others; the result counts top-level items done and failed. Nothing is ever
     removed from the source before its copy exists in the target.
+  - Edge cases: a folder that can't be created in the target fails its whole item (its files are not copied or removed, the
+    original stays in the source, and they still advance `progress` so it reaches the total); a `remove` of an original that
+    fails after its copy succeeded counts that item as failed (the copy stays in the target).
   - Cancellation (the task cancelled because the vault closed) stops before the next file; what is done stays done.
   - Plaintext → plaintext and encrypted → encrypted transfers work the same way (content always goes through `open`).
   - errorDescription (logic in `Contracts/`; one asserting test per case): limitReached "The other vault would have more
