@@ -463,9 +463,7 @@ final class AppDependencies {
         lockCoordinator = AppLockCoordinator(
             lock: vaultLock, preferences: storage.preferences, masterKeys: storage.masterKeyStore,
             presenter: LockPresenter())
-        let lockMigrator = LiveLockMigrator(
-            store: vaultStore, lock: vaultLock, preferences: storage.preferences,
-            uiTestFailFileName: Self.failMigrationFileName(storage: storage))
+        let lockMigrator = LiveLockMigrator(uiTestFailFileName: Self.failMigrationFileName(storage: storage))
         self.lockMigrator = lockMigrator
         let reloadRelay = BrowserReloadRelay()
         let settingsFactory = LiveSettingsFactory(

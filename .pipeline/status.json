@@ -161,7 +161,7 @@
       "dependsOn": [
         "VaultStore"
       ],
-      "state": "pending",
+      "state": "coverage",
       "units": [
         {
           "number": 1,
@@ -169,8 +169,8 @@
             "MigrationProgress.swift",
             "LiveLockMigrator.swift"
           ],
-          "state": "pending",
-          "attempts": 0
+          "state": "done",
+          "attempts": 1
         }
       ]
     },
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T17:38:14-08:00",
+  "updatedAt": "2026-11-10T17:49:22-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

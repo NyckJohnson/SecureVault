@@ -3,526 +3,312 @@ import os
 
 @testable import KoalaTVault
 
-// Test doubles shared by the LockMigration tests. Every double writes to one `MigrationEventLog`, so tests can assert
-// the order of calls across the store, the lock and the preferences.
+// Test doubles shared by the LockMigration tests (feature multiple-vaults-duress-password: the migrator only
+// encrypts an opened vault's leftover plaintext files, through the store it is handed).
 
-// feature multiple-vaults-duress-password: rebuilt in LockMigration unit 1: this file uses API the feature removed; compiled out until LockMigration unit 1 replaces it.
-#if false
-    /// An ordered, thread-safe list of what happened.
-    final class MigrationEventLog: Sendable {
-        private let storage = OSAllocatedUnfairLock<[String]>(initialState: [])
+/// An ordered, thread-safe list of what the store was asked to do.
+final class MigrationEventLog: Sendable {
+    private let storage = OSAllocatedUnfairLock<[String]>(initialState: [])
 
-        var events: [String] { storage.withLock { $0 } }
+    var events: [String] { storage.withLock { $0 } }
 
-        func add(_ event: String) {
-            storage.withLock { $0.append(event) }
-        }
+    func add(_ event: String) {
+        storage.withLock { $0.append(event) }
+    }
 
-        func index(of event: String) -> Int? {
-            events.firstIndex(of: event)
-        }
+    func count(of event: String) -> Int {
+        events.filter { $0 == event }.count
+    }
 
-        func lastIndex(of event: String) -> Int? {
-            events.lastIndex(of: event)
-        }
+    func events(withPrefix prefix: String) -> [String] {
+        events.filter { $0.hasPrefix(prefix) }
+    }
+}
 
-        func count(of event: String) -> Int {
-            events.filter { $0 == event }.count
-        }
+/// Holds a store call at a named point until released.
+final class MigrationGate: Sendable {
+    private struct State {
+        var armed: String?
+        var reached: Set<String> = []
+        var released = false
+        var continuation: CheckedContinuation<Void, Never>?
+    }
 
-        func events(withPrefix prefix: String) -> [String] {
-            events.filter { $0.hasPrefix(prefix) }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func arm(at name: String) {
+        state.withLock {
+            $0.armed = name
+            $0.released = false
         }
     }
 
-    /// Holds a double's call at a named point until released; a point that is never released simulates a kill there.
-    final class MigrationGate: Sendable {
-        private struct State {
-            var armed: String?
-            var reached: Set<String> = []
-            var released = false
-            var continuation: CheckedContinuation<Void, Never>?
+    func hasReached(_ name: String) -> Bool {
+        state.withLock { $0.reached.contains(name) }
+    }
+
+    func release() {
+        let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            state.released = true
+            state.armed = nil
+            defer { state.continuation = nil }
+            return state.continuation
         }
+        continuation?.resume()
+    }
 
-        private let state = OSAllocatedUnfairLock(initialState: State())
-
-        func arm(at name: String) {
-            state.withLock {
-                $0.armed = name
-                $0.released = false
+    func pass(_ name: String) async {
+        let shouldWait = state.withLock { state -> Bool in
+            guard state.armed == name else { return false }
+            state.reached.insert(name)
+            return true
+        }
+        guard shouldWait else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow = state.withLock { state -> Bool in
+                if state.released { return true }
+                state.continuation = continuation
+                return false
             }
+            if resumeNow { continuation.resume() }
         }
+    }
+}
 
-        func disarm() {
-            state.withLock { $0.armed = nil }
-        }
+/// A vault of files that encrypt in memory; records every step in the log.
+final class FakeLeftoverStore: VaultStoring {
+    private struct State {
+        var items: [VaultItem]
+        var failing: [String: VaultStoreError] = [:]
+        var listingFailure: VaultStoreError?
+        var finishFailure: VaultStoreError?
+        var clearFailure: VaultStoreError?
+        var unreadableTrash = false
+    }
 
-        func hasReached(_ name: String) -> Bool {
-            state.withLock { $0.reached.contains(name) }
-        }
+    let root = VaultDirectory(
+        name: "KoalaTVault",
+        diskURL: URL(fileURLWithPath: "/fake-vault", isDirectory: true),
+        rootURL: URL(fileURLWithPath: "/fake-vault", isDirectory: true))
+    let isEncrypted: Bool
+    private let state: OSAllocatedUnfairLock<State>
+    let log: MigrationEventLog
+    let gate: MigrationGate
 
-        func release() {
-            let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
-                state.released = true
-                state.armed = nil
-                defer { state.continuation = nil }
-                return state.continuation
+    init(items: [VaultItem], isEncrypted: Bool = true, log: MigrationEventLog, gate: MigrationGate) {
+        state = OSAllocatedUnfairLock(initialState: State(items: items))
+        self.isEncrypted = isEncrypted
+        self.log = log
+        self.gate = gate
+    }
+
+    /// A file of the fake vault; trashed files live under `.trash/`.
+    static func file(_ name: String, encrypted: Bool, trashed: Bool = false) -> VaultItem {
+        let rootURL = URL(fileURLWithPath: "/fake-vault", isDirectory: true)
+        let path = trashed ? ".trash/\(name)" : name
+        return VaultItem(
+            id: path, name: name, isDirectory: false, dateModified: Date(timeIntervalSince1970: 0), fileSize: 10,
+            deletedAt: trashed ? Date(timeIntervalSince1970: 100) : nil,
+            diskURL: rootURL.appendingPathComponent(path), rootURL: rootURL, isEncrypted: encrypted)
+    }
+
+    var items: [VaultItem] { state.withLock { $0.items } }
+
+    // swiftlint:disable:next discouraged_optional_boolean
+    func isEncrypted(_ name: String) -> Bool? {
+        items.first { $0.name == name }?.isEncrypted
+    }
+
+    /// The named file keeps failing with this error until cleared.
+    func setFailure(_ error: VaultStoreError?, for name: String) {
+        state.withLock { $0.failing[name] = error }
+    }
+
+    /// `itemsToEncrypt()` keeps failing with this error until cleared.
+    func setListingFailure(_ error: VaultStoreError?) {
+        state.withLock { $0.listingFailure = error }
+    }
+
+    /// `finishEncryption()` keeps failing with this error until cleared.
+    func setFinishFailure(_ error: VaultStoreError?) {
+        state.withLock { $0.finishFailure = error }
+    }
+
+    /// `clearUnreadableTrash()` fails with this error (leaving the trash unreadable) until cleared.
+    func setClearFailure(_ error: VaultStoreError?) {
+        state.withLock { $0.clearFailure = error }
+    }
+
+    /// What `hasUnreadableTrash()` answers; a successful `clearUnreadableTrash()` resets it to false.
+    var unreadableTrash: Bool {
+        get { state.withLock { $0.unreadableTrash } }
+        set { state.withLock { $0.unreadableTrash = newValue } }
+    }
+
+    func itemsToEncrypt() async throws -> [VaultItem] {
+        log.add("list")
+        if let error = state.withLock({ $0.listingFailure }) { throw error }
+        return items.filter { !$0.isDirectory && !$0.isEncrypted }
+    }
+
+    func migrateToEncrypted(_ item: VaultItem) async throws {
+        log.add("enc:\(item.name)")
+        await gate.pass("migrate:\(item.name)")
+        if let error = state.withLock({ $0.failing[item.name] }) { throw error }
+        try state.withLock { state in
+            guard let index = state.items.firstIndex(where: { $0.id == item.id }) else {
+                throw VaultStoreError.notFound
             }
-            continuation?.resume()
+            let old = state.items[index]
+            state.items[index] = VaultItem(
+                id: old.id, name: old.name, isDirectory: old.isDirectory, dateModified: old.dateModified,
+                fileSize: old.fileSize, deletedAt: old.deletedAt, diskURL: old.diskURL, rootURL: old.rootURL,
+                isEncrypted: true)
         }
+        log.add("enc-done:\(item.name)")
+    }
 
-        func pass(_ name: String) async {
-            let shouldWait = state.withLock { state -> Bool in
-                guard state.armed == name else { return false }
-                state.reached.insert(name)
-                return true
-            }
-            guard shouldWait else { return }
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let resumeNow = state.withLock { state -> Bool in
-                    if state.released { return true }
-                    state.continuation = continuation
-                    return false
-                }
-                if resumeNow { continuation.resume() }
-            }
+    func finishEncryption() async throws {
+        log.add("finishEncryption")
+        await gate.pass("finishEncryption")
+        if let error = state.withLock({ $0.finishFailure }) { throw error }
+    }
+
+    func hasUnreadableTrash() async -> Bool {
+        log.add("hasUnreadableTrash")
+        return state.withLock { $0.unreadableTrash }
+    }
+
+    func clearUnreadableTrash() async throws {
+        log.add("clearUnreadableTrash")
+        if let error = state.withLock({ $0.clearFailure }) { throw error }
+        state.withLock { $0.unreadableTrash = false }
+    }
+
+    // The rest of the store is not used by the migrator.
+
+    func contents(
+        of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
+    ) async throws -> [VaultItem] {
+        []
+    }
+    func open(_ item: VaultItem) async throws -> URL { item.diskURL }
+    func write(_ data: Data, to item: VaultItem) async throws {}
+    func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        throw VaultStoreError.notFound
+    }
+    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        throw VaultStoreError.notFound
+    }
+    func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
+        throw VaultStoreError.notFound
+    }
+    func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? { nil }
+    func move(_ item: VaultItem, to directory: VaultDirectory) async throws {}
+    func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
+        throw VaultStoreError.notFound
+    }
+    func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw VaultStoreError.notFound }
+    func moveToTrash(_ item: VaultItem) async throws {}
+    func remove(_ item: VaultItem) async throws {}
+    func trashContents() async throws -> [VaultItem] { [] }
+    func restore(_ trashed: VaultItem) async throws -> VaultItem { throw VaultStoreError.notFound }
+    func deletePermanently(_ trashed: VaultItem) async throws {}
+    func emptyTrash() async {}
+    func purgeExpiredTrash(now: Date) async throws -> Int { 0 }
+    func countFiles() async throws -> Int { items.count }
+    func hasUnencryptedFiles() async throws -> Bool { items.contains { !$0.isEncrypted } }
+    func keyMatchesVault() async -> Bool { true }
+    func sweepOrphans() async {}
+    func makeTempDirectory() throws -> URL { throw VaultStoreError.notFound }
+    func removeTemporary(_ url: URL) {}
+    func removeAllTemporaryFiles() {}
+}
+
+/// Records every phase a migrator publishes after it was created.
+@MainActor
+final class MigrationPhaseRecorder {
+    private(set) var phases: [MigrationPhase] = []
+    private var task: Task<Void, Never>?
+
+    init(_ stream: AsyncStream<MigrationPhase>) {
+        task = Task { [weak self] in
+            for await phase in stream { self?.phases.append(phase) }
         }
     }
 
-    /// Whether the master key is in memory; shared by the fake lock and the fake store.
-    final class MigrationKeyState: Sendable {
-        private struct State {
-            var loaded = true
-            var noLock = false
-        }
-
-        private let state = OSAllocatedUnfairLock(initialState: State())
-
-        var isLoaded: Bool {
-            get { state.withLock { $0.loaded } }
-            set { state.withLock { $0.loaded = newValue } }
-        }
-
-        /// True once the vault has no lock at all (lock mode `.none`): store work then needs no key.
-        var hasNoLock: Bool {
-            get { state.withLock { $0.noLock } }
-            set { state.withLock { $0.noLock = newValue } }
-        }
-
-        /// Whether store work can run: the key is in memory, or there is no lock.
-        var isAvailable: Bool { state.withLock { $0.loaded || $0.noLock } }
+    /// Waits until the last recorded phase satisfies the condition.
+    @discardableResult
+    func wait(until condition: @escaping @MainActor (MigrationPhase) -> Bool) async -> Bool {
+        await waitForCondition { [self] in phases.last.map(condition) ?? false }
     }
 
-    /// The store methods whose failure a test can inject (besides per-file failures).
-    enum MigrationStoreStep: Hashable {
-        case itemsToMigrate, finishEncryption, finishDecryption
+    /// Gives published phases time to arrive, then stops recording.
+    func finish() async {
+        try? await Task.sleep(for: .milliseconds(50))
+        task?.cancel()
     }
 
-    /// The lock methods whose failure a test can inject.
-    enum MigrationLockStep: Hashable {
-        case switchMode, removeKeysAfterDecryption
+    var runningCount: Int {
+        phases.filter {
+            if case .running = $0 { return true }
+            return false
+        }.count
+    }
+}
+
+/// A migrator over a fake encrypted vault, with its log and gate.
+@MainActor
+final class MigrationHarness {
+    let log = MigrationEventLog()
+    let gate = MigrationGate()
+    let store: FakeLeftoverStore
+    let migrator: LiveLockMigrator
+
+    /// The default vault: three files and one trashed file, in this listing order.
+    static let names = ["a.jpg", "b.pdf", "c.mov", "Old.txt"]
+
+    static func plaintextFiles() -> [VaultItem] {
+        [
+            FakeLeftoverStore.file("a.jpg", encrypted: false),
+            FakeLeftoverStore.file("b.pdf", encrypted: false),
+            FakeLeftoverStore.file("c.mov", encrypted: false),
+            FakeLeftoverStore.file("Old.txt", encrypted: false, trashed: true),
+        ]
     }
 
-    // MARK: - Store
-
-    /// A vault of files that migrate in memory.
-    final class FakeMigrationStore: VaultStoring {
-        private struct State {
-            var items: [VaultItem]
-            var listings = 0
-            var injections: [Int: [VaultItem]] = [:]
-            var failing: [String: VaultStoreError] = [:]
-            var stepFailures: [MigrationStoreStep: VaultStoreError] = [:]
-            var finishesInFlightFile = false
-            var unreadableTrash = false
-            var clearFailure: VaultStoreError?
-            var listingFailure: (error: VaultStoreError, fromListing: Int)?
-        }
-
-        let root = VaultDirectory(
-            name: "KoalaTVault",
-            diskURL: URL(fileURLWithPath: "/fake-vault", isDirectory: true),
-            rootURL: URL(fileURLWithPath: "/fake-vault", isDirectory: true))
-        private let state: OSAllocatedUnfairLock<State>
-        private let log: MigrationEventLog
-        private let gate: MigrationGate
-        private let key: MigrationKeyState
-
-        init(items: [VaultItem], log: MigrationEventLog, gate: MigrationGate, key: MigrationKeyState) {
-            state = OSAllocatedUnfairLock(initialState: State(items: items))
-            self.log = log
-            self.gate = gate
-            self.key = key
-        }
-
-        /// A file of the fake vault; trashed files live under `.trash/`.
-        static func file(_ name: String, encrypted: Bool, trashed: Bool = false) -> VaultItem {
-            let rootURL = URL(fileURLWithPath: "/fake-vault", isDirectory: true)
-            let path = trashed ? ".trash/\(name)" : name
-            return VaultItem(
-                id: path, name: name, isDirectory: false, dateModified: Date(timeIntervalSince1970: 0), fileSize: 10,
-                deletedAt: trashed ? Date(timeIntervalSince1970: 100) : nil,
-                diskURL: rootURL.appendingPathComponent(path), rootURL: rootURL, isEncrypted: encrypted)
-        }
-
-        var items: [VaultItem] { state.withLock { $0.items } }
-
-        // swiftlint:disable:next discouraged_optional_boolean
-        func isEncrypted(_ name: String) -> Bool? {
-            items.first { $0.name == name }?.isEncrypted
-        }
-
-        /// The named file keeps failing with this error until cleared.
-        func setFailure(_ error: VaultStoreError?, for name: String) {
-            state.withLock { $0.failing[name] = error }
-        }
-
-        /// The store method keeps failing with this error until cleared (the key is loaded; it is not a lock failure).
-        func setFailure(_ error: VaultStoreError?, forStep step: MigrationStoreStep) {
-            state.withLock { $0.stepFailures[step] = error }
-        }
-
-        /// What `hasUnreadableTrash()` answers; `clearUnreadableTrash()` resets it to false.
-        var hasUnreadableTrashFlag: Bool {
-            get { state.withLock { $0.unreadableTrash } }
-            set { state.withLock { $0.unreadableTrash = newValue } }
-        }
-
-        /// `clearUnreadableTrash()` fails with this error (and leaves the trash unreadable) until cleared.
-        func setClearFailure(_ error: VaultStoreError?) {
-            state.withLock { $0.clearFailure = error }
-        }
-
-        /// Every `itemsToMigrate` call from the given (1-based) listing on fails with this error.
-        func setListingFailure(_ error: VaultStoreError?, fromListing listing: Int = 1) {
-            state.withLock { $0.listingFailure = error.map { ($0, listing) } }
-        }
-
-        /// Adds a file straight away, without waiting for a listing.
-        func add(_ item: VaultItem) {
-            state.withLock { $0.items.append(item) }
-        }
-
-        /// Makes the file appear from the given (1-based) `itemsToMigrate` call on.
-        func inject(_ item: VaultItem, atListing listing: Int) {
-            state.withLock { $0.injections[listing, default: []].append(item) }
-        }
-
-        /// When true, a file in progress when the key disappears still finishes.
-        func setFinishesInFlightFile(_ value: Bool) {
-            state.withLock { $0.finishesInFlightFile = value }
-        }
-
-        func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
-            log.add(toEncrypted ? "list:enc" : "list:dec")
-            let listing = state.withLock { state -> Int in
-                state.listings += 1
-                if let added = state.injections[state.listings] { state.items.append(contentsOf: added) }
-                return state.listings
-            }
-            await gate.pass("list:\(listing)")
-            if let error = state.withLock({ $0.stepFailures[.itemsToMigrate] }) { throw error }
-            if let failure = state.withLock({ $0.listingFailure }), listing >= failure.fromListing {
-                throw failure.error
-            }
-            return items.filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
-        }
-
-        func migrateToEncrypted(_ item: VaultItem) async throws {
-            try await migrate(item, toEncrypted: true)
-        }
-
-        func migrateToDecrypted(_ item: VaultItem) async throws {
-            try await migrate(item, toEncrypted: false)
-        }
-
-        private func migrate(_ item: VaultItem, toEncrypted: Bool) async throws {
-            let tag = toEncrypted ? "enc" : "dec"
-            log.add("\(tag):\(item.name)")
-            await gate.pass("migrate:\(item.name)")
-            let finishes = state.withLock { $0.finishesInFlightFile }
-            if !key.isAvailable && !finishes { throw VaultStoreError.locked }
-            if let error = state.withLock({ $0.failing[item.name] }) { throw error }
-            try state.withLock { state in
-                guard let index = state.items.firstIndex(where: { $0.id == item.id }) else {
-                    throw VaultStoreError.notFound
-                }
-                let old = state.items[index]
-                state.items[index] = VaultItem(
-                    id: old.id, name: old.name, isDirectory: old.isDirectory, dateModified: old.dateModified,
-                    fileSize: old.fileSize, deletedAt: old.deletedAt, diskURL: old.diskURL, rootURL: old.rootURL,
-                    isEncrypted: toEncrypted)
-            }
-            log.add("\(tag)-done:\(item.name)")
-        }
-
-        func finishDecryption() async throws {
-            log.add("finishDecryption")
-            await gate.pass("finishDecryption")
-            guard key.isAvailable else { throw VaultStoreError.locked }
-            if let error = state.withLock({ $0.stepFailures[.finishDecryption] }) { throw error }
-            let remaining = items.filter(\.isEncrypted).count
-            if remaining > 0 { throw VaultStoreError.stillEncrypted(count: remaining) }
-        }
-
-        func finishEncryption() async throws {
-            log.add("finishEncryption")
-            await gate.pass("finishEncryption")
-            guard key.isAvailable else { throw VaultStoreError.locked }
-            if let error = state.withLock({ $0.stepFailures[.finishEncryption] }) { throw error }
-        }
-
-        // The rest of the store is not used by a migration.
-
-        func contents(
-            of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
-        ) async throws -> [VaultItem] {
-            []
-        }
-        func open(_ item: VaultItem) async throws -> URL { item.diskURL }
-        func write(_ data: Data, to item: VaultItem) async throws {}
-        func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
-            throw VaultStoreError.notFound
-        }
-        func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
-            throw VaultStoreError.notFound
-        }
-        func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
-            throw VaultStoreError.notFound
-        }
-        func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? { nil }
-        func move(_ item: VaultItem, to directory: VaultDirectory) async throws {}
-        func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
-            throw VaultStoreError.notFound
-        }
-        func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw VaultStoreError.notFound }
-        func moveToTrash(_ item: VaultItem) async throws {}
-        func trashContents() async throws -> [VaultItem] { [] }
-        func restore(_ trashed: VaultItem) async throws -> VaultItem { throw VaultStoreError.notFound }
-        func deletePermanently(_ trashed: VaultItem) async throws {}
-        func emptyTrash() async {}
-        func purgeExpiredTrash(now: Date) async throws -> Int { 0 }
-        func hasUnreadableTrash() async -> Bool {
-            log.add("hasUnreadableTrash")
-            await gate.pass("hasUnreadableTrash")
-            return state.withLock { $0.unreadableTrash }
-        }
-
-        func clearUnreadableTrash() async throws {
-            log.add("clearUnreadableTrash")
-            await gate.pass("clearUnreadableTrash")
-            guard key.isAvailable else { throw VaultStoreError.locked }
-            if let error = state.withLock({ $0.clearFailure }) { throw error }
-            state.withLock { $0.unreadableTrash = false }
-        }
-        func countFiles() async throws -> Int { items.count }
-        func hasUnencryptedFiles() async throws -> Bool { items.contains { !$0.isEncrypted } }
-        func keyMatchesVault() async -> Bool { true }
-        func sweepOrphans() async {}
-        func makeTempDirectory() throws -> URL { throw VaultStoreError.notFound }
-        func removeTemporary(_ url: URL) {}
-        func removeAllTemporaryFiles() {}
+    /// Assumes `LiveLockMigrator.init(uiTestFailFileName: String? = nil)` (no store: `encryptLeftovers(in:)` gets it;
+    /// no VaultLock or Preferences). `uiTestFailFileName` is `UITEST_FAIL_MIGRATION_FILE`, set in UI-test mode only.
+    init(
+        files: [VaultItem] = MigrationHarness.plaintextFiles(), storeIsEncrypted: Bool = true,
+        uiTestFailFileName: String? = nil
+    ) {
+        store = FakeLeftoverStore(items: files, isEncrypted: storeIsEncrypted, log: log, gate: gate)
+        migrator = LiveLockMigrator(uiTestFailFileName: uiTestFailFileName)
     }
 
-    // MARK: - Preferences
-
-    /// In-memory preferences that log changes to the pending record and the lock mode.
-    final class FakeMigrationPreferences: PreferencesStoring {
-        private struct State {
-            var lockMode: LockMode
-            var pending: PendingMigration?
-            var hasCompletedSetup = false
-            var sortOption = SortOption.name
-            var sortDirection = SortDirection.ascending
-        }
-
-        private let state: OSAllocatedUnfairLock<State>
-        private let log: MigrationEventLog
-
-        init(lockMode: LockMode, pending: PendingMigration?, log: MigrationEventLog) {
-            state = OSAllocatedUnfairLock(initialState: State(lockMode: lockMode, pending: pending))
-            self.log = log
-        }
-
-        var hasCompletedSetup: Bool {
-            get { state.withLock { $0.hasCompletedSetup } }
-            set { state.withLock { $0.hasCompletedSetup = newValue } }
-        }
-
-        var sortOption: SortOption {
-            get { state.withLock { $0.sortOption } }
-            set { state.withLock { $0.sortOption = newValue } }
-        }
-
-        var sortDirection: SortDirection {
-            get { state.withLock { $0.sortDirection } }
-            set { state.withLock { $0.sortDirection = newValue } }
-        }
-
-        var lockMode: LockMode {
-            get { state.withLock { $0.lockMode } }
-            set {
-                state.withLock { $0.lockMode = newValue }
-                log.add("lockMode=\(newValue.rawValue)")
-            }
-        }
-
-        var pendingMigration: PendingMigration? {
-            get { state.withLock { $0.pending } }
-            set {
-                state.withLock { $0.pending = newValue }
-                if let newValue {
-                    log.add("pending=\(newValue.kind.rawValue):\(newValue.targetLockMode?.rawValue ?? "-")")
-                } else {
-                    log.add("pending=nil")
-                }
-            }
-        }
+    func recorder() -> MigrationPhaseRecorder {
+        MigrationPhaseRecorder(migrator.phaseUpdates())
     }
 
-    // MARK: - Lock
-
-    /// A lock whose key can be wiped and restored; the lock mode lives in the preferences.
-    @MainActor
-    final class FakeMigrationLock: VaultLocking {
-        private let preferences: FakeMigrationPreferences
-        private let log: MigrationEventLog
-        private let gate: MigrationGate
-        private let key: MigrationKeyState
-        private(set) var state: LockState
-        private var failures: [MigrationLockStep: VaultLockError] = [:]
-
-        var lockMode: LockMode { preferences.lockMode }
-        var biometricKind = BiometricKind.faceID
-        var biometricsAvailable = true
-
-        init(
-            preferences: FakeMigrationPreferences, log: MigrationEventLog, gate: MigrationGate, key: MigrationKeyState,
-            unlocked: Bool
-        ) {
-            self.preferences = preferences
-            self.log = log
-            self.gate = gate
-            self.key = key
-            if preferences.lockMode == .none {
-                state = .open
-            } else {
-                state = unlocked ? .unlocked : .locked
-            }
-            key.isLoaded = state != .locked
-            key.hasNoLock = state == .open
-        }
-
-        /// The lock method keeps failing with this error until cleared.
-        func setFailure(_ error: VaultLockError?, forStep step: MigrationLockStep) {
-            failures[step] = error
-        }
-
-        /// The app went to the background: the key disappears.
-        func wipeKey() {
-            key.isLoaded = false
-            state = .locked
-        }
-
-        /// The user unlocked again.
-        func restoreKey() {
-            key.isLoaded = true
-            state = .unlocked
-        }
-
-        func removeKeysAfterDecryption() async throws {
-            log.add("removeKeys")
-            await gate.pass("removeKeys:before")
-            if let error = failures[.removeKeysAfterDecryption] { throw error }
-            preferences.lockMode = .none
-            key.isLoaded = false
-            key.hasNoLock = true
-            state = .open
-            await gate.pass("removeKeys:after")
-        }
-
-        /// As the real lock: a key is required, and neither the current nor the new mode may be `.none`.
-        func switchMode(to mode: LockMode) async throws {
-            log.add("switchMode:\(mode.rawValue)")
-            if let error = failures[.switchMode] { throw error }
-            guard key.isLoaded, mode != .none, preferences.lockMode != .none else { throw VaultLockError.notUnlocked }
-            preferences.lockMode = mode
-        }
-
-        func stateUpdates() -> AsyncStream<LockState> { AsyncStream { $0.finish() } }
-        func setUp(mode: LockMode, password: String?) async throws {}
-        func unlock(password: String) async throws { restoreKey() }
-        func unlockWithBiometrics() async throws { restoreKey() }
-        func appWillResignActive() -> Bool { false }
-        func appDidEnterBackground() { wipeKey() }
-        func appWillEnterForeground() {}
-        func changePassword(current: String, new: String) async throws {}
-        func prepareToAddLock(mode: LockMode, password: String) async throws {}
+    func run() async {
+        await migrator.encryptLeftovers(in: store)
     }
+}
 
-    // MARK: - Harness
-
-    /// Assumes this initializer on `@MainActor final class LiveLockMigrator: LockMigrating` in LiveLockMigrator.swift:
-    /// `init(store: any VaultStoring, lock: any VaultLocking, preferences: any PreferencesStoring,
-    ///       uiTestFailFileName: String? = nil)`
-    /// `uiTestFailFileName` is the value of `UITEST_FAIL_MIGRATION_FILE`, injected by the composition root in UI-test
-    /// mode only: the file with that display name fails every time it is migrated.
-    /// Files are processed in the order `itemsToMigrate` lists them; `pending` reads the preferences' pending record.
-    @MainActor
-    final class MigrationHarness {
-        let log = MigrationEventLog()
-        let gate = MigrationGate()
-        let key = MigrationKeyState()
-        let preferences: FakeMigrationPreferences
-        let store: FakeMigrationStore
-        let lock: FakeMigrationLock
-        private(set) var migrator: LiveLockMigrator
-
-        /// The default vault: three files and one trashed file, in this listing order.
-        static let names = ["a.jpg", "b.pdf", "c.mov", "Old.txt"]
-
-        // swiftlint:disable trailing_comma
-        static func sampleFiles(encrypted: Bool) -> [VaultItem] {
-            [
-                FakeMigrationStore.file("a.jpg", encrypted: encrypted),
-                FakeMigrationStore.file("b.pdf", encrypted: encrypted),
-                FakeMigrationStore.file("c.mov", encrypted: encrypted),
-                FakeMigrationStore.file("Old.txt", encrypted: encrypted, trashed: true),
-            ]
-        }
-        // swiftlint:enable trailing_comma
-
-        init(
-            files: [VaultItem],
-            lockMode: LockMode = .password,
-            pending: PendingMigration? = nil,
-            unlocked: Bool = true,
-            uiTestFailFileName: String? = nil
-        ) {
-            preferences = FakeMigrationPreferences(lockMode: lockMode, pending: pending, log: log)
-            store = FakeMigrationStore(items: files, log: log, gate: gate, key: key)
-            lock = FakeMigrationLock(preferences: preferences, log: log, gate: gate, key: key, unlocked: unlocked)
-            migrator = LiveLockMigrator(
-                store: store, lock: lock, preferences: preferences, uiTestFailFileName: uiTestFailFileName)
-        }
-
-        /// A fresh migrator over the same persisted state, as after a relaunch.
-        @discardableResult
-        func relaunch(uiTestFailFileName: String? = nil) -> LiveLockMigrator {
-            gate.disarm()
-            migrator = LiveLockMigrator(
-                store: store, lock: lock, preferences: preferences, uiTestFailFileName: uiTestFailFileName)
-            return migrator
-        }
+/// Polls until the condition holds (or about 2.5 seconds pass).
+@MainActor
+func waitForCondition(_ condition: @MainActor () -> Bool) async -> Bool {
+    for _ in 0..<500 {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(5))
     }
+    return condition()
+}
 
-    /// Polls until the condition holds (or about 2.5 seconds pass).
-    @MainActor
-    func waitUntil(_ condition: @MainActor () -> Bool) async -> Bool {
-        for _ in 0..<500 {
-            if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        return condition()
+func isFinalMigrationPhase(_ phase: MigrationPhase) -> Bool {
+    switch phase {
+    case .completed, .failed, .unreadableTrash, .idle: true
+    case .running: false
     }
-#endif
+}

@@ -775,19 +775,24 @@ the upgrade clearing it.
   - encryptLeftovers: lists `itemsToEncrypt`, then encrypts one file at a time (`migrateToEncrypted`), then
     `finishEncryption`; phase `.running(0, n)` … `.completed(fully: true)`; nothing to encrypt → `.completed(fully: true)`
     at once; a second call while a run exists (running, failed, unreadable trash) does nothing (one runner); a store that
-    isn't encrypted → nothing (`.idle`).
+    isn't encrypted → no store calls, phase `.idle` (unless a run exists: it
+    is left as it is). With nothing to encrypt, `finishEncryption` still runs and no
+    `.running(0, 0)` is published.
   - No persisted record: whatever is left unencrypted is found again the next time the vault opens.
   - A file that fails → collected; at the end `.failed(names)` with the display names. retryFailed: only the failed files
     again (publishing `.running` first, so a repeat failure is published again). skipFailed: `.completed(fully: false)`.
-  - A listing or closing-step failure (not a lock) → `.failed(names: [])`, the error logged; Retry redoes that step.
-    `finishEncryption` failing with the key loaded is logged and the run still completes.
+  - A listing failure (not a lock) → `.failed(names: [])`, the error logged; Retry redoes the listing.
+    `finishEncryption` (the closing step) failing with the key loaded is logged and the run still completes.
   - Unreadable trash: wherever the run would publish `.failed`, it first asks `hasUnreadableTrash()`; true →
     `.unreadableTrash`. clearUnreadableTrash (only from there): publishes `.running`, `clearUnreadableTrash()` on the
     store, then continues from a fresh listing; a clearing failure → `.failed(names: [])`. skipFailed from there as from
     `.failed`; retryFailed does nothing there.
   - cancel (the vault closed): the run stops after the file in progress (which finishes or fails without being counted)
     and the phase is `.idle`; the file in progress is safe (the store's steps are interrupt-safe). A `.locked` error from
-    the store also ends the run as cancel does.
+    the store also ends the run as cancel does. An `encryptLeftovers` made while a cancelled run's file is still in
+    progress waits for that file, then runs; a `cancel` during that wait drops it (it never touches the store). The store
+    is held only while a run exists (running, failed, unreadable trash) and released when the run completes, is skipped
+    or is cancelled.
   - `UITEST_FAIL_MIGRATION_FILE` (UI-test mode only) makes that file fail.
   - Removed: `pending`, `start(_:target:)`, `resumeIfPending`, `.paused`, decrypting, lock-mode switching, and the
     dependencies on VaultLock and Preferences.
@@ -1252,3 +1257,5 @@ the upgrade clearing it.
 - 2026-11-10: VaultStore `remove` on an encrypted file whose index entry is already gone deletes the file (no error) — decided by the human (VaultStore coverage triage, feature multiple-vaults-duress-password)
 - 2026-11-10: VaultCatalog removes a blobless vault folder at launch only when it is empty, so an upgraded vault whose Keychain blob is missing (e.g. after a restore) never has its files deleted (reviewer finding, VaultLock unit 2) — orchestrator
 - 2026-11-10: VaultLock races: a close/background/switch during a password check drops the check's result and wipes its key (opens and management calls throw `.notOpen`); createVault runs one at a time; setUsesBiometrics(false) in the unencrypted vault is a no-op (reviewer findings, VaultLock unit 1) — orchestrator
+- 2026-11-10: LockMigration: only a listing failure gives `.failed(names: [])`; `finishEncryption` failing is logged and the run completes (the "closing-step failure" wording was left from the decrypt flow) — test-writer note, LockMigration unit 1 — orchestrator
+- 2026-11-10: LockMigration: an `encryptLeftovers` during a cancelled run's last file waits for it, and a second cancel drops the waiting call; the store is held only while a run exists; a non-encrypted store sets `.idle` (reviewer findings, LockMigration unit 1) — orchestrator
