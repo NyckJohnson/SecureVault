@@ -169,3 +169,17 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   reads on the main actor when the lock screen is made (fast for few vaults); Preferences `hasCompletedSetup` /
   `PendingMigration.Kind.decrypt` unused outside the upgrade/seeds (contract clean-up later); the two shell minors
   already recorded (thumbnail hop, VaultCiphers).
+- 2026-11-11 (verify, RESUME HERE): all 12 journeys pass in one full `--app-ui-tests` run; feature review done. Waiting on
+  the human, who will test later. On resume, FIRST discuss and settle these four review minors with the human (they
+  asked for them to be discussed and done after a fresh session), THEN the device test and acceptance:
+  1. Wrong-password timing reveals zero vs some encrypted vaults (VaultLock `LiveVaultLock.findVault`: no PBKDF2 runs
+     when there are no vaults). Proposed: dummy derivation when empty (needs a memo line; Agreed scope currently puts
+     password-search timing out of scope), or queue with 2.
+  2. `.vault_info` written without `.completeFileProtection` (VaultLock `VaultCatalog.writeName`). Proposed: add it
+     (memo line + VaultLock unit reopen), possibly together with 1.
+  3. Preferences contract leftovers: `hasCompletedSetup` (only written by UI-test seeding), `PendingMigration.Kind.decrypt`
+     / `targetLockMode` (only read by the upgrade). Removing = contract change (needs approval). Proposed: queue a clean-up.
+  4. Lock screen lists `Vaults/` + Keychain reads on the main actor each time it's made (`LiveVaultLock.hasBiometricVault`,
+     `canCreateVault`; `VaultsViewModel.init`). Proposed: accept.
+  Also kept from the shell review: `VaultDeletionRelay` could become `onVaultDeleted` on `SettingsFactory` later.
+  Then: device test (all journeys; watch for iOS offering to save/suggest passwords, and Face ID), triage, acceptance.
