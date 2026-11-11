@@ -112,9 +112,9 @@ final class TransferTestStore: VaultStoring {
 
     // MARK: - Plain forwarding
 
-    func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection)
-        async throws -> [VaultItem]
-    {
+    func contents(
+        of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
+    ) async throws -> [VaultItem] {
         try await inner.contents(of: directory, sortedBy: option, direction)
     }
     func write(_ data: Data, to item: VaultItem) async throws { try await inner.write(data, to: item) }

@@ -16,7 +16,8 @@ import Testing
 
     @Test("localizedDescription shows the same texts in alerts")
     func localizedDescriptionMatches() {
-        #expect(VaultTransferError.limitReached.localizedDescription == "The other vault would have more than 100 files.")
+        let limitText = "The other vault would have more than 100 files."
+        #expect(VaultTransferError.limitReached.localizedDescription == limitText)
         #expect(VaultTransferError.sameVault.localizedDescription == "These items are already in this vault.")
     }
 }
