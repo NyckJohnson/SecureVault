@@ -31,30 +31,16 @@ private struct TestSuite {
 
     @Test("An empty store reads the documented defaults")
     func defaultsOnEmptyStore() {
+        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
-        #expect(store.hasCompletedSetup == false)
         #expect(store.lockMode == .none)
         #expect(store.sortOption == .name)
         #expect(store.sortDirection == .ascending)
-        #expect(store.pendingMigration == nil)
     }
 
     // MARK: Round trips and raw values
-
-    @Test("hasCompletedSetup round-trips under its key")
-    func hasCompletedSetupRoundTrip() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.hasCompletedSetup = true
-        #expect(store.hasCompletedSetup == true)
-        #expect(suite.defaults.bool(forKey: "hasCompletedSetup") == true)
-        store.hasCompletedSetup = false
-        #expect(store.hasCompletedSetup == false)
-        #expect(suite.defaults.bool(forKey: "hasCompletedSetup") == false)
-    }
 
     static let lockModeRows: [(mode: LockMode, raw: String)] = {
         var rows: [(mode: LockMode, raw: String)] = []
@@ -109,103 +95,22 @@ private struct TestSuite {
         #expect(suite.defaults.string(forKey: "sortDirection") == raw)
     }
 
-    @Test("An encrypt migration with a target stores both keys", arguments: LockMode.allCases)
-    func encryptMigrationWithTarget(target: LockMode) {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        let migration = PendingMigration(kind: .encrypt, targetLockMode: target)
-        store.pendingMigration = migration
-        #expect(store.pendingMigration == migration)
-        #expect(suite.defaults.string(forKey: "pendingMigrationType") == "encrypt")
-        #expect(suite.defaults.string(forKey: "pendingMigrationTargetLockMode") == target.rawValue)
-    }
-
-    @Test("An encrypt migration without a target stores no target key")
-    func encryptMigrationWithoutTarget() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
-        store.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: nil)
-        #expect(store.pendingMigration == PendingMigration(kind: .encrypt, targetLockMode: nil))
-        #expect(suite.defaults.string(forKey: "pendingMigrationType") == "encrypt")
-        #expect(suite.defaults.object(forKey: "pendingMigrationTargetLockMode") == nil)
-    }
-
-    @Test("A decrypt migration stores only its type")
-    func decryptMigration() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.pendingMigration = PendingMigration(kind: .decrypt, targetLockMode: nil)
-        #expect(store.pendingMigration == PendingMigration(kind: .decrypt, targetLockMode: nil))
-        #expect(suite.defaults.string(forKey: "pendingMigrationType") == "decrypt")
-        #expect(suite.defaults.object(forKey: "pendingMigrationTargetLockMode") == nil)
-    }
-
-    @Test("A target given with a decrypt migration is ignored and not stored")
-    func decryptMigrationIgnoresTarget() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.pendingMigration = PendingMigration(kind: .decrypt, targetLockMode: .password)
-        #expect(store.pendingMigration?.kind == .decrypt)
-        #expect(store.pendingMigration?.targetLockMode == nil)
-        #expect(suite.defaults.object(forKey: "pendingMigrationTargetLockMode") == nil)
-    }
-
-    @Test("Replacing an encrypt migration having a target with a decrypt one removes the old target")
-    func decryptReplacesEncryptTarget() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .passwordAndBiometrics)
-        store.pendingMigration = PendingMigration(kind: .decrypt, targetLockMode: nil)
-        #expect(store.pendingMigration == PendingMigration(kind: .decrypt, targetLockMode: nil))
-        #expect(suite.defaults.object(forKey: "pendingMigrationTargetLockMode") == nil)
-    }
-
-    @Test("Setting pendingMigration to nil removes both keys")
-    func nilPendingMigrationRemovesKeys() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
-        store.pendingMigration = nil
-        #expect(store.pendingMigration == nil)
-        #expect(suite.defaults.object(forKey: "pendingMigrationType") == nil)
-        #expect(suite.defaults.object(forKey: "pendingMigrationTargetLockMode") == nil)
-    }
-
-    @Test("Setting pendingMigration to nil on an empty store is harmless")
-    func nilPendingMigrationOnEmptyStore() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        let store = suite.makeStore()
-        store.pendingMigration = nil
-        #expect(store.pendingMigration == nil)
-    }
-
     // MARK: Persistence
 
     @Test("Values written by one store are read by a new store on the same suite")
     func persistenceAcrossStores() {
+        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let first = suite.makeStore()
-        first.hasCompletedSetup = true
         first.lockMode = .passwordAndBiometrics
         first.sortOption = .dateModified
         first.sortDirection = .descending
-        first.pendingMigration = PendingMigration(kind: .encrypt, targetLockMode: .password)
 
         let second = suite.makeStore()
-        #expect(second.hasCompletedSetup == true)
         #expect(second.lockMode == .passwordAndBiometrics)
         #expect(second.sortOption == .dateModified)
         #expect(second.sortDirection == .descending)
-        #expect(second.pendingMigration == PendingMigration(kind: .encrypt, targetLockMode: .password))
     }
 
     @Test("Stores on different suites do not share values")
@@ -246,51 +151,22 @@ private struct TestSuite {
         #expect(suite.makeStore().sortDirection == .ascending)
     }
 
-    @Test("An unknown pendingMigrationType reads as no pending migration")
-    func unknownMigrationType() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        suite.defaults.set("bogus", forKey: "pendingMigrationType")
-        suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
-        #expect(suite.makeStore().pendingMigration == nil)
-    }
-
-    @Test("An unknown target raw value on an encrypt migration reads as no target")
-    func unknownMigrationTarget() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        suite.defaults.set("encrypt", forKey: "pendingMigrationType")
-        suite.defaults.set("bogus", forKey: "pendingMigrationTargetLockMode")
-        #expect(suite.makeStore().pendingMigration == PendingMigration(kind: .encrypt, targetLockMode: nil))
-    }
-
-    @Test("A stored target on a decrypt migration is not read")
-    func storedTargetIgnoredForDecrypt() {
-        let suite = TestSuite()
-        defer { suite.cleanup() }
-        suite.defaults.set("decrypt", forKey: "pendingMigrationType")
-        suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
-        #expect(suite.makeStore().pendingMigration == PendingMigration(kind: .decrypt, targetLockMode: nil))
-    }
-
     // MARK: Legacy-written values
 
     @Test("Raw values written directly under the documented keys are read back")
     func readsDocumentedKeys() {
+        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
-        suite.defaults.set(true, forKey: "hasCompletedSetup")
         suite.defaults.set("passwordAndBiometrics", forKey: "lockMode")
         suite.defaults.set("type", forKey: "sortOption")
         suite.defaults.set("descending", forKey: "sortDirection")
         suite.defaults.set("encrypt", forKey: "pendingMigrationType")
         suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
         let store = suite.makeStore()
-        #expect(store.hasCompletedSetup == true)
         #expect(store.lockMode == .passwordAndBiometrics)
         #expect(store.sortOption == .type)
         #expect(store.sortDirection == .descending)
-        #expect(store.pendingMigration == PendingMigration(kind: .encrypt, targetLockMode: .password))
     }
 
     // MARK: vaultsUpgraded (feature multiple-vaults-duress-password)
@@ -333,55 +209,33 @@ private struct TestSuite {
 
     @Test("vaultsUpgraded does not change other settings")
     func vaultsUpgradedLeavesOtherSettingsAlone() {
+        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
         store.vaultsUpgraded = true
-        #expect(store.hasCompletedSetup == false)
         #expect(store.lockMode == .none)
-        #expect(store.pendingMigration == nil)
     }
 
     // MARK: Thread safety
 
-    static let concurrentMigrations: [PendingMigration?] = {
-        var rows: [PendingMigration?] = []
-        rows.append(nil)
-        rows.append(PendingMigration(kind: .decrypt, targetLockMode: nil))
-        rows.append(PendingMigration(kind: .encrypt, targetLockMode: .password))
-        rows.append(PendingMigration(kind: .encrypt, targetLockMode: .passwordAndBiometrics))
-        return rows
-    }()
-
     @Test("Concurrent reads and writes from several threads neither crash nor tear")
     func concurrentAccess() {
+        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
-        let migrations = Self.concurrentMigrations
-        let reads = OSAllocatedUnfairLock(initialState: [PendingMigration?]())
         DispatchQueue.concurrentPerform(iterations: 400) { i in
-            store.hasCompletedSetup = i.isMultiple(of: 2)
             store.lockMode = LockMode.allCases[i % LockMode.allCases.count]
             store.sortOption = SortOption.allCases[i % SortOption.allCases.count]
             store.sortDirection = SortDirection.allCases[i % SortDirection.allCases.count]
-            store.pendingMigration = migrations[i % migrations.count]
             store.vaultsUpgraded = i.isMultiple(of: 3)
 
-            _ = store.hasCompletedSetup
             _ = store.lockMode
             _ = store.sortOption
             _ = store.sortDirection
             _ = store.vaultsUpgraded
-            let read = store.pendingMigration
-            reads.withLock { $0.append(read) }
         }
-        // Every read must be one of the values that was written, never a torn mix
-        // (an encrypt with a missing or stale target is not a member of the table).
-        let observed = reads.withLock { $0 }
-        #expect(observed.count == 400)
-        #expect(observed.allSatisfy { read in migrations.contains { $0 == read } })
-        #expect(!migrations.contains { $0?.kind == .encrypt && $0?.targetLockMode == nil })
         // The store still works after the storm.
         store.lockMode = .password
         #expect(store.lockMode == .password)

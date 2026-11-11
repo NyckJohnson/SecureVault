@@ -38,6 +38,7 @@ final class LiveVaultLock: VaultLocking {
     private let pro: any ProUnlocking
     private let biometricInfo: BiometricInfo
     private let makeKeyStore: @Sendable (_ blobAccount: String) -> any MasterKeyStoring
+    private let makeDecoyKeyStore: @Sendable () -> any MasterKeyStoring
     private let makeCipher: @Sendable (any MasterKeyStoring) -> any FileCipher
     private let makeStore:
         @Sendable (_ root: URL, _ name: String, _ isEncrypted: Bool, any MasterKeyStoring, any FileCipher) ->
@@ -65,12 +66,15 @@ final class LiveVaultLock: VaultLocking {
     ///   - pro: the Pro entitlement (more than one encrypted vault).
     ///   - biometricInfo: the device's biometrics.
     ///   - makeKeyStore: a key store for a vault's blob account.
+    ///   - makeDecoyKeyStore: the decoy key store for password searches with no vault to try (over a private
+    ///     in-memory Keychain, never the real one).
     ///   - makeCipher: a cipher over a key store.
     ///   - makeStore: a vault store for a root, name, encrypted flag, key store and cipher.
     init(
         documents: URL, vaultsFolder: URL, unencryptedStore: any VaultStoring, keychain: any KeychainAccessing,
         preferences: any PreferencesStoring, pro: any ProUnlocking, biometricInfo: BiometricInfo,
         makeKeyStore: @escaping @Sendable (_ blobAccount: String) -> any MasterKeyStoring,
+        makeDecoyKeyStore: @escaping @Sendable () -> any MasterKeyStoring,
         makeCipher: @escaping @Sendable (any MasterKeyStoring) -> any FileCipher,
         makeStore:
             @escaping @Sendable (
@@ -83,6 +87,7 @@ final class LiveVaultLock: VaultLocking {
         self.pro = pro
         self.biometricInfo = biometricInfo
         self.makeKeyStore = makeKeyStore
+        self.makeDecoyKeyStore = makeDecoyKeyStore
         self.makeCipher = makeCipher
         self.makeStore = makeStore
         let unencrypted = OpenVault(

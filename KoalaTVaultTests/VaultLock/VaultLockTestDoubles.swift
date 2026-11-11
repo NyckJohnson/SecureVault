@@ -346,6 +346,8 @@ final class VaultLockFixture {
             pro: pro,
             biometricInfo: BiometricInfo(probe: probe),
             makeKeyStore: { account in shelf.make(account: account) },
+            // feature multiple-vaults-duress-password: signature updated
+            makeDecoyKeyStore: { MockMasterKeyStoring() },
             makeCipher: { _ in Self.makeCipher(failing: cipherError.withLock { $0 }) },
             makeStore: registry.build)
     }
