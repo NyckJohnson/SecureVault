@@ -981,7 +981,7 @@ the upgrade clearing it.
     (the unencrypted vault becomes `current`), done. Nothing in the model or its texts depends on how many vaults exist.
   - CreateVaultViewModel: Name, Password, Confirm; Create: name trimmed empty → "Enter a name for the vault"; empty
     password → "Password cannot be empty"; mismatch → "Passwords do not match"; then `createVault`; busy ("Creating
-    Vault…"); success → done (both screens close); `.passwordInUse` → "Choose a different password."; `.vaultLimitReached`
+    Vault…"); success → both password fields clear, then done (both screens close); `.passwordInUse` → "Choose a different password."; `.vaultLimitReached`
     → `onNeedsPro`; other errors → their message (the fields keep the name, the password fields clear).
   - AppLockCoordinator: connect → the lock screen full-screen over the window's root, without animation; resign active
     with `appWillResignActive()` true → privacy cover over the window; background → `appDidEnterBackground()` (closes
@@ -997,6 +997,8 @@ the upgrade clearing it.
     `vaults.unencryptedButton`, `vaults.errorLabel`, `createVault.nameField`,
     `createVault.passwordField`, `createVault.confirmField`, `createVault.createButton`, `createVault.errorLabel`,
     `privacyCover`. (Views; covered by journey tests.) `LiveVaultsScreenFactory` lives in `Views/VaultsViewController.swift`.
+    Vault password fields (lock screen, Create Vault) set no password `textContentType` (`nil`), so iOS never offers to
+    save a vault password to the Keychain / password manager or suggest a strong one (decided 2026-11-11).
 - Changes (multiple-vaults-duress-password): SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift, Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift
 - Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory` (`makeLockScreen(onDone:onNeedsPro:)`); `AppLockCoordinating` gains `lock()` (both revised at the prototype, 2026-11-10); LockScreens no longer depends on VaultCrypto or Preferences.
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
@@ -1072,7 +1074,7 @@ the upgrade clearing it.
   - FileBrowserViewModel load: items from `contents` with the global sort; a load error is shown once the vault is unlocked or open (never silently kept stale); empty → "No files yet"; the settings button only at the root.
   - Feature multiple-vaults-duress-password: the browser shows the open vault (the shell builds a browser factory per vault; the contract is unchanged); the root's title is the vault's name (`root.name`); the root's bar has a Lock button (identifier `lockButton`, every vault) that calls the `onLock` action the shell gives (the coordinator's `lock()`); Browser no longer depends on LockScreens (revised at the prototype, 2026-11-10).
   - Move/Copy to Vault: context menu "Move to Vault…" and "Copy to Vault…"; Select mode "To Vault" (identifier `browser.bulkVaultButton`; context menu items `browser.contextMenu.moveToVault`, `browser.contextMenu.copyToVault`) → "Move to Vault…" / "Copy to Vault…" / Cancel; → the vault picker; its target → `transfer(items, from: current store, to: target store, removingOriginals:)` with progress "Moving…" / "Copying…" (N of M); then the target is closed (`closeTransferTarget`, not for the unencrypted vault) and the grid reloads; `.limitReached` → the paywall; any failed → "N of M failed"; other errors → their message. One transfer at a time.
-  - VaultPickerViewModel: "Unencrypted Vault" row only when the open vault is encrypted (→ `unencryptedVault`); password field and "Use Vault" (→ `openTransferTarget`); empty ignored; busy; `.wrongPassword` → "Incorrect password"; `.sameVault` → "These items are already in this vault."; other errors → their message; Cancel → no target. Identifiers `vaultPicker.unencryptedRow`, `vaultPicker.passwordField`, `vaultPicker.useButton`, `vaultPicker.cancelButton`, `vaultPicker.errorLabel`.
+  - VaultPickerViewModel: "Unencrypted Vault" row only when the open vault is encrypted (→ `unencryptedVault`); password field and "Use Vault" (→ `openTransferTarget`); empty ignored; busy; `.wrongPassword` → "Incorrect password"; `.sameVault` → "These items are already in this vault."; other errors → their message; Cancel → no target. Identifiers `vaultPicker.unencryptedRow`, `vaultPicker.passwordField`, `vaultPicker.useButton`, `vaultPicker.cancelButton`, `vaultPicker.errorLabel`. The password field sets no password `textContentType` (`nil`): iOS never offers to save or suggest a vault password (decided 2026-11-11).
   - Sort: current option flips direction; another option → ascending; saved in Preferences; reload.
   - Open: folder → push a browser; `.rtf` → editor; other files → viewer with the folder's non-folder items starting at the tapped one.
   - New Folder / New Document: names trimmed; empty ignored; through the store (New Document opens the editor on the created item).
@@ -1263,3 +1265,4 @@ the upgrade clearing it.
 - 2026-11-10: LockMigration: only a listing failure gives `.failed(names: [])`; `finishEncryption` failing is logged and the run completes (the "closing-step failure" wording was left from the decrypt flow) — test-writer note, LockMigration unit 1 — orchestrator
 - 2026-11-10: LockMigration: an `encryptLeftovers` during a cancelled run's last file waits for it, and a second cancel drops the waiting call; the store is held only while a run exists; a non-encrypted store sets `.idle` (reviewer findings, LockMigration unit 1) — orchestrator
 - 2026-11-10: Settings' Views identifier line corrected to the names the code and journey tests use (2026-11-03 naming; the prototype's new `settings.*` identifiers); no behavior change — orchestrator
+- 2026-11-11: vault password fields (lock screen, Create Vault, vault picker; Settings' alert fields already set none) set no password `textContentType`, so iOS never offers to save or suggest a vault password; Create Vault clears its password fields on success too — decided by the human (LockScreens unit 3 review, feature multiple-vaults-duress-password)
