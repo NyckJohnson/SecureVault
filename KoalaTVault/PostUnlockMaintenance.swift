@@ -2,26 +2,23 @@
 //  PostUnlockMaintenance.swift
 //  KoalaTVault
 //
-//  The app shell's housekeeping after every unlock.
+//  The app shell's housekeeping after an encrypted vault opens.
 //
 
 import Foundation
 
-/// The vault housekeeping the app runs after each unlock, once the key is loaded and the folder indexes
-/// can be read.
+/// The vault housekeeping the app runs each time an encrypted vault opens, once its key is loaded and its folder
+/// indexes can be read.
 enum PostUnlockMaintenance {
-    /// Purges trash items older than 30 days, then sweeps orphaned files unless a lock migration is pending.
+    /// Purges trash items older than 30 days, then sweeps orphaned files.
     ///
-    /// A purge failure (for example an unreadable trash map, which is never overwritten) is ignored: the
-    /// purge runs again after the next unlock. A pending migration has copies that aren't indexed yet, so the
-    /// sweep (which would take them for orphans) waits until the migration has finished.
+    /// A purge failure (for example an unreadable trash map, which is never overwritten) is ignored on purpose: the
+    /// purge runs again the next time the vault opens, and the sweep still runs.
     /// - Parameters:
-    ///   - vaultStore: the app's vault store.
-    ///   - preferences: the app's preferences, read for the pending migration.
+    ///   - vaultStore: the opened vault's store.
     ///   - now: the current time, which decides which trash items have expired.
-    static func run(vaultStore: any VaultStoring, preferences: any PreferencesStoring, now: Date) async {
+    static func run(vaultStore: any VaultStoring, now: Date) async {
         _ = try? await vaultStore.purgeExpiredTrash(now: now)
-        guard preferences.pendingMigration == nil else { return }
         await vaultStore.sweepOrphans()
     }
 }
