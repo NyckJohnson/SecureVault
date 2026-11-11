@@ -6,7 +6,7 @@ import UIKit
 /// Seams the Browser view tests assume (the code-writer builds them):
 ///
 /// `FileBrowserViewController(directory:store:preferences:thumbnails:exporter:exportPresenter:importPresenter:
-/// viewerFactory:settingsFactory:)` is a `UIViewController & AlertPresenting` that makes its own
+/// viewerFactory:settingsFactory:vaultServices:)` is a `UIViewController & AlertPresenting` that makes its own
 /// `FileBrowserViewModel` (alerts = itself) and loads it when it appears. Its `fileGrid` is a
 /// `UICollectionView` whose data source returns `FileCell`s. Bar buttons carry the memo's identifiers (nav bar
 /// or the controller's `toolbarItems`).

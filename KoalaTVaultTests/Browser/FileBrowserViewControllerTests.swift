@@ -19,6 +19,9 @@ import UIKit
         let thumbnails: BrowserFakeThumbnails
         let viewer: MockViewerFactory
         let settings: MockSettingsFactory
+        let lock: MockVaultLocking
+        let transfer: MockVaultTransferring
+        let lockCount: LockCounter
 
         var grid: UICollectionView? { host.element("fileGrid") as? UICollectionView }
 
@@ -69,6 +72,11 @@ import UIKit
         }
     }
 
+    @MainActor
+    final class LockCounter {
+        var count = 0
+    }
+
     private func makeRig(
         folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false,
         waitForCells: Bool = true,
@@ -90,18 +98,25 @@ import UIKit
         let viewer = MockViewerFactory()
         let settings = MockSettingsFactory()
         if failing { store.errorToThrow = .notFound }
+        let lock = MockVaultLocking(
+            vaults: [MockVaultLocking.Vault(id: "primary", name: "Work", password: "correct horse")])
+        if encryptedStore { try await lock.open(password: "correct horse") }
+        let transfer = MockVaultTransferring()
+        let lockCount = LockCounter()
         let controller = FileBrowserViewController(
             directory: directory, store: store, preferences: preferences, thumbnails: thumbnails,
             exporter: exporter, exportPresenter: ExportPresenter(exporter: exporter),
             importPresenter: ImportPresenter(
                 importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
-            viewerFactory: viewer, settingsFactory: settings)
+            viewerFactory: viewer, settingsFactory: settings,
+            vaultServices: BrowserVaultServices(
+                lock: lock, transfer: transfer, onLock: { lockCount.count += 1 }))
         let host = BrowserViewHost(
             content: UINavigationController(rootViewController: controller), regularWidth: regularWidth)
         let rig = Rig(
             host: host, controller: controller, store: store, preferences: preferences,
             thumbnails: thumbnails,
-            viewer: viewer, settings: settings)
+            viewer: viewer, settings: settings, lock: lock, transfer: transfer, lockCount: lockCount)
         if waitForCells && withSampleContent && !failing {
             await BrowserViewSupport.waitUntil { !rig.cells.isEmpty }
         }
@@ -228,6 +243,110 @@ import UIKit
         #expect(rig.settings.calls == [.makeSettings])
     }
 
+    // MARK: - Lock button and vault actions
+
+    @Test(
+        "The root of the unencrypted vault has a Lock button that calls onLock",
+        arguments: [false, true])
+    func lockButtonCallsOnLock(encrypted: Bool) async throws {
+        let rig = try await makeRig(encryptedStore: encrypted)
+        #expect(rig.host.element("lockButton") != nil)
+        rig.host.tap("lockButton")
+        #expect(rig.lockCount.count == 1)
+    }
+
+    @Test("A pushed subfolder has no Lock button", arguments: [false, true])
+    func subfolderHasNoLockButton(encrypted: Bool) async throws {
+        let rig = try await makeRig(folder: "Photos", encryptedStore: encrypted)
+        #expect(rig.host.element("lockButton") == nil)
+    }
+
+    @Test("The root title is the vault's name", arguments: [false, true])
+    func rootTitleIsVaultName(encrypted: Bool) async throws {
+        let rig = try await makeRig(encryptedStore: encrypted)
+        #expect(rig.host.shownTitle == (encrypted ? "Work" : "KoalaTVault"))
+    }
+
+    @Test("Select mode shows the To Vault button")
+    func selectModeShowsVaultButton() async throws {
+        let rig = try await makeRig()
+        #expect(rig.host.element("browser.bulkVaultButton") == nil)
+        rig.host.tap("selectButton")
+        #expect(await rig.host.waitForElement("browser.bulkVaultButton") != nil)
+    }
+
+    @Test("To Vault offers Move to Vault, Copy to Vault and Cancel")
+    func bulkVaultSheet() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("browser.bulkVaultButton")
+        let sheet = try #require(await rig.host.alert())
+        #expect(sheet.preferredStyle == .actionSheet)
+        #expect(sheet.actions.map(\.title) == ["Move to Vault…", "Copy to Vault…", "Cancel"])
+    }
+
+    @Test("Choosing Move or Copy to Vault in the sheet presents the vault picker", arguments: [0, 1])
+    func bulkVaultSheetChoicePresentsPicker(index: Int) async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        rig.host.tap("browser.bulkVaultButton")
+        let sheet = try #require(await rig.host.alert())
+        // A real tap dismisses the sheet before running the action; do the same.
+        sheet.dismiss(animated: false)
+        await BrowserViewSupport.waitUntil { !(rig.host.topmost is UIAlertController) }
+        sheet.actions[index].fire()
+        await BrowserViewSupport.waitUntil { rig.host.element("vaultPicker.useButton") != nil }
+        #expect(rig.host.element("vaultPicker.useButton") != nil)
+        let top = rig.host.topmost
+        let picker = (top as? UINavigationController)?.viewControllers.first ?? top
+        #expect(picker is VaultPickerViewController)
+    }
+
+    @Test(
+        "The context menu's vault items present the vault picker",
+        arguments: [
+            "Move to Vault…", "Copy to Vault…",
+        ])
+    func contextVaultItemPresentsPicker(title: String) async throws {
+        let rig = try await makeRig()
+        rig.choose(title, in: "Beach.jpg")
+        await BrowserViewSupport.waitUntil { rig.host.element("vaultPicker.useButton") != nil }
+        #expect(rig.host.element("vaultPicker.useButton") != nil)
+    }
+
+    @Test("Cancelling the vault picker transfers nothing")
+    func vaultPickerCancelTransfersNothing() async throws {
+        let rig = try await makeRig()
+        rig.choose("Move to Vault…", in: "Beach.jpg")
+        await BrowserViewSupport.waitUntil { rig.host.element("vaultPicker.cancelButton") != nil }
+        rig.host.tap("vaultPicker.cancelButton")
+        await BrowserViewSupport.settle()
+        #expect(rig.transfer.calls.isEmpty)
+    }
+
+    @Test("Choosing the unencrypted vault in the picker transfers the item and moves it out")
+    func vaultPickerTransfers() async throws {
+        let rig = try await makeRig(encryptedStore: true)
+        rig.choose("Move to Vault…", in: "Beach.jpg")
+        await BrowserViewSupport.waitUntil { rig.host.element("vaultPicker.unencryptedRow") != nil }
+        rig.host.tap("vaultPicker.unencryptedRow")
+        await BrowserViewSupport.waitUntil { !rig.transfer.calls.isEmpty }
+        #expect(rig.transfer.calls.count == 1)
+        #expect(rig.transfer.calls.first?.removingOriginals == true)
+        #expect(rig.settings.calls.isEmpty)
+    }
+
+    @Test("A transfer refused with limitReached presents the paywall")
+    func limitReachedPresentsPaywall() async throws {
+        let rig = try await makeRig(encryptedStore: true)
+        rig.transfer.errorToThrow = .limitReached
+        rig.choose("Copy to Vault…", in: "Beach.jpg")
+        await BrowserViewSupport.waitUntil { rig.host.element("vaultPicker.unencryptedRow") != nil }
+        rig.host.tap("vaultPicker.unencryptedRow")
+        await BrowserViewSupport.waitUntil { rig.settings.calls.contains(.makePaywall) }
+        #expect(rig.settings.calls == [.makePaywall])
+    }
+
     // MARK: - Sort, New Folder, New Document
 
     @Test("Sort offers Name, Type and Date Modified, and a choice is saved")
@@ -295,7 +414,7 @@ import UIKit
         #expect(rig.host.shownTitle == "Select Items")
         let ids = [
             "browser.bulkDeleteButton", "browser.bulkMoveButton",
-            "browser.bulkExportButton", "browser.bulkCopyButton",
+            "browser.bulkExportButton", "browser.bulkCopyButton", "browser.bulkVaultButton",
         ]
         for id in ids {
             #expect(rig.host.element(id) != nil, "missing \(id)")
@@ -465,18 +584,19 @@ import UIKit
 
     // MARK: - Context menu
 
-    @Test("The context menu offers Export, Move, Copy, Rename and Delete")
+    @Test("The context menu offers Export, Move, Copy, Rename, Delete and the two vault actions")
     func contextMenuActions() async throws {
         let rig = try await makeRig()
         #expect(rig.menuConfiguration(for: "Beach.jpg") != nil)
         #expect(
             rig.menuActions(for: "Beach.jpg").map(\.title) == [
-                "Export", "Move", "Copy", "Rename", "Delete",
+                "Export", "Move", "Copy", "Rename", "Delete", "Move to Vault…", "Copy to Vault…",
             ])
         #expect(
             rig.menuIdentifiers(for: "Beach.jpg") == [
                 "browser.contextMenu.export", "browser.contextMenu.move", "browser.contextMenu.copy",
                 "browser.contextMenu.rename", "browser.contextMenu.delete",
+                "browser.contextMenu.moveToVault", "browser.contextMenu.copyToVault",
             ])
     }
 
