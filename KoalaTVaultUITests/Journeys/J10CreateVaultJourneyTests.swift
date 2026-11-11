@@ -31,6 +31,28 @@ final class J10CreateVaultJourneyTests: StoreKitJourneyTestCase {
         XCTAssertTrue(app.navigationBars["Family"].waitForExistence(timeout: 5))
     }
 
+    func testJourney10_ReturnInTheNameFieldOpensThePasswordAlert() {
+        launch(environment: [:])
+        waitForLockScreen()
+        app.buttons["vaults.createButton"].tap()
+        type("Family\n", into: app.textFields["createVault.nameField"])
+        openedPasswordAlert()
+    }
+
+    func testJourney10_CancelInThePasswordAlertLeavesCreateVaultWithoutCreatingAVault() {
+        launch(environment: [:])
+        waitForLockScreen()
+        app.buttons["vaults.createButton"].tap()
+        type("Family", into: app.textFields["createVault.nameField"])
+        app.buttons["createVault.createButton"].tap()
+        let alert = openedPasswordAlert()
+        tapAlertButton("Cancel", in: alert)
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), "The alert should close")
+        XCTAssertTrue(app.textFields["createVault.nameField"].exists, "Still on Create Vault")
+        XCTAssertFalse(app.collectionViews["fileGrid"].exists, "No vault should have opened")
+        XCTAssertFalse(app.staticTexts["createVault.errorLabel"].exists, "Cancel is not an error")
+    }
+
     // MARK: - Failure paths
 
     private func expectCreateError(_ message: String, file: StaticString = #filePath, line: UInt = #line) {

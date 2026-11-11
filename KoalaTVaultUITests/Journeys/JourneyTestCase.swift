@@ -367,18 +367,35 @@ class StoreKitJourneyTestCase: JourneyTestCase {
         fillCreateVaultForm(name: name, password: password, confirm: confirm, file: file, line: line)
     }
 
-    /// On the Create Vault screen: fills the fields and taps Create.
+    /// On the Create Vault screen: types the name, taps Create, and (for a non-blank name) fills the
+    /// "Set Password" alert and taps its Create button. A blank name opens no alert.
     func fillCreateVaultForm(name: String, password: String, confirm: String? = nil,
                              file: StaticString = #filePath, line: UInt = #line) {
         let nameField = app.textFields["createVault.nameField"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 5), "The Create Vault screen did not appear",
                       file: file, line: line)
         if !name.isEmpty { type(name, into: nameField, file: file, line: line) }
-        if !password.isEmpty { type(password, into: app.secureTextFields["createVault.passwordField"], file: file, line: line) }
+        app.buttons["createVault.createButton"].tap()
+        guard !name.isEmpty else { return }
+        let alert = openedPasswordAlert(file: file, line: line)
+        if !password.isEmpty {
+            type(password, into: alert.secureTextFields["createVault.alertPasswordField"], file: file, line: line)
+        }
         let confirmation = confirm ?? password
         if !confirmation.isEmpty {
-            type(confirmation, into: app.secureTextFields["createVault.confirmField"], file: file, line: line)
+            type(confirmation, into: alert.secureTextFields["createVault.alertConfirmField"], file: file, line: line)
         }
-        app.buttons["createVault.createButton"].tap()
+        let create = alert.buttons["createVault.alertCreateButton"].exists
+            ? alert.buttons["createVault.alertCreateButton"] : alert.buttons["Create"]
+        create.tap()
+    }
+
+    /// Waits for the "Set Password" alert of Create Vault and returns it.
+    @discardableResult
+    func openedPasswordAlert(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let alert = app.alerts["Set Password"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "The Set Password alert did not appear",
+                      file: file, line: line)
+        return alert
     }
 }
