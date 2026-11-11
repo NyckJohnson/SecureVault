@@ -43,9 +43,16 @@ final class LiveLockMigrator: LockMigrating {
     }
 
     func encryptLeftovers(in store: any VaultStoring) async {
-        guard store.isEncrypted else { return }
-        // A cancelled runner still finishing its file in progress must end before a new run touches a vault.
+        guard store.isEncrypted else {
+            // Nothing to encrypt in an unencrypted vault; a run that exists (failed, unreadable trash) is kept.
+            if busyGeneration == nil, run == nil { broadcast.update(.idle) }
+            return
+        }
+        // A cancelled runner still finishing its file in progress must end before a new run touches a vault;
+        // a cancel during that wait drops this call.
+        let callGeneration = generation
         await waitForCancelledRunner()
+        guard generation == callGeneration else { return }
         // One runner: a run that exists (running, failed, unreadable trash) must end first.
         guard busyGeneration == nil, run == nil else { return }
         run = Run(store: store)
