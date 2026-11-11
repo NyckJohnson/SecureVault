@@ -116,6 +116,16 @@ private final class TransferGatedVaultLocking: VaultLocking {
         #expect(!lock.calls.contains(.openTransferTarget))
     }
 
+    @Test("Choosing the Unencrypted row twice, then Cancel, reports exactly once")
+    func reportsOnlyOnce() async throws {
+        let lock = try await makeLock(encryptedOpen: true)
+        let (model, box) = makeModel(lock)
+        model.unencryptedTapped()
+        model.unencryptedTapped()
+        model.cancelTapped()
+        #expect(box.reports.count == 1)
+    }
+
     @Test("Tapping the Unencrypted Vault row when it is not offered reports nothing")
     func unencryptedRowIgnoredWhenHidden() async throws {
         let lock = try await makeLock(encryptedOpen: false)
@@ -137,6 +147,7 @@ private final class TransferGatedVaultLocking: VaultLocking {
         #expect(box.reports.first??.id == "second")
         #expect(model.errorMessage == nil)
         #expect(!model.isBusy)
+        #expect(model.password.isEmpty)
     }
 
     @Test("Use Vault works from the unencrypted vault too")
@@ -168,6 +179,7 @@ private final class TransferGatedVaultLocking: VaultLocking {
         await model.useTapped()
         #expect(model.errorMessage == "Incorrect password")
         #expect(box.reports.isEmpty)
+        #expect(model.password.isEmpty)
         #expect(!model.isBusy)
     }
 
