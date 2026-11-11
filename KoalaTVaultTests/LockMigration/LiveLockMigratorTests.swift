@@ -80,6 +80,7 @@ import Testing
         #expect(harness.migrator.phase == .completed(fully: true))
         #expect(recorder.phases == [.completed(fully: true)])
         #expect(harness.log.events(withPrefix: "enc:").isEmpty)
+        #expect(harness.log.count(of: "finishEncryption") == 1)
     }
 
     @Test("An empty encrypted vault completes at once")

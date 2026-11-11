@@ -170,7 +170,7 @@
             "LiveLockMigrator.swift"
           ],
           "state": "code",
-          "attempts": 0
+          "attempts": 1
         }
       ]
     },
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T17:45:08-08:00",
+  "updatedAt": "2026-11-10T17:46:11-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
