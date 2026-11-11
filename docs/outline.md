@@ -775,7 +775,8 @@ the upgrade clearing it.
   - encryptLeftovers: lists `itemsToEncrypt`, then encrypts one file at a time (`migrateToEncrypted`), then
     `finishEncryption`; phase `.running(0, n)` … `.completed(fully: true)`; nothing to encrypt → `.completed(fully: true)`
     at once; a second call while a run exists (running, failed, unreadable trash) does nothing (one runner); a store that
-    isn't encrypted → no store calls, phase `.idle`. With nothing to encrypt, `finishEncryption` still runs and no
+    isn't encrypted → no store calls, phase `.idle` (unless a run exists: it
+    is left as it is). With nothing to encrypt, `finishEncryption` still runs and no
     `.running(0, 0)` is published.
   - No persisted record: whatever is left unencrypted is found again the next time the vault opens.
   - A file that fails → collected; at the end `.failed(names)` with the display names. retryFailed: only the failed files

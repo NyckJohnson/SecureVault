@@ -78,4 +78,35 @@ import Testing
         #expect(harness.migrator.phase == .idle)
         #expect(log.events.isEmpty)
     }
+
+    @Test("A non-encrypted store while a run exists leaves it as it is: still failed, skip and retry still work")
+    func nonEncryptedStoreWhileFailedLeavesRunAlone() async {
+        let harness = MigrationHarness()
+        harness.store.setFailure(.io("bad"), for: "c.mov")
+        await harness.run()
+        #expect(harness.migrator.phase == .failed(names: ["c.mov"]))
+        let log = MigrationEventLog()
+        let plain = FakeLeftoverStore(
+            items: MigrationHarness.plaintextFiles(), isEncrypted: false, log: log, gate: MigrationGate())
+        await harness.migrator.encryptLeftovers(in: plain)
+        #expect(harness.migrator.phase == .failed(names: ["c.mov"]))
+        #expect(log.events.isEmpty)
+        harness.store.setFailure(nil, for: "c.mov")
+        await harness.migrator.retryFailed()
+        #expect(harness.migrator.phase == .completed(fully: true))
+        #expect(harness.store.isEncrypted("c.mov") == true)
+    }
+
+    @Test("Skip still works after a non-encrypted store was offered while failed")
+    func skipAfterNonEncryptedStoreWhileFailed() async {
+        let harness = MigrationHarness()
+        harness.store.setFailure(.io("bad"), for: "c.mov")
+        await harness.run()
+        let plain = FakeLeftoverStore(
+            items: MigrationHarness.plaintextFiles(), isEncrypted: false, log: MigrationEventLog(),
+            gate: MigrationGate())
+        await harness.migrator.encryptLeftovers(in: plain)
+        await harness.migrator.skipFailed()
+        #expect(harness.migrator.phase == .completed(fully: false))
+    }
 }
