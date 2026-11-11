@@ -413,7 +413,7 @@
             "FolderPickerViewModel.swift",
             "FileCellModel.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0
         },
         {
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T21:28:30-08:00",
+  "updatedAt": "2026-11-10T21:32:07-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
