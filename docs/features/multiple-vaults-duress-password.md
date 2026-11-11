@@ -125,3 +125,15 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   skeleton passed with `--skip-coverage`), so it runs `--all`. That run fails only on coverage of modules not yet built
   in this feature (skeleton/prototype code), which each module's own coverage triage clears; build, tests, lint and api
   pass. The `gates --all` after the last module must be fully green.
+- 2026-11-10 (build, stage 5 done): all modules merged; `gates --after-merge` after Browser ran green (coverage clean everywhere).
+  Next, before verify: the shell rework (memo § App shell, "Shell changes"), by a code-writer brief naming the shell files.
+  Interim shell edits made during the build, which that brief must replace:
+  - `AppLockCoordinator(lock:screens:presenter:onNeedsPro: { _ in })`: the `onNeedsPro` placeholder must present the paywall.
+  - `BrowserVaultServices(lock:transfer: LiveVaultTransfer(pro:), onLock: coordinator.lock())`.
+  - Remove the leftover "signature updated" / "Interim" markers in AppDependencies.swift (reviewer, Browser unit 2).
+  Open questions for the human (raised in LockScreens unit 3 review, not in the spec):
+  1. Password fields use `textContentType` `.password` (lock screen) and `.newPassword` (Create Vault), so iOS offers to save
+     vault passwords in iCloud Keychain / suggest strong ones. For a duress vault a saved copy may be unwanted.
+  2. Create Vault keeps the typed password in its view model after success (errors clear it); clearing on success is
+     hygiene but not in the spec.
+  Accepted minors: a late transfer-progress report could show against the next transfer (tiny window).
