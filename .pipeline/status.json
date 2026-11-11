@@ -313,7 +313,7 @@
             "Views/VaultsViewController.swift",
             "Views/CreateVaultViewController.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T20:49:42-08:00",
+  "updatedAt": "2026-11-10T20:51:38-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
