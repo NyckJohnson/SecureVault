@@ -272,7 +272,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
-    /// Presents the paywall over `presenter` (this screen when nil).
+    /// Presents the paywall over this screen.
     private func presentPaywall() {
         present(settingsFactory.makePaywall(onUnlock: {}), animated: true)
     }
