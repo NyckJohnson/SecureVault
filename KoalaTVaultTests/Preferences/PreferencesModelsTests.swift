@@ -24,7 +24,6 @@ import Testing
 
     @Test("Enum raw values match the stored strings")
     func rawValues() {
-        // feature multiple-vaults-duress-password: signature updated
         #expect(LockMode.allCases.map(\.rawValue) == ["none", "password", "passwordAndBiometrics"])
         #expect(SortOption.allCases.map(\.rawValue) == ["name", "type", "dateModified"])
         #expect(SortDirection.allCases.map(\.rawValue) == ["ascending", "descending"])

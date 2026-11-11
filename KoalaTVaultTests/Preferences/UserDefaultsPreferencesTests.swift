@@ -31,13 +31,14 @@ private struct TestSuite {
 
     @Test("An empty store reads the documented defaults")
     func defaultsOnEmptyStore() {
-        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
         #expect(store.lockMode == .none)
         #expect(store.sortOption == .name)
         #expect(store.sortDirection == .ascending)
+        #expect(store.hasPendingEncryptMigration == false)
+        #expect(store.vaultsUpgraded == false)
     }
 
     // MARK: Round trips and raw values
@@ -99,7 +100,6 @@ private struct TestSuite {
 
     @Test("Values written by one store are read by a new store on the same suite")
     func persistenceAcrossStores() {
-        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let first = suite.makeStore()
@@ -155,7 +155,6 @@ private struct TestSuite {
 
     @Test("Raw values written directly under the documented keys are read back")
     func readsDocumentedKeys() {
-        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         suite.defaults.set("passwordAndBiometrics", forKey: "lockMode")
@@ -167,6 +166,7 @@ private struct TestSuite {
         #expect(store.lockMode == .passwordAndBiometrics)
         #expect(store.sortOption == .type)
         #expect(store.sortDirection == .descending)
+        #expect(store.hasPendingEncryptMigration == true)
     }
 
     // MARK: vaultsUpgraded (feature multiple-vaults-duress-password)
@@ -209,7 +209,6 @@ private struct TestSuite {
 
     @Test("vaultsUpgraded does not change other settings")
     func vaultsUpgradedLeavesOtherSettingsAlone() {
-        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
@@ -217,11 +216,108 @@ private struct TestSuite {
         #expect(store.lockMode == .none)
     }
 
+    // MARK: hasPendingEncryptMigration and clearPendingMigration (minors clean-up)
+
+    static let pendingTypeRows: [(raw: String?, expected: Bool)] = {
+        var rows: [(raw: String?, expected: Bool)] = []
+        rows.append(("encrypt", true))
+        rows.append(("decrypt", false))
+        rows.append(("bogus", false))
+        rows.append(("", false))
+        rows.append((nil, false))
+        return rows
+    }()
+
+    @Test("hasPendingEncryptMigration is true only for an encrypt pendingMigrationType", arguments: pendingTypeRows)
+    func pendingEncryptFlag(raw: String?, expected: Bool) {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        if let raw { suite.defaults.set(raw, forKey: "pendingMigrationType") }
+        #expect(suite.makeStore().hasPendingEncryptMigration == expected)
+    }
+
+    @Test("A stored pendingMigrationTargetLockMode alone does not make the flag true")
+    func targetLockModeAloneIsNotPending() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
+        #expect(suite.makeStore().hasPendingEncryptMigration == false)
+    }
+
+    @Test("The pending flag is unaffected by the target lock mode when the type is decrypt")
+    func decryptWithTargetIsNotPending() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        suite.defaults.set("decrypt", forKey: "pendingMigrationType")
+        suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
+        #expect(suite.makeStore().hasPendingEncryptMigration == false)
+    }
+
+    @Test("hasPendingEncryptMigration written under the documented key is read by a new store")
+    func pendingEncryptReadByNewStore() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        _ = suite.makeStore()
+        suite.defaults.set("encrypt", forKey: "pendingMigrationType")
+        #expect(suite.makeStore().hasPendingEncryptMigration == true)
+    }
+
+    @Test("clearPendingMigration removes both pending-migration keys and the flag turns false")
+    func clearRemovesBothKeys() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        suite.defaults.set("encrypt", forKey: "pendingMigrationType")
+        suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
+        let store = suite.makeStore()
+        #expect(store.hasPendingEncryptMigration == true)
+        store.clearPendingMigration()
+        #expect(store.hasPendingEncryptMigration == false)
+        #expect(suite.defaults.object(forKey: "pendingMigrationType") == nil)
+        #expect(suite.defaults.object(forKey: "pendingMigrationTargetLockMode") == nil)
+        #expect(suite.makeStore().hasPendingEncryptMigration == false)
+    }
+
+    @Test("clearPendingMigration leaves every other key untouched")
+    func clearLeavesOtherKeysAlone() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        let store = suite.makeStore()
+        store.lockMode = .passwordAndBiometrics
+        store.sortOption = .dateModified
+        store.sortDirection = .descending
+        store.vaultsUpgraded = true
+        suite.defaults.set(true, forKey: "hasCompletedSetup")
+        suite.defaults.set("encrypt", forKey: "pendingMigrationType")
+        suite.defaults.set("password", forKey: "pendingMigrationTargetLockMode")
+
+        store.clearPendingMigration()
+
+        #expect(store.lockMode == .passwordAndBiometrics)
+        #expect(store.sortOption == .dateModified)
+        #expect(store.sortDirection == .descending)
+        #expect(store.vaultsUpgraded == true)
+        #expect(suite.defaults.object(forKey: "hasCompletedSetup") != nil)
+        #expect(suite.defaults.bool(forKey: "hasCompletedSetup") == true)
+    }
+
+    @Test("clearPendingMigration on an empty store is harmless")
+    func clearOnEmptyStore() {
+        let suite = TestSuite()
+        defer { suite.cleanup() }
+        let store = suite.makeStore()
+        store.clearPendingMigration()
+        store.clearPendingMigration()
+        #expect(store.hasPendingEncryptMigration == false)
+        #expect(store.lockMode == .none)
+        #expect(store.sortOption == .name)
+        #expect(store.sortDirection == .ascending)
+        #expect(store.vaultsUpgraded == false)
+    }
+
     // MARK: Thread safety
 
     @Test("Concurrent reads and writes from several threads neither crash nor tear")
     func concurrentAccess() {
-        // feature multiple-vaults-duress-password: signature updated
         let suite = TestSuite()
         defer { suite.cleanup() }
         let store = suite.makeStore()
@@ -230,14 +326,18 @@ private struct TestSuite {
             store.sortOption = SortOption.allCases[i % SortOption.allCases.count]
             store.sortDirection = SortDirection.allCases[i % SortDirection.allCases.count]
             store.vaultsUpgraded = i.isMultiple(of: 3)
+            if i.isMultiple(of: 5) { store.clearPendingMigration() }
 
             _ = store.lockMode
             _ = store.sortOption
             _ = store.sortDirection
             _ = store.vaultsUpgraded
+            _ = store.hasPendingEncryptMigration
         }
         // The store still works after the storm.
         store.lockMode = .password
         #expect(store.lockMode == .password)
+        store.clearPendingMigration()
+        #expect(store.hasPendingEncryptMigration == false)
     }
 }
