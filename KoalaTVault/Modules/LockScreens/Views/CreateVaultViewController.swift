@@ -1,8 +1,9 @@
 import Combine
 import UIKit
 
-/// The Create Vault screen: binds `CreateVaultViewModel` to the name, password and confirm fields, the Create
-/// button and the error label (feature multiple-vaults-duress-password).
+/// The Create Vault screen: binds `CreateVaultViewModel` to the name field, the Create button and the error
+/// label; Create asks for the password and its confirmation in a "Set Password" alert
+/// (feature multiple-vaults-duress-password).
 final class CreateVaultViewController: UIViewController {
     private let viewModel: CreateVaultViewModel
     private var subscriptions = Set<AnyCancellable>()
@@ -11,8 +12,6 @@ final class CreateVaultViewController: UIViewController {
     private let stack = UIStackView()
     private let iconImageView = UIImageView(image: UIImage(systemName: "lock.badge.plus"))
     private let nameField = UITextField()
-    private let passwordField = UITextField()
-    private let confirmField = UITextField()
     private let errorLabel = UILabel()
     private let createButton = UIButton(type: .system)
 
@@ -46,23 +45,12 @@ final class CreateVaultViewController: UIViewController {
         iconImageView.isAccessibilityElement = false
 
         configure(
-            nameField, placeholder: "Name", identifier: "createVault.nameField", returnKey: .next,
+            nameField, placeholder: "Name", identifier: "createVault.nameField", returnKey: .go,
             action: #selector(nameEdited))
         nameField.autocapitalizationType = .words
-        nameField.textContentType = .name
-
-        configure(
-            passwordField, placeholder: "Password", identifier: "createVault.passwordField", returnKey: .next,
-            action: #selector(passwordEdited))
-        passwordField.isSecureTextEntry = true
-        // No password content type: iOS must never offer to save or suggest a vault password.
-        passwordField.textContentType = nil
-
-        configure(
-            confirmField, placeholder: "Confirm Password", identifier: "createVault.confirmField", returnKey: .go,
-            action: #selector(confirmationEdited))
-        confirmField.isSecureTextEntry = true
-        confirmField.textContentType = nil
+        // No content type: a content type here makes iOS treat the screen as a sign-up form and offer
+        // passwords to save or suggest.
+        nameField.textContentType = nil
 
         errorLabel.textColor = .systemRed
         errorLabel.font = .preferredFont(forTextStyle: .footnote)
@@ -110,10 +98,10 @@ final class CreateVaultViewController: UIViewController {
         stack.axis = .vertical
         stack.spacing = 16
         stack.alignment = .fill
-        for subview in [iconImageView, nameField, passwordField, confirmField, errorLabel, createButton] as [UIView] {
+        for subview in [iconImageView, nameField, errorLabel, createButton] as [UIView] {
             stack.addArrangedSubview(subview)
         }
-        stack.setCustomSpacing(8, after: confirmField)
+        stack.setCustomSpacing(8, after: nameField)
 
         scrollView.alwaysBounceVertical = true
         scrollView.keyboardDismissMode = .interactive
@@ -137,9 +125,13 @@ final class CreateVaultViewController: UIViewController {
     }
 
     private func bindViewModel() {
-        bind(viewModel.$name, to: nameField)
-        bind(viewModel.$password, to: passwordField)
-        bind(viewModel.$confirmation, to: confirmField)
+        viewModel.$name
+            .sink { [weak nameField] text in
+                // Only when it differs: resetting the text would disturb typing.
+                guard let nameField, nameField.text != text else { return }
+                nameField.text = text
+            }
+            .store(in: &subscriptions)
         viewModel.$isBusy
             .sink { [weak self] isBusy in self?.showBusy(isBusy) }
             .store(in: &subscriptions)
@@ -154,25 +146,13 @@ final class CreateVaultViewController: UIViewController {
             .store(in: &subscriptions)
     }
 
-    private func bind(_ publisher: Published<String>.Publisher, to field: UITextField) {
-        publisher
-            .sink { [weak field] text in
-                // Only when it differs: resetting a secure field's text would disturb typing.
-                guard let field, field.text != text else { return }
-                field.text = text
-            }
-            .store(in: &subscriptions)
-    }
-
     private func showBusy(_ isBusy: Bool) {
         let title = isBusy ? CreateVaultViewModel.busyMessage : "Create"
         createButton.configuration?.title = title
         createButton.configuration?.showsActivityIndicator = isBusy
         createButton.accessibilityLabel = title
         createButton.isEnabled = !isBusy
-        for field in [nameField, passwordField, confirmField] {
-            field.isEnabled = !isBusy
-        }
+        nameField.isEnabled = !isBusy
         navigationItem.hidesBackButton = isBusy
         if isBusy {
             view.endEditing(true)
@@ -183,27 +163,60 @@ final class CreateVaultViewController: UIViewController {
         viewModel.nameEdited(nameField.text ?? "")
     }
 
-    @objc private func passwordEdited() {
-        viewModel.passwordEdited(passwordField.text ?? "")
-    }
-
-    @objc private func confirmationEdited() {
-        viewModel.confirmationEdited(confirmField.text ?? "")
-    }
-
+    /// Create: a blank name goes straight to the view model (which shows the name error); otherwise the
+    /// password and confirmation are asked for in the "Set Password" alert, whose Create runs the creation.
+    /// Asking in an alert keeps iOS from offering to save or suggest a password for the vault.
     @objc private func createTapped() {
+        view.endEditing(true)
+        let name = nameField.text ?? ""
+        viewModel.nameEdited(name)
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            runCreate()
+            return
+        }
+        present(makePasswordAlert(), animated: true)
+    }
+
+    private func makePasswordAlert() -> UIAlertController {
+        let alert = UIAlertController(
+            title: "Set Password", message: "Choose a password for this vault.", preferredStyle: .alert)
+        alert.addTextField { field in
+            Self.configureAlertField(field, placeholder: "Password", identifier: "createVault.alertPasswordField")
+        }
+        alert.addTextField { field in
+            Self.configureAlertField(
+                field, placeholder: "Confirm Password", identifier: "createVault.alertConfirmField")
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        let create = UIAlertAction(title: "Create", style: .default) { [weak self, weak alert] _ in
+            guard let self, let fields = alert?.textFields, fields.count == 2 else { return }
+            viewModel.passwordEdited(fields[0].text ?? "")
+            viewModel.confirmationEdited(fields[1].text ?? "")
+            runCreate()
+        }
+        create.accessibilityIdentifier = "createVault.alertCreateButton"
+        alert.addAction(create)
+        return alert
+    }
+
+    private static func configureAlertField(_ field: UITextField, placeholder: String, identifier: String) {
+        field.placeholder = placeholder
+        field.isSecureTextEntry = true
+        // No password content type: iOS must never offer to save or suggest a vault password.
+        field.textContentType = nil
+        field.autocorrectionType = .no
+        field.accessibilityLabel = placeholder
+        field.accessibilityIdentifier = identifier
+    }
+
+    private func runCreate() {
         Task { [viewModel] in await viewModel.createTapped() }
     }
 }
 
 extension CreateVaultViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        switch textField {
-        case nameField:
-            passwordField.becomeFirstResponder()
-        case passwordField:
-            confirmField.becomeFirstResponder()
-        default:
+        if textField === nameField {
             createTapped()
         }
         return true
@@ -218,7 +231,7 @@ extension CreateVaultViewController: UITextFieldDelegate {
     }
 
     @available(iOS 17.0, *)
-    #Preview("Create Vault: passwords do not match") {
+    #Preview("Create Vault: passwords do not match (after the Set Password alert)") {
         let viewModel = CreateVaultViewModel(lock: MockVaultLocking(isPro: true))
         viewModel.nameEdited("Travel")
         viewModel.passwordEdited("one")
@@ -228,7 +241,7 @@ extension CreateVaultViewController: UITextFieldDelegate {
     }
 
     @available(iOS 17.0, *)
-    #Preview("Create Vault: password in use") {
+    #Preview("Create Vault: password in use (after the Set Password alert)") {
         let viewModel = CreateVaultViewModel(lock: MockVaultLocking(isPro: true))
         viewModel.nameEdited("Travel")
         viewModel.passwordEdited("correct horse")
