@@ -132,7 +132,7 @@
         "VaultStore",
         "Entitlements"
       ],
-      "state": "coverage",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-10T17:23:39-08:00",
+  "updatedAt": "2026-11-10T17:38:14-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
