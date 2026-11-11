@@ -779,8 +779,8 @@ the upgrade clearing it.
   - No persisted record: whatever is left unencrypted is found again the next time the vault opens.
   - A file that fails → collected; at the end `.failed(names)` with the display names. retryFailed: only the failed files
     again (publishing `.running` first, so a repeat failure is published again). skipFailed: `.completed(fully: false)`.
-  - A listing or closing-step failure (not a lock) → `.failed(names: [])`, the error logged; Retry redoes that step.
-    `finishEncryption` failing with the key loaded is logged and the run still completes.
+  - A listing failure (not a lock) → `.failed(names: [])`, the error logged; Retry redoes the listing.
+    `finishEncryption` (the closing step) failing with the key loaded is logged and the run still completes.
   - Unreadable trash: wherever the run would publish `.failed`, it first asks `hasUnreadableTrash()`; true →
     `.unreadableTrash`. clearUnreadableTrash (only from there): publishes `.running`, `clearUnreadableTrash()` on the
     store, then continues from a fresh listing; a clearing failure → `.failed(names: [])`. skipFailed from there as from
@@ -1252,3 +1252,4 @@ the upgrade clearing it.
 - 2026-11-10: VaultStore `remove` on an encrypted file whose index entry is already gone deletes the file (no error) — decided by the human (VaultStore coverage triage, feature multiple-vaults-duress-password)
 - 2026-11-10: VaultCatalog removes a blobless vault folder at launch only when it is empty, so an upgraded vault whose Keychain blob is missing (e.g. after a restore) never has its files deleted (reviewer finding, VaultLock unit 2) — orchestrator
 - 2026-11-10: VaultLock races: a close/background/switch during a password check drops the check's result and wipes its key (opens and management calls throw `.notOpen`); createVault runs one at a time; setUsesBiometrics(false) in the unencrypted vault is a no-op (reviewer findings, VaultLock unit 1) — orchestrator
+- 2026-11-10: LockMigration: only a listing failure gives `.failed(names: [])`; `finishEncryption` failing is logged and the run completes (the "closing-step failure" wording was left from the decrypt flow) — test-writer note, LockMigration unit 1 — orchestrator
