@@ -432,13 +432,13 @@
             "VaultPickerViewModel.swift",
             "Views/VaultPickerViewController.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         }
       ]
     }
   ],
-  "updatedAt": "2026-11-10T21:46:01-08:00",
+  "updatedAt": "2026-11-10T21:46:34-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
