@@ -404,7 +404,7 @@
         "Settings",
         "LockScreens"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T07:10:39-08:00",
+  "updatedAt": "2026-11-11T07:14:32-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
