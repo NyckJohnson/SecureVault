@@ -66,6 +66,7 @@ final class CreateVaultViewModel: ObservableObject {
         defer { isBusy = false }
         do {
             try await lock.createVault(name: trimmedName, password: password)
+            clearPasswords()
             errorMessage = nil
             onDone?()
         } catch VaultLockError.vaultLimitReached {
