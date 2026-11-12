@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import os
 
 /// The live vaults (feature multiple-vaults-duress-password): the unencrypted vault over Documents, always there,
@@ -38,7 +39,11 @@ final class LiveVaultLock: VaultLocking {
     private let pro: any ProUnlocking
     private let biometricInfo: BiometricInfo
     private let makeKeyStore: @Sendable (_ blobAccount: String) -> any MasterKeyStoring
-    private let makeDecoyKeyStore: @Sendable () -> any MasterKeyStoring
+    /// The decoy key store (over a private in-memory Keychain) whose derivation stands in for a search with no
+    /// vault to try; see "Decoy derivation" in the memo. Never listed, never opened, its key always wiped.
+    private let decoy: any MasterKeyStoring
+    /// Makes the decoy's blob (for a random password) off the main actor, started in `init`; searches await it.
+    private let decoyBlob: Task<Void, Never>
     private let makeCipher: @Sendable (any MasterKeyStoring) -> any FileCipher
     private let makeStore:
         @Sendable (_ root: URL, _ name: String, _ isEncrypted: Bool, any MasterKeyStoring, any FileCipher) ->
@@ -87,7 +92,19 @@ final class LiveVaultLock: VaultLocking {
         self.pro = pro
         self.biometricInfo = biometricInfo
         self.makeKeyStore = makeKeyStore
-        self.makeDecoyKeyStore = makeDecoyKeyStore
+        let decoy = makeDecoyKeyStore()
+        self.decoy = decoy
+        decoyBlob = Task {
+            do {
+                try await Self.offMain {
+                    defer { decoy.wipeKey() }
+                    try decoy.createMasterKey(password: try Self.randomDecoyPassword())
+                }
+            } catch {
+                // A decoy without a blob still answers `.wrongPassword` searches, only faster.
+                Self.logger.error("Could not make the decoy key: \(error, privacy: .public)")
+            }
+        }
         self.makeCipher = makeCipher
         self.makeStore = makeStore
         let unencrypted = OpenVault(
@@ -360,6 +377,10 @@ final class LiveVaultLock: VaultLocking {
     /// actor), on a fresh key store that then holds its key; nil when none does. The caller adopts or wipes it.
     private func findVault(password: String, excluding excludedID: String? = nil) async -> Match? {
         let ids = catalog.vaultIDs().filter { $0 != excludedID }
+        guard !ids.isEmpty else {
+            await runDecoyDerivation(password: password)
+            return nil
+        }
         let makeKeyStore = self.makeKeyStore
         return try? await Self.offMain { () -> Match? in
             for id in ids {
@@ -373,6 +394,26 @@ final class LiveVaultLock: VaultLocking {
             }
             return nil
         }
+    }
+
+    /// With no vault to try, runs one derivation of `password` on the decoy (after its blob is made, off the main
+    /// actor) so the search takes as long as trying one vault; the result is ignored and the key wiped.
+    private func runDecoyDerivation(password: String) async {
+        await decoyBlob.value
+        let decoy = self.decoy
+        _ = try? await Self.offMain {
+            defer { decoy.wipeKey() }
+            try? decoy.unlock(password: password)  // `.wrongPassword` expected; any error means nothing here
+        }
+    }
+
+    /// A random password for the decoy's blob: 32 bytes from the system's secure random source, base64-encoded.
+    /// - Throws: `VaultLockError.io` if the random source fails.
+    nonisolated private static func randomDecoyPassword() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else { throw VaultLockError.io("Secure random bytes unavailable (\(status))") }
+        return Data(bytes).base64EncodedString()
     }
 
     /// Checks that `password` opens vault `id` on a fresh key store, which is returned with the key loaded (the
