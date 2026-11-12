@@ -15,12 +15,16 @@ extension LiveVaultStore {
     /// read and deletions) is one serialized step with no suspension inside it, and the sweep suspends only
     /// between folders, where other store operations (a listing, an import, a move) may run. Each step checks
     /// the mode again and stops once the store is locked; a folder removed in between is skipped, and one
-    /// changed is judged as it is when its step runs.
+    /// changed is judged as it is when its step runs. A cancelled task stops between steps.
     func sweepOrphans() async {
         var pending = [root.diskURL]
         var isFirstStep = true
         while let folder = pending.popLast() {
-            if !isFirstStep { await Task.yield() }
+            if !isFirstStep {
+                await Task.yield()
+                // A cancelled task (the shell cancels it on lock or a vault switch) stops between steps.
+                guard !Task.isCancelled else { return }
+            }
             isFirstStep = false
             guard let mode = try? beginOperation(), mode.isEncrypted, mode.keyLoaded else { return }
             pending += sweepFolder(folder, mode: mode)

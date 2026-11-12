@@ -53,19 +53,26 @@ extension LiveVaultStore {
     /// itself in the first step), then the trash (its map and its files as one step), then the folders in the
     /// trash. Each step checks the mode again and has no suspension inside it; the check suspends only between
     /// steps, where other store operations may run. A folder removed in between is skipped; one changed is
-    /// judged as it is when its step runs.
-    /// - Throws: `.locked` without the key in encrypted mode (checked at every step); `.indexUnreadable` /
-    ///   `.io` when an index or a file's form can't be read.
+    /// judged as it is when its step runs. A cancelled task stops between steps.
+    /// - Throws: `.locked` without the key in encrypted mode (checked at every step); `.io` when the root
+    ///   folder is missing at the first step; `.indexUnreadable` / `.io` when an index or a file's form can't
+    ///   be read; `CancellationError` when the task is cancelled during the walk.
     func hasUnencryptedFiles() async throws -> Bool {
         var pending = [root]
         var trashChecked = false
         var isFirstStep = true
         while true {
-            if !isFirstStep { await Task.yield() }
+            if !isFirstStep {
+                await Task.yield()
+                // A cancelled task (the shell cancels it on lock or a vault switch) stops between steps.
+                try Task.checkCancellation()
+            }
+            let isRootStep = isFirstStep
             isFirstStep = false
             let mode = try beginOperation()
             if let folder = pending.popLast() {
-                guard let subfolders = try plaintextCheckStep(folder, mode: mode) else { return true }
+                guard let subfolders = try plaintextCheckStep(folder, mode: mode, isRoot: isRootStep)
+                else { return true }
                 pending += subfolders
             } else if !trashChecked {
                 trashChecked = true
@@ -79,13 +86,20 @@ extension LiveVaultStore {
     }
 
     /// One step of `hasUnencryptedFiles()`: checks the files directly in `folder`. Never suspends.
-    /// - Returns: nil when a plaintext file is found; otherwise the folder's subfolders (none when the folder
-    ///   was removed since it was queued).
-    private func plaintextCheckStep(_ folder: VaultDirectory, mode: VaultOperationMode) throws -> [VaultDirectory]? {
+    /// - Parameter isRoot: true for the walk's first step, the root folder, which must exist.
+    /// - Returns: nil when a plaintext file is found; otherwise the folder's subfolders (none when a non-root
+    ///   folder was removed since it was queued).
+    /// - Throws: `.io` when `isRoot` and the root folder is missing; the listing's and form check's errors.
+    private func plaintextCheckStep(
+        _ folder: VaultDirectory, mode: VaultOperationMode, isRoot: Bool
+    ) throws -> [VaultDirectory]? {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder.diskURL.path, isDirectory: &isDirectory),
             isDirectory.boolValue
-        else { return [] }
+        else {
+            if isRoot { throw VaultStoreError.io("The vault folder can't be read.") }
+            return []
+        }
         let items = try listing(of: folder, mode: mode)
         for item in items where !item.isDirectory {
             if try realForm(of: item) == .plaintext { return nil }
