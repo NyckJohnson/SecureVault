@@ -202,6 +202,17 @@ import Testing
         #expect(object["name"] == "Docs")
     }
 
+    @Test("The written .vault_info file has complete file protection")
+    func vaultInfoHasCompleteProtection() throws {
+        let fixture = try Fixture(blobs: ["v1"])
+        try fixture.makeFolder("v1")
+        try fixture.catalog.writeName("Protected", of: "v1", cipher: MockFileCipher())
+        let url = fixture.catalog.folderURL(for: "v1").appendingPathComponent(".vault_info")
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let protection = attributes[.protectionKey] as? FileProtectionType
+        #expect(protection == FileProtectionType.complete)
+    }
+
     @Test("Writing a name again replaces the earlier name")
     func nameOverwrite() throws {
         let fixture = try Fixture(blobs: ["v1"])

@@ -19,7 +19,6 @@ import Testing
             upgraded: Bool = false,
             hasBlob: Bool = false
         ) throws {
-            // feature multiple-vaults-duress-password: signature updated
             let manager = FileManager.default
             root = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             documents = root.appendingPathComponent("Documents")
@@ -66,7 +65,6 @@ import Testing
 
     private struct UnchangedCase {
         let mode: LockMode
-        // feature multiple-vaults-duress-password: signature updated
         let migration: Bool
         let blob: Bool
     }
@@ -78,7 +76,6 @@ import Testing
 
     @Test("When vaultsUpgraded is true nothing is touched")
     func alreadyUpgradedTouchesNothing() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let fixture = try Fixture(
             lockMode: .passwordAndBiometrics, pending: true,
             upgraded: true, hasBlob: true)
@@ -164,7 +161,6 @@ import Testing
 
     @Test("A pending encrypt with a blob counts as a lock")
     func pendingEncryptWithBlobIsLock() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let pending = true
         let fixture = try Fixture(lockMode: .none, pending: pending, hasBlob: true)
         try fixture.populateDocuments()
@@ -178,7 +174,6 @@ import Testing
 
     @Test("A Keychain error reading the blob counts as a blob")
     func keychainErrorCountsAsBlob() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let pending = true
         let fixture = try Fixture(lockMode: .none, pending: pending, hasBlob: false)
         try fixture.populateDocuments()
@@ -192,7 +187,6 @@ import Testing
 
     @Test("A pending encrypt with no blob is dropped and nothing moves")
     func pendingEncryptWithoutBlobIsDropped() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let pending = true
         let fixture = try Fixture(lockMode: .none, pending: pending, hasBlob: false)
         try fixture.populateDocuments()
@@ -221,12 +215,10 @@ import Testing
 
     @Test("vaultsUpgraded is written last, after the pending migration is cleared")
     func upgradedFlagIsLastWrite() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let pending = true
         let fixture = try Fixture(lockMode: .password, pending: pending, hasBlob: true)
         try fixture.upgrade.run()
         #expect(fixture.preferences.writes.last == .vaultsUpgraded(true))
-        // feature multiple-vaults-duress-password: signature updated
         let cleared = fixture.preferences.writes.firstIndex(of: .clearPendingMigration)
         let flagged = fixture.preferences.writes.firstIndex(of: .vaultsUpgraded(true))
         #expect(try #require(cleared) < #require(flagged))
@@ -234,16 +226,54 @@ import Testing
 
     @Test("A lock upgrade clears a pending decrypt as well")
     func lockClearsPendingDecrypt() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let fixture = try Fixture(lockMode: .password, pending: false, hasBlob: true)
         try fixture.upgrade.run()
         #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
         #expect(fixture.preferences.vaultsUpgraded)
     }
 
+    @Test("A lock upgrade with a pending encrypt clears the pending migration exactly once, before vaultsUpgraded")
+    func lockPathClearsOnceBeforeFlag() throws {
+        let fixture = try Fixture(lockMode: .none, pending: true, hasBlob: true)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
+        let writes = fixture.preferences.writes
+        let cleared = try #require(writes.firstIndex(of: .clearPendingMigration))
+        let flagged = try #require(writes.firstIndex(of: .vaultsUpgraded(true)))
+        #expect(cleared < flagged)
+    }
+
+    @Test("A pending encrypt with no blob clears the pending migration exactly once, before vaultsUpgraded")
+    func noLockPathClearsOnceBeforeFlag() throws {
+        let fixture = try Fixture(lockMode: .none, pending: true, hasBlob: false)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
+        let writes = fixture.preferences.writes
+        let cleared = try #require(writes.firstIndex(of: .clearPendingMigration))
+        let flagged = try #require(writes.firstIndex(of: .vaultsUpgraded(true)))
+        #expect(cleared < flagged)
+    }
+
+    @Test("With nothing stored and no lock the pending migration is still cleared exactly once, before vaultsUpgraded")
+    func nothingStoredClearsOnceBeforeFlag() throws {
+        let fixture = try Fixture(lockMode: .none, pending: false, hasBlob: false)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
+        let writes = fixture.preferences.writes
+        let cleared = try #require(writes.firstIndex(of: .clearPendingMigration))
+        let flagged = try #require(writes.firstIndex(of: .vaultsUpgraded(true)))
+        #expect(cleared < flagged)
+    }
+
+    @Test("When vaultsUpgraded is already true the pending migration is not cleared")
+    func alreadyUpgradedDoesNotClear() throws {
+        let fixture = try Fixture(lockMode: .none, pending: true, upgraded: true, hasBlob: false)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 0)
+    }
+
     @Test("lockMode is unchanged in every case")
     func setupAndLockModeUnchanged() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let pending = true
         let cases = [
             UnchangedCase(mode: .password, migration: false, blob: true),
@@ -254,7 +284,6 @@ import Testing
         ]
         for item in cases {
             let mode = item.mode
-            // feature multiple-vaults-duress-password: signature updated
             let fixture = try Fixture(lockMode: mode, pending: item.migration, hasBlob: item.blob)
             try fixture.upgrade.run()
             #expect(fixture.preferences.lockMode == mode)
@@ -264,7 +293,6 @@ import Testing
 
     @Test("A failure before the end throws, leaves vaultsUpgraded false and a rerun completes the move")
     func failureThenRerunCompletes() throws {
-        // feature multiple-vaults-duress-password: signature updated
         let pending = true
         let fixture = try Fixture(lockMode: .password, pending: pending, hasBlob: true)
         try fixture.populateDocuments()
