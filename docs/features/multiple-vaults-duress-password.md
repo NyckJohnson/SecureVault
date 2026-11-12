@@ -195,3 +195,6 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   impossible with the in-memory Keychain, is logged and later no-vault searches are fast); no test that the decoy's
   random password differs per lock; no test of a lock change during the decoy wait (the code checks it).
   Next: journey tests (`gates --app-ui-tests`), then the device test.
+- 2026-11-11 (verify, RESUME HERE): after the review-minors merge, all 12 journeys pass (`--app-ui-tests`, ~53 min).
+  Next: the human's device test (all journeys; iOS offering to save/suggest passwords; Face ID; `.vault_info` file
+  protection can't be seen without tools, so it rests on the code review), triage, acceptance.
