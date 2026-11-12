@@ -306,6 +306,10 @@ final class VaultLockFixture {
     let registry = VaultStoreRegistry()
     let unencryptedStore = MockVaultStoring(withSampleContent: false, name: "KoalaTVault", isEncrypted: false)
     private let cipherError = OSAllocatedUnfairLock<VaultCryptoError?>(initialState: nil)
+    /// Hands the lock its decoy key store (a recording mock with no blob) and counts the factory calls.
+    let decoys: DecoyShelf
+    /// The decoy key store the lock was given (a recording mock).
+    var decoy: MockMasterKeyStoring { decoys.mock }
 
     init(
         pro isPro: Bool = false,
@@ -313,8 +317,10 @@ final class VaultLockFixture {
         lockMode: LockMode = .none,
         canEvaluate: Bool = true,
         biometricKind: BiometricKind = .faceID,
-        vaults: [SeedVault] = []
+        vaults: [SeedVault] = [],
+        decoy customDecoy: (any MasterKeyStoring)? = nil
     ) throws {
+        decoys = customDecoy.map { DecoyShelf(store: $0) } ?? DecoyShelf()
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         documents = root.appendingPathComponent("Documents")
         vaultsFolder = root.appendingPathComponent("AppSupport").appendingPathComponent("Vaults")
@@ -337,6 +343,7 @@ final class VaultLockFixture {
         let shelf = self.shelf
         let registry = self.registry
         let cipherError = self.cipherError
+        let decoys = self.decoys
         return LiveVaultLock(
             documents: documents,
             vaultsFolder: vaultsFolder,
@@ -346,8 +353,7 @@ final class VaultLockFixture {
             pro: pro,
             biometricInfo: BiometricInfo(probe: probe),
             makeKeyStore: { account in shelf.make(account: account) },
-            // feature multiple-vaults-duress-password: signature updated
-            makeDecoyKeyStore: { MockMasterKeyStoring() },
+            makeDecoyKeyStore: { decoys.make() },
             makeCipher: { _ in Self.makeCipher(failing: cipherError.withLock { $0 }) },
             makeStore: registry.build)
     }
@@ -502,4 +508,66 @@ func expectLockError(
     } catch {
         Issue.record("Expected \(expected) but got \(error)", sourceLocation: sourceLocation)
     }
+}
+
+/// The decoy key-store factory of a test: always returns the same decoy and counts the calls.
+final class DecoyShelf: Sendable {
+    /// The recording mock (the decoy itself unless a custom one was given).
+    let mock: MockMasterKeyStoring
+    let store: any MasterKeyStoring
+    private let made = OSAllocatedUnfairLock(initialState: 0)
+
+    /// A recording mock with no blob.
+    init() {
+        let mock = MockMasterKeyStoring(password: nil)
+        self.mock = mock
+        store = mock
+    }
+
+    /// A custom decoy; `mock` is then an unused placeholder.
+    init(store: any MasterKeyStoring) {
+        mock = MockMasterKeyStoring(password: nil)
+        self.store = store
+    }
+
+    /// How many times the lock asked for a decoy key store.
+    var factoryCalls: Int { made.withLock { $0 } }
+
+    func make() -> any MasterKeyStoring {
+        made.withLock { $0 += 1 }
+        return store
+    }
+}
+
+/// A decoy that wraps a recording mock, remembers the passwords it was unlocked with, and (when `blocking`)
+/// holds `createMasterKey` until released, to test that a search waits for the decoy blob.
+final class BlockingDecoy: MasterKeyStoring {
+    let inner = MockMasterKeyStoring(password: nil)
+    private let gate = KeyGate()
+    private let passwords = OSAllocatedUnfairLock<[String]>(initialState: [])
+
+    init(blocking: Bool = true) { if !blocking { gate.open() } }
+
+    func release() { gate.open() }
+
+    /// The passwords `unlock(password:)` was called with, in order.
+    var unlockedPasswords: [String] { passwords.withLock { $0 } }
+
+    var isKeyLoaded: Bool { inner.isKeyLoaded }
+    func hasMasterKeyBlob() throws -> Bool { try inner.hasMasterKeyBlob() }
+    func createMasterKey(password: String) throws {
+        gate.wait()
+        try inner.createMasterKey(password: password)
+    }
+    func unlock(password: String) throws {
+        passwords.withLock { $0.append(password) }
+        try inner.unlock(password: password)
+    }
+    func rewrap(newPassword: String) throws { try inner.rewrap(newPassword: newPassword) }
+    func deleteMasterKeyBlob() throws { try inner.deleteMasterKeyBlob() }
+    func storeBiometricKey() throws { try inner.storeBiometricKey() }
+    func unlockWithBiometricKey(prompt: String) throws { try inner.unlockWithBiometricKey(prompt: prompt) }
+    func deleteBiometricKey() throws { try inner.deleteBiometricKey() }
+    func wipeKey() { inner.wipeKey() }
+    func withKey<T>(_ body: (SymmetricKey) throws -> T) throws -> T { try inner.withKey(body) }
 }

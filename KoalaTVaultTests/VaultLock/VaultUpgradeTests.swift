@@ -224,8 +224,8 @@ import Testing
         #expect(try #require(cleared) < #require(flagged))
     }
 
-    @Test("A lock upgrade clears a pending decrypt as well")
-    func lockClearsPendingDecrypt() throws {
+    @Test("A lock upgrade with nothing pending still clears once")
+    func lockUpgradeWithNothingPendingStillClearsOnce() throws {
         let fixture = try Fixture(lockMode: .password, pending: false, hasBlob: true)
         try fixture.upgrade.run()
         #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
@@ -273,7 +273,7 @@ import Testing
     }
 
     @Test("lockMode is unchanged in every case")
-    func setupAndLockModeUnchanged() throws {
+    func lockModeUnchanged() throws {
         let pending = true
         let cases = [
             UnchangedCase(mode: .password, migration: false, blob: true),
