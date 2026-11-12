@@ -15,7 +15,8 @@ import Foundation
 /// leftover hidden `.<id>.migrating` staging file and converts it from the untouched original.
 ///
 /// Steps run without suspending, so each is one serialized step on the actor. `hasUnencryptedFiles()` differs:
-/// it suspends between folders (never inside one), so browsing isn't held up.
+/// it suspends between folders and between batches of a large folder's files (never inside a batch), so
+/// browsing isn't held up.
 extension LiveVaultStore {
     // MARK: - Counting and listing
 
@@ -49,16 +50,21 @@ extension LiveVaultStore {
     /// Whether any plaintext file is under the root or in the trash (in either kind of store), judged by each
     /// file's SVC5 header as `itemsToEncrypt()` judges it; stops at the first one found.
     ///
-    /// Works one folder at a time, so housekeeping never holds up browsing: the root's folders first (the root
-    /// itself in the first step), then the trash (its map and its files as one step), then the folders in the
-    /// trash. Each step checks the mode again and has no suspension inside it; the check suspends only between
-    /// steps, where other store operations may run. A folder removed in between is skipped; one changed is
-    /// judged as it is when its step runs. A cancelled task stops between steps.
+    /// Works in small steps, so housekeeping never holds up browsing: the root's folders breadth-first (the root
+    /// itself in the first step, then every folder one level down, and so on), then the trash (its map and its
+    /// files as one step), then the folders in the trash, breadth-first. A folder's files are checked in batches
+    /// of at most `plaintextCheckBatchSize`, each its own step; the folder is listed once, in its first batch's
+    /// step, and the subfolders found there are queued. Each step checks the mode again and has no suspension
+    /// inside it; the check suspends only between steps, where other store operations may run. A folder removed
+    /// in between is skipped, as is a file gone by its batch (or while it is checked); a folder changed in
+    /// between is judged by the listing taken at its first batch. A cancelled task stops between steps.
     /// - Throws: `.locked` without the key in encrypted mode (checked at every step); `.io` when the root
     ///   folder is missing at the first step; `.indexUnreadable` / `.io` when an index or a file's form can't
     ///   be read; `CancellationError` when the task is cancelled during the walk.
     func hasUnencryptedFiles() async throws -> Bool {
-        var pending = [root]
+        var folders = HousekeepingQueue([root])
+        // The files of the folder being checked that no batch has reached yet; nil between folders.
+        var unchecked: ArraySlice<VaultItem>?
         var trashChecked = false
         var isFirstStep = true
         while true {
@@ -70,29 +76,37 @@ extension LiveVaultStore {
             let isRootStep = isFirstStep
             isFirstStep = false
             let mode = try beginOperation()
-            if let folder = pending.popLast() {
-                guard let subfolders = try plaintextCheckStep(folder, mode: mode, isRoot: isRootStep)
-                else { return true }
-                pending += subfolders
+            if unchecked == nil, let folder = folders.dequeue() {
+                let items = try plaintextCheckListing(folder, mode: mode, isRoot: isRootStep)
+                folders.enqueue(items.compactMap(\.asDirectory))
+                unchecked = ArraySlice(items.filter { !$0.isDirectory })
+            }
+            if let files = unchecked {
+                let batch = files.prefix(Self.plaintextCheckBatchSize)
+                if try containsPlaintext(batch) { return true }
+                let rest = files.dropFirst(batch.count)
+                unchecked = rest.isEmpty ? nil : rest
             } else if !trashChecked {
                 trashChecked = true
                 let items = trashItems(map: try correctedTrashMap(trashMap.read(mode: mode)))
                 if items.contains(where: { !$0.isDirectory && !$0.isEncrypted }) { return true }
-                pending = items.compactMap(\.asDirectory)
+                folders = HousekeepingQueue(items.compactMap(\.asDirectory))
             } else {
                 return false
             }
         }
     }  // coverage-exempt: unreachable, the while-true loop exits only by return or throw
 
-    /// One step of `hasUnencryptedFiles()`: checks the files directly in `folder`. Never suspends.
+    /// The most files `hasUnencryptedFiles()` checks in one step.
+    private static let plaintextCheckBatchSize = 256
+
+    /// The listing of `folder` for `hasUnencryptedFiles()`, taken at its first batch. Never suspends.
     /// - Parameter isRoot: true for the walk's first step, the root folder, which must exist.
-    /// - Returns: nil when a plaintext file is found; otherwise the folder's subfolders (none when a non-root
-    ///   folder was removed since it was queued).
-    /// - Throws: `.io` when `isRoot` and the root folder is missing; the listing's and form check's errors.
-    private func plaintextCheckStep(
+    /// - Returns: the folder's items; none when a non-root folder was removed since it was queued.
+    /// - Throws: `.io` when `isRoot` and the root folder is missing; the listing's errors.
+    private func plaintextCheckListing(
         _ folder: VaultDirectory, mode: VaultOperationMode, isRoot: Bool
-    ) throws -> [VaultDirectory]? {
+    ) throws -> [VaultItem] {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder.diskURL.path, isDirectory: &isDirectory),
             isDirectory.boolValue
@@ -100,11 +114,22 @@ extension LiveVaultStore {
             if isRoot { throw VaultStoreError.io("The vault folder can't be read.") }
             return []
         }
-        let items = try listing(of: folder, mode: mode)
-        for item in items where !item.isDirectory {
-            if try realForm(of: item) == .plaintext { return nil }
+        return try listing(of: folder, mode: mode)
+    }
+
+    /// One batch of `hasUnencryptedFiles()`: whether any of `files` is plaintext, stopping at the first one.
+    /// A file that is gone when its form is checked is skipped. Never suspends.
+    /// - Throws: the form check's error for a file that still exists (`.locked`, `.io`, `.notFound`).
+    private func containsPlaintext(_ files: ArraySlice<VaultItem>) throws -> Bool {
+        for item in files {
+            do {
+                if try realForm(of: item) == .plaintext { return true }
+            } catch {
+                // Removed since the folder was listed (before or during its check): nothing left to judge.
+                if FileManager.default.fileExists(atPath: item.diskURL.path) { throw error }
+            }
         }
-        return items.compactMap(\.asDirectory)
+        return false
     }
 
     /// Every plaintext file under the root and in the trash, each judged by its SVC5 header; unindexed SVC5

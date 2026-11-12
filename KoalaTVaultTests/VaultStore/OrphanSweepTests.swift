@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import KoalaTVault
 
@@ -293,5 +294,42 @@ import Testing
         await sweep.value
 
         #expect(orphans.filter { exists($0) }.count >= orphans.count - 1)
+    }
+
+    // MARK: - Breadth-first order
+
+    @Test("sweepOrphans visits every folder of one depth before any folder one level deeper")
+    func sweepVisitsFoldersBreadthFirst() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let folderA = try vault.folder("A")
+        let folderB = try vault.folder("B")
+        let folderA1 = try vault.folder("A1", in: folderA)
+        let folderB1 = try vault.folder("B1", in: folderB)
+        try await vault.add("mark-R.txt")
+        try await vault.add("mark-A.txt", to: folderA)
+        try await vault.add("mark-B.txt", to: folderB)
+        try await vault.add("mark-A1.txt", to: folderA1)
+        try await vault.add("mark-B1.txt", to: folderB1)
+        let marks = ["R", "A", "B", "A1", "B1"]
+        let log = EventLog()
+        let seen = OSAllocatedUnfairLock(initialState: Set<String>())
+        failing.decryptErrorFor = { data in
+            for mark in marks where data.range(of: Data("mark-\(mark).txt".utf8)) != nil {
+                if seen.withLock({ $0.insert(mark).inserted }) { log.add(mark) }
+            }
+            return nil
+        }
+
+        await vault.store.sweepOrphans()
+
+        let order = log.events
+        #expect(Set(order) == Set(marks))
+        let position = { (mark: String) in order.firstIndex(of: mark) ?? Int.max }
+        #expect(position("R") < position("A"))
+        #expect(position("R") < position("B"))
+        #expect(position("A") < position("A1") && position("B") < position("A1"))
+        #expect(position("A") < position("B1") && position("B") < position("B1"))
     }
 }

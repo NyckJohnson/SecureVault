@@ -60,7 +60,7 @@ actor LiveVaultStore: VaultStoring {
     ) throws -> [VaultItem] {
         let mode = try beginOperation()
         let items = try listing(of: directory, mode: mode)
-        return items.sorted { lhs, rhs in Self.precedes(lhs, rhs, by: option, direction) }
+        return Self.sorted(items, by: option, direction)
     }
 
     func findItem(named name: String, in directory: VaultDirectory) throws -> VaultItem? {
@@ -68,17 +68,38 @@ actor LiveVaultStore: VaultStoring {
         return try listing(of: directory, mode: mode).first { $0.name == name }
     }
 
+    /// The attributes a listing reads for each entry, prefetched by the directory read.
+    private static let itemResourceKeys: [URLResourceKey] = [
+        .isDirectoryKey, .contentModificationDateKey, .fileSizeKey,
+    ]
+
     /// The folder's non-hidden entries, unsorted: mapped files under their original name with
     /// `isEncrypted` true, everything else under its disk name.
+    ///
+    /// Large folders: the work per item is only that item's own. The folder's root-relative path and its
+    /// index are read once per listing, and each entry's size, date and folder flag come from the
+    /// directory read itself (attributes prefetched), not a separate stat per file.
     func listing(of directory: VaultDirectory, mode: VaultOperationMode) throws -> [VaultItem] {
-        let diskNames = try visibleDiskNames(in: directory.diskURL)
+        let entryURLs: [URL]
+        do {
+            entryURLs = try FileManager.default.contentsOfDirectory(
+                at: directory.diskURL, includingPropertiesForKeys: Self.itemResourceKeys)
+        } catch {
+            throw VaultStoreError.from(error)
+        }
         let entries = try index.read(in: directory.diskURL, mode: mode)
-        // An entry that vanishes between the directory read and its stat is not listed.
-        return diskNames.compactMap { diskName in
+        let folderPath = index.relativePath(of: directory.diskURL)
+        let keys = Set(Self.itemResourceKeys)
+        return entryURLs.compactMap { url in
+            let diskName = url.lastPathComponent
+            guard !diskName.hasPrefix(".") else { return nil }
+            // Prefetched values are served from the URL's cache. An entry that vanished before its
+            // attributes were read has none cached; fetching them again fails, and it is not listed.
+            guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
             let entry = entries[diskName]
-            return try? makeItem(
-                diskName: diskName, in: directory, displayName: entry?.originalName ?? diskName,
-                isEncrypted: entry != nil)
+            return makeItem(
+                diskName: diskName, in: directory, folderPath: folderPath,
+                displayName: entry?.originalName ?? diskName, isEncrypted: entry != nil, values: values)
         }
     }
 
@@ -102,19 +123,31 @@ actor LiveVaultStore: VaultStoring {
         return names
     }
 
-    /// The item for `diskName` in `directory`, with its size and date from disk.
+    /// The item for `diskName` in `directory`, with its size and date from disk (one stat, and the
+    /// folder's root-relative path worked out here). Listings use the overload that takes both.
+    /// - Throws: `.notFound` when nothing is at that name; `.io` for other file-system errors.
     func makeItem(
         diskName: String, in directory: VaultDirectory, displayName: String, isEncrypted: Bool
     ) throws -> VaultItem {
         let url = directory.diskURL.appendingPathComponent(diskName)
         let values: URLResourceValues
         do {
-            values = try url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey])
+            values = try url.resourceValues(forKeys: Set(Self.itemResourceKeys))
         } catch {
             throw VaultStoreError.from(error)
         }
+        return makeItem(
+            diskName: diskName, in: directory, folderPath: index.relativePath(of: directory.diskURL),
+            displayName: displayName, isEncrypted: isEncrypted, values: values)
+    }
+
+    /// The item for `diskName` in `directory` from attributes already read (`values`) and the folder's
+    /// root-relative path (`folderPath`, "" for the root), so a listing works both out once.
+    private func makeItem(
+        diskName: String, in directory: VaultDirectory, folderPath: String, displayName: String,
+        isEncrypted: Bool, values: URLResourceValues
+    ) -> VaultItem {
         let isDirectory = values.isDirectory ?? false
-        let folderPath = index.relativePath(of: directory.diskURL)
         return VaultItem(
             id: folderPath.isEmpty ? diskName : folderPath + "/" + diskName,
             name: displayName,
@@ -122,7 +155,7 @@ actor LiveVaultStore: VaultStoring {
             dateModified: values.contentModificationDate ?? Date(),
             fileSize: isDirectory ? nil : (values.fileSize ?? 0),
             deletedAt: nil,
-            diskURL: isDirectory ? directory.diskURL.appendingPathComponent(diskName, isDirectory: true) : url,
+            diskURL: directory.diskURL.appendingPathComponent(diskName, isDirectory: isDirectory),
             rootURL: directory.rootURL,
             isEncrypted: isEncrypted)
     }
@@ -130,10 +163,6 @@ actor LiveVaultStore: VaultStoring {
     /// Throws `.notFound` unless something exists at `url`.
     func requireExists(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { throw VaultStoreError.notFound }
-    }
-
-    private func visibleDiskNames(in folder: URL) throws -> [String] {
-        try diskNamesThrowing(in: folder).filter { !$0.hasPrefix(".") }
     }
 
     private func diskNamesThrowing(in folder: URL) throws -> [String] {
@@ -144,29 +173,55 @@ actor LiveVaultStore: VaultStoring {
         }
     }
 
-    /// Folders first; then by `option` (name: case-insensitive, numbers in order; type: extension then
-    /// name; date modified), reversed for descending. Ties fall back to the id so the order is stable.
+    /// An item with the values its sort compares, each worked out once per listing instead of on every
+    /// comparison: the name, lowercased extension and id as `NSString`, so comparing them never bridges.
+    private struct SortKey {
+        let item: VaultItem
+        let name: NSString
+        let fileExtension: NSString
+        let id: NSString
+
+        init(_ item: VaultItem) {
+            self.item = item
+            let name = item.name as NSString
+            self.name = name
+            fileExtension = name.pathExtension.lowercased() as NSString
+            id = item.id as NSString
+        }
+    }
+
+    /// `items` with folders first; then by `option` (name: case-insensitive, numbers in order; type:
+    /// extension then name; date modified), reversed for descending. Ties fall back to the id so the
+    /// order is stable. Comparisons use `localizedStandardCompare` and `compare` on precomputed keys.
+    private static func sorted(
+        _ items: [VaultItem], by option: SortOption, _ direction: SortDirection
+    ) -> [VaultItem] {
+        items.map(SortKey.init)
+            .sorted { lhs, rhs in precedes(lhs, rhs, by: option, direction) }
+            .map(\.item)
+    }
+
     private static func precedes(
-        _ lhs: VaultItem, _ rhs: VaultItem, by option: SortOption, _ direction: SortDirection
+        _ lhs: SortKey, _ rhs: SortKey, by option: SortOption, _ direction: SortDirection
     ) -> Bool {
-        if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+        if lhs.item.isDirectory != rhs.item.isDirectory { return lhs.item.isDirectory }
         var order: ComparisonResult
         switch option {
         case .name:
-            order = lhs.name.localizedStandardCompare(rhs.name)
+            order = lhs.name.localizedStandardCompare(rhs.name as String)
         case .type:
-            let lhsExtension = (lhs.name as NSString).pathExtension.lowercased()
-            let rhsExtension = (rhs.name as NSString).pathExtension.lowercased()
-            order = lhsExtension.localizedStandardCompare(rhsExtension)
-            if order == .orderedSame { order = lhs.name.localizedStandardCompare(rhs.name) }
+            order = lhs.fileExtension.localizedStandardCompare(rhs.fileExtension as String)
+            if order == .orderedSame { order = lhs.name.localizedStandardCompare(rhs.name as String) }
         case .dateModified:
-            if lhs.dateModified == rhs.dateModified {
+            let lhsDate = lhs.item.dateModified
+            let rhsDate = rhs.item.dateModified
+            if lhsDate == rhsDate {
                 order = .orderedSame
             } else {
-                order = lhs.dateModified < rhs.dateModified ? .orderedAscending : .orderedDescending
+                order = lhsDate < rhsDate ? .orderedAscending : .orderedDescending
             }
         }
-        if order == .orderedSame { order = lhs.id.compare(rhs.id) }
+        if order == .orderedSame { order = lhs.id.compare(rhs.id as String) }
         return direction == .ascending ? order == .orderedAscending : order == .orderedDescending
     }
 

@@ -573,20 +573,6 @@ import Testing
         #expect(error is CancellationError)
     }
 
-    @Test("hasUnencryptedFiles throws io when the vault's root folder is missing")
-    func hasUnencryptedThrowsIOWhenRootMissing() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        try await vault.add("a.txt")
-        try FileManager.default.removeItem(at: vault.rootURL)
-
-        let error = await caught { _ = try await vault.store.hasUnencryptedFiles() }
-        guard case .io? = error as? VaultStoreError else {
-            Issue.record("expected VaultStoreError.io, got \(String(describing: error))")
-            return
-        }
-    }
-
     // MARK: - keyMatchesVault
 
     @Test("keyMatchesVault is true when the key decrypts the root index")

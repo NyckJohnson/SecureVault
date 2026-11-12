@@ -13,13 +13,14 @@ extension LiveVaultStore {
 
     /// Sweeps one folder at a time, so housekeeping never holds up browsing: each folder (its listing, index
     /// read and deletions) is one serialized step with no suspension inside it, and the sweep suspends only
-    /// between folders, where other store operations (a listing, an import, a move) may run. Each step checks
-    /// the mode again and stops once the store is locked; a folder removed in between is skipped, and one
-    /// changed is judged as it is when its step runs. A cancelled task stops between steps.
+    /// between folders, where other store operations (a listing, an import, a move) may run. Folders are
+    /// visited breadth-first: the root, then every folder one level down, and so on. Each step checks the mode
+    /// again and stops once the store is locked; a folder removed in between is skipped, and one changed is
+    /// judged as it is when its step runs. A cancelled task stops between steps.
     func sweepOrphans() async {
-        var pending = [root.diskURL]
+        var pending = HousekeepingQueue([root.diskURL])
         var isFirstStep = true
-        while let folder = pending.popLast() {
+        while let folder = pending.dequeue() {
             if !isFirstStep {
                 await Task.yield()
                 // A cancelled task (the shell cancels it on lock or a vault switch) stops between steps.
@@ -27,7 +28,7 @@ extension LiveVaultStore {
             }
             isFirstStep = false
             guard let mode = try? beginOperation(), mode.isEncrypted, mode.keyLoaded else { return }
-            pending += sweepFolder(folder, mode: mode)
+            pending.enqueue(sweepFolder(folder, mode: mode))
         }
     }
 
@@ -65,5 +66,29 @@ extension LiveVaultStore {
             return nil
         }
         return try? index.read(in: folder, mode: mode)
+    }
+}
+
+/// A first-in, first-out queue for the housekeeping walks (`sweepOrphans`, `hasUnencryptedFiles`), which visit
+/// folders breadth-first. Dequeuing moves an index instead of shifting the array, so each operation is O(1);
+/// dequeued slots are kept until the walk ends (one per folder in the vault, which stays small).
+struct HousekeepingQueue<Element> {
+    private var elements: [Element]
+    private var head = 0
+
+    init(_ elements: [Element]) {
+        self.elements = elements
+    }
+
+    /// Adds `newElements` at the back, in order.
+    mutating func enqueue(_ newElements: some Sequence<Element>) {
+        elements.append(contentsOf: newElements)
+    }
+
+    /// Removes and returns the front element, or nil when the queue is empty.
+    mutating func dequeue() -> Element? {
+        guard head < elements.count else { return nil }
+        defer { head += 1 }
+        return elements[head]
     }
 }
