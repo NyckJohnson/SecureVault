@@ -214,3 +214,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   per-file stat and sort; the check's big-folder step ~3 s. Human chose: speed up first (VaultStore units 1 and 2,
   no contract change: listing per-folder work once, prefetched attributes, precomputed sort keys; housekeeping
   breadth-first, check in batches of 256). Files appearing as they load only if still needed. Branch `fix/large-folders`.
+- 2026-11-12 (verify, large folders): merged via `fix/large-folders` (ff7520c). VaultStore unit 1: listing per-folder
+  work once, prefetched attributes, NSString sort keys; 9,000-file listing 1,225 → ~413 ms (simulator, real cipher).
+  Unit 2: both housekeeping walks breadth-first; the check in batches of 256 per step. Reviews pass; coverage clean;
+  `gates --after-merge` green. Next: journeys, then the human's device retest.
