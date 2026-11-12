@@ -150,7 +150,7 @@
             "VaultCatalog.swift",
             "VaultUpgrade.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T18:47:52-08:00",
+  "updatedAt": "2026-11-11T18:48:18-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
