@@ -86,7 +86,7 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-12T14:35:44-08:00",
+  "updatedAt": "2026-11-12T14:38:16-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
