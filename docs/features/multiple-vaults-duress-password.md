@@ -218,3 +218,6 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   work once, prefetched attributes, NSString sort keys; 9,000-file listing 1,225 → ~413 ms (simulator, real cipher).
   Unit 2: both housekeeping walks breadth-first; the check in batches of 256 per step. Reviews pass; coverage clean;
   `gates --after-merge` green. Next: journeys, then the human's device retest.
+- 2026-11-12 (verify, RESUME HERE): all 12 journeys pass after the large-folder speed-up. Next: the human's device retest
+  (very large folders show quickly; rest of the device-test checklist), triage, acceptance. If big folders are still too
+  slow: "files appear as they load" (VaultStore contract + Browser change), as decided.
