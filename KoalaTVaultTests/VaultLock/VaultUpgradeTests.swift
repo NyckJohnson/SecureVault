@@ -15,10 +15,9 @@ import Testing
 
         init(
             lockMode: LockMode = .none,
-            pending: PendingMigration? = nil,
+            pending: Bool = false,
             upgraded: Bool = false,
-            hasBlob: Bool = false,
-            setup: Bool = true
+            hasBlob: Bool = false
         ) throws {
             let manager = FileManager.default
             root = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -31,7 +30,7 @@ import Testing
             let items = hasBlob ? [VaultCatalog.blobAccount(for: "primary"): Data([1])] : [:]
             keychain = MockKeychainAccessing(items: items)
             preferences = MockPreferencesStoring(
-                hasCompletedSetup: setup, lockMode: lockMode, pendingMigration: pending, vaultsUpgraded: upgraded)
+                lockMode: lockMode, hasPendingEncryptMigration: pending, vaultsUpgraded: upgraded)
             upgrade = VaultUpgrade(
                 documents: documents, vaultsFolder: vaults, keychain: keychain, preferences: preferences)
         }
@@ -66,7 +65,7 @@ import Testing
 
     private struct UnchangedCase {
         let mode: LockMode
-        let migration: PendingMigration?
+        let migration: Bool
         let blob: Bool
     }
 
@@ -78,7 +77,7 @@ import Testing
     @Test("When vaultsUpgraded is true nothing is touched")
     func alreadyUpgradedTouchesNothing() throws {
         let fixture = try Fixture(
-            lockMode: .passwordAndBiometrics, pending: PendingMigration(kind: .encrypt, targetLockMode: .password),
+            lockMode: .passwordAndBiometrics, pending: true,
             upgraded: true, hasBlob: true)
         try fixture.populateDocuments()
         try fixture.upgrade.run()
@@ -86,7 +85,7 @@ import Testing
         #expect(!fixture.primaryExists)
         #expect(fixture.marker == nil)
         #expect(fixture.keychain.calls.isEmpty)
-        #expect(fixture.preferences.pendingMigration != nil)
+        #expect(fixture.preferences.hasPendingEncryptMigration)
         #expect(fixture.preferences.writes.isEmpty)
     }
 
@@ -162,39 +161,39 @@ import Testing
 
     @Test("A pending encrypt with a blob counts as a lock")
     func pendingEncryptWithBlobIsLock() throws {
-        let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let pending = true
         let fixture = try Fixture(lockMode: .none, pending: pending, hasBlob: true)
         try fixture.populateDocuments()
         try fixture.upgrade.run()
         #expect(fixture.primaryNames() == Self.expectedEntries.sorted())
         #expect(fixture.documentNames().isEmpty)
-        #expect(fixture.preferences.pendingMigration == nil)
+        #expect(!fixture.preferences.hasPendingEncryptMigration)
         #expect(fixture.preferences.vaultsUpgraded)
         #expect(fixture.marker == nil)
     }
 
     @Test("A Keychain error reading the blob counts as a blob")
     func keychainErrorCountsAsBlob() throws {
-        let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let pending = true
         let fixture = try Fixture(lockMode: .none, pending: pending, hasBlob: false)
         try fixture.populateDocuments()
         fixture.keychain.errorToThrow = .keychain(-25308)
         try fixture.upgrade.run()
         #expect(fixture.primaryNames() == Self.expectedEntries.sorted())
         #expect(fixture.documentNames().isEmpty)
-        #expect(fixture.preferences.pendingMigration == nil)
+        #expect(!fixture.preferences.hasPendingEncryptMigration)
         #expect(fixture.preferences.vaultsUpgraded)
     }
 
     @Test("A pending encrypt with no blob is dropped and nothing moves")
     func pendingEncryptWithoutBlobIsDropped() throws {
-        let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let pending = true
         let fixture = try Fixture(lockMode: .none, pending: pending, hasBlob: false)
         try fixture.populateDocuments()
         try fixture.upgrade.run()
         #expect(fixture.documentNames() == Self.expectedEntries.sorted())
         #expect(!fixture.primaryExists)
-        #expect(fixture.preferences.pendingMigration == nil)
+        #expect(!fixture.preferences.hasPendingEncryptMigration)
         #expect(fixture.preferences.vaultsUpgraded)
         #expect(fixture.marker == nil)
     }
@@ -216,51 +215,85 @@ import Testing
 
     @Test("vaultsUpgraded is written last, after the pending migration is cleared")
     func upgradedFlagIsLastWrite() throws {
-        let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let pending = true
         let fixture = try Fixture(lockMode: .password, pending: pending, hasBlob: true)
         try fixture.upgrade.run()
         #expect(fixture.preferences.writes.last == .vaultsUpgraded(true))
-        let cleared = fixture.preferences.writes.firstIndex(of: .pendingMigration(nil))
+        let cleared = fixture.preferences.writes.firstIndex(of: .clearPendingMigration)
         let flagged = fixture.preferences.writes.firstIndex(of: .vaultsUpgraded(true))
         #expect(try #require(cleared) < #require(flagged))
     }
 
-    @Test("A lock upgrade clears a pending decrypt as well")
-    func lockClearsPendingDecrypt() throws {
-        let fixture = try Fixture(
-            lockMode: .password, pending: PendingMigration(kind: .decrypt, targetLockMode: nil), hasBlob: true)
+    @Test("A lock upgrade with nothing pending still clears once")
+    func lockUpgradeWithNothingPendingStillClearsOnce() throws {
+        let fixture = try Fixture(lockMode: .password, pending: false, hasBlob: true)
         try fixture.upgrade.run()
-        #expect(fixture.preferences.pendingMigration == nil)
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
         #expect(fixture.preferences.vaultsUpgraded)
     }
 
-    @Test("hasCompletedSetup and lockMode are unchanged in every case")
-    func setupAndLockModeUnchanged() throws {
-        let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
+    @Test("A lock upgrade with a pending encrypt clears the pending migration exactly once, before vaultsUpgraded")
+    func lockPathClearsOnceBeforeFlag() throws {
+        let fixture = try Fixture(lockMode: .none, pending: true, hasBlob: true)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
+        let writes = fixture.preferences.writes
+        let cleared = try #require(writes.firstIndex(of: .clearPendingMigration))
+        let flagged = try #require(writes.firstIndex(of: .vaultsUpgraded(true)))
+        #expect(cleared < flagged)
+    }
+
+    @Test("A pending encrypt with no blob clears the pending migration exactly once, before vaultsUpgraded")
+    func noLockPathClearsOnceBeforeFlag() throws {
+        let fixture = try Fixture(lockMode: .none, pending: true, hasBlob: false)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
+        let writes = fixture.preferences.writes
+        let cleared = try #require(writes.firstIndex(of: .clearPendingMigration))
+        let flagged = try #require(writes.firstIndex(of: .vaultsUpgraded(true)))
+        #expect(cleared < flagged)
+    }
+
+    @Test("With nothing stored and no lock the pending migration is still cleared exactly once, before vaultsUpgraded")
+    func nothingStoredClearsOnceBeforeFlag() throws {
+        let fixture = try Fixture(lockMode: .none, pending: false, hasBlob: false)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 1)
+        let writes = fixture.preferences.writes
+        let cleared = try #require(writes.firstIndex(of: .clearPendingMigration))
+        let flagged = try #require(writes.firstIndex(of: .vaultsUpgraded(true)))
+        #expect(cleared < flagged)
+    }
+
+    @Test("When vaultsUpgraded is already true the pending migration is not cleared")
+    func alreadyUpgradedDoesNotClear() throws {
+        let fixture = try Fixture(lockMode: .none, pending: true, upgraded: true, hasBlob: false)
+        try fixture.upgrade.run()
+        #expect(fixture.preferences.clearPendingMigrationCallCount == 0)
+    }
+
+    @Test("lockMode is unchanged in every case")
+    func lockModeUnchanged() throws {
+        let pending = true
         let cases = [
-            UnchangedCase(mode: .password, migration: nil, blob: true),
-            UnchangedCase(mode: .passwordAndBiometrics, migration: nil, blob: true),
+            UnchangedCase(mode: .password, migration: false, blob: true),
+            UnchangedCase(mode: .passwordAndBiometrics, migration: false, blob: true),
             UnchangedCase(mode: .none, migration: pending, blob: true),
             UnchangedCase(mode: .none, migration: pending, blob: false),
-            UnchangedCase(mode: .none, migration: nil, blob: false),
+            UnchangedCase(mode: .none, migration: false, blob: false),
         ]
         for item in cases {
             let mode = item.mode
-            let fixture = try Fixture(lockMode: mode, pending: item.migration, hasBlob: item.blob, setup: true)
+            let fixture = try Fixture(lockMode: mode, pending: item.migration, hasBlob: item.blob)
             try fixture.upgrade.run()
-            #expect(fixture.preferences.hasCompletedSetup)
             #expect(fixture.preferences.lockMode == mode)
             #expect(!fixture.preferences.writes.contains { if case .lockMode = $0 { true } else { false } })
-            #expect(!fixture.preferences.writes.contains { if case .hasCompletedSetup = $0 { true } else { false } })
         }
-        let fresh = try Fixture(lockMode: .none, setup: false)
-        try fresh.upgrade.run()
-        #expect(!fresh.preferences.hasCompletedSetup)
     }
 
     @Test("A failure before the end throws, leaves vaultsUpgraded false and a rerun completes the move")
     func failureThenRerunCompletes() throws {
-        let pending = PendingMigration(kind: .encrypt, targetLockMode: .password)
+        let pending = true
         let fixture = try Fixture(lockMode: .password, pending: pending, hasBlob: true)
         try fixture.populateDocuments()
         // A plain file where the Application Support folder should be makes the Vaults folder unwritable.
@@ -270,7 +303,7 @@ import Testing
 
         #expect(throws: (any Error).self) { try fixture.upgrade.run() }
         #expect(!fixture.preferences.vaultsUpgraded)
-        #expect(fixture.preferences.pendingMigration == pending)
+        #expect(fixture.preferences.hasPendingEncryptMigration == pending)
         #expect(fixture.documentNames() == Self.expectedEntries.sorted())
 
         try FileManager.default.removeItem(at: blocker)
@@ -278,7 +311,7 @@ import Testing
         try fixture.upgrade.run()
         #expect(fixture.primaryNames() == Self.expectedEntries.sorted())
         #expect(fixture.documentNames().isEmpty)
-        #expect(fixture.preferences.pendingMigration == nil)
+        #expect(!fixture.preferences.hasPendingEncryptMigration)
         #expect(fixture.preferences.vaultsUpgraded)
     }
 

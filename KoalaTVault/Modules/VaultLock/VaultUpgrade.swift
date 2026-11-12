@@ -7,7 +7,7 @@ import os
 /// If the old app had a lock (a lock mode other than none, or a pending encrypt while the old blob exists), every
 /// entry of Documents moves into `Vaults/primary/`, and a password + biometrics lock gives that vault Face ID.
 /// Then the pending migration is cleared and `vaultsUpgraded` is set, last. Each step can be repeated, so after a
-/// failure the next launch carries on from what is left. `hasCompletedSetup` and `lockMode` are never written.
+/// failure the next launch carries on from what is left. `lockMode` is never written.
 struct VaultUpgrade: Sendable {
     private static let logger = Logger(subsystem: "com.KoalaTVault", category: "VaultUpgrade")
 
@@ -36,16 +36,14 @@ struct VaultUpgrade: Sendable {
                 try catalog.setBiometricVaultID(VaultCatalog.primaryID)
             }
         }
-        if preferences.pendingMigration != nil {
-            preferences.pendingMigration = nil
-        }
+        preferences.clearPendingMigration()
         preferences.vaultsUpgraded = true
     }
 
     /// Whether the old app had a lock: a lock mode other than none, or a pending encrypt while the old blob exists.
     private func hadLock() -> Bool {
         if preferences.lockMode != .none { return true }
-        guard preferences.pendingMigration?.kind == .encrypt else { return false }
+        guard preferences.hasPendingEncryptMigration else { return false }
         do {
             return try keychain.read(account: VaultCatalog.blobAccount(for: VaultCatalog.primaryID), prompt: nil) != nil
         } catch {

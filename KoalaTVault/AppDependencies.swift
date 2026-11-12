@@ -16,9 +16,10 @@
 //  and only that vault's are kept.
 //
 //  Every test-only launch path (the two launch arguments, the `UITEST_*` seeds,
-//  the in-memory Keychain, the slow migration store, the inert entitlement) is
-//  compiled only in Debug: unit and UI tests build Debug, so a Release build has
-//  none of them.
+//  the slow migration store, the inert entitlement) is compiled only in Debug:
+//  unit and UI tests build Debug, so a Release build has none of them. The
+//  in-memory Keychain is compiled in every build: it also backs the vault lock's
+//  decoy key store.
 //
 
 import CryptoKit
@@ -26,11 +27,10 @@ import Foundation
 import os
 import UIKit
 
-#if DEBUG
+// MARK: - In-memory Keychain
 
-// MARK: - In-memory Keychain (Debug only)
-
-/// An in-memory stand-in for the Keychain used in `-uiTesting` mode: one item per account.
+/// An in-memory stand-in for the Keychain: one item per account. Used for all storage in `-uiTesting` mode, and in
+/// every build as the private Keychain of the vault lock's decoy key store (never the real Keychain).
 /// Accessibility is ignored, so biometric reads succeed without a prompt.
 nonisolated final class InMemoryKeychain: KeychainAccessing {
     private let items = OSAllocatedUnfairLock<[String: Data]>(initialState: [:])
@@ -49,6 +49,8 @@ nonisolated final class InMemoryKeychain: KeychainAccessing {
         items.withLock { $0[account] = nil }
     }
 }
+
+#if DEBUG
 
 // MARK: - Inert pro unlock (unit-test host, Debug only)
 
@@ -638,7 +640,8 @@ final class AppDependencies {
 
     /// The vault lock over `storage`: the unencrypted vault's `unencryptedStore`, the vaults in
     /// `storage.vaultsFolderURL`, and per vault a `LiveMasterKeyStore` for its blob account, a `LiveFileCipher` over
-    /// it (recorded in `vaultCiphers`) and a `LiveVaultStore` with its own folder under `temporaryRoot`. In
+    /// it (recorded in `vaultCiphers`) and a `LiveVaultStore` with its own folder under `temporaryRoot`; the decoy key
+    /// store is a `LiveMasterKeyStore` over a private `InMemoryKeychain`, never the real one. In
     /// `-uiTesting` mode (Debug builds only) `UITEST_MIGRATION_FILE_DELAY` wraps encrypted stores in
     /// `SlowMigrationVaultStore`.
     private static func makeVaultLock(
@@ -656,6 +659,7 @@ final class AppDependencies {
             pro: proUnlock,
             biometricInfo: BiometricInfo(probe: LiveBiometricProbe()),
             makeKeyStore: { LiveMasterKeyStore(keychain: keychain, blobAccount: $0) },
+            makeDecoyKeyStore: { LiveMasterKeyStore(keychain: InMemoryKeychain(), blobAccount: "decoy") },
             makeCipher: { LiveFileCipher(keyStore: $0) },
             makeStore: { root, name, isEncrypted, keyStore, cipher in
                 let store = LiveVaultStore(
@@ -806,7 +810,7 @@ final class AppDependencies {
 
     #if DEBUG
     /// `UITEST_LEGACY_LOCK`: the 1.2 lock as that version left it, with no key loaded: a blob for `password` (if
-    /// given) under the old blob account, the biometric key item for `.biometric`, the lock mode and setup done.
+    /// given) under the old blob account, the biometric key item for `.biometric`, and the lock mode.
     private func seedLegacyLock(_ legacyLock: UITestSettings.LegacyLock, password: String?) {
         if let password {
             let keyStore = LiveMasterKeyStore(keychain: storage.keychain)
@@ -822,7 +826,6 @@ final class AppDependencies {
             keyStore.wipeKey()
         }
         preferences.lockMode = legacyLock == .biometric ? .passwordAndBiometrics : .password
-        preferences.hasCompletedSetup = true
     }
 
     /// `UITEST_PASSWORD` without `UITEST_LEGACY_LOCK`: creates the empty encrypted vault "Test Vault" with that

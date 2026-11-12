@@ -5,20 +5,19 @@ import os
 final class MockPreferencesStoring: PreferencesStoring {
     /// A recorded write.
     enum Write: Equatable, Sendable {
-        case hasCompletedSetup(Bool)
         case lockMode(LockMode)
         case sortOption(SortOption)
         case sortDirection(SortDirection)
-        case pendingMigration(PendingMigration?)
+        case clearPendingMigration
         case vaultsUpgraded(Bool)
     }
 
     private struct State: Sendable {
-        var hasCompletedSetup: Bool
         var lockMode: LockMode
         var sortOption: SortOption
         var sortDirection: SortDirection
-        var pendingMigration: PendingMigration?
+        var hasPendingEncryptMigration: Bool
+        var clearPendingMigrationCallCount = 0
         var vaultsUpgraded: Bool
         var writes: [Write] = []
     }
@@ -27,34 +26,23 @@ final class MockPreferencesStoring: PreferencesStoring {
 
     /// Preferences with the given values (the store's defaults unless stated).
     init(
-        hasCompletedSetup: Bool = false,
         lockMode: LockMode = .none,
         sortOption: SortOption = .name,
         sortDirection: SortDirection = .ascending,
-        pendingMigration: PendingMigration? = nil,
+        hasPendingEncryptMigration: Bool = false,
         vaultsUpgraded: Bool = false
     ) {
         state = OSAllocatedUnfairLock(
             initialState: State(
-                hasCompletedSetup: hasCompletedSetup,
                 lockMode: lockMode,
                 sortOption: sortOption,
                 sortDirection: sortDirection,
-                pendingMigration: pendingMigration,
+                hasPendingEncryptMigration: hasPendingEncryptMigration,
                 vaultsUpgraded: vaultsUpgraded))
     }
 
     /// Every write so far, in order.
     var writes: [Write] { state.withLock { $0.writes } }
-
-    var hasCompletedSetup: Bool {
-        get { state.withLock { $0.hasCompletedSetup } }
-        set {
-            state.withLock {
-                $0.hasCompletedSetup = newValue; $0.writes.append(.hasCompletedSetup(newValue))
-            }
-        }
-    }
 
     var lockMode: LockMode {
         get { state.withLock { $0.lockMode } }
@@ -83,12 +71,20 @@ final class MockPreferencesStoring: PreferencesStoring {
         }
     }
 
-    var pendingMigration: PendingMigration? {
-        get { state.withLock { $0.pendingMigration } }
-        set {
-            state.withLock {
-                $0.pendingMigration = newValue; $0.writes.append(.pendingMigration(newValue))
-            }
+    /// Settable by tests and previews to stand for a pending encrypt left by 1.2 (not recorded as a write).
+    var hasPendingEncryptMigration: Bool {
+        get { state.withLock { $0.hasPendingEncryptMigration } }
+        set { state.withLock { $0.hasPendingEncryptMigration = newValue } }
+    }
+
+    /// How many times `clearPendingMigration()` was called.
+    var clearPendingMigrationCallCount: Int { state.withLock { $0.clearPendingMigrationCallCount } }
+
+    func clearPendingMigration() {
+        state.withLock {
+            $0.hasPendingEncryptMigration = false
+            $0.clearPendingMigrationCallCount += 1
+            $0.writes.append(.clearPendingMigration)
         }
     }
 

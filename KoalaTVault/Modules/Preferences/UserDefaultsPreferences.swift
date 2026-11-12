@@ -5,10 +5,9 @@ import os
 ///
 /// Keys and raw values match what earlier app versions wrote, so existing settings stay readable.
 /// Unknown raw values read as the documented defaults. Every access goes through one lock, so the
-/// two keys of `pendingMigration` are always read and written together and never tear.
+/// two pending-migration keys are always cleared together and never tear.
 final class UserDefaultsPreferences: PreferencesStoring {
     private enum Key {
-        static let hasCompletedSetup = "hasCompletedSetup"
         static let lockMode = "lockMode"
         static let sortOption = "sortOption"
         static let sortDirection = "sortDirection"
@@ -26,11 +25,6 @@ final class UserDefaultsPreferences: PreferencesStoring {
         suite = OSAllocatedUnfairLock(uncheckedState: defaults)
     }
 
-    var hasCompletedSetup: Bool {
-        get { suite.withLock { defaults in defaults.bool(forKey: Key.hasCompletedSetup) } }
-        set { suite.withLock { defaults in defaults.set(newValue, forKey: Key.hasCompletedSetup) } }
-    }
-
     var lockMode: LockMode {
         get { suite.withLock { defaults in defaults.enumValue(forKey: Key.lockMode) ?? LockMode.none } }
         set { suite.withLock { defaults in defaults.set(newValue.rawValue, forKey: Key.lockMode) } }
@@ -46,29 +40,15 @@ final class UserDefaultsPreferences: PreferencesStoring {
         set { suite.withLock { defaults in defaults.set(newValue.rawValue, forKey: Key.sortDirection) } }
     }
 
-    /// Stored as `pendingMigrationType` plus, for `.encrypt` only, `pendingMigrationTargetLockMode`.
-    /// A target given with `.decrypt` is dropped; nil removes both keys.
-    var pendingMigration: PendingMigration? {
-        get {
-            suite.withLock { defaults in
-                let kind: MigrationKind? = defaults.enumValue(forKey: Key.pendingMigrationType)
-                switch kind {
-                case nil:
-                    return nil
-                case .encrypt:
-                    let target: LockMode? = defaults.enumValue(forKey: Key.pendingMigrationTargetLockMode)
-                    return PendingMigration(kind: .encrypt, targetLockMode: target)
-                case .decrypt:
-                    return PendingMigration(kind: .decrypt, targetLockMode: nil)
-                }
-            }
-        }
-        set {
-            suite.withLock { defaults in
-                defaults.set(newValue?.kind.rawValue, forKey: Key.pendingMigrationType)
-                let target = newValue?.kind == .encrypt ? newValue?.targetLockMode : nil
-                defaults.set(target?.rawValue, forKey: Key.pendingMigrationTargetLockMode)
-            }
+    /// True only when `pendingMigrationType` is "encrypt"; `pendingMigrationTargetLockMode` is never read.
+    var hasPendingEncryptMigration: Bool {
+        suite.withLock { defaults in defaults.string(forKey: Key.pendingMigrationType) == "encrypt" }
+    }
+
+    func clearPendingMigration() {
+        suite.withLock { defaults in
+            defaults.removeObject(forKey: Key.pendingMigrationType)
+            defaults.removeObject(forKey: Key.pendingMigrationTargetLockMode)
         }
     }
 
