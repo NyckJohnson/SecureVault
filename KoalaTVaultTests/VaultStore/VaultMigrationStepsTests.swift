@@ -409,7 +409,9 @@ import Testing
         #expect(try await vault.store.hasUnencryptedFiles() == false)
     }
 
-    @Test("hasUnencryptedFiles is true for a plaintext file deep in nested subfolders", arguments: [LockMode.none, .password])
+    @Test(
+        "hasUnencryptedFiles is true for a plaintext file deep in nested subfolders",
+        arguments: [LockMode.none, .password])
     func hasUnencryptedDeepInSubfolder(mode: LockMode) async throws {
         let vault = try VaultStoreFixture(lockMode: mode)
         defer { vault.cleanUp() }
