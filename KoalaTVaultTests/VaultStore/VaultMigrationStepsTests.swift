@@ -510,19 +510,18 @@ import Testing
         for index in 0..<10 {
             let folder = try vault.folder("F\(index)")
             try await vault.add("a.txt", to: folder)
-            if index >= 5 { doomed.append(folder.diskURL) }
+            doomed.append(folder.diskURL)
         }
         let removed = doomed
+        // The root step lists the subfolders (queuing them), then checks the root's file form, which reads its
+        // stream info. Removing the folders there leaves them queued but gone before their own steps run.
         let gate = HousekeepingGate(waits: false) {
             for url in removed { try? FileManager.default.removeItem(at: url) }
-        }
-        failing.decryptErrorFor = { _ in
-            gate.pass()
-            return nil
         }
         failing.onFirstStreamInfo = { _ in gate.pass() }
 
         #expect(try await vault.store.hasUnencryptedFiles() == false)
+        #expect(removed.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
     }
 
     private func manyFolderVault() async throws -> VaultStoreFixture {
