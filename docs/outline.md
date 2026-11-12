@@ -678,7 +678,7 @@ reads it, and only whether it is an encrypt; then it clears both keys. Nothing w
     in-memory Keychain and fakes; nothing touches the real ones.
   - VaultCatalog (VaultCatalog.swift): lists the vaults (each folder under `Vaults/` whose blob exists; the blob account
     rule in Data models); reads a vault's name from `.vault_info` (missing or unreadable → "My Vault") and writes it
-    sealed (written atomically with complete file protection, like the other store files; minors clean-up 2026-11-11); removes at launch a folder whose blob is missing only when it is empty (an interrupted creation holds no files; a blobless folder with anything in it is left alone and not listed, so files are never deleted); reads and
+    sealed (written atomically with complete file protection, like the other store files; minors clean-up 2026-11-11; the simulator doesn't record protection classes, so as for the other store files the reviewer checks the option and the device test confirms it — decided by the human); removes at launch a folder whose blob is missing only when it is empty (an interrupted creation holds no files; a blobless folder with anything in it is left alone and not listed, so files are never deleted); reads and
     writes the Face ID vault marker ("com.KoalaTVault.biometricVaultID"). A Keychain error reading a blob counts as the
     blob existing (a vault is never removed on an error).
   - current / currentUpdates: launch → the unencrypted vault (id "unencrypted", name "KoalaTVault", plaintext store over

@@ -65,12 +65,13 @@ struct VaultCatalog: Sendable {
     }
 
     /// Writes `name` to the vault's `.vault_info` as JSON `{ "name": … }` sealed under the `.vault_info` context.
+    /// The file is written atomically with complete file protection.
     /// - Throws: the cipher's error, or a file-system error writing the file.
     func writeName(_ name: String, of vaultID: String, cipher: any FileCipher) throws {
         let plain = try JSONEncoder().encode(VaultInfo(name: name))
         let sealed = try cipher.encrypt(plain, context: Self.infoContext)
         let url = folderURL(for: vaultID).appendingPathComponent(Self.infoFileName)
-        try sealed.write(to: url, options: .atomic)
+        try sealed.write(to: url, options: [.atomic, .completeFileProtection])
     }
 
     /// The ID of the vault that has Face ID, or nil when there is none, the item is not UTF-8, or the Keychain fails.
