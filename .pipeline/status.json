@@ -42,7 +42,7 @@
       "name": "Preferences",
       "path": "KoalaTVault/Modules/Preferences",
       "dependsOn": [],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -132,7 +132,7 @@
         "VaultStore",
         "Entitlements"
       ],
-      "state": "in_progress",
+      "state": "done",
       "units": [
         {
           "number": 1,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T18:52:54-08:00",
+  "updatedAt": "2026-11-11T19:00:53-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

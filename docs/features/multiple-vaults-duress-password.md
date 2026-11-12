@@ -189,3 +189,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   `clearPendingMigration()`; Preferences unit 1 reopened, VaultUpgrade and the shell follow); 4 accepted. Order:
   contract + mock (skeleton-builder, feature mode), Preferences unit 1, VaultLock unit 2, VaultLock unit 1, shell, then
   `gates --all`, journeys, device test.
+- 2026-11-11 (verify, review minors done): merged via `fix/review-minors`; `gates --all` green. Preferences unit 1, VaultLock
+  units 1-2 done again. `.vault_info` protection has no test (simulator doesn't record protection classes; decided by the
+  human): confirm on the device test. Accepted review minors: decoy blob creation is tried once (a failure, practically
+  impossible with the in-memory Keychain, is logged and later no-vault searches are fast); no test that the decoy's
+  random password differs per lock; no test of a lock change during the decoy wait (the code checks it).
+  Next: journey tests (`gates --app-ui-tests`), then the device test.
