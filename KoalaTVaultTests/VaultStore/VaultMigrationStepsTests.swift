@@ -476,6 +476,7 @@ import Testing
         let store = vault.store
         let target = folders[0]
         let log = EventLog()
+        let aboutToList = Signal()
 
         let check = Task {
             let answer = try await store.hasUnencryptedFiles()
@@ -484,10 +485,12 @@ import Testing
         }
         #expect(await gate.waitUntilEntered())
         let listing = Task {
+            aboutToList.raise()
             let items = try await store.contents(of: target, sortedBy: .name, .ascending)
             log.add("listing")
             return items.map(\.name)
         }
+        #expect(await aboutToList.waitUntilRaised())
         gate.release()
         let listed = try await listing.value
         let answer = try await check.value
@@ -520,6 +523,69 @@ import Testing
         failing.onFirstStreamInfo = { _ in gate.pass() }
 
         #expect(try await vault.store.hasUnencryptedFiles() == false)
+    }
+
+    private func manyFolderVault() async throws -> VaultStoreFixture {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        try await vault.add("r.txt")
+        for index in 0..<10 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+        }
+        return vault
+    }
+
+    @Test("hasUnencryptedFiles throws locked when the vault locks mid-walk")
+    func hasUnencryptedThrowsLockedMidWalk() async throws {
+        let vault = try await manyFolderVault()
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let keys = vault.keys
+        let gate = HousekeepingGate(waits: false) { keys.wipeKey() }
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+
+        let error = await caught { _ = try await vault.store.hasUnencryptedFiles() }
+        #expect(error as? VaultStoreError == .locked)
+    }
+
+    @Test("hasUnencryptedFiles throws CancellationError when its task is cancelled mid-walk")
+    func hasUnencryptedThrowsWhenCancelledMidWalk() async throws {
+        let vault = try await manyFolderVault()
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let gate = HousekeepingGate()
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let store = vault.store
+
+        let check = Task { try await store.hasUnencryptedFiles() }
+        #expect(await gate.waitUntilEntered())
+        check.cancel()
+        gate.release()
+        let error = await caught { _ = try await check.value }
+
+        #expect(error is CancellationError)
+    }
+
+    @Test("hasUnencryptedFiles throws io when the vault's root folder is missing")
+    func hasUnencryptedThrowsIOWhenRootMissing() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try await vault.add("a.txt")
+        try FileManager.default.removeItem(at: vault.rootURL)
+
+        let error = await caught { _ = try await vault.store.hasUnencryptedFiles() }
+        guard case .io? = error as? VaultStoreError else {
+            Issue.record("expected VaultStoreError.io, got \(String(describing: error))")
+            return
+        }
     }
 
     // MARK: - keyMatchesVault

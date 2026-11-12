@@ -8,7 +8,7 @@ import os
 /// bounded waits only keep a monolithic implementation (which cannot be interleaved) from hanging the test.
 ///
 /// Install `pass()` as a cipher hook (`decryptErrorFor`, `onFirstStreamInfo`). Only the first call blocks.
-final class HousekeepingGate: @unchecked Sendable {
+final class HousekeepingGate: Sendable {
     private struct State {
         var calls = 0
         var entered = false
@@ -52,6 +52,22 @@ final class HousekeepingGate: @unchecked Sendable {
 
     /// Lets the blocked step continue.
     func release() { released.signal() }
+}
+
+/// A one-shot signal a test task raises when it is about to do something, so the test waits for the fact
+/// instead of sleeping for a guessed time.
+final class Signal: Sendable {
+    private let raised = OSAllocatedUnfairLock(initialState: false)
+    func raise() { raised.withLock { $0 = true } }
+
+    /// Whether the signal was raised, polled (bounded) until it is.
+    func waitUntilRaised() async -> Bool {
+        for _ in 0..<600 {
+            if raised.withLock({ $0 }) { return true }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return false
+    }
 }
 
 /// Thread-safe, ordered record of what finished when.
