@@ -209,3 +209,8 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   unit 2 done (attempts 2: an over-strict test assertion, then review minors), coverage clean, `gates --after-merge` green,
   all 12 journeys pass (`--app-ui-tests`). Next: the human retests on the device (folders show at once after opening a
   large vault; then the rest of the device test), triage, acceptance.
+- 2026-11-12 (verify, device retest): very large folders still take seconds to show. Timing on the simulator (branch
+  `scratch/large-folder-timing`, kept for reference): listing 9,000 files ~1.2 s, mostly per-item path resolution,
+  per-file stat and sort; the check's big-folder step ~3 s. Human chose: speed up first (VaultStore units 1 and 2,
+  no contract change: listing per-folder work once, prefetched attributes, precomputed sort keys; housekeeping
+  breadth-first, check in batches of 256). Files appearing as they load only if still needed. Branch `fix/large-folders`.
