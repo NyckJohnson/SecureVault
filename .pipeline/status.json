@@ -141,7 +141,7 @@
             "BiometricInfo.swift",
             "LiveVaultLock.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 0
         },
         {
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T18:52:06-08:00",
+  "updatedAt": "2026-11-11T18:52:54-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
