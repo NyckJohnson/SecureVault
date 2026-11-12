@@ -198,3 +198,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - 2026-11-11 (verify, RESUME HERE): after the review-minors merge, all 12 journeys pass (`--app-ui-tests`, ~53 min).
   Next: the human's device test (all journeys; iOS offering to save/suggest passwords; Face ID; `.vault_info` file
   protection can't be seen without tools, so it rests on the code review), triage, acceptance.
+- 2026-11-12 (verify, device test): the human found folders empty for 15-20 s after opening an encrypted vault. Cause (read
+  from the code, not profiled): `afterOpening` runs `sweepOrphans` and `hasUnencryptedFiles` on the `LiveVaultStore` actor,
+  each a whole-vault walk in one synchronous step (the second reads every file's SVC5 header), so `contents` waits. On
+  `main` only the sweep ran after unlock; the unencrypted-files check was gated by the pending-migration flag. Human chose:
+  fix now, no contract change (memo VaultStore spec bullet + decisions log). VaultStore unit 2 reopened on
+  `fix/open-vault-housekeeping`. Then gates, journeys, device retest, acceptance.

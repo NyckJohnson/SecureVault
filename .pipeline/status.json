@@ -1,7 +1,7 @@
 {
   "stage": 6,
-  "paused": true,
-  "pauseReason": "waiting on human: device test of multiple-vaults-duress-password, then acceptance",
+  "paused": false,
+  "pauseReason": null,
   "checkpoints": {
     "outline-approved": "2026-10-24T13:06:36-07:00",
     "setup": "2026-10-24T13:39:18-07:00",
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-11T20:09:50-08:00",
+  "updatedAt": "2026-11-12T12:24:41-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
