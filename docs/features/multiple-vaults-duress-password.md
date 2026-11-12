@@ -204,3 +204,8 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   `main` only the sweep ran after unlock; the unencrypted-files check was gated by the pending-migration flag. Human chose:
   fix now, no contract change (memo VaultStore spec bullet + decisions log). VaultStore unit 2 reopened on
   `fix/open-vault-housekeeping`. Then gates, journeys, device retest, acceptance.
+- 2026-11-12 (verify, RESUME HERE): open-vault housekeeping fix merged (74036af): `sweepOrphans` / `hasUnencryptedFiles`
+  step one folder at a time, yield between folders, stop on cancel/lock, check stops at first plaintext file. VaultStore
+  unit 2 done (attempts 2: an over-strict test assertion, then review minors), coverage clean, `gates --after-merge` green,
+  all 12 journeys pass (`--app-ui-tests`). Next: the human retests on the device (folders show at once after opening a
+  large vault; then the rest of the device test), triage, acceptance.
