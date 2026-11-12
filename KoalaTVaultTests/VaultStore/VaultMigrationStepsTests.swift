@@ -409,6 +409,117 @@ import Testing
         #expect(try await vault.store.hasUnencryptedFiles() == false)
     }
 
+    @Test("hasUnencryptedFiles is true for a plaintext file deep in nested subfolders", arguments: [LockMode.none, .password])
+    func hasUnencryptedDeepInSubfolder(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let inner = try vault.folder("Inner", in: docs)
+        let deepest = try vault.folder("Deepest", in: inner)
+        if mode != .none { try await vault.add("a.txt", to: docs) }
+        try vault.diskFile("plain.txt", "p", in: deepest)
+        #expect(try await vault.store.hasUnencryptedFiles())
+    }
+
+    @Test("hasUnencryptedFiles is false when nested folders and the trash hold only encrypted files")
+    func hasUnencryptedFalseWithNestedFolders() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let inner = try vault.folder("Inner", in: docs)
+        try await vault.add("a.txt")
+        try await vault.add("b.txt", to: docs)
+        try await vault.add("c.txt", to: inner)
+        let trashed = try await vault.add("d.txt", to: inner)
+        try await vault.store.moveToTrash(trashed)
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
+    }
+
+    @Test("hasUnencryptedFiles stops at the first plaintext file instead of walking the whole vault")
+    func hasUnencryptedStopsAtFirstPlaintextFile() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try await vault.add("r.txt")
+        try vault.diskFile("plain.txt", "p")
+        let folderCount = 30
+        for index in 0..<folderCount {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+        }
+        let callsBefore = vault.cipher.calls.count
+
+        #expect(try await vault.store.hasUnencryptedFiles())
+        // A full walk reads at least every folder's index; stopping early leaves most folders untouched.
+        #expect(vault.cipher.calls.count - callsBefore < folderCount)
+    }
+
+    @Test("A listing asked for while hasUnencryptedFiles runs finishes before it does, and the answer is unchanged")
+    func listingRunsBetweenUnencryptedCheckSteps() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        try await vault.add("r.txt")
+        var folders: [VaultDirectory] = []
+        for index in 0..<40 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+            folders.append(folder)
+        }
+        let gate = HousekeepingGate()
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let store = vault.store
+        let target = folders[0]
+        let log = EventLog()
+
+        let check = Task {
+            let answer = try await store.hasUnencryptedFiles()
+            log.add("check")
+            return answer
+        }
+        #expect(await gate.waitUntilEntered())
+        let listing = Task {
+            let items = try await store.contents(of: target, sortedBy: .name, .ascending)
+            log.add("listing")
+            return items.map(\.name)
+        }
+        gate.release()
+        let listed = try await listing.value
+        let answer = try await check.value
+
+        #expect(log.events == ["listing", "check"])
+        #expect(listed == ["a.txt"])
+        #expect(answer == false)
+    }
+
+    @Test("hasUnencryptedFiles skips a folder removed while it runs and does not throw")
+    func hasUnencryptedSkipsFoldersRemovedBetweenSteps() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        try await vault.add("r.txt")
+        var doomed: [URL] = []
+        for index in 0..<10 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+            if index >= 5 { doomed.append(folder.diskURL) }
+        }
+        let removed = doomed
+        let gate = HousekeepingGate(waits: false) {
+            for url in removed { try? FileManager.default.removeItem(at: url) }
+        }
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
+    }
+
     // MARK: - keyMatchesVault
 
     @Test("keyMatchesVault is true when the key decrypts the root index")

@@ -160,4 +160,81 @@ import Testing
         await vault.store.sweepOrphans()
         #expect(exists(vault.rootURL.appendingPathComponent(emptyName)))
     }
+
+    // MARK: - Housekeeping never holds up browsing
+
+    @Test("A listing asked for while sweepOrphans runs finishes before the sweep does, and the sweep deletes the same orphans")
+    func listingRunsBetweenSweepSteps() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        try await vault.add("r.txt")
+        var folders: [VaultDirectory] = []
+        var orphans: [URL] = []
+        for index in 0..<40 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+            orphans.append(try vault.diskSealedFile(VaultStoreFixture.newDiskName(), "orphan", in: folder))
+            folders.append(folder)
+        }
+        let gate = HousekeepingGate()
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        let store = vault.store
+        let target = folders[0]
+        let log = EventLog()
+
+        let sweep = Task {
+            await store.sweepOrphans()
+            log.add("sweep")
+        }
+        #expect(await gate.waitUntilEntered())
+        let listing = Task {
+            let items = try await store.contents(of: target, sortedBy: .name, .ascending)
+            log.add("listing")
+            return items.map(\.name)
+        }
+        gate.release()
+        let listed = try await listing.value
+        await sweep.value
+
+        #expect(log.events == ["listing", "sweep"])
+        #expect(listed == ["a.txt"])
+        #expect(orphans.allSatisfy { !exists($0) })
+        #expect(try await vault.names(target) == ["a.txt"])
+    }
+
+    @Test("sweepOrphans skips a folder removed while it runs and still sweeps the others without failing")
+    func sweepSkipsFoldersRemovedBetweenSteps() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        try await vault.add("r.txt")
+        let rootOrphan = vault.rootURL.appendingPathComponent(VaultStoreFixture.newDiskName())
+        try HeaderAwareTestCipher.sealed(Data("orphan".utf8)).write(to: rootOrphan)
+        var survivorOrphans: [URL] = []
+        var doomed: [URL] = []
+        for index in 0..<10 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+            let orphan = try vault.diskSealedFile(VaultStoreFixture.newDiskName(), "orphan", in: folder)
+            if index >= 5 { doomed.append(folder.diskURL) } else { survivorOrphans.append(orphan) }
+        }
+        let removed = doomed
+        let gate = HousekeepingGate(waits: false) {
+            for url in removed { try? FileManager.default.removeItem(at: url) }
+        }
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+
+        await vault.store.sweepOrphans()
+
+        #expect(!exists(rootOrphan))
+        #expect(survivorOrphans.allSatisfy { !exists($0) })
+        #expect(doomed.allSatisfy { !exists($0) })
+    }
 }

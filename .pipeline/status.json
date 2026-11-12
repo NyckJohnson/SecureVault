@@ -76,7 +76,7 @@
       "dependsOn": [
         "VaultCrypto"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -97,7 +97,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-12T12:24:41-08:00",
+  "updatedAt": "2026-11-12T12:38:12-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
