@@ -14,7 +14,8 @@ import Foundation
 /// and the encrypt steps use the real form and correct the entry, and the next step on that item removes its
 /// leftover hidden `.<id>.migrating` staging file and converts it from the untouched original.
 ///
-/// Steps run without suspending, so each is one serialized step on the actor.
+/// Steps run without suspending, so each is one serialized step on the actor. `hasUnencryptedFiles()` differs:
+/// it suspends between folders (never inside one), so browsing isn't held up.
 extension LiveVaultStore {
     // MARK: - Counting and listing
 
@@ -45,9 +46,65 @@ extension LiveVaultStore {
         return try plaintextFiles()
     }
 
-    /// Whether any plaintext file is under the root or in the trash (in either kind of store).
-    func hasUnencryptedFiles() throws -> Bool {
-        try !plaintextFiles().isEmpty
+    /// Whether any plaintext file is under the root or in the trash (in either kind of store), judged by each
+    /// file's SVC5 header as `itemsToEncrypt()` judges it; stops at the first one found.
+    ///
+    /// Works one folder at a time, so housekeeping never holds up browsing: the root's folders first (the root
+    /// itself in the first step), then the trash (its map and its files as one step), then the folders in the
+    /// trash. Each step checks the mode again and has no suspension inside it; the check suspends only between
+    /// steps, where other store operations may run. A folder removed in between is skipped; one changed is
+    /// judged as it is when its step runs. A cancelled task stops between steps.
+    /// - Throws: `.locked` without the key in encrypted mode (checked at every step); `.io` when the root
+    ///   folder is missing at the first step; `.indexUnreadable` / `.io` when an index or a file's form can't
+    ///   be read; `CancellationError` when the task is cancelled during the walk.
+    func hasUnencryptedFiles() async throws -> Bool {
+        var pending = [root]
+        var trashChecked = false
+        var isFirstStep = true
+        while true {
+            if !isFirstStep {
+                await Task.yield()
+                // A cancelled task (the shell cancels it on lock or a vault switch) stops between steps.
+                try Task.checkCancellation()
+            }
+            let isRootStep = isFirstStep
+            isFirstStep = false
+            let mode = try beginOperation()
+            if let folder = pending.popLast() {
+                guard let subfolders = try plaintextCheckStep(folder, mode: mode, isRoot: isRootStep)
+                else { return true }
+                pending += subfolders
+            } else if !trashChecked {
+                trashChecked = true
+                let items = trashItems(map: try correctedTrashMap(trashMap.read(mode: mode)))
+                if items.contains(where: { !$0.isDirectory && !$0.isEncrypted }) { return true }
+                pending = items.compactMap(\.asDirectory)
+            } else {
+                return false
+            }
+        }
+    }  // coverage-exempt: unreachable, the while-true loop exits only by return or throw
+
+    /// One step of `hasUnencryptedFiles()`: checks the files directly in `folder`. Never suspends.
+    /// - Parameter isRoot: true for the walk's first step, the root folder, which must exist.
+    /// - Returns: nil when a plaintext file is found; otherwise the folder's subfolders (none when a non-root
+    ///   folder was removed since it was queued).
+    /// - Throws: `.io` when `isRoot` and the root folder is missing; the listing's and form check's errors.
+    private func plaintextCheckStep(
+        _ folder: VaultDirectory, mode: VaultOperationMode, isRoot: Bool
+    ) throws -> [VaultDirectory]? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.diskURL.path, isDirectory: &isDirectory),
+            isDirectory.boolValue
+        else {
+            if isRoot { throw VaultStoreError.io("The vault folder can't be read.") }
+            return []
+        }
+        let items = try listing(of: folder, mode: mode)
+        for item in items where !item.isDirectory {
+            if try realForm(of: item) == .plaintext { return nil }
+        }
+        return items.compactMap(\.asDirectory)
     }
 
     /// Every plaintext file under the root and in the trash, each judged by its SVC5 header; unindexed SVC5
