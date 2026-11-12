@@ -83,7 +83,7 @@ extension LiveVaultStore {
                 return false
             }
         }
-    }
+    } // coverage-exempt: unreachable, the while-true loop exits only by return or throw
 
     /// One step of `hasUnencryptedFiles()`: checks the files directly in `folder`. Never suspends.
     /// - Parameter isRoot: true for the walk's first step, the root folder, which must exist.
