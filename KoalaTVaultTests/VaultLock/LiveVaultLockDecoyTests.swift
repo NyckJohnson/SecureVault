@@ -108,6 +108,18 @@ import Testing
         #expect(Self.unlockCount(fixture.decoy) == 1)
     }
 
+    @Test("A failed decoy blob creation is ignored: wrongPassword, one derivation, no key loaded")
+    func decoyBlobCreationFailureIgnored() async throws {
+        let decoy = BlockingDecoy(blocking: false)
+        decoy.inner.errorToThrow = .noMasterKeyBlob
+        let fixture = try VaultLockFixture(decoy: decoy)
+        await expectLockError(.wrongPassword) { try await fixture.lock.open(password: "typed") }
+        #expect(decoy.inner.calls.contains(.createMasterKey))
+        #expect(decoy.unlockedPasswords == ["typed"])
+        #expect(!decoy.isKeyLoaded)
+        #expect(fixture.lock.current.id == "unencrypted")
+    }
+
     @Test("openTransferTarget with no vault throws wrongPassword and runs the decoy derivation once")
     func transferTargetNoVaults() async throws {
         let fixture = try VaultLockFixture()
