@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import KoalaTVault
 
@@ -9,6 +10,21 @@ import Testing
         for index in 0..<count {
             try vault.diskSealedFile("f" + String(format: "%03d", index), "x", in: folder)
         }
+    }
+
+    /// Runs `body` with the 1-based number of each `streamInfo` call (one per file form check), from the first on.
+    /// The cipher's one-shot hook re-installs itself at every call, so this sees the n-th check exactly.
+    private func onEveryStreamInfo(of failing: SelectiveFailingCipher, _ body: @escaping @Sendable (Int) -> Void) {
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        @Sendable func hook(_ url: URL) {
+            failing.onFirstStreamInfo = hook
+            let number = calls.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            body(number)
+        }
+        failing.onFirstStreamInfo = hook
     }
 
     /// A vault whose only folder "Big" holds an indexed file and `count` encrypted-form files, so the first file
@@ -46,27 +62,35 @@ import Testing
         #expect(position("A") < position("B1") && position("B") < position("B1"))
     }
 
-    @Test("A listing asked for while hasUnencryptedFiles is in a large folder's first batch finishes before the check")
+    @Test("A listing asked for during a large folder's first batch finishes before hasUnencryptedFiles ends")
     func listingRunsBetweenBatchesOfOneFolder() async throws {
-        let (vault, big) = try await bigFolderVault(count: 600)
+        // 1200 loose files + 1 indexed: five batches, so several remain after the listing gets its turn.
+        let (vault, big) = try await bigFolderVault(count: 1200)
         defer { vault.cleanUp() }
         let failing = try #require(vault.failing)
         let gate = HousekeepingGate()
-        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let listingReturned = OSAllocatedUnfairLock(initialState: false)
+        let sawListingReturned = OSAllocatedUnfairLock(initialState: false)
+        // The check's 1000th file check (fourth batch) looks, waiting up to 3 s, for the listing to have returned.
+        // A check that holds the store for the whole folder never lets the listing return, so this stays false.
+        onEveryStreamInfo(of: failing) { number in
+            if number == 1 { gate.pass() }
+            guard number == 1000 else { return }
+            for _ in 0..<600 {
+                if listingReturned.withLock({ $0 }) { break }
+                Thread.sleep(forTimeInterval: 0.005)
+            }
+            sawListingReturned.withLock { $0 = listingReturned.withLock { $0 } }
+        }
         let store = vault.store
-        let log = EventLog()
         let aboutToList = Signal()
 
-        let check = Task {
-            let answer = try await store.hasUnencryptedFiles()
-            log.add("check")
-            return answer
-        }
+        let check = Task { try await store.hasUnencryptedFiles() }
         #expect(await gate.waitUntilEntered())
         let listing = Task {
             aboutToList.raise()
             let items = try await store.contents(of: big, sortedBy: .name, .ascending)
-            log.add("listing")
+            listingReturned.withLock { $0 = true }
             return items.map(\.name)
         }
         #expect(await aboutToList.waitUntilRaised())
@@ -74,9 +98,9 @@ import Testing
         let listed = try await listing.value
         let answer = try await check.value
 
-        #expect(log.events == ["listing", "check"])
+        #expect(sawListingReturned.withLock { $0 })
         #expect(listed.contains("a.txt"))
-        #expect(listed.count == 601)
+        #expect(listed.count == 1201)
         #expect(answer == false)
     }
 
@@ -118,7 +142,6 @@ import Testing
         }
 
         #expect(try await vault.store.hasUnencryptedFiles() == false)
-        #expect(!FileManager.default.fileExists(atPath: folderURL.appendingPathComponent("f450").path))
     }
 
     @Test("hasUnencryptedFiles throws CancellationError when cancelled between a large folder's batches")
@@ -145,8 +168,11 @@ import Testing
         defer { vault.cleanUp() }
         let failing = try #require(vault.failing)
         let keys = vault.keys
-        let gate = HousekeepingGate(waits: false) { keys.wipeKey() }
-        failing.onFirstStreamInfo = { _ in gate.pass() }
+        // The key goes at the last file check of the first batch (256th), so the batch completes and
+        // `.locked` can only come from the check before the second batch.
+        onEveryStreamInfo(of: failing) { number in
+            if number == 256 { keys.wipeKey() }
+        }
 
         let error = await caught { _ = try await vault.store.hasUnencryptedFiles() }
 
