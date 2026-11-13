@@ -221,3 +221,8 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - 2026-11-12 (verify, RESUME HERE): all 12 journeys pass after the large-folder speed-up. Next: the human's device retest
   (very large folders show quickly; rest of the device-test checklist), triage, acceptance. If big folders are still too
   slow: "files appear as they load" (VaultStore contract + Browser change), as decided.
+- 2026-11-12 (verify, device retest): large folders now fast; retest passed. The human's design notes
+  (`docs/DesignNotes.txt.rtf`) folded in before acceptance (human's choice): rounded lock screen logo (LockScreens
+  unit 3), folder name at the left after the back button and a "< 🔒" Lock button after the gear (Browser unit 2),
+  Delete This Vault in its own last section and a one-vault Face ID note (Settings units 1 and 2). Dark mode
+  dropped (already follows the phone). No contract change. Branch `fix/design-tweaks`.
