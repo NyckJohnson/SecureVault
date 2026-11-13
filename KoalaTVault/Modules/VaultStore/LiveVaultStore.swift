@@ -67,7 +67,11 @@ actor LiveVaultStore: VaultStoring {
 
     /// Looks the one name up instead of listing the folder: first an index entry with that display name
     /// (whose file exists), then a non-hidden disk entry of that exact name that the index doesn't map.
-    /// The item found is the one the listing would show under that name, with the same fields.
+    /// The item found is the one the listing would show under that name, with the same fields: when
+    /// several index entries share the display name, the one with the smallest disk name wins. Index
+    /// entries with a hidden disk name (starting with ".") are never found, as the listing never shows
+    /// them. An unmapped file is returned under its on-disk spelling of the name (which may differ from
+    /// `name` in Unicode normalization).
     /// - Throws: what a listing of the folder throws (`.locked`, `.indexUnreadable`, `.notFound` / `.io`
     ///   when the folder can't be read).
     func findItem(named name: String, in directory: VaultDirectory) throws -> VaultItem? {
@@ -76,37 +80,41 @@ actor LiveVaultStore: VaultStoring {
             try requireFolder(directory.diskURL)
             let entries = try index.read(in: directory.diskURL, mode: mode)
             let mapped = entries.filter { $0.value.originalName == name }.keys.sorted()
-            for diskName in mapped {
+            for diskName in mapped where !diskName.hasPrefix(".") {
                 let item = try existingItem(diskName: diskName, in: directory, displayName: name, isEncrypted: true)
                 if let item { return item }
             }
             guard entries[name] == nil, !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return nil }
-            return try existingItem(diskName: name, in: directory, displayName: name, isEncrypted: false)
+            return try existingItem(diskName: name, in: directory, displayName: nil, isEncrypted: false)
         }
     }
 
     /// The item for `diskName` in `directory` as a listing shows it, or nil when nothing is on disk under
-    /// exactly that name (letter case included, as a listing reads names).
+    /// exactly that name (letter case included, as a listing reads names). The item uses the name as
+    /// the disk spells it, which can differ from `diskName` in Unicode normalization; `displayName` nil
+    /// means the item is shown under that on-disk name too.
     private func existingItem(
-        diskName: String, in directory: VaultDirectory, displayName: String, isEncrypted: Bool
+        diskName: String, in directory: VaultDirectory, displayName: String?, isEncrypted: Bool
     ) throws -> VaultItem? {
         let url = directory.diskURL.appendingPathComponent(diskName)
         guard let values = try? url.resourceValues(forKeys: Set(Self.itemResourceKeys + [.nameKey])),
-            values.name == diskName
+            let onDiskName = values.name, onDiskName == diskName
         else { return nil }
         return makeItem(
-            diskName: diskName, in: directory, folderPath: index.relativePath(of: directory.diskURL),
-            displayName: displayName, isEncrypted: isEncrypted, values: values)
+            diskName: onDiskName, in: directory, folderPath: index.relativePath(of: directory.diskURL),
+            displayName: displayName ?? onDiskName, isEncrypted: isEncrypted, values: values)
     }
 
     /// Throws as listing `folder` would when it isn't a readable folder: `.notFound` when it is missing,
-    /// `.io` when it is something else.
+    /// `.io` when it is something else or its entries can't be read (no read permission).
     private func requireFolder(_ folder: URL) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) else {
             throw VaultStoreError.notFound
         }
-        guard isDirectory.boolValue else { throw VaultStoreError.io("The folder can't be read.") }
+        guard isDirectory.boolValue, FileManager.default.isReadableFile(atPath: folder.path) else {
+            throw VaultStoreError.io("The folder can't be read.")
+        }
     }
 
     /// The attributes a listing reads for each entry, prefetched by the directory read.

@@ -142,9 +142,9 @@ import Testing
     private let uuidB = "00000000-0000-0000-0000-00000000000B"
 
     /// The old answer: the first item of the folder's listing with that display name.
-    private func listed(_ vault: VaultStoreFixture, _ name: String, in directory: VaultDirectory) async throws
-        -> VaultItem?
-    {
+    private func listed(
+        _ vault: VaultStoreFixture, _ name: String, in directory: VaultDirectory
+    ) async throws -> VaultItem? {
         try await vault.list(directory).first { $0.name == name }
     }
 
