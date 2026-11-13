@@ -130,6 +130,39 @@ extension FileBrowserViewControllerTests {
         #expect(!gridNames(of: rig.controller).contains("Beach.jpg"))
     }
 
+    // MARK: - Editor close
+
+    @Test("Closing the editor opened from the browser reloads the folder exactly once and shows what changed")
+    func editorCloseReloadsOnce() async throws {
+        let store = MockVaultStoring(withSampleContent: true, name: "KoalaTVault", isEncrypted: false)
+        let exporter = MockVaultExporting()
+        let viewer = FullScreenEditorFactory()
+        let controller = FileBrowserViewController(
+            directory: store.root, store: store, preferences: MockPreferencesStoring(),
+            thumbnails: BrowserFakeThumbnails(), exporter: exporter,
+            exportPresenter: ExportPresenter(exporter: exporter),
+            importPresenter: ImportPresenter(
+                importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
+            viewerFactory: viewer, settingsFactory: MockSettingsFactory(),
+            vaultServices: BrowserVaultServices(
+                lock: MockVaultLocking(vaults: []), transfer: MockVaultTransferring(), onLock: {}))
+        let host = BrowserViewHost(content: UINavigationController(rootViewController: controller))
+        await BrowserViewSupport.waitUntil { gridNames(of: controller).contains("Notes.rtf") }
+        let index = try #require(gridNames(of: controller).firstIndex(of: "Notes.rtf"))
+        let grid = try #require(BrowserViewHost.find("fileGrid", in: controller.view) as? UICollectionView)
+        grid.delegate?.collectionView?(grid, didSelectItemAt: IndexPath(item: index, section: 0))
+        await BrowserViewSupport.waitUntil { viewer.editor != nil && host.topmost === viewer.editor }
+        let editor = try #require(viewer.editor)
+        _ = try await store.createFolder(named: "Arrived", in: store.root)
+        await BrowserViewSupport.settle()
+        let before = loadCount(store)
+        editor.dismiss(animated: false)
+        await BrowserViewSupport.waitUntil { gridNames(of: controller).contains("Arrived") }
+        await BrowserViewSupport.settle()
+        #expect(gridNames(of: controller).contains("Arrived"))
+        #expect(loadCount(store) == before + 1)
+    }
+
     // MARK: - First appearance and quiet reloads
 
     @Test("The first appearance loads the folder exactly once")
@@ -150,5 +183,23 @@ extension FileBrowserViewControllerTests {
         await BrowserViewSupport.waitUntil { loadCount(rig.store) > loadsBefore }
         #expect(await rig.host.noAlert())
         #expect(gridNames(of: rig.controller) == before)
+    }
+}
+
+/// Makes editors the way the real factory does: a full-screen navigation controller, so the browser under it
+/// sees a normal appearance when it closes (the shared mock's default sheet style would not).
+@MainActor
+private final class FullScreenEditorFactory: ViewerFactory {
+    private(set) var editor: UIViewController?
+
+    func makeViewer(items: [VaultItem], startingAt index: Int) -> UIViewController {
+        UIViewController()
+    }
+
+    func makeEditor(for item: VaultItem) -> UIViewController {
+        let navigation = UINavigationController(rootViewController: UIViewController())
+        navigation.modalPresentationStyle = .fullScreen
+        editor = navigation
+        return navigation
     }
 }
