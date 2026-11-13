@@ -7,6 +7,26 @@ enum SecuritySettingsPrompt: Sendable, Equatable {
     case deleteVault
 }
 
+/// A section of the security settings screen, in display order.
+enum SecuritySettingsSection: Sendable, Equatable {
+    /// The Pro row.
+    case pro
+    /// The open vault's section: Change Password and the biometric switch.
+    case vault
+    /// Storage: Recently Deleted.
+    case storage
+    /// Delete This Vault, in a section of its own, last.
+    case deleteVault
+}
+
+/// A row of the Vault section, in display order.
+enum SecuritySettingsVaultRow: Sendable, Equatable {
+    /// "Change Password".
+    case changePassword
+    /// The "Use <biometric name>" switch.
+    case biometricSwitch
+}
+
 extension BiometricKind {
     /// The biometric name the settings rows show; "Biometrics" on a device without biometric hardware.
     fileprivate var settingsDisplayName: String {
@@ -19,7 +39,8 @@ extension BiometricKind {
 }
 
 /// The logic of the security settings screen for the open vault: the Pro row, the Vault section (Change
-/// Password, the biometric switch, Delete This Vault; only for an encrypted vault) and Storage.
+/// Password and the biometric switch; only for an encrypted vault), Storage, and last Delete This Vault in a
+/// section of its own (only for an encrypted vault).
 ///
 /// Settings is built for one open vault: the vault is read once, when this is made.
 @MainActor
@@ -76,6 +97,24 @@ final class SecuritySettingsViewModel: ObservableObject {
 
     /// The biometric switch's title, e.g. "Use Face ID".
     var biometricTitle: String { "Use \(lock.biometricKind.settingsDisplayName)" }
+
+    /// The Vault section's footer under the biometric switch, e.g. "Note: only one vault can use Face ID.";
+    /// nil when the switch is hidden.
+    var biometricNote: String? {
+        guard showsBiometricSwitch else { return nil }
+        return "Note: only one vault can use \(lock.biometricKind.settingsDisplayName)."
+    }
+
+    /// The sections to show, in order.
+    var sections: [SecuritySettingsSection] {
+        vault.isEncrypted ? [.pro, .vault, .storage, .deleteVault] : [.pro, .storage]
+    }
+
+    /// The Vault section's rows, in order; empty when the Vault section is hidden.
+    var vaultRows: [SecuritySettingsVaultRow] {
+        guard showsVaultSection else { return [] }
+        return showsBiometricSwitch ? [.changePassword, .biometricSwitch] : [.changePassword]
+    }
 
     /// The message of the prompt that confirms deleting the vault.
     var deleteVaultMessage: String {
