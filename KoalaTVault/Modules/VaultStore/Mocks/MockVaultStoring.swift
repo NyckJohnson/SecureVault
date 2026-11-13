@@ -14,6 +14,8 @@ final class MockVaultStoring: VaultStoring {
         case createFolder(String, parent: String)
         case createDocument(String, parent: String)
         case addFile(String, destination: String)
+        /// The names of the files, in order.
+        case addFiles([String], destination: String)
         case findItem(String, parent: String)
         case move(String, destination: String)
         case copy(String, destination: String)
@@ -148,6 +150,21 @@ final class MockVaultStoring: VaultStoring {
             let item = self.makeItem(named: unique, in: directory.diskURL, isDirectory: false, fileSize: size)
             state.items.append(item)
             return item
+        }
+    }
+
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        let sizes = files.map { (try? $0.source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+        return try record(.addFiles(files.map(\.name), destination: relativeID(directory.diskURL))) { state in
+            var added: [VaultItem] = []
+            for (file, size) in zip(files, sizes) {
+                try Self.validate(file.name)
+                let unique = Self.uniqueName(file.name, in: directory.diskURL, among: state.items)
+                let item = self.makeItem(named: unique, in: directory.diskURL, isDirectory: false, fileSize: size)
+                state.items.append(item)
+                added.append(item)
+            }
+            return added
         }
     }
 

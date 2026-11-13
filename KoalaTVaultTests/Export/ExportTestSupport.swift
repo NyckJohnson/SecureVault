@@ -160,6 +160,10 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
         throw unsupported
     }
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        throw unsupported
+    }
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? { throw unsupported }
     func move(_ item: VaultItem, to directory: VaultDirectory) async throws { throw unsupported }
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem { throw unsupported }

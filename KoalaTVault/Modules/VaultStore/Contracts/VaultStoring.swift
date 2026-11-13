@@ -32,6 +32,18 @@ extension VaultStoreError: LocalizedError {
     }
 }
 
+/// One file for `VaultStoring.addFiles(_:to:)`: the file at `source`, added under `name`.
+///
+/// The files of one call go into one folder, in order, as one serialized store step; the folder's index is
+/// read once and (in encrypted mode) written once, after the last file. Each file is added exactly as
+/// `addFile` would add it, its name resolved against the folder and the earlier files of the same call.
+struct VaultFileToAdd: Sendable, Equatable {
+    /// The file to copy (plaintext mode) or encrypt (encrypted mode).
+    let source: URL
+    /// The name to give it in the vault (" 1" added on a clash).
+    let name: String
+}
+
 /// The vault on disk: indexes, browsing, file operations, trash, migration steps and temp files.
 protocol VaultStoring: Sendable {
     /// The vault's root folder.
@@ -54,6 +66,11 @@ protocol VaultStoring: Sendable {
     func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem
     /// Adds a copy of the file at `source`.
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem
+    /// Adds many files to one folder in one step, writing the folder's index once (large imports).
+    /// Returns the added items in order. A failing file stops the call: the files before it are kept and
+    /// indexed, the error is thrown and later files are not attempted. An empty list returns `[]`.
+    /// - Throws: `.locked` before anything is written; `.invalidName`, `.io` for the failing file.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem]
     /// The item with that display name, or nil.
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem?
     /// Moves the item into `directory`.

@@ -203,6 +203,10 @@ final class FakeLeftoverStore: VaultStoring {
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
         throw VaultStoreError.notFound
     }
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        throw VaultStoreError.notFound
+    }
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? { nil }
     func move(_ item: VaultItem, to directory: VaultDirectory) async throws {}
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
