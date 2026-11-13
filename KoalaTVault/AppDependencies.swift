@@ -292,6 +292,9 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
         try await base.addFile(from: source, named: name, to: directory)
     }
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        try await base.addFiles(files, to: directory)
+    }
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
         try await base.findItem(named: name, in: directory)
     }

@@ -141,6 +141,14 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
         return item(at: target)
     }
 
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    /// Adds the files one by one through `addFile` (each recorded in `addCalls`), stopping at the first failure.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        var added: [VaultItem] = []
+        for file in files { added.append(try await addFile(from: file.source, named: file.name, to: directory)) }
+        return added
+    }
+
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
         if name.isEmpty || name.contains("/") { throw VaultStoreError.invalidName }
         let unique = uniqueName(name, in: directory.diskURL)

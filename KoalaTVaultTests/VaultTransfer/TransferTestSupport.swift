@@ -95,6 +95,14 @@ final class TransferTestStore: VaultStoring {
         return added
     }
 
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    /// Adds the files one by one through `addFile`, so each is logged, can fail and runs the hook.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        var added: [VaultItem] = []
+        for file in files { added.append(try await addFile(from: file.source, named: file.name, to: directory)) }
+        return added
+    }
+
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
         log.append("\(label).createFolder:\(name)")
         if failures.withLock({ $0.createFolder.contains(name) }) { throw VaultStoreError.io("createFolder failed") }

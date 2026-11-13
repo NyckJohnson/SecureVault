@@ -7,6 +7,8 @@
 - `VaultDirectory: let diskURL: URL`
 - `VaultDirectory: let name: String`
 - `VaultDirectory: let rootURL: URL`
+- `VaultFileToAdd: let name: String`
+- `VaultFileToAdd: let source: URL`
 - `VaultItem: let dateModified: Date`
 - `VaultItem: let deletedAt: Date?`
 - `VaultItem: let diskURL: URL`
@@ -26,6 +28,7 @@
 - `VaultStoreError: case notFound`
 - `VaultStoreError: var errorDescription: String?`
 - `VaultStoring: func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem`
+- `VaultStoring: func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem]`
 - `VaultStoring: func clearUnreadableTrash() async throws`
 - `VaultStoring: func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem]`
 - `VaultStoring: func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem`
@@ -60,4 +63,5 @@
 - `enum VaultStoreError: Error, Equatable, Sendable`
 - `protocol VaultStoring: Sendable`
 - `struct VaultDirectory: Sendable, Codable, Equatable, Hashable`
+- `struct VaultFileToAdd: Sendable, Equatable`
 - `struct VaultItem: Identifiable, Sendable, Codable, Equatable, Hashable`

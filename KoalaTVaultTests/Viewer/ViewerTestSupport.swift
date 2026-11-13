@@ -167,6 +167,11 @@ final class ViewerGatedStore: VaultStoring {
         try await inner.addFile(from: source, named: name, to: directory)
     }
 
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        try await inner.addFiles(files, to: directory)
+    }
+
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
         try await inner.findItem(named: name, in: directory)
     }

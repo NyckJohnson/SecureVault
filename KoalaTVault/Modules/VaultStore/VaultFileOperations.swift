@@ -54,6 +54,16 @@ extension LiveVaultStore {
         return try insertFile(from: source, named: name, in: directory, mode: mode)
     }
 
+    // TODO(addFiles): batch. Placeholder: adds the files one by one through `addFile` (correct but unbatched,
+    // the index is written once per file); the code-writer replaces it with the one-index-write batch.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) throws -> [VaultItem] {
+        var added: [VaultItem] = []
+        for file in files {
+            added.append(try addFile(from: file.source, named: file.name, to: directory))
+        }
+        return added
+    }
+
     /// Adds a copy of `source` as `name` (numbered on conflict): in encrypted mode encrypted as a new
     /// `<UUID>` and then indexed, removing the file again if the index write fails; otherwise copied.
     private func insertFile(
