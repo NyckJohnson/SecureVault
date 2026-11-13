@@ -134,3 +134,161 @@ import Testing
         #expect(vault.rawIndex() == Data("garbage".utf8))
     }
 }
+
+/// Edge cases of `findItem(named:in:)`: errors, stale and duplicate index entries, letter case, hidden names and
+/// the spelling of names. Where the listing doesn't throw, the answer equals the listing-based one.
+@Suite struct VaultFindItemEdgeCaseTests {
+    private let uuidA = "00000000-0000-0000-0000-00000000000A"
+    private let uuidB = "00000000-0000-0000-0000-00000000000B"
+
+    /// The old answer: the first item of the folder's listing with that display name.
+    private func listed(_ vault: VaultStoreFixture, _ name: String, in directory: VaultDirectory) async throws
+        -> VaultItem?
+    {
+        try await vault.list(directory).first { $0.name == name }
+    }
+
+    @Test("findItem in a removed folder throws notFound, as the listing does", arguments: [LockMode.none, .password])
+    func missingFolder(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let gone = try vault.folder("Gone")
+        try FileManager.default.removeItem(at: gone.diskURL)
+
+        let error = await caught { _ = try await vault.store.findItem(named: "a.txt", in: gone) }
+        let listingError = await caught { _ = try await vault.list(gone) }
+
+        #expect(error as? VaultStoreError == .notFound)
+        #expect(listingError as? VaultStoreError == .notFound)
+    }
+
+    @Test("findItem in a 'folder' that is a file throws io", arguments: [LockMode.none, .password])
+    func folderIsAFile(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let url = try vault.diskFile("notAFolder")
+        let fake = VaultDirectory(name: "notAFolder", diskURL: url, rootURL: vault.rootURL)
+
+        let error = await caught { _ = try await vault.store.findItem(named: "a.txt", in: fake) }
+
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+    }
+
+    @Test("findItem in an unreadable folder throws io, as the listing does", arguments: [LockMode.none, .password])
+    func unreadableFolder(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let locked = try vault.folder("Locked")
+        try await vault.add("a.txt", to: locked)
+        let restore = try restrict(locked.diskURL, to: 0o000)
+        defer { restore() }
+
+        let error = await caught { _ = try await vault.store.findItem(named: "a.txt", in: locked) }
+        let listingError = await caught { _ = try await vault.list(locked) }
+
+        restore()
+        #expect(isIOError(error), "expected io, got \(String(describing: error))")
+        #expect(isIOError(listingError))
+    }
+
+    @Test("findItem does not return an index entry whose file is gone from disk")
+    func staleIndexEntry() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let added = try await vault.add("a.txt")
+        try await vault.add("b.txt")
+        try FileManager.default.removeItem(at: added.diskURL)
+
+        let found = try await vault.store.findItem(named: "a.txt", in: vault.root)
+
+        #expect(found == nil)
+        #expect(found == (try await listed(vault, "a.txt", in: vault.root)))
+    }
+
+    @Test("findItem with a stale index entry returns the unmapped disk file of that name")
+    func staleIndexEntryWithUnmappedFileOfSameName() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let added = try await vault.add("a.txt")
+        try FileManager.default.removeItem(at: added.diskURL)
+        try vault.diskFile("a.txt", "loose")
+
+        let found = try #require(try await vault.store.findItem(named: "a.txt", in: vault.root))
+
+        #expect(found.id == "a.txt")
+        #expect(found.isEncrypted == false)
+        #expect(found == (try await listed(vault, "a.txt", in: vault.root)))
+    }
+
+    @Test("findItem with two index entries of one display name returns the one with the smallest disk name")
+    func duplicateDisplayNames() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try vault.writeIndex([uuidB: "same.txt", uuidA: "same.txt"], context: ".vault_map")
+        try vault.diskFile(uuidB)
+        try vault.diskFile(uuidA)
+
+        let found = try #require(try await vault.store.findItem(named: "same.txt", in: vault.root))
+
+        #expect(found.id == uuidA)
+        #expect(found.isEncrypted)
+    }
+
+    @Test("findItem is case sensitive: A.TXT does not find a.txt", arguments: [LockMode.none, .password])
+    func letterCase(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        try await vault.add("a.txt")
+
+        let found = try await vault.store.findItem(named: "A.TXT", in: vault.root)
+
+        #expect(found == nil)
+        #expect(found == (try await listed(vault, "A.TXT", in: vault.root)))
+        #expect(try await vault.store.findItem(named: "a.txt", in: vault.root) != nil)
+    }
+
+    @Test("findItem returns the mapped item before an unmapped disk file with the same name")
+    func mappedBeforeUnmapped() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try vault.writeIndex([uuidA: "dup.txt"], context: ".vault_map")
+        try vault.diskFile(uuidA)
+        try vault.diskFile("dup.txt", "loose")
+
+        let found = try #require(try await vault.store.findItem(named: "dup.txt", in: vault.root))
+
+        #expect(found.id == uuidA)
+        #expect(found.isEncrypted)
+    }
+
+    @Test("findItem never returns an index entry whose disk name starts with a dot")
+    func hiddenDiskNameInIndex() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try vault.writeIndex([".hidden": "x.txt"], context: ".vault_map")
+        try vault.diskFile(".hidden")
+
+        let found = try await vault.store.findItem(named: "x.txt", in: vault.root)
+
+        #expect(found == nil)
+        #expect(found == (try await listed(vault, "x.txt", in: vault.root)))
+    }
+
+    @Test(
+        "findItem returns an unmapped file under its on-disk spelling of the name",
+        arguments: [LockMode.none, .password])
+    func unicodeSpelling(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let decomposed = "e\u{301}.txt"
+        let composed = "\u{e9}.txt"
+        try vault.diskFile(decomposed)
+        let onDisk = try #require(try vault.diskNames().first { $0.hasSuffix(".txt") })
+
+        let found = try #require(try await vault.store.findItem(named: composed, in: vault.root))
+
+        #expect(Array(found.name.unicodeScalars) == Array(onDisk.unicodeScalars))
+        #expect(Array(found.id.unicodeScalars) == Array(onDisk.unicodeScalars))
+        #expect(found.diskURL.lastPathComponent.unicodeScalars.elementsEqual(onDisk.unicodeScalars))
+    }
+}
