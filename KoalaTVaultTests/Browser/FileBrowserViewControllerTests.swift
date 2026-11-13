@@ -77,7 +77,7 @@ import UIKit
         var count = 0
     }
 
-    private func makeRig(
+    func makeRig(
         folder: String? = nil, withSampleContent: Bool = true, failing: Bool = false,
         waitForCells: Bool = true,
         regularWidth: Bool = false, encryptedStore: Bool = false

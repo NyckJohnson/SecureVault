@@ -32,6 +32,9 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
             image: Self.makeLockBackImage(), style: .plain, target: self, action: #selector(lockTapped))
         button.accessibilityIdentifier = "lockButton"
         button.accessibilityLabel = "Lock"
+        // Liquid Glass: no button background, so "< lock" stands apart from the gear's bubble and reads
+        // like a subfolder's back button before the vault's name.
+        if #available(iOS 26, *) { button.hidesSharedBackground = true }
         return button
     }()
     private lazy var sortButton = makeButton(
