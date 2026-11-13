@@ -1091,7 +1091,7 @@ reads it, and only whether it is an encrypt; then it clears both keys. Nothing w
 - Purpose: the file browser grid and the folder picker: browsing, sorting, selection, folder and file operations, drag and
   drop, and starting import, export, viewing and settings.
 - Depends on: VaultStore, VaultLock, VaultTransfer, Preferences, Media, Import, Export, SharedUI, Viewer, Settings
-- Files: FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift | Views/FileBrowserViewController.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift | VaultPickerViewModel.swift, Views/VaultPickerViewController.swift
+- Files: FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift | Views/FileBrowserViewController.swift, Views/BrowserTitleArrow.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift | VaultPickerViewModel.swift, Views/VaultPickerViewController.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
   import UIKit

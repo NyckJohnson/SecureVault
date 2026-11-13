@@ -79,6 +79,10 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     /// Whether the bundle has the folder image the icons prefer.
     private let folderAssetAvailable: Bool
     private var hasAppeared = false
+    /// The navigation controller whose edge-swipe back gesture this browser answers for, and the gesture's
+    /// delegate from before any browser took it over (put back when this browser leaves the stack).
+    private weak var popGestureNavigation: UINavigationController?
+    private weak var originalPopGestureDelegate: UIGestureRecognizerDelegate?
     /// Set while the editor is up, so coming back to this screen reloads.
     private var isEditorPresented = false
     /// Set while a context menu is on screen; a picker asked for from the menu waits for it to close.
@@ -144,7 +148,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         super.viewWillAppear(animated)
         // Hiding the system back button turns off the edge-swipe back gesture's default rule; this browser
         // answers for it while it is on screen (see `gestureRecognizerShouldBegin`).
-        navigationController?.interactivePopGestureRecognizer?.delegate = self
+        installPopGestureDelegate()
         if !hasAppeared {
             hasAppeared = true
             Task { [weak self] in await self?.viewModel.load() }
@@ -152,6 +156,41 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
             isEditorPresented = false
             Task { [weak self] in await self?.viewModel.editorClosed() }
         }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        restorePopGestureDelegateIfRemoved()
+    }
+
+    /// Makes this browser the edge-swipe gesture's delegate, remembering the system's own delegate. When
+    /// another browser holds it, that browser's remembered original is inherited, so every browser in the
+    /// stack points at the system's delegate, never at another browser.
+    private func installPopGestureDelegate() {
+        guard let navigation = navigationController,
+            let gesture = navigation.interactivePopGestureRecognizer
+        else { return }
+        popGestureNavigation = navigation
+        guard gesture.delegate !== self else { return }
+        if let browser = gesture.delegate as? FileBrowserViewController {
+            originalPopGestureDelegate = browser.originalPopGestureDelegate
+        } else {
+            originalPopGestureDelegate = gesture.delegate
+        }
+        gesture.delegate = self
+    }
+
+    /// Once this browser has left the stack for good, it hands the gesture back to the system's delegate,
+    /// unless another browser has already taken it over (a pop makes the parent take it in `viewWillAppear`,
+    /// before this runs).
+    private func restorePopGestureDelegateIfRemoved() {
+        guard let navigation = popGestureNavigation,
+            !navigation.viewControllers.contains(self),
+            let gesture = navigation.interactivePopGestureRecognizer,
+            gesture.delegate === self
+        else { return }
+        gesture.delegate = originalPopGestureDelegate
+        popGestureNavigation = nil
     }
 
     override func viewWillLayoutSubviews() {
@@ -214,8 +253,8 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         let safeArea = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             titleRow.topAnchor.constraint(equalTo: safeArea.topAnchor),
-            // The arrow's own padding lines the chevron up with the margin, like the system back button.
-            titleRow.leadingAnchor.constraint(equalTo: margins.leadingAnchor, constant: -8),
+            // Chevron 16 pt in (8 pt here + the arrow's 8 pt padding); fixed, so it never shifts mid-push.
+            titleRow.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 8),
             titleRow.trailingAnchor.constraint(lessThanOrEqualTo: margins.trailingAnchor),
             collectionView.topAnchor.constraint(equalTo: titleRow.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -290,8 +329,13 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 
     private func render() {
         nameLabel.text = viewModel.title
-        // Select mode shows "Select Items" / "N Selected" in the row and hides the arrow.
-        arrowButton.isHidden = viewModel.isSelecting
+        // Select mode shows "Select Items" / "N Selected" in the row and hides the arrow. The arrow keeps its
+        // place in the row (clear, untappable, out of VoiceOver) so the title does not jump left.
+        let selecting = viewModel.isSelecting
+        arrowButton.alpha = selecting ? 0 : 1
+        arrowButton.isUserInteractionEnabled = !selecting
+        arrowButton.accessibilityElementsHidden = selecting
+        arrowButton.isAccessibilityElement = !selecting
         if viewModel.isSelecting {
             navigationItem.leftBarButtonItems = [cancelSelectButton]
             let bulkButtons = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton, bulkVaultButton]
@@ -592,12 +636,19 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 // MARK: - UIAdaptivePresentationControllerDelegate
 
 extension FileBrowserViewController: UIGestureRecognizerDelegate {
-    /// The edge-swipe back gesture runs whenever there is a folder to go back to.
+    /// The edge-swipe back gesture runs only when there is a screen to go back to, no push or pop is still
+    /// animating (an interactive pop started mid-transition corrupts the stack), and the top screen is not a
+    /// browser in select mode. The answer is about the navigation controller's current top screen, which may
+    /// be another browser or a viewer/editor pushed above this one.
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let navigation = navigationController,
+        guard let navigation = popGestureNavigation ?? navigationController,
             gestureRecognizer === navigation.interactivePopGestureRecognizer
         else { return true }
-        return navigation.viewControllers.count > 1
+        guard navigation.viewControllers.count > 1, navigation.transitionCoordinator == nil else { return false }
+        if let top = navigation.topViewController as? FileBrowserViewController {
+            return !top.viewModel.isSelecting
+        }
+        return true
     }
 }
 
@@ -824,53 +875,6 @@ struct BrowserVaultServices {
     let lock: any VaultLocking
     let transfer: any VaultTransferring
     let onLock: () -> Void
-}
-
-/// The title row's back arrow: a backward chevron (flipped in right-to-left layouts), followed by a lock on a
-/// vault's root. At least 44 pt square to tap; one accessibility button ("Back" or "Lock").
-private final class BrowserTitleArrow: UIControl {
-    private let stack = UIStackView()
-
-    init(showsLock: Bool) {
-        super.init(frame: .zero)
-        let config = UIImage.SymbolConfiguration(textStyle: .title2, scale: .large)
-            .applying(UIImage.SymbolConfiguration(weight: .semibold))
-        var symbols = ["chevron.backward"]
-        if showsLock { symbols.append("lock") }
-        for name in symbols {
-            let imageView = UIImageView(image: UIImage(systemName: name, withConfiguration: config))
-            imageView.contentMode = .center
-            imageView.adjustsImageSizeForAccessibilityContentSizeCategory = true
-            stack.addArrangedSubview(imageView)
-        }
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.spacing = 4
-        stack.isUserInteractionEnabled = false
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
-        ])
-        isAccessibilityElement = true
-        accessibilityTraits = .button
-        accessibilityLabel = showsLock ? "Lock" : "Back"
-        accessibilityIdentifier = showsLock ? "lockButton" : "browser.backButton"
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override var isHighlighted: Bool {
-        didSet { stack.alpha = isHighlighted ? 0.4 : 1 }
-    }
 }
 
 #if DEBUG

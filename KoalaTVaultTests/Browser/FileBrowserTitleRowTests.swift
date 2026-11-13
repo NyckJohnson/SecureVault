@@ -158,7 +158,7 @@ extension FileBrowserViewControllerTests {
         await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 1 }
         #expect(rig.host.navigation?.viewControllers.count == 1)
         #expect(rig.host.navigation?.topViewController === rig.controller)
-        #expect(rig.lockCount.count == 0)
+        #expect(rig.lockCount.count < 1)
     }
 
     @Test("The edge-swipe back gesture stays enabled in a pushed folder")
