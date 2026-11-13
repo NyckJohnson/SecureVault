@@ -1151,6 +1151,7 @@ reads it, and only whether it is an encrypt; then it clears both keys. Nothing w
   longer writes `hasCompletedSetup`.
 
 ## Known issues
+- The root's "< 🔒" Lock image is pre-rendered with `chevron.left`, so in a right-to-left language the chevron points the wrong way (use `chevron.backward` or flip for RTL); its size beside the gear to be checked on device; two bar-layout tests are looser than needed (minimal back button accepted on either controller; template rendering not asserted) — FileBrowserViewController.swift, FileBrowserViewControllerTests.swift — open, minor (Browser unit 2 review, design tweaks)
 - Move/Copy to Vault adds files one at a time (`addFile`), so moving a folder of thousands of files into an encrypted vault is slow (the target folder's index is rewritten after each file); memory stays flat (the store releases it per operation). Fix: batch with `addFiles` per target folder — LiveVaultTransfer.swift — open, minor (device test 2026-11-12)
 - Case-only rename of a plaintext item ("a.txt" → "A.txt"): the tests pass in both modes, but `rename`'s conflict check calls `fileExists` on a case-insensitive volume, which by reading should give "A 1.txt"; why the tests pass is unexplained. Check on device (verify) and, if it misnumbers, apply the case-insensitive self-match fix — VaultFileOperations.swift (rename) — open, VaultStore
 - Folder names, sizes and structure are plaintext on disk in an encrypted vault — FileSystem.swift:418-422 — feature encrypt-folder-names
