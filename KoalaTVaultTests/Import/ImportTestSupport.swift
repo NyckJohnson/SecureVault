@@ -33,6 +33,7 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     private var _failNames: Set<String> = []
     private var _tempDirectories: [URL] = []
     private var _findItemError: (any Error)?
+    private var _contentsErrors: [String: any Error] = [:]
     private var _countFilesError: (any Error)?
     private var _openOverride: URL?
     private var _createFolderReturnsFile = false
@@ -87,6 +88,11 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     /// `findItem` throws this error from now on.
     func failFindItem(with error: any Error) { lock.withLock { _findItemError = error } }
+
+    /// `contents` throws this error for the folder at this path (relative to the root, "" for the root).
+    func failContents(ofPath path: String, with error: any Error) {
+        lock.withLock { _contentsErrors[path] = error }
+    }
 
     /// `open` hands out this URL for every item from now on.
     func overrideOpen(with url: URL) { lock.withLock { _openOverride = url } }
@@ -206,15 +212,19 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
         lock.withLock { _findItemNames.append(name) }
         if let error = lock.withLock({ _findItemError }) { throw error }
-        let target = directory.diskURL.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: target.path) else { return nil }
+        let listed =
+            (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
+        // Exact, case-sensitive match against the listing, as the real store does ("A.TXT" never finds "a.txt").
+        guard let target = listed.first(where: { $0.lastPathComponent == name }) else { return nil }
         return item(at: target)
     }
 
     func contents(
         of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
     ) async throws -> [VaultItem] {
-        lock.withLock { _contentsPaths.append(relativePath(directory.diskURL)) }
+        let path = relativePath(directory.diskURL)
+        lock.withLock { _contentsPaths.append(path) }
+        if let error = lock.withLock({ _contentsErrors[path] }) { throw error }
         let urls =
             (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
         return urls.map { item(at: $0) }.sorted { $0.name < $1.name }
@@ -286,7 +296,10 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     private func uniqueName(_ name: String, in directory: URL) -> String {
         func taken(_ candidate: String) -> Bool {
-            FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path)
+            // The host disk may ignore case, so a name differing only in case cannot sit beside the old one:
+            // the fake stores it under the next free name (the importer still asked for the name it gave).
+            let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            return listed.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
         }
         guard taken(name) else { return name }
         let base = (name as NSString).deletingPathExtension

@@ -187,7 +187,7 @@ import Testing
         #expect(fixture.store.contentsPaths.filter { $0.isEmpty }.count == 1)
     }
 
-    @Test("Each destination folder is listed at most once, and a merged existing folder exactly once")
+    @Test("A merged existing folder is listed exactly once; a folder this import created is never listed")
     func eachFolderListedOnce() async throws {
         let fixture = try Fixture(isPro: true)
         defer { fixture.cleanup() }
@@ -200,7 +200,7 @@ import Testing
         let paths = fixture.store.contentsPaths
         #expect(paths.filter { $0.isEmpty }.count == 1)
         #expect(paths.filter { $0 == "Trip" }.count == 1)
-        #expect(paths.filter { $0 == "Trip/Sub" }.count <= 1)
+        #expect(paths.filter { $0 == "Trip/Sub" }.isEmpty)
         #expect(fixture.store.batches(in: "Trip").map(\.count) == [64, 6])
     }
 
