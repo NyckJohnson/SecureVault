@@ -107,6 +107,67 @@ import Testing
         #expect(!rig.viewModel.usesBiometrics)
     }
 
+    // MARK: - Sections (design tweaks: Delete This Vault in its own last section)
+    // Names the view model must expose: `sections: [SecuritySettingsSection]` (cases `.pro`, `.vault`,
+    // `.storage`, `.deleteVault`), `vaultRows: [SecuritySettingsVaultRow]` (cases `.changePassword`,
+    // `.biometricSwitch`) and `biometricNote: String?`.
+
+    @Test("An encrypted vault's sections are Pro, Vault, Storage, then Delete last")
+    func sectionOrderEncrypted() async throws {
+        let rig = try await makeRig()
+        #expect(rig.viewModel.sections == [.pro, .vault, .storage, .deleteVault])
+    }
+
+    @Test("The unencrypted vault has only the Pro and Storage sections")
+    func sectionsUnencrypted() async throws {
+        let rig = try await makeRig(encrypted: false)
+        #expect(rig.viewModel.sections == [.pro, .storage])
+    }
+
+    @Test("The Vault section holds Change Password and the biometric switch, and no delete row")
+    func vaultRowsWithBiometrics() async throws {
+        let rig = try await makeRig(biometricsAvailable: true)
+        #expect(rig.viewModel.vaultRows == [.changePassword, .biometricSwitch])
+    }
+
+    @Test("The Vault section holds only Change Password when biometrics are not available")
+    func vaultRowsWithoutBiometrics() async throws {
+        let rig = try await makeRig(biometricsAvailable: false)
+        #expect(rig.viewModel.vaultRows == [.changePassword])
+    }
+
+    @Test("The unencrypted vault has no Vault rows")
+    func vaultRowsUnencrypted() async throws {
+        let rig = try await makeRig(encrypted: false)
+        #expect(rig.viewModel.vaultRows.isEmpty)
+    }
+
+    // MARK: - Biometric note
+
+    @Test(
+        "The note under the biometric switch names the biometric",
+        arguments: [
+            (BiometricKind.faceID, "Note: only one vault can use Face ID."),
+            (.touchID, "Note: only one vault can use Touch ID."),
+        ]
+    )
+    func biometricNote(kind: BiometricKind, expected: String) async throws {
+        let rig = try await makeRig(biometricKind: kind)
+        #expect(rig.viewModel.biometricNote == expected)
+    }
+
+    @Test("There is no note when biometrics are not available")
+    func noBiometricNoteWhenUnavailable() async throws {
+        let rig = try await makeRig(biometricsAvailable: false)
+        #expect(rig.viewModel.biometricNote == nil)
+    }
+
+    @Test("There is no note for the unencrypted vault")
+    func noBiometricNoteWhenUnencrypted() async throws {
+        let rig = try await makeRig(encrypted: false)
+        #expect(rig.viewModel.biometricNote == nil)
+    }
+
     // MARK: - Pro row
 
     @Test("The Pro row says Upgrade to Pro while locked and Pro Unlocked once unlocked")
