@@ -256,3 +256,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - 2026-11-13 (verify): title row merged (back arrow beside the folder name; no browser title, back or Lock button
   in the bar); journeys updated; `gates --all` and all 12 journeys pass. Next: the human retests on the device, then
   acceptance.
+- 2026-11-13 (device retest 3): everything checks out: title row with the arrow beside the name (root and
+  subfolders), swipe-back, select mode, rounded logo, Settings layout, 9,000-JPG import. New report (human): sometimes
+  after a folder is moved or something is deleted the folder view doesn't refresh. Read-only reviews of every path
+  that moves or deletes vault items, checking each refreshes the affected browser views, run before acceptance.
