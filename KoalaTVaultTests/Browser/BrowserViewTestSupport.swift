@@ -127,11 +127,6 @@ final class BrowserViewHost {
         for subview in view.subviews { result += texts(in: subview) }
         return result
     }
-
-    /// The title shown by the top of the navigation stack.
-    var shownTitle: String? {
-        navigation?.topViewController?.navigationItem.title ?? navigation?.topViewController?.title
-    }
 }
 
 enum BrowserViewSupport {
