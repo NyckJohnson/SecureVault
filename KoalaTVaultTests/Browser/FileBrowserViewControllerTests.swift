@@ -7,7 +7,7 @@ import UIKit
 /// Assumptions about the UI beyond the memo: Sort opens an action sheet whose titles start with "Name", "Type"
 /// and "Date Modified"; New Folder / New Document / Rename are alerts with one text field and a confirm
 /// action (any non-Cancel action); the Select button (`selectButton`) toggles select mode and the
-/// `bulk*Button`s exist only in select mode; the nav title is the view model's `title`.
+/// `bulk*Button`s exist only in select mode; the title row (under the bar) shows the view model's `title`.
 @MainActor
 @Suite struct FileBrowserViewControllerTests {
     @MainActor
@@ -210,7 +210,8 @@ import UIKit
         await BrowserViewSupport.waitUntil { (rig.host.navigation?.viewControllers.count ?? 0) == 2 }
         #expect(rig.host.navigation?.viewControllers.count == 2)
         let pushed = try #require(rig.host.navigation?.topViewController as? FileBrowserViewController)
-        #expect(pushed.navigationItem.title == "Photos" || pushed.title == "Photos")
+        await BrowserViewSupport.waitUntil { TitleRow.shows("Photos", in: pushed) }
+        #expect(TitleRow.shows("Photos", in: pushed))
     }
 
     @Test("Tapping a file opens the viewer on the folder's files, starting at the tapped one")
@@ -261,7 +262,7 @@ import UIKit
         #expect(rig.host.element("lockButton") == nil)
     }
 
-    // MARK: - Bar layout (title leading, minimal back button, gear then chevron-lock)
+    // MARK: - Bar layout (the title row itself is tested in FileBrowserTitleRowTests.swift)
 
     private func leadingIDs(_ rig: Rig) -> [String] {
         (rig.controller.navigationItem.leftBarButtonItems ?? []).map {
@@ -269,82 +270,11 @@ import UIKit
         }
     }
 
-    /// Width of the lock button's look: its custom view or its image.
-    private func lookWidth(of item: UIBarButtonItem) -> CGFloat {
-        if let view = item.customView {
-            return view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
-        }
-        if let image = item.image { return image.size.width }
-        return 0
-    }
-
-    @Test("The title is leading-aligned on the root", arguments: [false, true])
-    func rootTitleIsLeadingAligned(encrypted: Bool) async throws {
-        let rig = try await makeRig(encryptedStore: encrypted)
-        #expect(rig.controller.navigationItem.style == .browser)
-    }
-
-    @Test("The title is leading-aligned in a subfolder")
-    func subfolderTitleIsLeadingAligned() async throws {
-        let rig = try await makeRig(folder: "Photos")
-        #expect(rig.controller.navigationItem.style == .browser)
-    }
-
-    @Test("A pushed folder's back button shows only the chevron")
-    func pushedFolderBackButtonIsMinimal() async throws {
-        let rig = try await makeRig()
-        rig.tapCell("Photos")
-        await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 2 }
-        let pushed = try #require(rig.host.navigation?.viewControllers.last)
-        #expect(pushed !== rig.controller)
-        #expect(
-            pushed.navigationItem.backButtonDisplayMode == .minimal
-                || rig.controller.navigationItem.backButtonDisplayMode == .minimal)
-    }
-
-    @Test("A pushed folder has only the system back button: no gear, no Lock button")
-    func pushedFolderHasNoGearOrLock() async throws {
-        let rig = try await makeRig()
-        rig.tapCell("Photos")
-        await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 2 }
-        let pushed = try #require(rig.host.navigation?.viewControllers.last)
-        #expect(pushed.navigationItem.leftBarButtonItems?.isEmpty ?? true)
-    }
-
-    @Test("On a vault's root the leading items are the gear, then the Lock button", arguments: [false, true])
-    func rootLeadingItemsAreGearThenLock(encrypted: Bool) async throws {
-        let rig = try await makeRig(encryptedStore: encrypted)
-        #expect(leadingIDs(rig) == ["settingsButton", "lockButton"])
-    }
-
-    @Test("The Lock button keeps its accessibility label", arguments: [false, true])
-    func lockButtonLabelIsLock(encrypted: Bool) async throws {
-        let rig = try await makeRig(encryptedStore: encrypted)
-        let item = try #require(rig.controller.navigationItem.leftBarButtonItems?.last)
-        let label = item.accessibilityLabel ?? item.customView?.accessibilityLabel
-        #expect(label == "Lock")
-    }
-
-    @Test("The Lock button looks like a back button: a chevron joined with the lock")
-    func lockButtonLookIncludesChevron() async throws {
-        let rig = try await makeRig()
-        let item = try #require(rig.controller.navigationItem.leftBarButtonItems?.last)
-        let lockOnly = try #require(UIImage(systemName: "lock")).size.width
-        let titleHasChevron = ["<", "\u{2039}", "\u{3008}"].contains { (item.title ?? "").contains($0) }
-        #expect(lookWidth(of: item) > lockOnly || titleHasChevron)
-    }
-
     @Test("Select mode shows only Cancel at the left")
     func selectModeLeadingIsCancelOnly() async throws {
         let rig = try await makeRig()
         await enterSelectMode(rig, selecting: ["Beach.jpg"])
         #expect(leadingIDs(rig) == ["browser.cancelSelectButton"])
-    }
-
-    @Test("The root title is the vault's name", arguments: [false, true])
-    func rootTitleIsVaultName(encrypted: Bool) async throws {
-        let rig = try await makeRig(encryptedStore: encrypted)
-        #expect(rig.host.shownTitle == (encrypted ? "Work" : "KoalaTVault"))
     }
 
     @Test("Select mode shows the To Vault button")
@@ -490,8 +420,8 @@ import UIKit
         let rig = try await makeRig()
         #expect(rig.host.element("browser.bulkDeleteButton") == nil)
         rig.host.tap("selectButton")
-        await BrowserViewSupport.waitUntil { rig.host.shownTitle == "Select Items" }
-        #expect(rig.host.shownTitle == "Select Items")
+        await BrowserViewSupport.waitUntil { TitleRow.shows("Select Items", in: rig.controller) }
+        #expect(TitleRow.shows("Select Items", in: rig.controller))
         let ids = [
             "browser.bulkDeleteButton", "browser.bulkMoveButton",
             "browser.bulkExportButton", "browser.bulkCopyButton", "browser.bulkVaultButton",
@@ -501,8 +431,8 @@ import UIKit
         }
         rig.tapCell("Beach.jpg")
         rig.tapCell("Notes.rtf")
-        await BrowserViewSupport.waitUntil { rig.host.shownTitle == "2 Selected" }
-        #expect(rig.host.shownTitle == "2 Selected")
+        await BrowserViewSupport.waitUntil { TitleRow.shows("2 Selected", in: rig.controller) }
+        #expect(TitleRow.shows("2 Selected", in: rig.controller))
     }
 
     @Test("In select mode a tap selects instead of opening")
@@ -524,8 +454,9 @@ import UIKit
         rig.host.tap("browser.cancelSelectButton")
         await BrowserViewSupport.waitUntil { rig.host.element("browser.bulkDeleteButton") == nil }
         #expect(rig.host.element("browser.bulkDeleteButton") == nil)
-        #expect(rig.host.shownTitle != "1 Selected")
-        #expect(rig.host.shownTitle != "Select Items")
+        #expect(!TitleRow.shows("1 Selected", in: rig.controller))
+        #expect(!TitleRow.shows("Select Items", in: rig.controller))
+        #expect(TitleRow.shows("KoalaTVault", in: rig.controller))
         #expect(rig.host.element("browser.cancelSelectButton") == nil)
     }
 
