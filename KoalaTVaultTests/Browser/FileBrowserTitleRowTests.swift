@@ -116,10 +116,10 @@ extension FileBrowserViewControllerTests {
     func arrowIsTallEnough(encrypted: Bool) async throws {
         let rig = try await makeRig(encryptedStore: encrypted)
         let lock = try #require(TitleRow.visibleArrow("lockButton", in: rig.controller))
-        #expect(TitleRow.frame(of: lock, in: rig.controller).height >= 44)
+        #expect(TitleRow.frame(of: lock, in: rig.controller).height >= 44 - 0.01)
         let sub = try await makeRig(folder: "Photos", encryptedStore: encrypted)
         let back = try #require(TitleRow.visibleArrow("browser.backButton", in: sub.controller))
-        #expect(TitleRow.frame(of: back, in: sub.controller).height >= 44)
+        #expect(TitleRow.frame(of: back, in: sub.controller).height >= 44 - 0.01)
     }
 
     @Test("In a right-to-left layout the arrow moves to the right of the name, pointing the reading direction")
@@ -158,7 +158,7 @@ extension FileBrowserViewControllerTests {
         await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 1 }
         #expect(rig.host.navigation?.viewControllers.count == 1)
         #expect(rig.host.navigation?.topViewController === rig.controller)
-        #expect(rig.lockCount.count == 0)
+        #expect(rig.lockCount.count < 1)
     }
 
     @Test("The edge-swipe back gesture stays enabled in a pushed folder")

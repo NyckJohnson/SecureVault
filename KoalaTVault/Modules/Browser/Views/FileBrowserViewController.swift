@@ -27,16 +27,12 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 
     private lazy var settingsButton = makeButton(
         image: "gear", id: "settingsButton", action: #selector(settingsTapped))
-    private lazy var lockButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(
-            image: Self.makeLockBackImage(), style: .plain, target: self, action: #selector(lockTapped))
-        button.accessibilityIdentifier = "lockButton"
-        button.accessibilityLabel = "Lock"
-        // Liquid Glass: no button background, so "< lock" stands apart from the gear's bubble and reads
-        // like a subfolder's back button before the vault's name.
-        if #available(iOS 26, *) { button.hidesSharedBackground = true }
-        return button
-    }()
+    /// The title row under the navigation bar: the back arrow, then the folder's name (memo, Browser "Bar
+    /// layout"). Pinned above the grid, so it does not scroll.
+    private let titleRow = UIStackView()
+    private let nameLabel = UILabel()
+    /// "<" (Back, pops one folder) in a subfolder; "< lock" (Lock, calls `onLock`) on a vault's root.
+    private lazy var arrowButton = BrowserTitleArrow(showsLock: viewModel.showsLockButton)
     private lazy var sortButton = makeButton(
         image: "arrow.up.arrow.down", id: "sortButton", action: #selector(sortTapped))
     private lazy var newFolderButton = makeButton(
@@ -121,12 +117,10 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         let folderIcon = FileIconMapping.icon(for: .other, isDirectory: true, folderAssetAvailable: true)
         self.folderAssetAvailable = UIImage(named: folderIcon.symbolName) != nil
         super.init(nibName: nil, bundle: nil)
-        title = directory.name
-        navigationItem.title = directory.name
-        // Bar layout: the folder's name sits at the left, right after the leading buttons, and a
-        // pushed subfolder's back button shows only the chevron.
-        navigationItem.style = .browser
-        navigationItem.backButtonDisplayMode = .minimal
+        // Bar layout: no bar title or large title and no system back button; the title row's arrow is the
+        // way back (the edge-swipe back gesture stays, see `viewWillAppear`).
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.hidesBackButton = true
     }
 
     @available(*, unavailable)
@@ -139,13 +133,18 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        setUpTitleRow()
         setUpCollectionView()
+        layOutTitleRowAndGrid()
         bindViewModel()
         render()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // Hiding the system back button turns off the edge-swipe back gesture's default rule; this browser
+        // answers for it while it is on screen (see `gestureRecognizerShouldBegin`).
+        navigationController?.interactivePopGestureRecognizer?.delegate = self
         if !hasAppeared {
             hasAppeared = true
             Task { [weak self] in await self?.viewModel.load() }
@@ -155,14 +154,77 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        matchTitleRowDirection()
+    }
+
+    /// A layout direction forced on the screen's view reaches the title row too, so the arrow stays on the
+    /// name's reading-direction side and the chevron points backward.
+    private func matchTitleRowDirection() {
+        let attribute = view.semanticContentAttribute
+        guard titleRow.semanticContentAttribute != attribute else { return }
+        var views: [UIView] = [titleRow]
+        while let next = views.popLast() {
+            next.semanticContentAttribute = attribute
+            views += next.subviews
+        }
+    }
+
     /// Lists the folder again; the browser factory calls this after unlock, a restore and a completed migration.
     func reload() {
         Task { [weak self] in await self?.viewModel.vaultUnlocked() }
     }
 
+    private func setUpTitleRow() {
+        nameLabel.font = Self.titleFont()
+        nameLabel.adjustsFontForContentSizeCategory = true
+        nameLabel.numberOfLines = 1
+        nameLabel.lineBreakMode = .byTruncatingMiddle
+        nameLabel.textAlignment = .natural
+        nameLabel.accessibilityTraits = .header
+        nameLabel.accessibilityIdentifier = "browser.titleLabel"
+        nameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        arrowButton.addTarget(self, action: #selector(arrowTapped), for: .touchUpInside)
+        arrowButton.setContentHuggingPriority(.required, for: .horizontal)
+        arrowButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        titleRow.axis = .horizontal
+        titleRow.alignment = .center
+        titleRow.spacing = 2
+        titleRow.addArrangedSubview(arrowButton)
+        titleRow.addArrangedSubview(nameLabel)
+        titleRow.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(titleRow)
+    }
+
+    /// The large-title text style, bold like the system large title, scaling with Dynamic Type.
+    private static func titleFont() -> UIFont {
+        let base = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle)
+        let descriptor = base.withSymbolicTraits(.traitBold) ?? base
+        return UIFont(descriptor: descriptor, size: 0)
+    }
+
+    /// The title row under the bar, then the grid filling the rest of the screen below it.
+    private func layOutTitleRowAndGrid() {
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        let margins = view.layoutMarginsGuide
+        let safeArea = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            titleRow.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            // The arrow's own padding lines the chevron up with the margin, like the system back button.
+            titleRow.leadingAnchor.constraint(equalTo: margins.leadingAnchor, constant: -8),
+            titleRow.trailingAnchor.constraint(lessThanOrEqualTo: margins.trailingAnchor),
+            collectionView.topAnchor.constraint(equalTo: titleRow.bottomAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
     private func setUpCollectionView() {
-        collectionView.frame = view.bounds
-        collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.backgroundColor = .systemBackground
         collectionView.dataSource = self
         collectionView.delegate = self
@@ -203,24 +265,6 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
-    /// The Lock button's look: a back-style chevron joined with a lock, drawn as one template image so the
-    /// item stays a plain bar button (tinted like the others, with a hit area wider than the lock alone).
-    private static func makeLockBackImage() -> UIImage? {
-        let chevronConfig = UIImage.SymbolConfiguration(weight: .semibold)
-        guard let chevron = UIImage(systemName: "chevron.left", withConfiguration: chevronConfig),
-            let lock = UIImage(systemName: "lock")
-        else { return UIImage(systemName: "lock") }
-        let gap: CGFloat = 4
-        let size = CGSize(
-            width: chevron.size.width + gap + lock.size.width,
-            height: max(chevron.size.height, lock.size.height))
-        let image = UIGraphicsImageRenderer(size: size).image { _ in
-            chevron.draw(at: CGPoint(x: 0, y: (size.height - chevron.size.height) / 2))
-            lock.draw(at: CGPoint(x: chevron.size.width + gap, y: (size.height - lock.size.height) / 2))
-        }
-        return image.withRenderingMode(.alwaysTemplate)
-    }
-
     private func makeButton(image: String, id: String, action: Selector) -> UIBarButtonItem {
         let button = UIBarButtonItem(image: UIImage(systemName: image), style: .plain, target: self, action: action)
         button.accessibilityIdentifier = id
@@ -245,7 +289,9 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     }
 
     private func render() {
-        navigationItem.title = viewModel.title
+        nameLabel.text = viewModel.title
+        // Select mode shows "Select Items" / "N Selected" in the row and hides the arrow.
+        arrowButton.isHidden = viewModel.isSelecting
         if viewModel.isSelecting {
             navigationItem.leftBarButtonItems = [cancelSelectButton]
             let bulkButtons = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton, bulkVaultButton]
@@ -257,7 +303,6 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         } else {
             var leftButtons: [UIBarButtonItem] = []
             if viewModel.showsSettingsButton { leftButtons.append(settingsButton) }
-            if viewModel.showsLockButton { leftButtons.append(lockButton) }
             navigationItem.leftBarButtonItems = leftButtons
             navigationItem.rightBarButtonItems = [
                 newFolderButton, newDocumentButton, importButton, sortButton, selectButton,
@@ -310,8 +355,26 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         viewModel.openSettings()
     }
 
-    @objc private func lockTapped() {
-        viewModel.lockTapped()
+    /// The title row's arrow: Lock on a vault's root, otherwise back to the parent folder.
+    @objc private func arrowTapped() {
+        if viewModel.showsLockButton {
+            viewModel.lockTapped()
+        } else {
+            goBack()
+        }
+    }
+
+    /// Pops to the parent folder. UIKit ignores a pop while a push is still running, so a tap during this
+    /// browser's own push animation pops once the push ends.
+    private func goBack() {
+        guard let navigation = navigationController else { return }
+        if let coordinator = navigation.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak navigation] _ in
+                navigation?.popViewController(animated: true)
+            }
+        } else {
+            navigation.popViewController(animated: true)
+        }
     }
 
     @objc private func sortTapped() {
@@ -527,6 +590,16 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
 }
 
 // MARK: - UIAdaptivePresentationControllerDelegate
+
+extension FileBrowserViewController: UIGestureRecognizerDelegate {
+    /// The edge-swipe back gesture runs whenever there is a folder to go back to.
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let navigation = navigationController,
+            gestureRecognizer === navigation.interactivePopGestureRecognizer
+        else { return true }
+        return navigation.viewControllers.count > 1
+    }
+}
 
 extension FileBrowserViewController: UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
@@ -751,6 +824,53 @@ struct BrowserVaultServices {
     let lock: any VaultLocking
     let transfer: any VaultTransferring
     let onLock: () -> Void
+}
+
+/// The title row's back arrow: a backward chevron (flipped in right-to-left layouts), followed by a lock on a
+/// vault's root. At least 44 pt square to tap; one accessibility button ("Back" or "Lock").
+private final class BrowserTitleArrow: UIControl {
+    private let stack = UIStackView()
+
+    init(showsLock: Bool) {
+        super.init(frame: .zero)
+        let config = UIImage.SymbolConfiguration(textStyle: .title2, scale: .large)
+            .applying(UIImage.SymbolConfiguration(weight: .semibold))
+        var symbols = ["chevron.backward"]
+        if showsLock { symbols.append("lock") }
+        for name in symbols {
+            let imageView = UIImageView(image: UIImage(systemName: name, withConfiguration: config))
+            imageView.contentMode = .center
+            imageView.adjustsImageSizeForAccessibilityContentSizeCategory = true
+            stack.addArrangedSubview(imageView)
+        }
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 4
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 44),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = showsLock ? "Lock" : "Back"
+        accessibilityIdentifier = showsLock ? "lockButton" : "browser.backButton"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isHighlighted: Bool {
+        didSet { stack.alpha = isHighlighted ? 0.4 : 1 }
+    }
 }
 
 #if DEBUG

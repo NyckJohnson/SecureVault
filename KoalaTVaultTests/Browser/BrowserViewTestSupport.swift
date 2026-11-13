@@ -31,7 +31,14 @@ final class BrowserViewHost {
     /// so an action sheet is adapted to a popover (as on iPad) and its anchor can be inspected.
     init(content: UIViewController, regularWidth: Bool = false) {
         root = content
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        // A window with a scene lets animated pushes and pops finish; a scene-less window leaves them running.
+        let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            window = UIWindow(windowScene: scene)
+            window.frame = frame
+        } else {
+            window = UIWindow(frame: frame)
+        }
         if regularWidth {
             let container = UIViewController()
             container.addChild(content)
