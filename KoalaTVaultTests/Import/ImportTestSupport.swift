@@ -11,6 +11,12 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
         var directoryPath: String
     }
 
+    /// One `addFiles` call: the names it was asked to add (in order) and the folder they go to.
+    struct AddBatch: Equatable, Sendable {
+        var names: [String]
+        var directoryPath: String
+    }
+
     let root: VaultDirectory
     // feature multiple-vaults-duress-password: signature updated
     var isEncrypted: Bool { encrypted }
@@ -21,6 +27,9 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     private let lock = NSLock()
     private var _addCalls: [AddCall] = []
+    private var _addBatches: [AddBatch] = []
+    private var _findItemNames: [String] = []
+    private var _contentsPaths: [String] = []
     private var _failNames: Set<String> = []
     private var _tempDirectories: [URL] = []
     private var _findItemError: (any Error)?
@@ -45,7 +54,33 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     // MARK: Test controls
 
+    /// Direct `addFile` calls only (photos); files added through `addFiles` are in `addFilesBatches`.
     var addCalls: [AddCall] { lock.withLock { _addCalls } }
+
+    /// Every `addFiles` call, in order, with the names asked for (also when it failed part-way).
+    var addFilesBatches: [AddBatch] { lock.withLock { _addBatches } }
+
+    /// The names of every `addFiles` call, in call order.
+    var addFilesCalls: [[String]] { addFilesBatches.map(\.names) }
+
+    /// Every name asked for through `addFiles`, in call order.
+    var addedNames: [String] { addFilesBatches.flatMap(\.names) }
+
+    /// Every name asked for through `addFiles` into one folder (its path relative to the root, "" for the root).
+    func addedNames(in directoryPath: String) -> [String] {
+        addFilesBatches.filter { $0.directoryPath == directoryPath }.flatMap(\.names)
+    }
+
+    /// The batches sent to one folder (its path relative to the root, "" for the root).
+    func batches(in directoryPath: String) -> [[String]] {
+        addFilesBatches.filter { $0.directoryPath == directoryPath }.map(\.names)
+    }
+
+    /// Names passed to `findItem`, in call order.
+    var findItemNames: [String] { lock.withLock { _findItemNames } }
+
+    /// Folder paths (relative to the root, "" for the root) passed to `contents`, in call order.
+    var contentsPaths: [String] { lock.withLock { _contentsPaths } }
 
     /// `addFile` throws `.io("boom")` for these names.
     func failAdding(_ name: String) { lock.withLock { _ = _failNames.insert(name) } }
@@ -125,10 +160,12 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
-        let shouldFail = lock.withLock {
-            _addCalls.append(AddCall(name: name, directoryPath: relativePath(directory.diskURL)))
-            return _failNames.contains(name)
-        }
+        lock.withLock { _addCalls.append(AddCall(name: name, directoryPath: relativePath(directory.diskURL))) }
+        return try addOne(from: source, named: name, to: directory)
+    }
+
+    private func addOne(from source: URL, named name: String, to directory: VaultDirectory) throws -> VaultItem {
+        let shouldFail = lock.withLock { _failNames.contains(name) }
         if shouldFail { throw VaultStoreError.io("boom") }
         if name.isEmpty || name.contains("/") { throw VaultStoreError.invalidName }
         let unique = uniqueName(name, in: directory.diskURL)
@@ -142,10 +179,14 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
-    /// Adds the files one by one through `addFile` (each recorded in `addCalls`), stopping at the first failure.
+    /// Records the call in `addFilesBatches`, then adds the files in order, stopping at the first failure
+    /// (the files before it are kept), as the real store does. Not recorded in `addCalls`.
     func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        lock.withLock {
+            _addBatches.append(AddBatch(names: files.map(\.name), directoryPath: relativePath(directory.diskURL)))
+        }
         var added: [VaultItem] = []
-        for file in files { added.append(try await addFile(from: file.source, named: file.name, to: directory)) }
+        for file in files { added.append(try addOne(from: file.source, named: file.name, to: directory)) }
         return added
     }
 
@@ -163,6 +204,7 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        lock.withLock { _findItemNames.append(name) }
         if let error = lock.withLock({ _findItemError }) { throw error }
         let target = directory.diskURL.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: target.path) else { return nil }
@@ -172,6 +214,7 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func contents(
         of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
     ) async throws -> [VaultItem] {
+        lock.withLock { _contentsPaths.append(relativePath(directory.diskURL)) }
         let urls =
             (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
         return urls.map { item(at: $0) }.sorted { $0.name < $1.name }
