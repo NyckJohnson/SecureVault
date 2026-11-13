@@ -58,14 +58,55 @@ actor LiveVaultStore: VaultStoring {
         sortedBy option: SortOption,
         _ direction: SortDirection
     ) throws -> [VaultItem] {
-        let mode = try beginOperation()
-        let items = try listing(of: directory, mode: mode)
-        return Self.sorted(items, by: option, direction)
+        try autoreleasepool {
+            let mode = try beginOperation()
+            let items = try listing(of: directory, mode: mode)
+            return Self.sorted(items, by: option, direction)
+        }
     }
 
+    /// Looks the one name up instead of listing the folder: first an index entry with that display name
+    /// (whose file exists), then a non-hidden disk entry of that exact name that the index doesn't map.
+    /// The item found is the one the listing would show under that name, with the same fields.
+    /// - Throws: what a listing of the folder throws (`.locked`, `.indexUnreadable`, `.notFound` / `.io`
+    ///   when the folder can't be read).
     func findItem(named name: String, in directory: VaultDirectory) throws -> VaultItem? {
-        let mode = try beginOperation()
-        return try listing(of: directory, mode: mode).first { $0.name == name }
+        try autoreleasepool {
+            let mode = try beginOperation()
+            try requireFolder(directory.diskURL)
+            let entries = try index.read(in: directory.diskURL, mode: mode)
+            let mapped = entries.filter { $0.value.originalName == name }.keys.sorted()
+            for diskName in mapped {
+                let item = try existingItem(diskName: diskName, in: directory, displayName: name, isEncrypted: true)
+                if let item { return item }
+            }
+            guard entries[name] == nil, !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return nil }
+            return try existingItem(diskName: name, in: directory, displayName: name, isEncrypted: false)
+        }
+    }
+
+    /// The item for `diskName` in `directory` as a listing shows it, or nil when nothing is on disk under
+    /// exactly that name (letter case included, as a listing reads names).
+    private func existingItem(
+        diskName: String, in directory: VaultDirectory, displayName: String, isEncrypted: Bool
+    ) throws -> VaultItem? {
+        let url = directory.diskURL.appendingPathComponent(diskName)
+        guard let values = try? url.resourceValues(forKeys: Set(Self.itemResourceKeys + [.nameKey])),
+            values.name == diskName
+        else { return nil }
+        return makeItem(
+            diskName: diskName, in: directory, folderPath: index.relativePath(of: directory.diskURL),
+            displayName: displayName, isEncrypted: isEncrypted, values: values)
+    }
+
+    /// Throws as listing `folder` would when it isn't a readable folder: `.notFound` when it is missing,
+    /// `.io` when it is something else.
+    private func requireFolder(_ folder: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) else {
+            throw VaultStoreError.notFound
+        }
+        guard isDirectory.boolValue else { throw VaultStoreError.io("The folder can't be read.") }
     }
 
     /// The attributes a listing reads for each entry, prefetched by the directory read.
@@ -228,6 +269,10 @@ actor LiveVaultStore: VaultStoring {
     // MARK: - Open and write
 
     func open(_ item: VaultItem) throws -> URL {
+        try autoreleasepool { try unpooledOpen(item) }
+    }
+
+    private func unpooledOpen(_ item: VaultItem) throws -> URL {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         guard item.isEncrypted else { return item.diskURL }
@@ -245,6 +290,10 @@ actor LiveVaultStore: VaultStoring {
     }
 
     func write(_ data: Data, to item: VaultItem) throws {
+        try autoreleasepool { try unpooledWrite(data, to: item) }
+    }
+
+    private func unpooledWrite(_ data: Data, to item: VaultItem) throws {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         guard !item.isDirectory else { throw VaultStoreError.io("A folder has no content to write.") }

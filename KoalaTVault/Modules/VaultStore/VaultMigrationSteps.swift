@@ -23,6 +23,10 @@ extension LiveVaultStore {
     /// Counts regular files under the root; hidden entries (indexes, the trash) are skipped. Reads no index or
     /// file content, so it needs no key.
     func countFiles() throws -> Int {
+        try autoreleasepool { try unpooledCountFiles() }
+    }
+
+    private func unpooledCountFiles() throws -> Int {
         let keys: [URLResourceKey] = [.isRegularFileKey]
         var count = 0
         var enumerationError: (any Error)?
@@ -43,6 +47,10 @@ extension LiveVaultStore {
 
     /// Every plaintext file under the root and in the trash; empty for a plaintext store, which never encrypts.
     func itemsToEncrypt() throws -> [VaultItem] {
+        try autoreleasepool { try unpooledItemsToEncrypt() }
+    }
+
+    private func unpooledItemsToEncrypt() throws -> [VaultItem] {
         guard isEncrypted else { return [] }
         return try plaintextFiles()
     }
@@ -62,10 +70,7 @@ extension LiveVaultStore {
     ///   folder is missing at the first step; `.indexUnreadable` / `.io` when an index or a file's form can't
     ///   be read; `CancellationError` when the task is cancelled during the walk.
     func hasUnencryptedFiles() async throws -> Bool {
-        var folders = HousekeepingQueue([root])
-        // The files of the folder being checked that no batch has reached yet; nil between folders.
-        var unchecked: ArraySlice<VaultItem>?
-        var trashChecked = false
+        var walk = PlaintextCheckWalk(folders: HousekeepingQueue([root]))
         var isFirstStep = true
         while true {
             if !isFirstStep {
@@ -75,27 +80,58 @@ extension LiveVaultStore {
             }
             let isRootStep = isFirstStep
             isFirstStep = false
-            let mode = try beginOperation()
-            if unchecked == nil, let folder = folders.dequeue() {
-                let items = try plaintextCheckListing(folder, mode: mode, isRoot: isRootStep)
-                folders.enqueue(items.compactMap(\.asDirectory))
-                unchecked = ArraySlice(items.filter { !$0.isDirectory })
-            }
-            if let files = unchecked {
-                let batch = files.prefix(Self.plaintextCheckBatchSize)
-                if try containsPlaintext(batch) { return true }
-                let rest = files.dropFirst(batch.count)
-                unchecked = rest.isEmpty ? nil : rest
-            } else if !trashChecked {
-                trashChecked = true
-                let items = trashItems(map: try correctedTrashMap(trashMap.read(mode: mode)))
-                if items.contains(where: { !$0.isDirectory && !$0.isEncrypted }) { return true }
-                folders = HousekeepingQueue(items.compactMap(\.asDirectory))
-            } else {
-                return false
+            switch try plaintextCheckStep(&walk, isRoot: isRootStep) {
+            case .found: return true
+            case .clean: return false
+            case .unfinished: continue
             }
         }
     }  // coverage-exempt: unreachable, the while-true loop exits only by return or throw
+
+    /// Where `hasUnencryptedFiles()` is in its walk, carried from one step to the next.
+    private struct PlaintextCheckWalk {
+        /// The folders still to visit, breadth-first.
+        var folders: HousekeepingQueue<VaultDirectory>
+        /// The files of the folder being checked that no batch has reached yet; nil between folders.
+        var unchecked: ArraySlice<VaultItem>?
+        var trashChecked = false
+    }
+
+    /// What one step of `hasUnencryptedFiles()` found.
+    private enum PlaintextCheckOutcome {
+        /// A plaintext file: the answer is true.
+        case found
+        /// Everything has been checked and nothing was plaintext: the answer is false.
+        case clean
+        /// No plaintext yet and more steps to go.
+        case unfinished
+    }
+
+    /// One step of `hasUnencryptedFiles()`: a folder's first batch (listing it and queuing its subfolders), a
+    /// further batch of its files, or the trash. Never suspends; its temporary memory is freed when it ends.
+    private func plaintextCheckStep(_ walk: inout PlaintextCheckWalk, isRoot: Bool) throws -> PlaintextCheckOutcome {
+        try autoreleasepool {
+            let mode = try beginOperation()
+            if walk.unchecked == nil, let folder = walk.folders.dequeue() {
+                let items = try plaintextCheckListing(folder, mode: mode, isRoot: isRoot)
+                walk.folders.enqueue(items.compactMap(\.asDirectory))
+                walk.unchecked = ArraySlice(items.filter { !$0.isDirectory })
+            }
+            if let files = walk.unchecked {
+                let batch = files.prefix(Self.plaintextCheckBatchSize)
+                if try containsPlaintext(batch) { return .found }
+                let rest = files.dropFirst(batch.count)
+                walk.unchecked = rest.isEmpty ? nil : rest
+                return .unfinished
+            }
+            guard !walk.trashChecked else { return .clean }
+            walk.trashChecked = true
+            let items = trashItems(map: try correctedTrashMap(trashMap.read(mode: mode)))
+            if items.contains(where: { !$0.isDirectory && !$0.isEncrypted }) { return .found }
+            walk.folders = HousekeepingQueue(items.compactMap(\.asDirectory))
+            return .unfinished
+        }
+    }
 
     /// The most files `hasUnencryptedFiles()` checks in one step.
     private static let plaintextCheckBatchSize = 256
@@ -277,6 +313,10 @@ extension LiveVaultStore {
     /// removed. A plaintext whose same-name encrypted copy already matches byte for byte (an earlier run that
     /// stopped before removing it) is only removed; a different copy keeps both, the new one numbered.
     func migrateToEncrypted(_ item: VaultItem) throws {
+        try autoreleasepool { try unpooledMigrateToEncrypted(item) }
+    }
+
+    private func unpooledMigrateToEncrypted(_ item: VaultItem) throws {
         let mode = try beginOperation()
         guard mode.keyLoaded else { throw VaultStoreError.locked }
         guard !item.isDirectory else { throw VaultStoreError.io("A folder has no content to encrypt.") }
@@ -472,6 +512,10 @@ extension LiveVaultStore {
     /// - Throws: `.locked` in encrypted mode without the key (before anything is written); `.io` when a
     ///   folder can't be listed or an index can't be written.
     func finishEncryption() throws {
+        try autoreleasepool { try unpooledFinishEncryption() }
+    }
+
+    private func unpooledFinishEncryption() throws {
         let mode = try beginOperation()
         guard mode.isEncrypted else { return }
         var pending = [root.diskURL] + (try subfolders(of: trashMap.folderURL))
@@ -514,6 +558,10 @@ extension LiveVaultStore {
     }
 
     func keyMatchesVault() -> Bool {
+        autoreleasepool { unpooledKeyMatchesVault() }
+    }
+
+    private func unpooledKeyMatchesVault() -> Bool {
         let url = root.diskURL.appendingPathComponent(VaultIndex.fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return true }
         // A plaintext index reads without a key (nothing encrypted to check); an encrypted one needs the key

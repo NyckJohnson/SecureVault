@@ -133,6 +133,10 @@ extension LiveVaultStore {
     // MARK: - Move to trash
 
     func moveToTrash(_ item: VaultItem) throws {
+        try autoreleasepool { try unpooledMoveToTrash(item) }
+    }
+
+    private func unpooledMoveToTrash(_ item: VaultItem) throws {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         let sourceFolder = item.diskURL.deletingLastPathComponent()
@@ -173,6 +177,10 @@ extension LiveVaultStore {
     // MARK: - List
 
     func trashContents() throws -> [VaultItem] {
+        try autoreleasepool { try unpooledTrashContents() }
+    }
+
+    private func unpooledTrashContents() throws -> [VaultItem] {
         let mode = try beginOperation()
         return try trashItems(map: correctedTrashMap(trashMap.read(mode: mode), strict: false))
     }
@@ -204,6 +212,10 @@ extension LiveVaultStore {
     // MARK: - Restore
 
     func restore(_ trashed: VaultItem) throws -> VaultItem {
+        try autoreleasepool { try unpooledRestore(trashed) }
+    }
+
+    private func unpooledRestore(_ trashed: VaultItem) throws -> VaultItem {
         let mode = try beginOperation()
         // Re-indexed or not by the file's real form, not only the entry's flag.
         var map = try correctedTrashMap(trashMap.read(mode: mode), strict: false)
@@ -257,6 +269,10 @@ extension LiveVaultStore {
     // MARK: - Delete
 
     func deletePermanently(_ trashed: VaultItem) throws {
+        try autoreleasepool { try unpooledDeletePermanently(trashed) }
+    }
+
+    private func unpooledDeletePermanently(_ trashed: VaultItem) throws {
         let mode = try beginOperation()
         var map = try trashMap.read(mode: mode)
         let trashName = trashed.diskURL.lastPathComponent
@@ -276,6 +292,10 @@ extension LiveVaultStore {
     /// Removes everything in `.trash`, the map included, whether or not the map can be read: an unreadable map
     /// must never wedge the trash for good.
     func emptyTrash() {
+        autoreleasepool { unpooledEmptyTrash() }
+    }
+
+    private func unpooledEmptyTrash() {
         let manager = FileManager.default
         // Best-effort by contract (non-throwing): whatever can't be removed now is removed next time.
         if let names = try? manager.contentsOfDirectory(atPath: trashMap.folderURL.path) {
@@ -286,6 +306,10 @@ extension LiveVaultStore {
     // MARK: - Purge
 
     func purgeExpiredTrash(now: Date) throws -> Int {
+        try autoreleasepool { try unpooledPurgeExpiredTrash(now: now) }
+    }
+
+    private func unpooledPurgeExpiredTrash(now: Date) throws -> Int {
         let mode = try beginOperation()
         var map = try trashMap.read(mode: mode)
         var purged = 0
@@ -358,6 +382,10 @@ extension LiveVaultStore {
 
     /// Whether the trash holds unreadable trash; false on any error (never throws).
     func hasUnreadableTrash() -> Bool {
+        autoreleasepool { unpooledHasUnreadableTrash() }
+    }
+
+    private func unpooledHasUnreadableTrash() -> Bool {
         guard let mode = try? beginOperation() else { return false }
         if case .none = unreadableTrash(mode: mode) { return false }
         return true
@@ -368,6 +396,10 @@ extension LiveVaultStore {
     /// - Throws: `.locked` in encrypted mode without the key (nothing removed); `.io` after the rest are removed
     ///   when a removal fails; the trash map's write error when the remaining entries can't be saved.
     func clearUnreadableTrash() throws {
+        try autoreleasepool { try unpooledClearUnreadableTrash() }
+    }
+
+    private func unpooledClearUnreadableTrash() throws {
         let mode = try beginOperation()
         switch unreadableTrash(mode: mode) {
         case .none:

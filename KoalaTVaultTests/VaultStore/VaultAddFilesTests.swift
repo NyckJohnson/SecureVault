@@ -72,7 +72,9 @@ import Testing
         let diskNames = items.map { ($0.id as NSString).lastPathComponent }
         #expect(diskNames.allSatisfy { UUID(uuidString: $0) != nil })
         #expect(Set(diskNames).count == 3)
-        #expect(vault.indexEntries(in: docs) == Dictionary(uniqueKeysWithValues: zip(diskNames, ["a.txt", "b.txt", "c.txt"])))
+        let expectedIndex = Dictionary(
+            uniqueKeysWithValues: zip(diskNames, ["a.txt", "b.txt", "c.txt"]))
+        #expect(vault.indexEntries(in: docs) == expectedIndex)
         #expect(try vault.diskNames(in: docs).sorted() == (diskNames + [".vault_map"]).sorted())
         #expect(vault.cipher.calls.filter(isEncryptFile).count == 3)
         #expect(vault.indexContext(in: docs) != nil)
@@ -134,7 +136,8 @@ import Testing
         defer { vault.cleanUp() }
         try await vault.add("a.txt", "existing")
 
-        let items = try await vault.store.addFiles(try batch(vault, ["a.txt", "a.txt", "b.txt", "b.txt"]), to: vault.root)
+        let clashing = try batch(vault, ["a.txt", "a.txt", "b.txt", "b.txt"])
+        let items = try await vault.store.addFiles(clashing, to: vault.root)
 
         #expect(items.map(\.name) == ["a 1.txt", "a 2.txt", "b.txt", "b 1.txt"])
         #expect(try await vault.names().sorted() == ["a 1.txt", "a 2.txt", "a.txt", "b 1.txt", "b.txt"])

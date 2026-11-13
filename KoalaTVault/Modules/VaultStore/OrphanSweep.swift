@@ -27,8 +27,13 @@ extension LiveVaultStore {
                 guard !Task.isCancelled else { return }
             }
             isFirstStep = false
-            guard let mode = try? beginOperation(), mode.isEncrypted, mode.keyLoaded else { return }
-            pending.enqueue(sweepFolder(folder, mode: mode))
+            // Each step frees its temporary memory when it ends, so a long walk doesn't build it up.
+            let subfolders: [URL]? = autoreleasepool {
+                guard let mode = try? beginOperation(), mode.isEncrypted, mode.keyLoaded else { return nil }
+                return sweepFolder(folder, mode: mode)
+            }
+            guard let subfolders else { return }
+            pending.enqueue(subfolders)
         }
     }
 
