@@ -249,3 +249,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - 2026-11-13 (verify): lock button placement merged into the feature branch; `gates --all` and all journeys pass.
   Next: the human retests on the device ("[⚙]  < 🔒 Vault name" on a vault's root; check the gap between gear and
   lock), then acceptance.
+- 2026-11-13 (device retest 2): the Lock button still sat in the navigation bar. The human clarified: a back arrow
+  left of the folder's name, on the name's line under the bar ("<" up one folder; "< 🔒" from a vault's root to the
+  lock screen); no back or Lock button in the bar; gear stays on the root's bar. Browser unit 2 reopened again;
+  journeys that use the bar's back button are updated in verify.
