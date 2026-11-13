@@ -23,7 +23,7 @@ final class J12UpgradeFromOneVaultJourneyTests: JourneyTestCase {
         launch(environment: ["UITEST_SEED_FILE_NAME": seedName])
         waitForLockScreen()
         openUnencryptedVault()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].exists)
+        XCTAssertTrue(browserTitle("KoalaTVault").exists)
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5), "The files stay in the unencrypted vault, unchanged")
     }
 
@@ -48,7 +48,7 @@ final class J12UpgradeFromOneVaultJourneyTests: JourneyTestCase {
             XCTAssertTrue(migration.waitForNonExistence(timeout: 30), "Migration did not close", file: file, line: line)
         }
         waitForBrowser(file: file, line: line)
-        XCTAssertTrue(app.navigationBars["My Vault"].waitForExistence(timeout: 5), "The vault is named \"My Vault\"",
+        XCTAssertTrue(browserTitle("My Vault").waitForExistence(timeout: 5), "The vault is named \"My Vault\"",
                       file: file, line: line)
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 10), "The old files are in My Vault", file: file, line: line)
     }

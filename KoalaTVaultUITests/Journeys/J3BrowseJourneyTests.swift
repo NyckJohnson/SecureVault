@@ -55,7 +55,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
 
     private func enterSelectMode() {
         tapBarButton("selectButton", fallbackLabel: "Select")
-        XCTAssertTrue(app.navigationBars["Select Items"].waitForExistence(timeout: 5), "Select mode did not start")
+        XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5), "Select mode did not start")
     }
 
     private func pickMoveTarget(_ folder: String?) {
@@ -74,7 +74,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
     // MARK: - Browser contents
 
     func testJourney3_RootShowsFilesWithNameAndSizeAndGearOnlyOnRoot() {
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].exists)
+        XCTAssertTrue(browserTitle("KoalaTVault").exists)
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5))
         XCTAssertTrue(cell(seedName).staticTexts["browser.cell.\(seedName).nameLabel"].exists)
         XCTAssertTrue(cell(seedName).staticTexts["browser.cell.\(seedName).sizeLabel"].exists)
@@ -88,11 +88,23 @@ final class J3BrowseJourneyTests: JourneyTestCase {
 
     func testJourney3_LockButtonOnlyOnTheRoot() {
         createFolder(named: "Sub")
-        XCTAssertTrue(app.buttons["lockButton"].waitForExistence(timeout: 5), "The root has a Lock button")
+        let lock = app.buttons["lockButton"]
+        XCTAssertTrue(lock.waitForExistence(timeout: 5), "The root has a Lock button")
+        XCTAssertEqual(lock.label, "Lock")
+        XCTAssertLessThanOrEqual(lock.frame.maxX, browserTitle("KoalaTVault").frame.minX + 1,
+                                 "The \"< lock\" arrow sits left of the vault name")
+        XCTAssertFalse(app.navigationBars.buttons["lockButton"].exists, "The bar has no Lock button")
         cell("Sub").tap()
-        XCTAssertTrue(app.navigationBars["Sub"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Sub").waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["lockButton"].exists, "A subfolder has no Lock button")
         XCTAssertFalse(app.buttons["settingsButton"].exists, "A subfolder has no settings gear")
+        let back = app.buttons["browser.backButton"]
+        XCTAssertTrue(back.exists, "A subfolder's arrow is Back")
+        XCTAssertEqual(back.label, "Back")
+        XCTAssertLessThanOrEqual(back.frame.maxX, browserTitle("Sub").frame.minX + 1, "The arrow sits left of the folder name")
+        back.tap()
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5), "The arrow goes back one folder")
+        XCTAssertTrue(app.buttons["lockButton"].exists)
     }
 
     func testJourney3_FoldersAreListedBeforeFiles() {
@@ -106,13 +118,13 @@ final class J3BrowseJourneyTests: JourneyTestCase {
     func testJourney3_TapFolderPushesItAndBackReturns() {
         createFolder(named: "Docs")
         cell("Docs").tap()
-        XCTAssertTrue(app.navigationBars["Docs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Docs").waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["settingsButton"].exists, "The gear shows only on the root")
         XCTAssertTrue(app.staticTexts["browser.emptyStateLabel"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.staticTexts["browser.emptyStateLabel"].label, "No files yet")
 
-        app.navigationBars["Docs"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        app.buttons["browser.backButton"].tap()
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["settingsButton"].exists)
         XCTAssertTrue(cell(seedName).exists)
     }
@@ -120,14 +132,14 @@ final class J3BrowseJourneyTests: JourneyTestCase {
     func testJourney3_NestedFoldersNavigateAndReturn() {
         createFolder(named: "Outer")
         cell("Outer").tap()
-        XCTAssertTrue(app.navigationBars["Outer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Outer").waitForExistence(timeout: 5))
         createFolder(named: "Inner")
         cell("Inner").tap()
-        XCTAssertTrue(app.navigationBars["Inner"].waitForExistence(timeout: 5))
-        app.navigationBars["Inner"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["Outer"].waitForExistence(timeout: 5))
-        app.navigationBars["Outer"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Inner").waitForExistence(timeout: 5))
+        app.buttons["browser.backButton"].tap()
+        XCTAssertTrue(browserTitle("Outer").waitForExistence(timeout: 5))
+        app.buttons["browser.backButton"].tap()
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
     }
 
     // MARK: - New Folder
@@ -249,7 +261,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
 
         XCTAssertTrue(cell(seedName).waitForNonExistence(timeout: 5), "The file should leave the root")
         cell("Dest").tap()
-        XCTAssertTrue(app.navigationBars["Dest"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Dest").waitForExistence(timeout: 5))
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5), "The file should now be in Dest")
     }
 
@@ -298,7 +310,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         file.press(forDuration: 1.0, thenDragTo: folder, withVelocity: .slow, thenHoldForDuration: 1.0)
         XCTAssertTrue(cell(seedName).waitForNonExistence(timeout: 5), "The dragged file should leave the root")
         folder.tap()
-        XCTAssertTrue(app.navigationBars["Target"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Target").waitForExistence(timeout: 5))
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5))
     }
 
@@ -307,12 +319,12 @@ final class J3BrowseJourneyTests: JourneyTestCase {
     func testJourney3_SelectModeTogglesItemsAndShowsCount() {
         enterSelectMode()
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
         XCTAssertTrue(cell(seedName).images["browser.cell.\(seedName).checkmark"].exists
                       || app.descendants(matching: .any)["browser.cell.\(seedName).checkmark"].exists,
                       "A selected cell should show its checkmark")
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["Select Items"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["browser.cell.\(seedName).checkmark"].exists)
     }
 
@@ -320,7 +332,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         enterSelectMode()
         cell(seedName).tap()
         app.buttons["browser.cancelSelectButton"].tap()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["settingsButton"].exists)
     }
 
@@ -329,7 +341,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         enterSelectMode()
         cell(seedName).tap()
         cell("Pics").tap()
-        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
         tapBarButton("browser.bulkCopyButton", fallbackLabel: "Copy")
         XCTAssertTrue(cell("alpha 1.txt").waitForExistence(timeout: 5))
         XCTAssertTrue(cell("Pics 1").waitForExistence(timeout: 5))
@@ -346,7 +358,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell(seedName).waitForNonExistence(timeout: 5))
         XCTAssertFalse(cell("Other").exists)
         cell("Dest").tap()
-        XCTAssertTrue(app.navigationBars["Dest"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Dest").waitForExistence(timeout: 5))
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5))
         XCTAssertTrue(cell("Other").exists)
     }
@@ -377,7 +389,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell("A.rtf").exists, "A must stay in the root")
         XCTAssertTrue(cell("B.rtf").exists, "B must stay in the root")
         cell("F").tap()
-        XCTAssertTrue(app.navigationBars["F"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("F").waitForExistence(timeout: 5))
         XCTAssertTrue(cell("C.rtf").waitForExistence(timeout: 5), "F should contain C")
         XCTAssertFalse(cell("A.rtf").exists, "F must not contain A")
         XCTAssertFalse(cell("B.rtf").exists, "F must not contain B")
@@ -388,7 +400,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         enterSelectMode()
         cell("A.rtf").tap()
         cell("B.rtf").tap()
-        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
         tapBarButton("browser.bulkMoveButton", fallbackLabel: "Move")
         let cancel = app.buttons["folderPicker.cancelButton"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 5), "The folder picker did not appear")
@@ -396,7 +408,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertTrue(cancel.waitForNonExistence(timeout: 5))
 
         app.buttons["browser.cancelSelectButton"].tap()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
 
         openContextMenu(of: "C.rtf")
         tapContextAction("browser.contextMenu.move", title: "Move")
@@ -421,7 +433,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         if app.buttons["browser.cancelSelectButton"].waitForExistence(timeout: 3) {
             app.buttons["browser.cancelSelectButton"].tap()
         }
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
 
         openContextMenu(of: "C.rtf")
         tapContextAction("browser.contextMenu.move", title: "Move")

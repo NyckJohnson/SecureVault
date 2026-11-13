@@ -32,7 +32,7 @@ final class J11TransferBetweenVaultsJourneyTests: JourneyTestCase {
     private func switchToTestVault() {
         lockApp()
         unlockWithPassword()
-        XCTAssertTrue(app.navigationBars["Test Vault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Test Vault").waitForExistence(timeout: 5))
     }
 
     // MARK: - Unencrypted -> encrypted
@@ -45,7 +45,7 @@ final class J11TransferBetweenVaultsJourneyTests: JourneyTestCase {
         usePickedVault(password: Self.password)
         expectPickerClosed()
         XCTAssertTrue(cell(seedName).waitForNonExistence(timeout: 15), "A move removes the original")
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].exists, "The browser stays in the current vault")
+        XCTAssertTrue(browserTitle("KoalaTVault").exists, "The browser stays in the current vault")
         openRecentlyDeleted()
         XCTAssertFalse(app.tables["recentlyDeleted.list"].cells["recentlyDeleted.row.\(seedName)"].exists,
                        "A move does not go to Recently Deleted")
@@ -82,9 +82,9 @@ final class J11TransferBetweenVaultsJourneyTests: JourneyTestCase {
         openUnencryptedVault()
         createFolderViaBar(named: "Box")
         cell("Box").tap()
-        XCTAssertTrue(app.navigationBars["Box"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Box").waitForExistence(timeout: 5))
         createDocument(named: "inside")
-        app.navigationBars["Box"].buttons.firstMatch.tap()
+        app.buttons["browser.backButton"].tap()
         XCTAssertTrue(cell("Box").waitForExistence(timeout: 5))
         moveToVault("Box")
         switchToTestVault()
@@ -99,7 +99,7 @@ final class J11TransferBetweenVaultsJourneyTests: JourneyTestCase {
         openUnencryptedVault()
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
         tapBarButton("browser.bulkVaultButton", fallbackLabel: "To Vault")
         XCTAssertTrue(app.buttons["Move to Vault…"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Copy to Vault…"].exists)

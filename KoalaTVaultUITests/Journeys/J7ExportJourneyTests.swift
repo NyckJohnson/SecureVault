@@ -79,9 +79,9 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
     func testJourney7_BulkExportHandsOffToDocumentPicker() {
         tapBarButton("selectButton", fallbackLabel: "Select")
-        XCTAssertTrue(app.navigationBars["Select Items"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5))
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
         tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
         assertExportSheetOffersFilesNotCameraRoll()
         exportSheet.buttons["Save to Files"].tap()
@@ -100,7 +100,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell("Docs").tap()
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
         tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
         assertExportSheetOffersFilesNotCameraRoll()
         exportSheet.buttons["Save to Files"].tap()
@@ -184,7 +184,7 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
     func testJourney7_BulkExportFromPasswordVaultOffersDecryptedFileUnderItsRealName() {
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
         tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
         chooseSaveToFiles()
         assertPickerOffersThenCancel(name: seedName)
@@ -207,9 +207,9 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
     func testJourney7_ExportFolderFromPasswordVaultOffersItUnderItsRealName() {
         createFolderViaBar(named: "Docs")
         cell("Docs").tap()
-        XCTAssertTrue(app.navigationBars["Docs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Docs").waitForExistence(timeout: 5))
         createDocument(named: "notes")
-        app.navigationBars["Docs"].buttons.firstMatch.tap()
+        app.buttons["browser.backButton"].tap()
         XCTAssertTrue(cell("Docs").waitForExistence(timeout: 5))
 
         longPressCell("Docs")

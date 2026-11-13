@@ -23,7 +23,7 @@ final class J1FirstLaunchJourneyTests: JourneyTestCase {
 
     func testJourney1_OpenUnencryptedVaultShowsItsEmptyRoot() {
         openUnencryptedVault()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5),
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5),
                       "The unencrypted vault's root is titled \"KoalaTVault\"")
         XCTAssertTrue(app.staticTexts["browser.emptyStateLabel"].waitForExistence(timeout: 5), "The vault should be empty")
         XCTAssertEqual(app.collectionViews["fileGrid"].cells.count, 0)

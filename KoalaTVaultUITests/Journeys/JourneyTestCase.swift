@@ -65,15 +65,17 @@ class JourneyTestCase: XCTestCase {
         app.buttons["vaults.openButton"].tap()
     }
 
-    /// Lock button on the browser's root -> the lock screen.
+    /// The "< lock" arrow in the browser root's title row -> the lock screen.
     func lockApp(file: StaticString = #filePath, line: UInt = #line) {
         let lock = app.buttons["lockButton"]
-        if !lock.waitForExistence(timeout: 5) {
-            tapBarButton("lockButton", fallbackLabel: "Lock", file: file, line: line)
-        } else {
-            lock.tap()
-        }
+        XCTAssertTrue(lock.waitForExistence(timeout: 5), "The root's title row has no Lock arrow", file: file, line: line)
+        lock.tap()
         waitForLockScreen(file: file, line: line)
+    }
+
+    /// The browser's title row text (the folder, vault, "Select Items" or "N Selected" label under the bar).
+    func browserTitle(_ text: String) -> XCUIElement {
+        app.staticTexts.matching(identifier: "browser.titleLabel").matching(NSPredicate(format: "label == %@", text)).firstMatch
     }
 
     /// Moves the file `name` from the open vault to the encrypted vault with `password` through the vault picker,

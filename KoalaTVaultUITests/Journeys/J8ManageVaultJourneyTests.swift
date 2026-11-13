@@ -66,7 +66,7 @@ final class J8ManageVaultJourneyTests: StoreKitJourneyTestCase {
                        "The old password should no longer open the vault")
         attemptOpen(with: Self.newPassword)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Test Vault"].exists)
+        XCTAssertTrue(browserTitle("Test Vault").exists)
     }
 
     func testJourney8_EmptyNewPasswordShowsError() {
@@ -95,7 +95,7 @@ final class J8ManageVaultJourneyTests: StoreKitJourneyTestCase {
         lockApp()
         createVault(name: "Second Vault", password: Self.otherPassword)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Second Vault"].waitForExistence(timeout: 10))
+        XCTAssertTrue(browserTitle("Second Vault").waitForExistence(timeout: 10))
         openSettings()
         openChangePassword(current: Self.otherPassword, new: Self.password, confirm: Self.password)
         expectErrorAlertAndDismiss(containing: "Choose a different password.")
@@ -127,7 +127,7 @@ final class J8ManageVaultJourneyTests: StoreKitJourneyTestCase {
         dismissSettingsSheet()
         lockApp()
         unlockWithPassword()
-        XCTAssertTrue(app.navigationBars["Test Vault"].exists, "The vault must still exist")
+        XCTAssertTrue(browserTitle("Test Vault").exists, "The vault must still exist")
     }
 
     func testJourney8_DeleteThisVaultErasesItAndShowsTheLockScreen() {
@@ -165,7 +165,7 @@ final class J8ManageVaultJourneyTests: StoreKitJourneyTestCase {
                       "Retry after a failure that happens again shows it again")
         tapAlertButton("Skip", in: app.alerts["Some Files Failed"])
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["My Vault"].exists)
+        XCTAssertTrue(browserTitle("My Vault").exists)
     }
 
     func testJourney8_SkippedFileIsOfferedAgainTheNextTimeTheVaultOpens() {

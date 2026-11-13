@@ -65,10 +65,10 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
     func testJourney6_BulkDeleteMovesSelectionToRecentlyDeleted() {
         createDocument(named: "Second")
         tapBarButton("selectButton", fallbackLabel: "Select")
-        XCTAssertTrue(app.navigationBars["Select Items"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5))
         cell(seedName).tap()
         cell("Second.rtf").tap()
-        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
         app.buttons["browser.bulkDeleteButton"].tap()
         let alert = app.alerts["Delete 2 items?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "Bulk delete needs a confirm")
@@ -180,11 +180,11 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         type("Box", into: alert.textFields["browser.newFolderNameField"])
         tapAlertButton("Create", in: alert)
         cell("Box").tap()
-        XCTAssertTrue(app.navigationBars["Box"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Box").waitForExistence(timeout: 5))
         createDocument(named: "inner")
         deleteViaContextMenu("inner.rtf")
-        app.navigationBars["Box"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        app.buttons["browser.backButton"].tap()
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
         deleteViaContextMenu("Box")
 
         openRecentlyDeleted()
@@ -207,7 +207,7 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
 
         lockApp()
         unlockWithPassword()
-        XCTAssertTrue(app.navigationBars["Test Vault"].waitForExistence(timeout: 5), "Browser is titled with the vault")
+        XCTAssertTrue(browserTitle("Test Vault").waitForExistence(timeout: 5), "Browser is titled with the vault")
         XCTAssertFalse(cell(seedName).exists)
         createDocument(named: "A")
         deleteViaContextMenu("A.rtf")

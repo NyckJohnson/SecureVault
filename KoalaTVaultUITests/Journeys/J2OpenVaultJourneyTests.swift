@@ -41,7 +41,7 @@ final class J2OpenVaultJourneyTests: JourneyTestCase {
     func testJourney2_PasswordOpensItsVaultTitledWithItsName() {
         attemptOpen(with: Self.password)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Test Vault"].waitForExistence(timeout: 5),
+        XCTAssertTrue(browserTitle("Test Vault").waitForExistence(timeout: 5),
                       "The browser is titled with the vault's name")
         XCTAssertFalse(app.secureTextFields["vaults.passwordField"].exists, "The lock screen should be gone")
         XCTAssertFalse(cell(seedName).exists, "Test Vault is a different vault from the unencrypted one")
@@ -49,7 +49,7 @@ final class J2OpenVaultJourneyTests: JourneyTestCase {
 
     func testJourney2_OpenUnencryptedVaultShowsItsRoot() {
         openUnencryptedVault()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
         XCTAssertTrue(cell(seedName).waitForExistence(timeout: 5))
     }
 
@@ -60,7 +60,7 @@ final class J2OpenVaultJourneyTests: JourneyTestCase {
         XCTAssertFalse(app.buttons["settingsButton"].isHittable, "The vault is closed behind the lock screen")
         attemptOpen(with: Self.password)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Test Vault"].exists)
+        XCTAssertTrue(browserTitle("Test Vault").exists)
     }
 
     func testJourney2_LockFromTheUnencryptedVaultShowsTheLockScreen() {
@@ -78,7 +78,7 @@ final class J2OpenVaultJourneyTests: JourneyTestCase {
         XCTAssertFalse(app.buttons["settingsButton"].isHittable)
         attemptOpen(with: Self.password)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Test Vault"].exists)
+        XCTAssertTrue(browserTitle("Test Vault").exists)
     }
 
     func testJourney2_ReturnFromBackgroundShowsLockScreenForTheUnencryptedVault() {
@@ -110,7 +110,7 @@ final class J2OpenVaultJourneyTests: JourneyTestCase {
         }
         attemptOpen(with: Self.password)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Test Vault"].exists, "No lockout and no wipe after repeated failures")
+        XCTAssertTrue(browserTitle("Test Vault").exists, "No lockout and no wipe after repeated failures")
     }
 
     // MARK: - Migration screen (leftover unencrypted files in an upgraded vault)

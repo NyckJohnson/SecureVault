@@ -16,7 +16,7 @@ final class J10CreateVaultJourneyTests: StoreKitJourneyTestCase {
         launch(environment: [:])
         createVault(name: "Family", password: Self.password)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Family"].waitForExistence(timeout: 10), "Browser is titled with the new name")
+        XCTAssertTrue(browserTitle("Family").waitForExistence(timeout: 10), "Browser is titled with the new name")
         XCTAssertEqual(app.collectionViews["fileGrid"].cells.count, 0, "The new vault is empty")
         XCTAssertFalse(app.textFields["createVault.nameField"].exists, "Both screens should be gone")
         XCTAssertFalse(app.secureTextFields["vaults.passwordField"].exists)
@@ -28,7 +28,7 @@ final class J10CreateVaultJourneyTests: StoreKitJourneyTestCase {
         waitForBrowser()
         lockApp()
         unlockWithPassword()
-        XCTAssertTrue(app.navigationBars["Family"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Family").waitForExistence(timeout: 5))
     }
 
     func testJourney10_ReturnInTheNameFieldOpensThePasswordAlert() {
@@ -104,14 +104,14 @@ final class J10CreateVaultJourneyTests: StoreKitJourneyTestCase {
         lockApp()
         createVault(name: "Decoy", password: Self.otherPassword)
         waitForBrowser()
-        XCTAssertTrue(app.navigationBars["Decoy"].waitForExistence(timeout: 10))
+        XCTAssertTrue(browserTitle("Decoy").waitForExistence(timeout: 10))
         lockApp()
         unlockWithPassword()
-        XCTAssertTrue(app.navigationBars["Test Vault"].waitForExistence(timeout: 5),
+        XCTAssertTrue(browserTitle("Test Vault").waitForExistence(timeout: 5),
                       "The first password opens the first vault")
         lockApp()
         unlockWithPassword(Self.otherPassword)
-        XCTAssertTrue(app.navigationBars["Decoy"].waitForExistence(timeout: 5),
+        XCTAssertTrue(browserTitle("Decoy").waitForExistence(timeout: 5),
                       "The second password opens the second vault")
     }
 }
