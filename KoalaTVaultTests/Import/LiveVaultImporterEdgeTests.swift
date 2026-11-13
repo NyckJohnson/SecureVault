@@ -126,6 +126,23 @@ import Testing
         #expect(fixture.store.readString("a 1.txt") == "new")
     }
 
+    @Test("A clash when ' 1' is also taken is stored under a fresh name; the seeded files stay unchanged")
+    func clashWithTakenNumberedNameGetsFreshName() async throws {
+        let fixture = try Fixture(isPro: true)
+        defer { fixture.cleanup() }
+        try fixture.store.seed("a.txt", content: "old")
+        try fixture.store.seed("a 1.txt", content: "x")
+        let picked = try fixture.source.file("a.txt", content: "new")
+        let result = try await fixture.importItems([picked])
+        #expect(result == ImportResult(imported: 1, skippedDuplicates: 0, failed: 0))
+        let freshPaths = fixture.store.allPaths().filter { $0 != "a.txt" && $0 != "a 1.txt" }
+        #expect(freshPaths.count == 1)
+        let freshPath = try #require(freshPaths.first)
+        #expect(fixture.store.readString(freshPath) == "new")
+        #expect(fixture.store.readString("a.txt") == "old")
+        #expect(fixture.store.readString("a 1.txt") == "x")
+    }
+
     @Test("A folder picked twice whose name belongs to a file merges into one ' 1' folder, never a ' 2'")
     func folderPickedTwiceWithFileNameMergesIntoOne() async throws {
         let fixture = try Fixture(isPro: true)
