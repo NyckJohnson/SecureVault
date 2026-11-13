@@ -240,3 +240,6 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   once and adds in batches of 64. VaultStore unit 1 and Import unit 1 reopened, after the design tweaks. Move/Copy to
   Vault batching left as a known issue. Order: the contract change (skeleton-builder, MODE: feature) first, then
   VaultStore, then Import.
+- 2026-11-12 (verify): design tweaks and the large-folder import fix merged into the feature branch; `gates --all`
+  and all 12 journeys pass. Next: the human retests on the device (the three design tweaks; importing the 9,000-JPG
+  folder from Files), then acceptance.
