@@ -7,6 +7,8 @@ import UIKit
 final class VaultsViewController: UIViewController {
     /// The column's widest width, so the screen reads well on iPad and in landscape.
     private static let maximumContentWidth: CGFloat = 420
+    /// The logo's corner radius as a fraction of its side, like a Home Screen app icon.
+    private static let iconCornerRatio: CGFloat = 0.225
 
     private let viewModel: VaultsViewModel
     private var subscriptions = Set<AnyCancellable>()
@@ -15,6 +17,8 @@ final class VaultsViewController: UIViewController {
     private let stack = UIStackView()
     private let iconImageView = UIImageView(
         image: UIImage(named: "koalaT") ?? UIImage(systemName: "lock.shield.fill"))
+    /// Holds the square logo centred, so the stack can stretch this row without stretching the logo.
+    private let iconContainer = UIView()
     private let appNameLabel = UILabel()
     private let passwordField = UITextField()
     private let errorLabel = UILabel()
@@ -53,6 +57,12 @@ final class VaultsViewController: UIViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Re-applied on every layout so the corners follow the logo's side (it scales with text size).
+        iconImageView.layer.cornerRadius = iconImageView.bounds.width * Self.iconCornerRatio
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         passwordField.becomeFirstResponder()
@@ -61,7 +71,6 @@ final class VaultsViewController: UIViewController {
     private func configureViews() {
         iconImageView.contentMode = .scaleAspectFit
         iconImageView.tintColor = .systemBlue
-        iconImageView.layer.cornerRadius = 18
         iconImageView.layer.cornerCurve = .continuous
         iconImageView.clipsToBounds = true
         iconImageView.isAccessibilityElement = false
@@ -135,12 +144,12 @@ final class VaultsViewController: UIViewController {
         stack.spacing = 16
         stack.alignment = .fill
         for subview in [
-            iconImageView, appNameLabel, passwordField, errorLabel, openButton, biometricButton, unencryptedButton,
+            iconContainer, appNameLabel, passwordField, errorLabel, openButton, biometricButton, unencryptedButton,
             createButton,
         ] as [UIView] {
             stack.addArrangedSubview(subview)
         }
-        stack.setCustomSpacing(8, after: iconImageView)
+        stack.setCustomSpacing(8, after: iconContainer)
         stack.setCustomSpacing(32, after: appNameLabel)
         stack.setCustomSpacing(8, after: passwordField)
         stack.setCustomSpacing(32, after: biometricButton)
@@ -150,6 +159,8 @@ final class VaultsViewController: UIViewController {
         scrollView.keyboardDismissMode = .interactive
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         stack.translatesAutoresizingMaskIntoConstraints = false
+        iconImageView.translatesAutoresizingMaskIntoConstraints = false
+        iconContainer.addSubview(iconImageView)
         view.addSubview(scrollView)
         scrollView.addSubview(stack)
 
@@ -177,7 +188,12 @@ final class VaultsViewController: UIViewController {
             stack.widthAnchor.constraint(lessThanOrEqualToConstant: Self.maximumContentWidth),
             stack.widthAnchor.constraint(lessThanOrEqualTo: frame.widthAnchor, constant: -48),
             fullWidth,
+            // A square exactly the logo's size, centred in its full-width row.
+            iconImageView.widthAnchor.constraint(equalToConstant: iconSize),
             iconImageView.heightAnchor.constraint(equalToConstant: iconSize),
+            iconImageView.topAnchor.constraint(equalTo: iconContainer.topAnchor),
+            iconImageView.bottomAnchor.constraint(equalTo: iconContainer.bottomAnchor),
+            iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
         ])
     }
 
