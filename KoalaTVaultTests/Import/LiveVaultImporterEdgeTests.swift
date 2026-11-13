@@ -14,13 +14,13 @@ import Testing
         let fixture = try Fixture(isPro: true)
         defer { fixture.cleanup() }
         try fixture.store.seed("dup.txt", content: "old")
-        let a = try fixture.source.file("a.txt", content: "A")
-        let b = try fixture.source.file("b.txt", content: "B")
+        let fileA = try fixture.source.file("a.txt", content: "A")
+        let fileB = try fixture.source.file("b.txt", content: "B")
         let dup = try fixture.source.file("dup.txt", content: "new")
         let later = try fixture.source.file("z.txt", content: "Z")
         fixture.store.failFindItem(with: VaultStoreError.io("lookup"))
         await #expect(throws: VaultStoreError.io("lookup")) {
-            _ = try await fixture.importItems([a, b, dup, later])
+            _ = try await fixture.importItems([fileA, fileB, dup, later])
         }
         #expect(fixture.store.readString("a.txt") == "A")
         #expect(fixture.store.readString("b.txt") == "B")
@@ -48,12 +48,12 @@ import Testing
         let fixture = try Fixture(isPro: true)
         defer { fixture.cleanup() }
         try fixture.store.seed("Trip/old.txt", content: "old")
-        let a = try fixture.source.file("a.txt", content: "A")
-        let b = try fixture.source.file("b.txt", content: "B")
+        let fileA = try fixture.source.file("a.txt", content: "A")
+        let fileB = try fixture.source.file("b.txt", content: "B")
         try fixture.source.file("Trip/x.txt", content: "x")
         fixture.store.failContents(ofPath: "Trip", with: VaultStoreError.io("listing"))
         await #expect(throws: VaultStoreError.io("listing")) {
-            _ = try await fixture.importItems([a, b, fixture.source.url.appendingPathComponent("Trip")])
+            _ = try await fixture.importItems([fileA, fileB, fixture.source.url.appendingPathComponent("Trip")])
         }
         #expect(fixture.store.readString("a.txt") == "A")
         #expect(fixture.store.readString("b.txt") == "B")
@@ -99,7 +99,9 @@ import Testing
         #expect(fixture.store.readString("Trip 1") == "file")
     }
 
-    @Test("A name in different case is looked up (case-sensitively, finds nothing), is not a duplicate, and is added as given")
+    @Test(
+        "A name in different case is looked up (case-sensitively, finds nothing), is not a duplicate, and is added as given"
+    )
     func differentCaseNameIsLookedUpButNotADuplicate() async throws {
         let fixture = try Fixture(isPro: true)
         defer { fixture.cleanup() }
