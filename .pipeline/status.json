@@ -404,7 +404,7 @@
         "Settings",
         "LockScreens"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -423,8 +423,8 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "done",
-          "attempts": 2
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 3,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-13T15:25:57-08:00",
+  "updatedAt": "2026-11-13T15:32:28-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
