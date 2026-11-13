@@ -78,12 +78,11 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private var shownItems: [VaultItem] = []
     /// Whether the bundle has the folder image the icons prefer.
     private let folderAssetAvailable: Bool
-    private var hasAppeared = false
     /// The navigation controller whose edge-swipe back gesture this browser answers for, and the gesture's
     /// delegate from before any browser took it over (put back when this browser leaves the stack).
     private weak var popGestureNavigation: UINavigationController?
     private weak var originalPopGestureDelegate: UIGestureRecognizerDelegate?
-    /// Set while the editor is up, so coming back to this screen reloads.
+    /// Set while the editor is up, so coming back reloads through `editorClosed()` instead of `load()`.
     private var isEditorPresented = false
     /// Set while a context menu is on screen; a picker asked for from the menu waits for it to close.
     private var isContextMenuShown = false
@@ -149,12 +148,13 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         // Hiding the system back button turns off the edge-swipe back gesture's default rule; this browser
         // answers for it while it is on screen (see `gestureRecognizerShouldBegin`).
         installPopGestureDelegate()
-        if !hasAppeared {
-            hasAppeared = true
-            Task { [weak self] in await self?.viewModel.load() }
-        } else if isEditorPresented {
+        // Every appearance lists the folder once: the first, and each return (a pop, a screen over it
+        // dismissed), so changes made meanwhile show. The load is quiet while the vault is locked.
+        if isEditorPresented {
             isEditorPresented = false
             Task { [weak self] in await self?.viewModel.editorClosed() }
+        } else {
+            Task { [weak self] in await self?.viewModel.load() }
         }
     }
 

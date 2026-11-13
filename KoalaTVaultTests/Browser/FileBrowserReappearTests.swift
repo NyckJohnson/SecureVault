@@ -28,9 +28,9 @@ extension FileBrowserViewControllerTests {
         store.calls.filter { if case .contents = $0 { true } else { false } }.count
     }
 
-    private func pushFolder(_ name: String, from rig: Rig, expecting count: Int) async throws
-        -> FileBrowserViewController
-    {
+    private func pushFolder(
+        _ name: String, from rig: Rig, expecting count: Int
+    ) async throws -> FileBrowserViewController {
         let top = try #require(rig.host.navigation?.topViewController)
         top.view.layoutIfNeeded()
         let grid = try #require(BrowserViewHost.find("fileGrid", in: top.view) as? UICollectionView)
