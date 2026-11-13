@@ -246,3 +246,6 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - 2026-11-13 (device retest): the "< 🔒" Lock button was still in the bar's button group beside the gear. The human
   chose: gear stays at the far left; "< 🔒" leaves the group, has no button background, and sits right before the
   vault's name. Browser unit 2 reopened (view only, no contract change); then the human retests again.
+- 2026-11-13 (verify): lock button placement merged into the feature branch; `gates --all` and all journeys pass.
+  Next: the human retests on the device ("[⚙]  < 🔒 Vault name" on a vault's root; check the gap between gear and
+  lock), then acceptance.
