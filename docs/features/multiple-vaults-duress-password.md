@@ -226,3 +226,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   unit 3), folder name at the left after the back button and a "< 🔒" Lock button after the gear (Browser unit 2),
   Delete This Vault in its own last section and a one-vault Face ID note (Settings units 1 and 2). Dark mode
   dropped (already follows the phone). No contract change. Branch `fix/design-tweaks`.
+- 2026-11-12 (verify, device test): the human reports importing very large files crashes (memory). First look
+  (orchestrator, read-only): encryption (1 MB SVC5 chunks), the duplicate hash (1 MB reads), the photo picker copy
+  (file to file) and encrypted thumbnails (decrypt to temp) all stream already, so the cause is not yet known.
+  Waiting on details (source, file type and size, vault kind, crash log). Fix now (bug) once diagnosed.
