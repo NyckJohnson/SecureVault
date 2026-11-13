@@ -226,3 +226,17 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   unit 3), folder name at the left after the back button and a "< 🔒" Lock button after the gear (Browser unit 2),
   Delete This Vault in its own last section and a one-vault Face ID note (Settings units 1 and 2). Dark mode
   dropped (already follows the phone). No contract change. Branch `fix/design-tweaks`.
+- 2026-11-12 (verify, device test): the human reports importing very large files crashes (memory). First look
+  (orchestrator, read-only): encryption (1 MB SVC5 chunks), the duplicate hash (1 MB reads), the photo picker copy
+  (file to file) and encrypted thumbnails (decrypt to temp) all stream already, so the cause is not yet known.
+  Waiting on details (source, file type and size, vault kind, crash log). Fix now (bug) once diagnosed.
+  Details (human): Files app, one folder of 9,000+ JPGs; many import, then the crash. Diagnosis (orchestrator, code
+  read): per file, `isDuplicate` → `findItem` builds the destination's whole listing (LiveVaultStore.swift:66) and
+  `insertFile` reads the whole index, lists the folder for free names, then re-encrypts and rewrites the whole index
+  (VaultFileOperations.swift:60). Work and temporary Foundation objects per file grow with the folder; the import is one
+  long async task, so autoreleased objects aren't drained and memory climbs until iOS ends the app. Fix scope: human to choose.
+  Human approved (2026-11-12): fix memory and batch. `VaultStoring.addFiles(_:to:)` + `VaultFileToAdd` (contract change,
+  listed in the memo), store operations release memory, `findItem` looks up one name; Import lists the destination
+  once and adds in batches of 64. VaultStore unit 1 and Import unit 1 reopened, after the design tweaks. Move/Copy to
+  Vault batching left as a known issue. Order: the contract change (skeleton-builder, MODE: feature) first, then
+  VaultStore, then Import.

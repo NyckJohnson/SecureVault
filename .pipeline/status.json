@@ -76,7 +76,7 @@
       "dependsOn": [
         "VaultCrypto"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -86,7 +86,7 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         },
         {
@@ -224,7 +224,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -234,8 +234,8 @@
             "LiveVaultImporter.swift",
             "PhotoLibraryAccess.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -282,7 +282,7 @@
         "VaultLock",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -362,7 +362,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -373,7 +373,7 @@
             "RecentlyDeletedViewModel.swift"
           ],
           "state": "done",
-          "attempts": 1
+          "attempts": 0
         },
         {
           "number": 2,
@@ -384,7 +384,7 @@
             "Views/RecentlyDeletedViewController.swift"
           ],
           "state": "done",
-          "attempts": 1
+          "attempts": 0
         }
       ]
     },
@@ -404,7 +404,7 @@
         "Settings",
         "LockScreens"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -424,7 +424,7 @@
             "Views/FolderPickerViewController.swift"
           ],
           "state": "done",
-          "attempts": 1
+          "attempts": 0
         },
         {
           "number": 3,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-12T16:57:02-08:00",
+  "updatedAt": "2026-11-12T20:30:15-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
@@ -667,74 +667,18 @@
     "finishedAt": "2026-11-09T23:58:04-08:00"
   },
   "plan": {
-    "label": "verify",
+    "label": "design-tweaks",
     "items": [
       {
-        "name": "mocks-check",
-        "done": true
-      },
-      {
-        "name": "j1-first-launch",
-        "done": true
-      },
-      {
-        "name": "j2-open-vault",
-        "done": true
-      },
-      {
-        "name": "j3-browse",
-        "done": true
-      },
-      {
-        "name": "j4-import",
-        "done": true
-      },
-      {
-        "name": "j5-view-edit",
-        "done": true
-      },
-      {
-        "name": "j6-delete-restore",
-        "done": true
-      },
-      {
-        "name": "j7-export",
-        "done": true
-      },
-      {
-        "name": "j8-manage-vault",
-        "done": true
-      },
-      {
-        "name": "j9-paywall",
-        "done": true
-      },
-      {
-        "name": "j10-create-vault",
-        "done": true
-      },
-      {
-        "name": "j11-transfer",
-        "done": true
-      },
-      {
-        "name": "j12-upgrade",
-        "done": true
-      },
-      {
-        "name": "app-review",
-        "done": true
-      },
-      {
-        "name": "fixes",
-        "done": true
-      },
-      {
-        "name": "device-test",
+        "name": "LockScreens",
         "done": false
       },
       {
-        "name": "backlog",
+        "name": "Settings",
+        "done": false
+      },
+      {
+        "name": "Browser",
         "done": false
       }
     ]

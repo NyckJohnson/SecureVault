@@ -70,6 +70,11 @@ import UIKit
         return (0..<table.numberOfSections).map { table.dataSource?.tableView?(table, titleForHeaderInSection: $0) }
     }
 
+    private func footer(_ section: Int, _ rig: Rig) -> String? {
+        guard let table = tableView(rig) else { return nil }
+        return table.dataSource?.tableView?(table, titleForFooterInSection: section)
+    }
+
     private func indexPath(_ id: String, _ rig: Rig) -> IndexPath? {
         guard let table = tableView(rig), let row = cell(id, rig) else { return nil }
         return table.indexPath(for: row)
@@ -90,18 +95,74 @@ import UIKit
         #expect(headers(rig)[path.section] == "My Vault")
     }
 
-    @Test("The Vault section holds Change Password, the Face ID row and Delete This Vault, in that order")
+    @Test("The Vault section holds Change Password then the Face ID row, in that order")
     func vaultSectionRows() async throws {
         let rig = try await makeRig()
         let change = try #require(indexPath("settings.changePasswordRow", rig))
         let face = try #require(indexPath("settings.biometricRow", rig))
-        let delete = try #require(indexPath("settings.deleteVaultRow", rig))
-        #expect(change.section == face.section && face.section == delete.section)
-        let rows: [Int] = [change.row, face.row, delete.row]
-        #expect(rows == [0, 1, 2])
+        #expect(change.section == face.section)
+        let rows: [Int] = [change.row, face.row]
+        #expect(rows == [0, 1])
+        #expect(tableView(rig)?.numberOfRows(inSection: change.section) == 2)
         #expect(title("settings.changePasswordRow", rig) == "Change Password")
         #expect(title("settings.biometricRow", rig) == "Use Face ID")
+    }
+
+    @Test("Delete This Vault sits alone in the last section, which has no title")
+    func deleteSectionIsLastAndUntitled() async throws {
+        let rig = try await makeRig()
+        let table = try #require(tableView(rig))
+        let delete = try #require(indexPath("settings.deleteVaultRow", rig))
+        #expect(delete.section == table.numberOfSections - 1)
+        #expect(delete.row == 0)
+        #expect(table.numberOfRows(inSection: delete.section) == 1)
+        #expect((headers(rig)[delete.section] ?? "").isEmpty)
         #expect(title("settings.deleteVaultRow", rig) == "Delete This Vault")
+    }
+
+    @Test("An encrypted vault's sections are Pro, Vault, Storage, then Delete")
+    func encryptedSectionOrder() async throws {
+        let rig = try await makeRig()
+        let table = try #require(tableView(rig))
+        #expect(table.numberOfSections == 4)
+        let pro = try #require(indexPath("upgradeToProCell", rig))
+        let change = try #require(indexPath("settings.changePasswordRow", rig))
+        let storage = try #require(indexPath("settings.recentlyDeletedRow", rig))
+        let delete = try #require(indexPath("settings.deleteVaultRow", rig))
+        let order: [Int] = [pro.section, change.section, storage.section, delete.section]
+        #expect(order == [0, 1, 2, 3])
+        #expect(table.numberOfRows(inSection: storage.section) == 1)
+    }
+
+    @Test("The Vault section's footer is the Face ID note")
+    func footerFaceID() async throws {
+        let rig = try await makeRig()
+        let change = try #require(indexPath("settings.changePasswordRow", rig))
+        #expect(footer(change.section, rig) == "Note: only one vault can use Face ID.")
+    }
+
+    @Test("The Vault section's footer names Touch ID on a Touch ID device")
+    func footerTouchID() async throws {
+        let rig = try await makeRig(biometricKind: .touchID)
+        let change = try #require(indexPath("settings.changePasswordRow", rig))
+        #expect(footer(change.section, rig) == "Note: only one vault can use Touch ID.")
+    }
+
+    @Test("Without biometrics the Vault section has no footer")
+    func noFooterWithoutBiometrics() async throws {
+        let rig = try await makeRig(biometricKind: BiometricKind.none, biometricsAvailable: false)
+        let change = try #require(indexPath("settings.changePasswordRow", rig))
+        #expect((footer(change.section, rig) ?? "").isEmpty)
+    }
+
+    @Test("No other section has a footer")
+    func onlyVaultSectionHasFooter() async throws {
+        let rig = try await makeRig()
+        let change = try #require(indexPath("settings.changePasswordRow", rig))
+        let table = try #require(tableView(rig))
+        for section in 0..<table.numberOfSections where section != change.section {
+            #expect((footer(section, rig) ?? "").isEmpty)
+        }
     }
 
     @Test("The unencrypted vault's Settings has no Vault section and none of its rows")
@@ -113,6 +174,8 @@ import UIKit
         #expect(rig.host.element("settings.biometricSwitch") == nil)
         #expect(!headers(rig).contains { $0 == "My Vault" || $0 == "KoalaTVault" })
         #expect(tableView(rig)?.numberOfSections == 2)
+        let storage = try #require(indexPath("settings.recentlyDeletedRow", rig))
+        #expect(storage.section == 1)
     }
 
     @Test("The unencrypted vault's Settings still has the Pro row and Recently Deleted")
@@ -220,6 +283,8 @@ import UIKit
         #expect(rig.host.element("settings.biometricSwitch") == nil)
         #expect(cell("settings.changePasswordRow", rig) != nil)
         #expect(cell("settings.deleteVaultRow", rig) != nil)
+        let delete = try #require(indexPath("settings.deleteVaultRow", rig))
+        #expect(delete.section == (tableView(rig)?.numberOfSections ?? 0) - 1)
     }
 
     @Test("Turning the switch on asks the lock to use biometrics for the open vault")

@@ -49,14 +49,6 @@ extension UIAlertController {
 /// The security settings screen for the open vault: binds `SecuritySettingsViewModel` to its table and
 /// prompts, and presents the paywall and Recently Deleted.
 final class SecuritySettingsViewController: UIViewController, AlertPresenting {
-    private enum Section {
-        case pro, vault, storage
-    }
-
-    private enum VaultRow {
-        case changePassword, biometrics, delete
-    }
-
     private let lock: any VaultLocking
     private let store: any VaultStoring
     private let pro: any ProUnlocking
@@ -202,20 +194,16 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
     // MARK: - Layout of the table
 
-    private var sections: [Section] {
-        viewModel.showsVaultSection ? [.pro, .vault, .storage] : [.pro, .storage]
+    // The sections and Vault rows come from the view model, which owns the layout rules.
+
+    private func section(at index: Int) -> SecuritySettingsSection? {
+        let sections = viewModel.sections
+        return sections.indices.contains(index) ? sections[index] : nil
     }
 
-    private var vaultRows: [VaultRow] {
-        viewModel.showsBiometricSwitch ? [.changePassword, .biometrics, .delete] : [.changePassword, .delete]
-    }
-
-    private func section(at index: Int) -> Section? {
-        sections.indices.contains(index) ? sections[index] : nil
-    }
-
-    private func vaultRow(at index: Int) -> VaultRow? {
-        vaultRows.indices.contains(index) ? vaultRows[index] : nil
+    private func vaultRow(at index: Int) -> SecuritySettingsVaultRow? {
+        let rows = viewModel.vaultRows
+        return rows.indices.contains(index) ? rows[index] : nil
     }
 
     // MARK: - Navigation
@@ -278,13 +266,13 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
 extension SecuritySettingsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
-        sections.count
+        viewModel.sections.count
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch self.section(at: section) {
-        case .pro, .storage: 1
-        case .vault: vaultRows.count
+        case .pro, .storage, .deleteVault: 1
+        case .vault: viewModel.vaultRows.count
         case nil: 0
         }
     }
@@ -293,7 +281,14 @@ extension SecuritySettingsViewController: UITableViewDataSource {
         switch self.section(at: section) {
         case .vault: viewModel.vaultSectionTitle
         case .storage: "Storage"
-        case .pro, nil: nil
+        case .pro, .deleteVault, nil: nil
+        }
+    }
+
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        switch self.section(at: section) {
+        case .vault: viewModel.biometricNote
+        case .pro, .storage, .deleteVault, nil: nil
         }
     }
 
@@ -316,6 +311,10 @@ extension SecuritySettingsViewController: UITableViewDataSource {
             cell.textLabel?.text = "Recently Deleted"
             cell.accessoryType = .disclosureIndicator
             cell.accessibilityIdentifier = "settings.recentlyDeletedRow"
+        case .deleteVault:
+            cell.textLabel?.text = "Delete This Vault"
+            cell.textLabel?.textColor = .systemRed
+            cell.accessibilityIdentifier = "settings.deleteVaultRow"
         case nil:
             break
         }
@@ -336,13 +335,13 @@ extension SecuritySettingsViewController: UITableViewDataSource {
         }
     }
 
-    private func configureVaultCell(_ cell: UITableViewCell, row: VaultRow?) {
+    private func configureVaultCell(_ cell: UITableViewCell, row: SecuritySettingsVaultRow?) {
         switch row {
         case .changePassword?:
             cell.textLabel?.text = "Change Password"
             cell.textLabel?.textColor = .systemBlue
             cell.accessibilityIdentifier = "settings.changePasswordRow"
-        case .biometrics?:
+        case .biometricSwitch?:
             cell.textLabel?.text = viewModel.biometricTitle
             cell.selectionStyle = .none
             cell.accessibilityTraits = .none
@@ -350,10 +349,6 @@ extension SecuritySettingsViewController: UITableViewDataSource {
             biometricSwitch.accessibilityLabel = viewModel.biometricTitle
             cell.accessoryView = biometricSwitch
             cell.accessibilityIdentifier = "settings.biometricRow"
-        case .delete?:
-            cell.textLabel?.text = "Delete This Vault"
-            cell.textLabel?.textColor = .systemRed
-            cell.accessibilityIdentifier = "settings.deleteVaultRow"
         case nil:
             break
         }
@@ -372,11 +367,12 @@ extension SecuritySettingsViewController: UITableViewDelegate {
         case .vault:
             switch vaultRow(at: indexPath.row) {
             case .changePassword?: promptChangePassword()
-            case .delete?: viewModel.requestDeleteVault()
-            case .biometrics?, nil: break
+            case .biometricSwitch?, nil: break
             }
         case .storage:
             showRecentlyDeleted()
+        case .deleteVault:
+            viewModel.requestDeleteVault()
         case nil:
             break
         }

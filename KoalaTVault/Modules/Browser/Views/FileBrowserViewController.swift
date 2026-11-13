@@ -28,7 +28,9 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private lazy var settingsButton = makeButton(
         image: "gear", id: "settingsButton", action: #selector(settingsTapped))
     private lazy var lockButton: UIBarButtonItem = {
-        let button = makeButton(image: "lock", id: "lockButton", action: #selector(lockTapped))
+        let button = UIBarButtonItem(
+            image: Self.makeLockBackImage(), style: .plain, target: self, action: #selector(lockTapped))
+        button.accessibilityIdentifier = "lockButton"
         button.accessibilityLabel = "Lock"
         return button
     }()
@@ -118,6 +120,10 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         super.init(nibName: nil, bundle: nil)
         title = directory.name
         navigationItem.title = directory.name
+        // Bar layout: the folder's name sits at the left, right after the leading buttons, and a
+        // pushed subfolder's back button shows only the chevron.
+        navigationItem.style = .browser
+        navigationItem.backButtonDisplayMode = .minimal
     }
 
     @available(*, unavailable)
@@ -192,6 +198,24 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
                 top: inset, leading: inset, bottom: inset, trailing: inset)
             return section
         }
+    }
+
+    /// The Lock button's look: a back-style chevron joined with a lock, drawn as one template image so the
+    /// item stays a plain bar button (tinted like the others, with a hit area wider than the lock alone).
+    private static func makeLockBackImage() -> UIImage? {
+        let chevronConfig = UIImage.SymbolConfiguration(weight: .semibold)
+        guard let chevron = UIImage(systemName: "chevron.left", withConfiguration: chevronConfig),
+            let lock = UIImage(systemName: "lock")
+        else { return UIImage(systemName: "lock") }
+        let gap: CGFloat = 4
+        let size = CGSize(
+            width: chevron.size.width + gap + lock.size.width,
+            height: max(chevron.size.height, lock.size.height))
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            chevron.draw(at: CGPoint(x: 0, y: (size.height - chevron.size.height) / 2))
+            lock.draw(at: CGPoint(x: chevron.size.width + gap, y: (size.height - lock.size.height) / 2))
+        }
+        return image.withRenderingMode(.alwaysTemplate)
     }
 
     private func makeButton(image: String, id: String, action: Selector) -> UIBarButtonItem {

@@ -261,6 +261,86 @@ import UIKit
         #expect(rig.host.element("lockButton") == nil)
     }
 
+    // MARK: - Bar layout (title leading, minimal back button, gear then chevron-lock)
+
+    private func leadingIDs(_ rig: Rig) -> [String] {
+        (rig.controller.navigationItem.leftBarButtonItems ?? []).map {
+            $0.accessibilityIdentifier ?? ($0.customView?.accessibilityIdentifier ?? "")
+        }
+    }
+
+    /// Width of the lock button's look: its custom view or its image.
+    private func lookWidth(of item: UIBarButtonItem) -> CGFloat {
+        if let view = item.customView {
+            return view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+        }
+        if let image = item.image { return image.size.width }
+        return 0
+    }
+
+    @Test("The title is leading-aligned on the root", arguments: [false, true])
+    func rootTitleIsLeadingAligned(encrypted: Bool) async throws {
+        let rig = try await makeRig(encryptedStore: encrypted)
+        #expect(rig.controller.navigationItem.style == .browser)
+    }
+
+    @Test("The title is leading-aligned in a subfolder")
+    func subfolderTitleIsLeadingAligned() async throws {
+        let rig = try await makeRig(folder: "Photos")
+        #expect(rig.controller.navigationItem.style == .browser)
+    }
+
+    @Test("A pushed folder's back button shows only the chevron")
+    func pushedFolderBackButtonIsMinimal() async throws {
+        let rig = try await makeRig()
+        rig.tapCell("Photos")
+        await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 2 }
+        let pushed = try #require(rig.host.navigation?.viewControllers.last)
+        #expect(pushed !== rig.controller)
+        #expect(
+            pushed.navigationItem.backButtonDisplayMode == .minimal
+                || rig.controller.navigationItem.backButtonDisplayMode == .minimal)
+    }
+
+    @Test("A pushed folder has only the system back button: no gear, no Lock button")
+    func pushedFolderHasNoGearOrLock() async throws {
+        let rig = try await makeRig()
+        rig.tapCell("Photos")
+        await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 2 }
+        let pushed = try #require(rig.host.navigation?.viewControllers.last)
+        #expect(pushed.navigationItem.leftBarButtonItems?.isEmpty ?? true)
+    }
+
+    @Test("On a vault's root the leading items are the gear, then the Lock button", arguments: [false, true])
+    func rootLeadingItemsAreGearThenLock(encrypted: Bool) async throws {
+        let rig = try await makeRig(encryptedStore: encrypted)
+        #expect(leadingIDs(rig) == ["settingsButton", "lockButton"])
+    }
+
+    @Test("The Lock button keeps its accessibility label", arguments: [false, true])
+    func lockButtonLabelIsLock(encrypted: Bool) async throws {
+        let rig = try await makeRig(encryptedStore: encrypted)
+        let item = try #require(rig.controller.navigationItem.leftBarButtonItems?.last)
+        let label = item.accessibilityLabel ?? item.customView?.accessibilityLabel
+        #expect(label == "Lock")
+    }
+
+    @Test("The Lock button looks like a back button: a chevron joined with the lock")
+    func lockButtonLookIncludesChevron() async throws {
+        let rig = try await makeRig()
+        let item = try #require(rig.controller.navigationItem.leftBarButtonItems?.last)
+        let lockOnly = try #require(UIImage(systemName: "lock")).size.width
+        let titleHasChevron = ["<", "\u{2039}", "\u{3008}"].contains { (item.title ?? "").contains($0) }
+        #expect(lookWidth(of: item) > lockOnly || titleHasChevron)
+    }
+
+    @Test("Select mode shows only Cancel at the left")
+    func selectModeLeadingIsCancelOnly() async throws {
+        let rig = try await makeRig()
+        await enterSelectMode(rig, selecting: ["Beach.jpg"])
+        #expect(leadingIDs(rig) == ["browser.cancelSelectButton"])
+    }
+
     @Test("The root title is the vault's name", arguments: [false, true])
     func rootTitleIsVaultName(encrypted: Bool) async throws {
         let rig = try await makeRig(encryptedStore: encrypted)
