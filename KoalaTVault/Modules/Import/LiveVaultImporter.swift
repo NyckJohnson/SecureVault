@@ -350,7 +350,7 @@ struct LiveVaultImporter: VaultImporting {
             }
             number += 1
         }
-    }
+    }  // coverage-exempt: unreachable, the while-true loop exits only by return
 
     /// The name a picked item is stored under: its leading dots removed, since a dot-named item would be
     /// hidden from a no-lock vault's listings (and a root ".trash" would clash with the trash). Nil for a
