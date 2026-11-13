@@ -1,7 +1,7 @@
 {
   "stage": 6,
-  "paused": true,
-  "pauseReason": "usage limit (resets Thu 17:20); next: Settings unit 1 review, design tweaks",
+  "paused": false,
+  "pauseReason": null,
   "checkpoints": {
     "outline-approved": "2026-10-24T13:06:36-07:00",
     "setup": "2026-10-24T13:39:18-07:00",
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-12T20:23:38-08:00",
+  "updatedAt": "2026-11-12T20:23:44-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
