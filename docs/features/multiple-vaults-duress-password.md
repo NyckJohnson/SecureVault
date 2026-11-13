@@ -253,3 +253,6 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   left of the folder's name, on the name's line under the bar ("<" up one folder; "< 🔒" from a vault's root to the
   lock screen); no back or Lock button in the bar; gear stays on the root's bar. Browser unit 2 reopened again;
   journeys that use the bar's back button are updated in verify.
+- 2026-11-13 (verify): title row merged (back arrow beside the folder name; no browser title, back or Lock button
+  in the bar); journeys updated; `gates --all` and all 12 journeys pass. Next: the human retests on the device, then
+  acceptance.
