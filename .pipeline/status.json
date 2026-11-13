@@ -86,7 +86,7 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         },
         {
@@ -97,7 +97,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "code",
+          "state": "done",
           "attempts": 1
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-12T20:58:18-08:00",
+  "updatedAt": "2026-11-12T21:02:46-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
