@@ -56,6 +56,11 @@ final class BrowserViewHost {
         content.view.layoutIfNeeded()
     }
 
+    /// Hides the scene-attached window so it does not outlive the test.
+    isolated deinit {
+        window.isHidden = true
+    }
+
     var topmost: UIViewController {
         var top = root
         while let next = top.presentedViewController { top = next }

@@ -158,7 +158,7 @@ extension FileBrowserViewControllerTests {
         await BrowserViewSupport.waitUntil { rig.host.navigation?.viewControllers.count == 1 }
         #expect(rig.host.navigation?.viewControllers.count == 1)
         #expect(rig.host.navigation?.topViewController === rig.controller)
-        #expect(rig.lockCount.count < 1)
+        #expect(rig.lockCount.count == 0)
     }
 
     @Test("The edge-swipe back gesture stays enabled in a pushed folder")
@@ -171,6 +171,82 @@ extension FileBrowserViewControllerTests {
         let delegate = gesture.delegate
         let allowed = delegate?.gestureRecognizerShouldBegin?(gesture) ?? true
         #expect(allowed)
+    }
+
+    /// Taps a bar item of this very controller (the host's lookup finds the first controller in the stack).
+    private func tapBarItem(_ id: String, in controller: UIViewController) {
+        let item = controller.navigationItem
+        let items = (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])
+        guard let button = items.first(where: { $0.accessibilityIdentifier == id }) else { return }
+        if let action = button.primaryAction {
+            action.performWithSender(button, target: nil)
+        } else if let selector = button.action {
+            UIApplication.shared.sendAction(selector, to: button.target, from: button, for: nil)
+        }
+    }
+
+    private func popGestureAllows(_ rig: Rig) throws -> Bool {
+        let gesture = try #require(rig.host.navigation?.interactivePopGestureRecognizer)
+        return gesture.delegate?.gestureRecognizerShouldBegin?(gesture) ?? true
+    }
+
+    @Test("The edge-swipe back gesture does not begin on the root")
+    func edgeSwipeBlockedOnRoot() async throws {
+        let rig = try await makeRig()
+        await BrowserViewSupport.settle()
+        #expect(rig.host.navigation?.viewControllers.count == 1)
+        #expect(try !popGestureAllows(rig))
+    }
+
+    @Test("The edge-swipe back gesture does not begin while a push is still animating")
+    func edgeSwipeBlockedMidPush() async throws {
+        let rig = try await makeRig()
+        rig.tapCell("Photos")
+        #expect(rig.host.navigation?.viewControllers.count == 2)
+        #expect(rig.host.navigation?.transitionCoordinator != nil)
+        #expect(try !popGestureAllows(rig))
+        await BrowserViewSupport.waitUntil { rig.host.navigation?.transitionCoordinator == nil }
+        await BrowserViewSupport.settle()
+        #expect(try popGestureAllows(rig))
+    }
+
+    @Test("The edge-swipe back gesture does not begin in select mode in a subfolder")
+    func edgeSwipeBlockedInSelectMode() async throws {
+        let rig = try await makeRig()
+        let pushed = try await pushPhotos(rig)
+        await BrowserViewSupport.waitUntil { rig.host.navigation?.transitionCoordinator == nil }
+        await BrowserViewSupport.settle()
+        #expect(try popGestureAllows(rig))
+        tapBarItem("selectButton", in: pushed)
+        await BrowserViewSupport.waitUntil { TitleRow.shows("Select Items", in: pushed) }
+        #expect(TitleRow.shows("Select Items", in: pushed))
+        #expect(try !popGestureAllows(rig))
+        tapBarItem("browser.cancelSelectButton", in: pushed)
+        await BrowserViewSupport.waitUntil { TitleRow.shows("Photos", in: pushed) }
+        #expect(try popGestureAllows(rig))
+    }
+
+    @Test("The select title starts at the same left edge as the folder name", arguments: [false, true])
+    func selectTitleKeepsLeftEdge(encrypted: Bool) async throws {
+        let rig = try await makeRig(encryptedStore: encrypted)
+        let name = try #require(TitleRow.label(vaultName(encrypted), in: rig.controller))
+        let before = TitleRow.frame(of: name, in: rig.controller).minX
+        rig.host.tap("selectButton")
+        await BrowserViewSupport.waitUntil { TitleRow.shows("Select Items", in: rig.controller) }
+        let select = try #require(TitleRow.label("Select Items", in: rig.controller))
+        #expect(abs(TitleRow.frame(of: select, in: rig.controller).minX - before) <= 0.5)
+    }
+
+    @Test("In a subfolder the select title starts at the same left edge as the folder name")
+    func selectTitleKeepsLeftEdgeInSubfolder() async throws {
+        let rig = try await makeRig()
+        let pushed = try await pushPhotos(rig)
+        let name = try #require(TitleRow.label("Photos", in: pushed))
+        let before = TitleRow.frame(of: name, in: pushed).minX
+        tapBarItem("selectButton", in: pushed)
+        await BrowserViewSupport.waitUntil { TitleRow.shows("Select Items", in: pushed) }
+        let select = try #require(TitleRow.label("Select Items", in: pushed))
+        #expect(abs(TitleRow.frame(of: select, in: pushed).minX - before) <= 0.5)
     }
 
     // MARK: - Root arrow
