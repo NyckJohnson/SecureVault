@@ -376,3 +376,31 @@ final class RecordingScopedAccess: ScopedResourceAccessing, @unchecked Sendable 
         return stopped.filter { $0.standardizedFileURL.path == path }.count
     }
 }
+
+/// Shared fixture for the `LiveVaultImporter` suites: a disk-backed store, a source folder and the importer.
+@MainActor
+struct ImporterTestFixture {
+    let store: DiskBackedVaultStore
+    let source: SourceFolder
+    let importer: LiveVaultImporter
+
+    init(
+        existingFiles: Int = 0, isPro: Bool = false, encrypted: Bool = false,
+        scopedAccess: (any ScopedResourceAccessing)? = nil
+    ) throws {
+        store = try DiskBackedVaultStore(extraFileCount: existingFiles, encrypted: encrypted)
+        source = try SourceFolder()
+        let unlock = MockProUnlocking(isUnlocked: isPro)
+        if let scopedAccess {
+            importer = LiveVaultImporter(store: store, proUnlock: unlock, scopedAccess: scopedAccess)
+        } else {
+            importer = LiveVaultImporter(store: store, proUnlock: unlock)
+        }
+    }
+
+    func cleanup() { store.cleanup(); source.cleanup() }
+
+    func importItems(_ urls: [URL], progress: ProgressRecorder = ProgressRecorder()) async throws -> ImportResult {
+        try await importer.importItems(urls, into: store.root, progress: { progress.record($0) })
+    }
+}
