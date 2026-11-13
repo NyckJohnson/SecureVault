@@ -1204,6 +1204,8 @@ reads it, and only whether it is an encrypt; then it clears both keys. Nothing w
 - An overlapping `changePassword` and `createVault` (or two `changePassword`s) could leave two vaults sharing a password; only `createVault` calls are serialized. Needs two password sheets at once, which the UI doesn't allow — LiveVaultLock.swift:185-270 — open, minor
 - Dropping several dragged cells starts one task per item, each resolving the drop target from the shown items; correct today only because the first task suspends before any reload lands. Fix: resolve the target folder once before the tasks — FileBrowserViewController.swift:860-867 — open, minor (refresh review 2026-11-13)
 - A cancelled or `.locked` newer load drops an older load's result without updating the items (latent: no caller cancels a load today); the reload-on-appear refresh covers it — FileBrowserViewModel.swift:134-159 — open, minor (refresh review 2026-11-13)
+- The browser's `isEditorPresented` flag and its `editorClosed()` branch in `viewWillAppear` now do the same as the reappear `load()` (redundant); if the editor were ever a page sheet the flag would stay set, still harmless — FileBrowserViewController.swift:146-158, 380 — open, minor (refresh review 2026-11-13)
+- A reappear reload goes through `load()`, which alerts for non-locked errors, so a cancelled swipe-back while the store keeps failing shows the error again — FileBrowserViewModel.swift:140-156 — open, minor (refresh review 2026-11-13)
 ## Features
 <!-- Accepted features, oldest first. -->
 
