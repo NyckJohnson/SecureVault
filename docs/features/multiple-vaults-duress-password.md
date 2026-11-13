@@ -235,3 +235,8 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   `insertFile` reads the whole index, lists the folder for free names, then re-encrypts and rewrites the whole index
   (VaultFileOperations.swift:60). Work and temporary Foundation objects per file grow with the folder; the import is one
   long async task, so autoreleased objects aren't drained and memory climbs until iOS ends the app. Fix scope: human to choose.
+  Human approved (2026-11-12): fix memory and batch. `VaultStoring.addFiles(_:to:)` + `VaultFileToAdd` (contract change,
+  listed in the memo), store operations release memory, `findItem` looks up one name; Import lists the destination
+  once and adds in batches of 64. VaultStore unit 1 and Import unit 1 reopened, after the design tweaks. Move/Copy to
+  Vault batching left as a known issue. Order: the contract change (skeleton-builder, MODE: feature) first, then
+  VaultStore, then Import.

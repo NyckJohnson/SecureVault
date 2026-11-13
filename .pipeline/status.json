@@ -76,7 +76,7 @@
       "dependsOn": [
         "VaultCrypto"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -86,7 +86,7 @@
             "LiveVaultStore.swift",
             "VaultFileOperations.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         },
         {
@@ -224,7 +224,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -234,8 +234,8 @@
             "LiveVaultImporter.swift",
             "PhotoLibraryAccess.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-12T17:07:10-08:00",
+  "updatedAt": "2026-11-12T20:23:38-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
