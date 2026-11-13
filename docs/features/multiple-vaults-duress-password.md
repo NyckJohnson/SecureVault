@@ -243,3 +243,6 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
 - 2026-11-12 (verify): design tweaks and the large-folder import fix merged into the feature branch; `gates --all`
   and all 12 journeys pass. Next: the human retests on the device (the three design tweaks; importing the 9,000-JPG
   folder from Files), then acceptance.
+- 2026-11-13 (device retest): the "< 🔒" Lock button was still in the bar's button group beside the gear. The human
+  chose: gear stays at the far left; "< 🔒" leaves the group, has no button background, and sits right before the
+  vault's name. Browser unit 2 reopened (view only, no contract change); then the human retests again.
