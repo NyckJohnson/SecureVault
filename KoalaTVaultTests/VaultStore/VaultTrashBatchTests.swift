@@ -122,7 +122,7 @@ import Testing
         let failures = await setup.vault.store.moveToTrash(setup.all)
 
         #expect(failures.isEmpty)
-        #expect(try await setup.vault.names().isEmpty)
+        #expect(try await setup.vault.names() == ["Docs"])
         #expect(try await setup.vault.names(setup.docs) == ["kept.txt"])
         #expect(try await setup.vault.openedContent(kept) == "kept")
         if mode != .none {
@@ -238,7 +238,7 @@ import Testing
         #expect(try await vault.names(docs) == ["stuck.txt"])
         #expect(try await vault.openedContent(stuck) == "stuck")
         #expect(vault.rawIndex(in: docs) == docsIndexBefore)
-        #expect(try await vault.names().isEmpty)
+        #expect(try await vault.names() == ["Docs"])
         #expect(try await vault.store.trashContents().map(\.name) == ["fine.txt"])
         let entries = try #require(vault.trashEntries())
         #expect(entries.count == 1)
@@ -291,7 +291,7 @@ import Testing
         for item in setup.all { #expect(failure.matches(failures[item.id]), "item \(item.name)") }
         #expect(try setup.vault.snapshot() == before)
         failing.encryptError = nil
-        #expect(try await setup.vault.names().sorted() == ["a.pdf", "Sub"].sorted())
+        #expect(try await setup.vault.names().sorted() == ["a.pdf", "Docs", "Sub"].sorted())
         #expect(try await setup.vault.names(setup.docs) == ["b.txt", "c.jpg"])
         #expect(try await setup.vault.store.trashContents().map(\.name) == ["older.txt"])
     }
@@ -333,7 +333,9 @@ import Testing
 
     // MARK: - Empty list
 
-    @Test("moveToTrash of an empty list returns an empty result and writes nothing", arguments: [LockMode.none, .password])
+    @Test(
+        "moveToTrash of an empty list returns an empty result and writes nothing",
+        arguments: [LockMode.none, .password])
     func emptyListWritesNothing(mode: LockMode) async throws {
         let vault = try VaultStoreFixture(lockMode: mode)
         defer { vault.cleanUp() }
