@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// One entry of `.trash_map`, keyed by the trash UUID (the item's disk name in `.trash`).
 ///
@@ -136,10 +135,6 @@ extension LiveVaultStore {
         try autoreleasepool { try unpooledMoveToTrash(item) }
     }
 
-    func moveToTrash(_ items: [VaultItem]) -> [VaultItem.ID: VaultStoreError] {
-        fatalError("Not implemented: LiveVaultStore.moveToTrash (feature multiple-vaults-duress-password)")
-    }
-
     private func unpooledMoveToTrash(_ item: VaultItem) throws {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
@@ -150,13 +145,7 @@ extension LiveVaultStore {
         var sourceEntries = item.isEncrypted ? try index.read(in: sourceFolder, mode: mode) : [:]
         let trashName = freshDiskName(in: trashMap.folderURL)
         var newMap = oldMap
-        newMap[trashName] = VaultTrashEntry(
-            originalDiskName: diskName,
-            originalDirectoryURL: index.relativePath(of: sourceFolder),
-            deletedAt: Date(),
-            isEncrypted: item.isEncrypted,
-            originalName: sourceEntries[diskName]?.originalName ?? item.name,
-            rootURL: root.rootURL.path)
+        newMap[trashName] = trashEntry(for: item, originalName: sourceEntries[diskName]?.originalName)
         do {
             try FileManager.default.createDirectory(at: trashMap.folderURL, withIntermediateDirectories: true)
         } catch {
@@ -178,39 +167,219 @@ extension LiveVaultStore {
         try index.write(sourceEntries, in: sourceFolder, mode: mode)
     }
 
+    /// The trash entry for `item`, trashed now from its folder; `originalName` is its index entry's name, if any.
+    private func trashEntry(for item: VaultItem, originalName: String?) -> VaultTrashEntry {
+        VaultTrashEntry(
+            originalDiskName: item.diskURL.lastPathComponent,
+            originalDirectoryURL: index.relativePath(of: item.diskURL.deletingLastPathComponent()),
+            deletedAt: Date(),
+            isEncrypted: item.isEncrypted,
+            originalName: originalName ?? item.name,
+            rootURL: root.rootURL.path)
+    }
+
+    /// Trashes `items` in one serialized step, each exactly as `moveToTrash(_:)` would, reading and writing the
+    /// trash map once and each source folder's index once.
+    ///
+    /// Write order keeps every item findable in exactly one place: the map with every new entry is written before
+    /// any file moves; the entries of items whose move failed are dropped by a second map write; source indexes are
+    /// written last. A failure before any file moved (no key, an unreadable or unwritable map) is every item's error.
+    /// - Returns: the error of each item that stayed where it was, by id (`.notFound` for an unknown item, `.io`
+    ///   for a failed move, its folder's index error); an item whose source index then fails to save is in the
+    ///   trash but reported with that error, as the single call throws it.
+    func moveToTrash(_ items: [VaultItem]) -> [VaultItem.ID: VaultStoreError] {
+        guard !items.isEmpty else { return [:] }
+        return autoreleasepool { unpooledMoveToTrash(items) }
+    }
+
+    /// One item of a batch trash, planned before anything changes.
+    private struct PlannedTrash {
+        let item: VaultItem
+        let trashName: String
+        let entry: VaultTrashEntry
+    }
+
+    /// The source folders' indexes of a batch trash, each read at most once, keyed by the folder's path.
+    private struct BatchSourceIndexes {
+        var entries: [String: [String: VaultIndexEntry]] = [:]
+        var readErrors: [String: VaultStoreError] = [:]
+        var folders: [String: URL] = [:]
+        /// The ids of the items moved out of each folder (whose entries were removed).
+        var moved: [String: [VaultItem.ID]] = [:]
+
+        static func key(_ folder: URL) -> String { folder.standardizedFileURL.path }
+
+        /// The folder's index, read through `read` the first time it is asked for.
+        mutating func entries(
+            in folder: URL, read: (URL) throws -> [String: VaultIndexEntry]
+        ) throws -> [String: VaultIndexEntry] {
+            let key = Self.key(folder)
+            if let cached = entries[key] { return cached }
+            if let error = readErrors[key] { throw error }
+            do {
+                let read = try read(folder)
+                entries[key] = read
+                folders[key] = folder
+                return read
+            } catch {
+                let storeError = VaultStoreError.from(error)
+                readErrors[key] = storeError
+                throw storeError
+            }
+        }
+
+        /// Removes the moved item's entry from its folder's index.
+        mutating func remove(_ item: VaultItem) {
+            let key = Self.key(item.diskURL.deletingLastPathComponent())
+            entries[key]?.removeValue(forKey: item.diskURL.lastPathComponent)
+            moved[key, default: []].append(item.id)
+        }
+    }
+
+    private func unpooledMoveToTrash(_ items: [VaultItem]) -> [VaultItem.ID: VaultStoreError] {
+        let mode: VaultOperationMode
+        let oldMap: [String: VaultTrashEntry]
+        do {
+            mode = try beginOperation()
+            oldMap = try trashMap.read(mode: mode)
+        } catch {
+            return Self.failures(of: items, error)
+        }
+        var failures: [VaultItem.ID: VaultStoreError] = [:]
+        var sources = BatchSourceIndexes()
+        var newMap = oldMap
+        var planned: [PlannedTrash] = []
+        for item in items {
+            // Each item's work frees its temporary memory before the next.
+            autoreleasepool {
+                do {
+                    let plan = try planTrash(item, taken: newMap, sources: &sources, mode: mode)
+                    newMap[plan.trashName] = plan.entry
+                    planned.append(plan)
+                } catch {
+                    failures[item.id] = VaultStoreError.from(error)
+                }
+            }
+        }
+        guard !planned.isEmpty else { return failures }
+        do {
+            try FileManager.default.createDirectory(at: trashMap.folderURL, withIntermediateDirectories: true)
+            try trashMap.write(newMap, mode: mode)
+        } catch {
+            // Nothing has moved: every planned item stays where it was.
+            return failures.merging(Self.failures(of: planned.map(\.item), error)) { current, _ in current }
+        }
+        var anyMoveFailed = false
+        for plan in planned {
+            autoreleasepool {
+                do {
+                    try FileManager.default.moveItem(
+                        at: plan.item.diskURL, to: trashMap.folderURL.appendingPathComponent(plan.trashName))
+                } catch {
+                    failures[plan.item.id] = VaultStoreError.from(error)
+                    newMap.removeValue(forKey: plan.trashName)
+                    anyMoveFailed = true
+                    return
+                }
+                if plan.item.isEncrypted { sources.remove(plan.item) }
+            }
+        }
+        if anyMoveFailed {
+            // Best effort, as the single call's undo: should this fail, the failed items' entries name files that
+            // aren't in the trash, which are never listed (and restore or delete just drops them).
+            try? trashMap.write(newMap, mode: mode)
+        }
+        writeSourceIndexes(sources, mode: mode, failures: &failures)
+        return failures
+    }
+
+    /// Plans trashing `item` without changing anything: checks it exists, reads its folder's index (once per
+    /// folder) for its display name and picks a trash name not on disk and not in `taken`.
+    /// - Throws: `.notFound` for an unknown item; its folder's index read error.
+    private func planTrash(
+        _ item: VaultItem, taken: [String: VaultTrashEntry], sources: inout BatchSourceIndexes,
+        mode: VaultOperationMode
+    ) throws -> PlannedTrash {
+        try requireExists(item.diskURL)
+        var originalName: String?
+        if item.isEncrypted {
+            let entries = try sources.entries(in: item.diskURL.deletingLastPathComponent()) { folder in
+                try index.read(in: folder, mode: mode)
+            }
+            originalName = entries[item.diskURL.lastPathComponent]?.originalName
+        }
+        var trashName = freshDiskName(in: trashMap.folderURL)
+        while taken[trashName] != nil { trashName = freshDiskName(in: trashMap.folderURL) }
+        return PlannedTrash(item: item, trashName: trashName, entry: trashEntry(for: item, originalName: originalName))
+    }
+
+    /// Writes each source folder that lost entries, last; a failed write is the error of the items moved out of
+    /// that folder (they are in the trash, and their stale entries name files that aren't there).
+    private func writeSourceIndexes(
+        _ sources: BatchSourceIndexes, mode: VaultOperationMode, failures: inout [VaultItem.ID: VaultStoreError]
+    ) {
+        for (key, ids) in sources.moved.sorted(by: { $0.key < $1.key }) {
+            guard let folder = sources.folders[key], let entries = sources.entries[key] else { continue }
+            do {
+                try index.write(entries, in: folder, mode: mode)
+            } catch {
+                for id in ids { failures[id] = VaultStoreError.from(error) }
+            }
+        }
+    }
+
+    /// `error` for every one of `items`, by id.
+    private static func failures(of items: [VaultItem], _ error: any Error) -> [VaultItem.ID: VaultStoreError] {
+        let storeError = VaultStoreError.from(error)
+        var result: [VaultItem.ID: VaultStoreError] = [:]
+        for item in items { result[item.id] = storeError }
+        return result
+    }
+
     // MARK: - List
 
     func trashContents() throws -> [VaultItem] {
         try autoreleasepool { try unpooledTrashContents() }
     }
 
+    /// Never opens, copies or decrypts a trash file: each item's `isEncrypted` is its entry's stored flag.
     private func unpooledTrashContents() throws -> [VaultItem] {
         let mode = try beginOperation()
-        return try trashItems(map: correctedTrashMap(trashMap.read(mode: mode), strict: false))
+        return trashItems(map: try trashMap.read(mode: mode))
     }
 
-    /// The trash items for `map`, newest first; entries whose file is missing are left out.
+    /// The trash items for `map`, newest first, with each entry's stored flag; entries whose file is missing (or
+    /// whose key isn't an item name) are left out.
+    ///
+    /// Large trash: one pass, as `listing(of:)` is. `.trash` is read once with attributes prefetched (size, date,
+    /// folder flag), its root-relative path worked out once, and each file matched to its entry by name.
     func trashItems(map: [String: VaultTrashEntry]) -> [VaultItem] {
-        let items = map.compactMap { trashName, entry in trashItem(named: trashName, entry: entry) }
+        guard !map.isEmpty,
+            let urls = try? FileManager.default.contentsOfDirectory(
+                at: trashMap.folderURL, includingPropertiesForKeys: Self.itemResourceKeys)
+        else { return [] }
+        let directory = trashDirectory
+        let folderPath = index.relativePath(of: directory.diskURL)
+        let keys = Set(Self.itemResourceKeys)
+        let items = urls.compactMap { url -> VaultItem? in
+            let trashName = url.lastPathComponent
+            // Prefetched values are cached on the URL; an entry gone before they were read has none.
+            guard VaultTrashMap.isItemName(trashName), let entry = map[trashName],
+                let values = try? url.resourceValues(forKeys: keys)
+            else { return nil }
+            let item = makeItem(
+                diskName: trashName, in: directory, folderPath: folderPath, displayName: entry.originalName,
+                isEncrypted: entry.isEncrypted, values: values)
+            return VaultItem(
+                id: item.id, name: item.name, isDirectory: item.isDirectory, dateModified: item.dateModified,
+                fileSize: item.fileSize, deletedAt: entry.deletedAt, diskURL: item.diskURL, rootURL: item.rootURL,
+                isEncrypted: item.isEncrypted)
+        }
         return items.sorted { lhs, rhs in
             let lhsDate = lhs.deletedAt ?? .distantPast
             let rhsDate = rhs.deletedAt ?? .distantPast
             return lhsDate == rhsDate ? lhs.id < rhs.id : lhsDate > rhsDate
         }
-    }
-
-    /// The trash item `.trash/<trashName>`, or nil when its file is missing.
-    func trashItem(named trashName: String, entry: VaultTrashEntry) -> VaultItem? {
-        // A malformed key or a missing file is not listed (and `makeItem` failing means the file is gone).
-        guard VaultTrashMap.isItemName(trashName),
-            let item = try? makeItem(
-                diskName: trashName, in: trashDirectory, displayName: entry.originalName,
-                isEncrypted: entry.isEncrypted)
-        else { return nil }
-        return VaultItem(
-            id: item.id, name: item.name, isDirectory: item.isDirectory, dateModified: item.dateModified,
-            fileSize: item.fileSize, deletedAt: entry.deletedAt, diskURL: item.diskURL, rootURL: item.rootURL,
-            isEncrypted: item.isEncrypted)
     }
 
     // MARK: - Restore
@@ -221,13 +390,25 @@ extension LiveVaultStore {
 
     private func unpooledRestore(_ trashed: VaultItem) throws -> VaultItem {
         let mode = try beginOperation()
-        // Re-indexed or not by the file's real form, not only the entry's flag.
-        var map = try correctedTrashMap(trashMap.read(mode: mode), strict: false)
+        var map = try trashMap.read(mode: mode)
         let trashName = trashed.diskURL.lastPathComponent
-        guard isTrashItem(trashed), VaultTrashMap.isItemName(trashName), let entry = map[trashName]
+        guard isTrashItem(trashed), VaultTrashMap.isItemName(trashName), var entry = map[trashName]
         else { throw VaultStoreError.notFound }
         let source = trashMap.folderURL.appendingPathComponent(trashName)
-        try requireExists(source)
+        guard FileManager.default.fileExists(atPath: source.path) else {
+            // The file is gone: its entry names nothing, so it is dropped.
+            map.removeValue(forKey: trashName)
+            try trashMap.write(map, mode: mode)
+            throw VaultStoreError.notFound
+        }
+        // Re-indexed or not by this file's real form, not only the entry's flag; no other trash file is read.
+        let storedEncrypted = entry.isEncrypted
+        entry.isEncrypted = realTrashFlag(of: source, stored: storedEncrypted)
+        if storedEncrypted, !entry.isEncrypted, Self.isPlainDiskName(entry.originalName) {
+            // Recorded as an encrypted `<UUID>` file but really plaintext: it comes back under its display name,
+            // as a plaintext file is named on disk.
+            entry.originalDiskName = entry.originalName
+        }
         let folderURL = try trashMap.originalFolder(of: entry)
         var entries = try index.read(in: folderURL, mode: mode)
         do {
@@ -270,6 +451,25 @@ extension LiveVaultStore {
         return try makeItem(diskName: diskName, in: folder, displayName: displayName, isEncrypted: entry.isEncrypted)
     }
 
+    /// Whether `name` can be a plaintext file's disk name: not empty, no "/", not hidden.
+    private static func isPlainDiskName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && !name.hasPrefix(".")
+    }
+
+    /// Whether the trash file at `url` is encrypted, from its SVC5 header (read through a probe, so the cipher
+    /// never opens the trash file) where that is conclusive; `stored` for a folder, an undetermined header or a
+    /// file that can't be checked, so one unreadable file never stops a restore.
+    private func realTrashFlag(of url: URL, stored: Bool) -> Bool {
+        guard Self.isRegularFile(url) else { return stored }
+        let probe = TrashFileProbe(store: self)
+        defer { probe.close() }
+        switch try? fileForm(at: url, probe: probe) {
+        case .encrypted?: return true
+        case .plaintext?: return false
+        case .undetermined?, nil: return stored
+        }
+    }
+
     // MARK: - Delete
 
     func deletePermanently(_ trashed: VaultItem) throws {
@@ -283,11 +483,13 @@ extension LiveVaultStore {
         guard isTrashItem(trashed), VaultTrashMap.isItemName(trashName), map[trashName] != nil
         else { throw VaultStoreError.notFound }
         let url = trashMap.folderURL.appendingPathComponent(trashName)
-        try requireExists(url)
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch {
-            throw VaultStoreError.from(error)
+        // A file already gone just has its entry dropped.
+        if FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                throw VaultStoreError.from(error)
+            }
         }
         map.removeValue(forKey: trashName)
         try trashMap.write(map, mode: mode)
@@ -336,427 +538,5 @@ extension LiveVaultStore {
         if purged > 0 { try trashMap.write(map, mode: mode) }
         if let firstError { throw firstError }
         return purged
-    }
-}
-
-/// The verdict on one piece of sealed data in the trash (unreadable-trash check).
-enum TrashSealCheck {
-    /// Opens with the loaded key, or isn't sealed at all.
-    case readable
-    /// Read by the store and fails authentication: sealed with another key.
-    case foreign
-    /// Couldn't be decided (read error, no key, any other failure).
-    case uncertain
-}
-
-/// Logs each removal of unreadable trash, without names.
-private let unreadableTrashLog = Logger(subsystem: "com.KoalaTVault", category: "VaultStore")
-
-/// Finding and clearing unreadable trash: trash sealed with a key the vault no longer has.
-///
-/// Deliberately strict, because what it finds is deleted: something is unreadable only in encrypted mode with the
-/// key loaded, when the key opens the vault (`keyMatchesVault`), when the store itself has read the bytes in full,
-/// and when the cipher then reports an authentication failure (`VaultCryptoError.decryptionFailed`) under every
-/// context the data may have been sealed with. A read error, a missing key, any other cipher error or anything
-/// else uncertain is never unreadable. Only `.trash` is ever looked at.
-///
-/// Each operation runs without suspending, so the check and the removal are one serialized step on the actor.
-extension LiveVaultStore {
-    /// What is unreadable in the trash right now.
-    private enum UnreadableTrash {
-        /// Nothing (or nothing certain).
-        case none
-        /// Kind (a): the trash index itself, so the whole trash.
-        case wholeTrash
-        /// Kind (b): these top-level trash items (disk names), with the readable trash map they belong to.
-        case items([String], map: [String: VaultTrashEntry])
-    }
-
-    /// The verdict on one piece of sealed data.
-    private typealias SealCheck = TrashSealCheck
-
-    /// The verdict on a sealed JSON file (an index), with its JSON when it opens.
-    private enum JSONSealCheck {
-        case readable(Data)
-        case foreign
-        case uncertain
-    }
-
-    // MARK: - Entry points
-
-    /// Whether the trash holds unreadable trash; false on any error (never throws).
-    func hasUnreadableTrash() -> Bool {
-        autoreleasepool { unpooledHasUnreadableTrash() }
-    }
-
-    private func unpooledHasUnreadableTrash() -> Bool {
-        guard let mode = try? beginOperation() else { return false }
-        if case .none = unreadableTrash(mode: mode) { return false }
-        return true
-    }
-
-    /// Re-checks and removes only what is unreadable now: the whole of `.trash` for an unreadable trash index,
-    /// otherwise the unreadable items and their entries.
-    /// - Throws: `.locked` in encrypted mode without the key (nothing removed); `.io` after the rest are removed
-    ///   when a removal fails; the trash map's write error when the remaining entries can't be saved.
-    func clearUnreadableTrash() throws {
-        try autoreleasepool { try unpooledClearUnreadableTrash() }
-    }
-
-    private func unpooledClearUnreadableTrash() throws {
-        let mode = try beginOperation()
-        switch unreadableTrash(mode: mode) {
-        case .none:
-            return
-        case .wholeTrash:
-            try removeWholeTrash()
-        case .items(let names, let map):
-            try removeTrashItems(names, map: map, mode: mode)
-        }
-    }
-
-    // MARK: - Check
-
-    private func unreadableTrash(mode: VaultOperationMode) -> UnreadableTrash {
-        guard mode.isEncrypted, mode.keyLoaded, keyMatchesVault() else { return .none }
-        // `.trash` must be a real folder: a symlink could lead anywhere, and anything else isn't trash.
-        guard Self.fileType(trashMap.folderURL) == .typeDirectory else { return .none }
-        var map: [String: VaultTrashEntry] = [:]
-        if Self.fileType(trashMap.url) != nil {
-            switch sealedJSONCheck(at: trashMap.url, contexts: VaultTrashMap.contexts) {
-            case .foreign:
-                return .wholeTrash
-            case .uncertain:
-                return .none
-            case .readable(let json):
-                // A map that opens but doesn't decode is damaged, not foreign: nothing is decided.
-                guard let decoded = try? JSONDecoder().decode([String: VaultTrashEntry].self, from: json) else {
-                    return .none
-                }
-                map = decoded
-            }
-        }
-        let folder = trashMap.folderURL
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return .none }
-        let itemNames = names.sorted().filter(VaultTrashMap.isItemName)
-        guard !itemNames.isEmpty else { return .none }
-        // Files are judged on private copies of their first bytes; without a place for them, nothing is decided.
-        let probe = TrashFileProbe(store: self)
-        defer { probe.close() }
-        var unreadable: [String] = []
-        for name in itemNames
-        where trashItemCheck(folder.appendingPathComponent(name), entry: map[name], probe: probe) == .foreign {
-            unreadable.append(name)
-        }
-        return unreadable.isEmpty ? .none : .items(unreadable, map: map)
-    }
-
-    /// Kind (b) for one top-level trash item: a file judged by its first chunk, a folder by its whole tree.
-    private func trashItemCheck(_ url: URL, entry: VaultTrashEntry?, probe: TrashFileProbe) -> SealCheck {
-        switch Self.fileType(url) {
-        case .typeRegular?:
-            return probe.check(url)
-        case .typeDirectory?:
-            return trashFolderCheck(url, originalPath: entry.flatMap(originalPath(of:)), probe: probe)
-        default:
-            // A symlink, anything else, or a read error.
-            return .uncertain
-        }
-    }
-
-    /// The type of the item at `url` itself (a symlink is not followed), or nil when it can't be read.
-    private static func fileType(_ url: URL) -> FileAttributeType? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-            let type = attributes[.type] as? FileAttributeType
-        else { return nil }
-        return type
-    }
-
-    /// A trashed folder is foreign when any `.vault_map` or SVC5 file in its tree is foreign and nothing in the
-    /// tree is uncertain (one doubt keeps the whole folder).
-    /// - Parameter originalPath: the folder's root-relative path before it was trashed, for older index contexts.
-    private func trashFolderCheck(_ itemURL: URL, originalPath: String?, probe: TrashFileProbe) -> SealCheck {
-        var foundForeign = false
-        // (folder, its path below the trashed item: "" for the item itself)
-        var pending: [(URL, String)] = [(itemURL, "")]
-        while let (folder, subpath) = pending.popLast() {
-            guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else {
-                return .uncertain
-            }
-            let original = originalPath.map { subpath.isEmpty ? $0 : $0 + "/" + subpath }
-            for name in names {
-                switch folderEntryCheck(name, in: folder, originalPath: original, probe: probe) {
-                case .foreign: foundForeign = true
-                case .uncertain: return .uncertain
-                case .readable: break
-                case .subfolder:
-                    let below = subpath.isEmpty ? name : subpath + "/" + name
-                    pending.append((folder.appendingPathComponent(name), below))
-                }
-            }
-        }
-        return foundForeign ? .foreign : .readable
-    }
-
-    /// The verdict on one entry of a folder inside a trashed folder.
-    private enum FolderEntryCheck {
-        case readable, foreign, uncertain
-        /// A subfolder, judged on its own.
-        case subfolder
-    }
-
-    /// One entry of `folder`: its `.vault_map` (sealed JSON), an SVC5 or plaintext file, or a subfolder. Other
-    /// hidden files (staging leftovers) and symlinks are neither an index nor an item, so they count as readable.
-    private func folderEntryCheck(
-        _ name: String, in folder: URL, originalPath: String?, probe: TrashFileProbe
-    ) -> FolderEntryCheck {
-        let url = folder.appendingPathComponent(name)
-        if name == VaultIndex.fileName {
-            switch sealedJSONCheck(at: url, contexts: folderIndexContexts(folder, originalPath: originalPath)) {
-            case .foreign: return .foreign
-            case .uncertain: return .uncertain
-            case .readable: return .readable
-            }
-        }
-        guard !name.hasPrefix(".") else { return .readable }
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
-        else { return .uncertain }
-        if values.isSymbolicLink == true { return .readable }
-        if values.isDirectory == true { return .subfolder }
-        guard values.isRegularFile == true else { return .readable }
-        switch probe.check(url) {
-        case .foreign: return .foreign
-        case .uncertain: return .uncertain
-        case .readable: return .readable
-        }
-    }
-
-    /// The shortest sealed record: a 12-byte nonce and a 16-byte authentication tag around an empty payload.
-    private static let minimumSealedLength = 12 + 16
-
-    /// A JSON file read by the store: plaintext JSON or opening under one of `contexts` is readable; failing
-    /// authentication under all of them is foreign, but only when the data is at least as long as a sealed record
-    /// (an empty or shorter file is damaged, not sealed with another key); a file that isn't a regular file, a read
-    /// error or any other cipher error is uncertain.
-    private func sealedJSONCheck(at url: URL, contexts: [String]) -> JSONSealCheck {
-        guard Self.fileType(url) == .typeRegular, let data = try? Data(contentsOf: url) else { return .uncertain }
-        if (try? JSONSerialization.jsonObject(with: data)) != nil { return .readable(data) }
-        guard data.count >= Self.minimumSealedLength else { return .uncertain }
-        do {
-            return .readable(try cipher.decrypt(data, contexts: contexts))
-        } catch VaultCryptoError.decryptionFailed {
-            return .foreign
-        } catch {
-            return .uncertain
-        }
-    }
-
-    /// Every context a trashed folder's index may have been sealed with: ".vault_map", its current and its
-    /// original root-relative path (each also as "<path>/.vault_map"), then "".
-    private func folderIndexContexts(_ folder: URL, originalPath: String?) -> [String] {
-        var contexts = [VaultIndex.fileName]
-        for path in [index.relativePath(of: folder), originalPath ?? ""] where !path.isEmpty {
-            contexts.append(path)
-            contexts.append(path + "/" + VaultIndex.fileName)
-        }
-        contexts.append("")
-        return contexts
-    }
-
-    /// The root-relative path a trashed item had before it was trashed, or nil when its entry doesn't give one
-    /// inside the vault.
-    private func originalPath(of entry: VaultTrashEntry) -> String? {
-        guard let folder = try? trashMap.originalFolder(of: entry) else { return nil }
-        // `originalFolder` builds on the root URL component by component, so its path starts with the root's.
-        let rootPath = root.rootURL.path
-        guard folder.path.hasPrefix(rootPath) else { return nil }
-        let relative = folder.path.dropFirst(rootPath.count).split(separator: "/").joined(separator: "/")
-        return relative.isEmpty ? entry.originalDiskName : relative + "/" + entry.originalDiskName
-    }
-
-    // MARK: - Removal
-
-    /// Kind (a): removes everything in `.trash`, the map included.
-    /// - Throws: `.io` after the rest are removed when anything can't be.
-    private func removeWholeTrash() throws {
-        let folder = trashMap.folderURL
-        let names: [String]
-        do {
-            names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
-        } catch {
-            throw VaultStoreError.io(error.localizedDescription)
-        }
-        var firstError: VaultStoreError?
-        for name in names {
-            do {
-                try FileManager.default.removeItem(at: folder.appendingPathComponent(name))
-                unreadableTrashLog.notice("Removed an item of unreadable trash (the trash index can't be decrypted)")
-            } catch {
-                firstError = firstError ?? .io(error.localizedDescription)
-            }
-        }
-        if let firstError { throw firstError }
-    }
-
-    /// Kind (b): removes the named top-level items and their entries; the other items and entries stay.
-    ///
-    /// The trash map is rewritten without the items' entries first, so a failed write removes nothing. An item
-    /// whose removal then fails gets its entry back (best effort) and is found again by the next check.
-    /// - Throws: the map's write error (`.locked` or `.io`), nothing removed; else `.io` after the rest are removed
-    ///   when an item couldn't be removed.
-    private func removeTrashItems(
-        _ names: [String], map: [String: VaultTrashEntry], mode: VaultOperationMode
-    ) throws {
-        var remaining = map
-        for name in names { remaining.removeValue(forKey: name) }
-        if remaining.count != map.count { try trashMap.write(remaining, mode: mode) }
-        var firstError: VaultStoreError?
-        var kept: [String: VaultTrashEntry] = [:]
-        for name in names {
-            do {
-                try FileManager.default.removeItem(at: trashMap.folderURL.appendingPathComponent(name))
-            } catch {
-                firstError = firstError ?? .io(error.localizedDescription)
-                kept[name] = map[name]
-                continue
-            }
-            unreadableTrashLog.notice("Removed an unreadable trash item (sealed with a key the vault no longer has)")
-        }
-        if !kept.isEmpty {
-            // Best effort: the removal error below is what the caller needs; a missing entry only hides an
-            // item that the next check finds and clears again.
-            try? trashMap.write(remaining.merging(kept) { current, _ in current }, mode: mode)
-        }
-        if let firstError { throw firstError }
-    }
-}
-
-/// Lets the cipher judge an SVC5 file on bytes the store reads itself, never on the file.
-///
-/// The store reads a file's leading bytes (the header and, for `check`, the first chunk: at most `chunkSize`
-/// plus `headerAllowance` bytes, never the whole file), writes them to a private copy in one store temp folder
-/// (`makeTempDirectory`), and asks the cipher about that copy only. So the cipher never opens a trash item, and
-/// a read or file-protection error is the store's own read failing, never something that passes for a wrong key.
-/// A copy of the leading bytes reads exactly as the original: an SVC5 header carries the file's id and layout,
-/// and chunk 0 sits at the same offset in both, so it authenticates (or fails) the same way.
-///
-/// One probe serves one operation on the store's actor; `close()` removes its own folder and never the store's
-/// shared temp folder, which a concurrent `open` or `write` may be using.
-final class TrashFileProbe {
-    /// Bytes read before the header is known; also the room allowed above `chunkSize` for the header and the
-    /// first record's framing (an SVC5 header and a record's length prefix, nonce and tag are far smaller).
-    static let headerAllowance = 64 * 1024
-    /// Bytes copied for a header-only read (`streamInfo(of:)`): an SVC5 header is far smaller.
-    static let headerReadSize = 4 * 1024
-    /// Larger chunk sizes are not a real layout; such a header is uncertain.
-    private static let maximumChunkSize = 64 * 1_048_576
-
-    /// Why a copy couldn't be made.
-    enum CopyError: Error {
-        /// The store's own read of the file failed.
-        case read(any Error)
-        /// The temp folder or the copy couldn't be created or written.
-        case scratch(any Error)
-    }
-
-    private let store: LiveVaultStore
-    private var folder: URL?
-
-    init(store: LiveVaultStore) { self.store = store }
-
-    /// Removes the copy's own folder; the store's temp folder stays.
-    func close() {
-        guard let folder else { return }
-        store.removeTemporary(folder)
-        self.folder = nil
-    }
-
-    /// The header facts of the file at `url`, asked of a copy of its leading bytes.
-    /// - Returns: nil when the cipher finds no SVC5 header there (`decryptionFailed`): a plaintext file.
-    /// - Throws: `CopyError` when the store's read or the copy fails; any other cipher error as it is.
-    func streamInfo(of url: URL) throws -> StreamInfo? {
-        // Each probe is one file of a loop over the trash: a pool per call frees its read buffers right away.
-        try autoreleasepool { try unpooledStreamInfo(of: url) }
-    }
-
-    private func unpooledStreamInfo(of url: URL) throws -> StreamInfo? {
-        let copy = try copyLeadingBytes(of: url, count: Self.headerReadSize).copy
-        do {
-            return try store.cipher.streamInfo(of: copy)
-        } catch VaultCryptoError.decryptionFailed {
-            return nil
-        }
-    }
-
-    /// The verdict on one regular file: plaintext (no SVC5 header) or a first chunk that opens is readable; a
-    /// first chunk that fails authentication or is incomplete is foreign; anything else is uncertain.
-    func check(_ url: URL) -> TrashSealCheck {
-        // Each check is one file of a loop over the trash: a pool per call frees its read buffers right away.
-        autoreleasepool { unpooledCheck(url) }
-    }
-
-    private func unpooledCheck(_ url: URL) -> TrashSealCheck {
-        let head: (copy: URL, length: Int)
-        let info: StreamInfo
-        do {
-            head = try copyLeadingBytes(of: url, count: Self.headerAllowance)
-            do {
-                info = try store.cipher.streamInfo(of: head.copy)
-            } catch VaultCryptoError.decryptionFailed {
-                // The header, if any, lies within the bytes copied: none parses, so the file is plaintext.
-                return .readable
-            }
-        } catch {
-            return .uncertain
-        }
-        // An empty or malformed layout has no first chunk to judge.
-        guard info.totalSize > 0, (1...Self.maximumChunkSize).contains(info.chunkSize) else { return .uncertain }
-        var copy = head.copy
-        // Fewer bytes than asked for means the copy already holds the whole file.
-        if head.length == Self.headerAllowance {
-            guard let full = try? copyLeadingBytes(of: url, count: info.chunkSize + Self.headerAllowance) else {
-                return .uncertain
-            }
-            copy = full.copy
-        }
-        do {
-            _ = try store.cipher.decryptChunk(0, of: copy, info: info)
-            return .readable
-        } catch VaultCryptoError.decryptionFailed {
-            return .foreign
-        } catch {
-            return .uncertain
-        }
-    }
-
-    /// Reads up to `count` bytes from the start of the file at `url` (fewer only at its end) and writes them to
-    /// the probe's copy, one file overwritten each time so copies don't pile up.
-    /// - Returns: the copy and how many bytes it holds.
-    private func copyLeadingBytes(of url: URL, count: Int) throws(CopyError) -> (copy: URL, length: Int) {
-        var data = Data()
-        do {
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            while data.count < count {
-                guard let block = try handle.read(upToCount: count - data.count), !block.isEmpty else { break }
-                data.append(block)
-            }
-        } catch {
-            throw .read(error)
-        }
-        do {
-            let copy = try probeFolder().appendingPathComponent("probe")
-            try data.write(to: copy, options: [.completeFileProtection])
-            return (copy, data.count)
-        } catch {
-            throw .scratch(error)
-        }
-    }
-
-    private func probeFolder() throws -> URL {
-        if let folder { return folder }
-        let made = try store.makeTempDirectory()
-        folder = made
-        return made
     }
 }

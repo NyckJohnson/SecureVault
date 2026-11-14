@@ -118,7 +118,7 @@ actor LiveVaultStore: VaultStoring {
     }
 
     /// The attributes a listing reads for each entry, prefetched by the directory read.
-    private static let itemResourceKeys: [URLResourceKey] = [
+    static let itemResourceKeys: [URLResourceKey] = [
         .isDirectoryKey, .contentModificationDateKey, .fileSizeKey,
     ]
 
@@ -192,7 +192,7 @@ actor LiveVaultStore: VaultStoring {
 
     /// The item for `diskName` in `directory` from attributes already read (`values`) and the folder's
     /// root-relative path (`folderPath`, "" for the root), so a listing works both out once.
-    private func makeItem(
+    func makeItem(
         diskName: String, in directory: VaultDirectory, folderPath: String, displayName: String,
         isEncrypted: Bool, values: URLResourceValues
     ) -> VaultItem {
