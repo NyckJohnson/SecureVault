@@ -260,3 +260,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   subfolders), swipe-back, select mode, rounded logo, Settings layout, 9,000-JPG import. New report (human): sometimes
   after a folder is moved or something is deleted the folder view doesn't refresh. Read-only reviews of every path
   that moves or deletes vault items, checking each refreshes the affected browser views, run before acceptance.
+- 2026-11-13 (verify): refresh fix merged. Review of every move/delete/copy/rename/transfer path: each reloads its own
+  grid, but a browser popped back to (or under a closed viewer) never reloaded. Fix: a browser reloads quietly every
+  time it reappears (Browser unit 2, no contract change). `gates --all` and all 12 journeys pass. Next: the human
+  retests on the device (move/delete from a subfolder, then go back), then acceptance.
