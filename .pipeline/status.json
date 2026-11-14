@@ -97,7 +97,7 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "pending",
+          "state": "tests",
           "attempts": 0
         }
       ]
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-13T19:46:45-08:00",
+  "updatedAt": "2026-11-13T19:58:51-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
