@@ -264,3 +264,11 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   grid, but a browser popped back to (or under a closed viewer) never reloaded. Fix: a browser reloads quietly every
   time it reappears (Browser unit 2, no contract change). `gates --all` and all 12 journeys pass. Next: the human
   retests on the device (move/delete from a subfolder, then go back), then acceptance.
+- 2026-11-13 (device retest 3, Recently Deleted): rows stay after Restore/Delete until the list reloads, slowly, with
+  thousands of trashed items (minutes to open; a stale row's action fails "no longer exists"; a listing error shows
+  an empty trash). Not reproducible on simulators with a few items (new journeys added, pass on iOS 18.6 and 26.5).
+  Diagnosis (review): every trash listing and restore opened, copied and checked each trashed file; the unreadable-
+  trash and housekeeping trash checks were single long steps; bulk Delete rewrote the trash index per item. The
+  human chose the full fix with batch delete (contract change: `moveToTrash(_ items:)`) and "missing file on
+  Restore/Delete just removes the row". Order: contract (skeleton-builder, MODE: feature), then VaultStore, Settings,
+  Browser; then journeys and the human's device retest.
