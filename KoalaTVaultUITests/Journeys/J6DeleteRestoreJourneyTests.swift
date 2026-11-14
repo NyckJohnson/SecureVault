@@ -197,6 +197,87 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell("inner.rtf").waitForExistence(timeout: 5), "The file should be inside the recreated folder")
     }
 
+    // MARK: - Several items in the trash (stale row regression)
+
+    private let trashNames = ["One.rtf", "Two.rtf", "Three.rtf"]
+
+    private func trashTable() -> XCUIElement { app.tables["recentlyDeleted.list"] }
+
+    /// Visible labels of every row in the trash table, matched by text, not identifier.
+    private func trashRowLabels() -> [String] {
+        trashTable().cells.allElementsBoundByIndex.map { cell in
+            cell.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
+        }
+    }
+
+    private func trashHasRow(labelled name: String) -> Bool {
+        trashRowLabels().contains { $0.contains(name) }
+    }
+
+    private func fillTrashWithThreeItems() {
+        for name in ["One", "Two", "Three"] { createDocument(named: name) }
+        for name in trashNames { deleteViaContextMenu(name) }
+        openRecentlyDeleted()
+        XCTAssertTrue(trashRow(trashNames[0]).waitForExistence(timeout: 5))
+        XCTAssertEqual(trashTable().cells.count, 3, "Three deleted items expected; rows: \(trashRowLabels())")
+    }
+
+    /// Waits for the table to show `expected` rows by cell count, then checks the labels.
+    private func expectTrashRows(_ expected: [String], absent: [String],
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, trashTable().cells.count != expected.count || absent.contains(where: trashHasRow(labelled:)) {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        let labels = trashRowLabels()
+        XCTAssertEqual(trashTable().cells.count, expected.count, "Row count. Visible rows: \(labels)", file: file, line: line)
+        for name in absent {
+            XCTAssertFalse(trashHasRow(labelled: name), "\(name) should not be drawn. Visible rows: \(labels)", file: file, line: line)
+        }
+        for name in expected {
+            XCTAssertTrue(trashHasRow(labelled: name), "\(name) should still be shown. Visible rows: \(labels)", file: file, line: line)
+        }
+    }
+
+    private func restoreRow(_ name: String) {
+        trashRow(name).tap()
+        tapSheetButton("Restore")
+    }
+
+    func testJourney6_RestoreOneOfSeveralRemovesOnlyThatRow() {
+        fillTrashWithThreeItems()
+        restoreRow("Two.rtf")
+        expectTrashRows(["One.rtf", "Three.rtf"], absent: ["Two.rtf"])
+        leaveTrash()
+        XCTAssertTrue(cell("Two.rtf").waitForExistence(timeout: 5), "Restored item is back in the grid")
+        XCTAssertFalse(cell("One.rtf").exists)
+        XCTAssertFalse(cell("Three.rtf").exists)
+    }
+
+    func testJourney6_DeletePermanentlyOneOfSeveralRemovesOnlyThatRow() {
+        fillTrashWithThreeItems()
+        trashRow("Two.rtf").tap()
+        tapSheetButton("Delete Permanently")
+        let alert = app.alerts["Delete Permanently?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        tapAlertButton("Delete", in: alert)
+        expectTrashRows(["One.rtf", "Three.rtf"], absent: ["Two.rtf"])
+        leaveTrash()
+        XCTAssertFalse(cell("Two.rtf").exists, "Permanently deleted item must not return")
+    }
+
+    func testJourney6_RestoreTwiceOnSameOpenScreenKeepsRowsInSync() {
+        fillTrashWithThreeItems()
+        restoreRow("Two.rtf")
+        expectTrashRows(["One.rtf", "Three.rtf"], absent: ["Two.rtf"])
+        restoreRow("One.rtf")
+        expectTrashRows(["Three.rtf"], absent: ["One.rtf", "Two.rtf"])
+        leaveTrash()
+        XCTAssertTrue(cell("Two.rtf").waitForExistence(timeout: 5))
+        XCTAssertTrue(cell("One.rtf").exists)
+        XCTAssertFalse(cell("Three.rtf").exists)
+    }
+
     // MARK: - Each vault has its own Recently Deleted
 
     func testJourney6_EncryptedVaultHasItsOwnTrash() {
