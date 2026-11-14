@@ -153,6 +153,59 @@ import os
         #expect(checked <= 256)
     }
 
+    @Test("hasUnreadableTrash answers false and checks no further batch when cancelled between batches")
+    func unreadableTrashStopsWhenCancelledBetweenBatches() async throws {
+        let vault = try await vaultWithTrash(count: 600)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let gate = HousekeepingGate()
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let store = vault.store
+
+        let check = Task { await store.hasUnreadableTrash() }
+        #expect(await gate.waitUntilEntered())
+        check.cancel()
+        gate.release()
+        let result = await check.value
+
+        #expect(result == false)
+        #expect(failing.streamInfoURLs.count <= 256)
+    }
+
+    @Test("hasUnreadableTrash answers false and checks no further batch when the vault locks between batches")
+    func unreadableTrashStopsWhenLockedBetweenBatches() async throws {
+        let vault = try await vaultWithTrash(count: 600)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let keys = vault.keys
+        onEveryStreamInfo(of: failing) { number in
+            if number == 256 { keys.wipeKey() }
+        }
+
+        let result = await vault.store.hasUnreadableTrash()
+
+        #expect(result == false)
+        #expect(failing.streamInfoURLs.count <= 256)
+    }
+
+    @Test("hasUnreadableTrash answers false and checks no further batch when the trash is replaced between batches")
+    func unreadableTrashStopsWhenTrashReplacedBetweenBatches() async throws {
+        let vault = try await vaultWithTrash(count: 600)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let trashURL = vault.trashURL
+        onEveryStreamInfo(of: failing) { number in
+            guard number == 256 else { return }
+            try? FileManager.default.removeItem(at: trashURL)
+            try? Data("not a folder".utf8).write(to: trashURL)
+        }
+
+        let result = await vault.store.hasUnreadableTrash()
+
+        #expect(result == false)
+        #expect(failing.streamInfoURLs.count <= 256)
+    }
+
     // MARK: - hasUnencryptedFiles (the trash part)
 
     @Test("A listing asked for during hasUnencryptedFiles's first trash batch runs before the 300th file is checked")
@@ -204,5 +257,40 @@ import os
         #expect(try await vault.store.hasUnencryptedFiles())
 
         #expect(failing.streamInfoURLs.count <= 256)
+    }
+
+    @Test("hasUnencryptedFiles throws CancellationError when cancelled between trash batches")
+    func unencryptedTrashThrowsWhenCancelledBetweenBatches() async throws {
+        let vault = try await vaultWithTrash(count: 600)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let gate = HousekeepingGate()
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let store = vault.store
+
+        let check = Task { try await store.hasUnencryptedFiles() }
+        #expect(await gate.waitUntilEntered())
+        check.cancel()
+        gate.release()
+        let error = await caught { _ = try await check.value }
+
+        #expect(error is CancellationError)
+    }
+
+    @Test("hasUnencryptedFiles throws locked when the vault locks between trash batches")
+    func unencryptedTrashThrowsLockedBetweenBatches() async throws {
+        let vault = try await vaultWithTrash(count: 600)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let keys = vault.keys
+        // The key goes at the last file check of the first batch, so `.locked` can only come from the check
+        // before the second batch.
+        onEveryStreamInfo(of: failing) { number in
+            if number == 256 { keys.wipeKey() }
+        }
+
+        let error = await caught { _ = try await vault.store.hasUnencryptedFiles() }
+
+        #expect(error as? VaultStoreError == .locked)
     }
 }

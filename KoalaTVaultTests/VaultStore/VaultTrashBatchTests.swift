@@ -296,6 +296,27 @@ import Testing
         #expect(try await setup.vault.store.trashContents().map(\.name) == ["older.txt"])
     }
 
+    @Test(
+        "A source-folder index write failure after the files moved reports each moved item and keeps it findable once",
+        arguments: VaultFileOperationsFailureTests.SealFailure.allCases)
+    func sourceIndexWriteFailureAfterMove(failure: VaultFileOperationsFailureTests.SealFailure) async throws {
+        let setup = try await makeSetup(.password, selective: true)
+        defer { setup.vault.cleanUp() }
+        let failing = try #require(setup.vault.failing)
+        failing.encryptFailureContexts = [".vault_map"]
+        failing.encryptError = failure.cryptoError
+        let moved = [setup.docsFile, setup.docsSecond]
+
+        let failures = await setup.vault.store.moveToTrash(moved)
+
+        failing.encryptError = nil
+        #expect(Set(failures.keys) == Set(moved.map(\.id)))
+        for item in moved { #expect(failure.matches(failures[item.id]), "item \(item.name)") }
+        #expect(try await setup.vault.store.trashContents().map(\.name).sorted() == ["b.txt", "c.jpg"])
+        #expect(try await setup.vault.names(setup.docs).isEmpty)
+        #expect(try await setup.vault.names().sorted() == ["Docs", "Sub", "a.pdf"].sorted())
+    }
+
     @Test("In a plaintext vault a trash-index write failure gives every item io and moves nothing")
     func plaintextTrashIndexWriteFailure() async throws {
         let setup = try await makeSetup(.none)
