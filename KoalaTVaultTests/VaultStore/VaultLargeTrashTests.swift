@@ -161,15 +161,15 @@ import os
         let seen = OSAllocatedUnfairLock<[String]>(initialState: [])
         @Sendable func record(_ url: URL) {
             failing.onFirstStreamInfo = record
-            if let data = try? Data(contentsOf: url) {
-                seen.withLock { $0.append(String(decoding: data, as: UTF8.self)) }
+            if let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) {
+                seen.withLock { $0.append(text) }
             }
         }
         failing.onFirstStreamInfo = record
         let chunkSeen = OSAllocatedUnfairLock<[String]>(initialState: [])
         failing.decryptChunkErrorFor = { url in
-            if let data = try? Data(contentsOf: url) {
-                chunkSeen.withLock { $0.append(String(decoding: data, as: UTF8.self)) }
+            if let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) {
+                chunkSeen.withLock { $0.append(text) }
             }
             return nil
         }

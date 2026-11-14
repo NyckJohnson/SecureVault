@@ -48,11 +48,17 @@ import os
         return vault
     }
 
+    private struct ListingOutcome<T: Sendable>: Sendable {
+        let listingReturnedByCheckpoint: Bool
+        let listingReturnedBeforeEnd: Bool
+        let result: T
+    }
+
     /// Runs `operation` and, once its first file check is in progress, asks for a listing; the file check number
     /// `waitAtCall` waits (bounded) for that listing to have returned. Returns whether it had, and the operation's result.
     private func runWithListing<T: Sendable>(
         _ vault: VaultStoreFixture, waitAtCall: Int, _ operation: @escaping @Sendable (LiveVaultStore) async throws -> T
-    ) async throws -> (listingReturnedByCheckpoint: Bool, listingReturnedBeforeEnd: Bool, result: T) {
+    ) async throws -> ListingOutcome<T> {
         let failing = try #require(vault.failing)
         let gate = HousekeepingGate()
         let listingReturned = OSAllocatedUnfairLock(initialState: false)
@@ -82,7 +88,10 @@ import os
         gate.release()
         _ = try await listing.value
         let result = try await check.value
-        return (sawListingReturned.withLock { $0 }, listingReturned.withLock { $0 }, result)
+        return ListingOutcome(
+            listingReturnedByCheckpoint: sawListingReturned.withLock { $0 },
+            listingReturnedBeforeEnd: listingReturned.withLock { $0 },
+            result: result)
     }
 
     // MARK: - hasUnreadableTrash
@@ -130,7 +139,8 @@ import os
         let vault = try await vaultWithTrash(count: 600)
         defer { vault.cleanUp() }
         let failing = try #require(vault.failing)
-        let files = try FileManager.default.contentsOfDirectory(atPath: vault.trashURL.path).filter { !$0.hasPrefix(".") }
+        let files = try FileManager.default.contentsOfDirectory(atPath: vault.trashURL.path)
+            .filter { !$0.hasPrefix(".") }
         for name in files {
             try HeaderAwareTestCipher.sealed(Data("zz".utf8), declaredSize: 4096)
                 .write(to: vault.trashURL.appendingPathComponent(name))
@@ -145,7 +155,7 @@ import os
 
     // MARK: - hasUnencryptedFiles (the trash part)
 
-    @Test("A listing asked for during hasUnencryptedFiles's first trash batch runs before the 300th trash file is checked")
+    @Test("A listing asked for during hasUnencryptedFiles's first trash batch runs before the 300th file is checked")
     func listingRunsBetweenTrashFileBatches() async throws {
         let vault = try await vaultWithTrash(count: 600)
         defer { vault.cleanUp() }
@@ -187,7 +197,8 @@ import os
         let vault = try await vaultWithTrash(count: 600)
         defer { vault.cleanUp() }
         let failing = try #require(vault.failing)
-        let files = try FileManager.default.contentsOfDirectory(atPath: vault.trashURL.path).filter { !$0.hasPrefix(".") }
+        let files = try FileManager.default.contentsOfDirectory(atPath: vault.trashURL.path)
+            .filter { !$0.hasPrefix(".") }
         for name in files { try Data("plain".utf8).write(to: vault.trashURL.appendingPathComponent(name)) }
 
         #expect(try await vault.store.hasUnencryptedFiles())
