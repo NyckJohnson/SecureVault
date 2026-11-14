@@ -188,16 +188,26 @@ import os
         #expect(failing.streamInfoURLs.count <= 256)
     }
 
-    @Test("hasUnreadableTrash answers false and checks no further batch when the trash is replaced between batches")
+    @Test("hasUnreadableTrash answers false and stops after the batch when the trash becomes a symlink")
     func unreadableTrashStopsWhenTrashReplacedBetweenBatches() async throws {
         let vault = try await vaultWithTrash(count: 600)
         defer { vault.cleanUp() }
         let failing = try #require(vault.failing)
         let trashURL = vault.trashURL
+        let movedURL = trashURL.deletingLastPathComponent()
+            .appendingPathComponent("moved-trash-\(UUID().uuidString)")
         onEveryStreamInfo(of: failing) { number in
             guard number == 256 else { return }
-            try? FileManager.default.removeItem(at: trashURL)
-            try? Data("not a folder".utf8).write(to: trashURL)
+            let fileManager = FileManager.default
+            // Every file still to be checked is unreadable, so a check that goes on would answer true.
+            let names = (try? fileManager.contentsOfDirectory(atPath: trashURL.path)) ?? []
+            for name in names where !name.hasPrefix(".") {
+                try? HeaderAwareTestCipher.sealed(Data("zz".utf8), declaredSize: 4096)
+                    .write(to: trashURL.appendingPathComponent(name))
+            }
+            // The real folder moves aside and a symlink to it takes the `.trash` path.
+            try? fileManager.moveItem(at: trashURL, to: movedURL)
+            try? fileManager.createSymbolicLink(at: trashURL, withDestinationURL: movedURL)
         }
 
         let result = await vault.store.hasUnreadableTrash()
