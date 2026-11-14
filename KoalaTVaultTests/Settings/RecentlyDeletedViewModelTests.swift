@@ -250,10 +250,15 @@ import os
     // MARK: - List updates (large trash)
 
     /// A view model over a gated store whose trash holds `files`; the gate is open until `hold()`.
-    private func makeGatedRig(trashing files: [String]) async throws -> (
-        viewModel: RecentlyDeletedViewModel, gated: GatedTrashStore, store: MockVaultStoring,
-        alerts: MockAlertPresenting, restored: SettingsRecorder<Void>
-    ) {
+    private struct GatedRig {
+        let viewModel: RecentlyDeletedViewModel
+        let gated: GatedTrashStore
+        let store: MockVaultStoring
+        let alerts: MockAlertPresenting
+        let restored: SettingsRecorder<Void>
+    }
+
+    private func makeGatedRig(trashing files: [String]) async throws -> GatedRig {
         let store = MockVaultStoring(withSampleContent: false)
         for name in files {
             let source = URL(fileURLWithPath: "/nonexistent/source")
@@ -266,7 +271,7 @@ import os
         let viewModel = RecentlyDeletedViewModel(
             store: gated, alerts: alerts, folderAssetAvailable: true, onRestore: { restored.record(()) })
         await viewModel.load()
-        return (viewModel, gated, store, alerts, restored)
+        return GatedRig(viewModel: viewModel, gated: gated, store: store, alerts: alerts, restored: restored)
     }
 
     @Test("A successful Restore removes the row before the list is read again, then the reload replaces rows")
@@ -373,6 +378,37 @@ import os
         await rig.viewModel.load()
         #expect(rig.viewModel.isEmpty)
         #expect(!rig.viewModel.canEmptyTrash)
+    }
+
+    @Test("Overlapping reloads: the newest listing wins over an older one that finishes later")
+    func newestReloadWins() async throws {
+        let rig = try await makeGatedRig(trashing: ["Old.pdf"])
+        let viewModel = rig.viewModel
+        // The first reload reads the trash now (only Old.pdf) but finishes later.
+        rig.gated.holdNextReadingFirst()
+        let stale = Task { await viewModel.load() }
+        await rig.gated.waitUntilReloadHeld()
+        let extra = try await rig.store.addFile(
+            from: URL(fileURLWithPath: "/nonexistent/source"), named: "New.pdf", to: rig.store.root)
+        try await rig.store.moveToTrash(extra)
+        let fresh = Task { await viewModel.load() }
+        await SettingsTestSupport.waitUntil { viewModel.rows.count == 2 }
+        rig.gated.release()
+        await stale.value
+        await fresh.value
+        #expect(rig.viewModel.rows.map(\.name).sorted() == ["New.pdf", "Old.pdf"])
+    }
+
+    @Test("A listing error after an empty listing hides the empty state and shows the error")
+    func errorAfterEmptyListingHidesEmptyState() async throws {
+        let rig = try await makeRig()
+        await rig.viewModel.load()
+        #expect(rig.viewModel.isEmpty)
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        #expect(!rig.viewModel.isEmpty)
+        #expect(!rig.viewModel.canEmptyTrash)
+        #expect(rig.alerts.alerts == [.error(VaultStoreError.locked.localizedDescription)])
     }
 
     // MARK: - Errors
@@ -500,6 +536,7 @@ import os
 private final class GatedTrashStore: VaultStoring {
     private struct Gate {
         var held = false
+        var readFirstNext = false
         var waiting: [CheckedContinuation<Void, Never>] = []
     }
     private let base: MockVaultStoring
@@ -508,6 +545,10 @@ private final class GatedTrashStore: VaultStoring {
     init(_ base: MockVaultStoring) { self.base = base }
 
     func hold() { gate.withLock { $0.held = true } }
+
+    /// The next `trashContents()` reads the trash at once, then waits for `release()` before returning
+    /// that (by then stale) listing; later calls are not held.
+    func holdNextReadingFirst() { gate.withLock { $0.readFirstNext = true } }
 
     func release() {
         let waiting = gate.withLock { gate in
@@ -527,6 +568,14 @@ private final class GatedTrashStore: VaultStoring {
     }
 
     func trashContents() async throws -> [VaultItem] {
+        if gate.withLock({ gate -> Bool in
+            defer { gate.readFirstNext = false }
+            return gate.readFirstNext
+        }) {
+            let snapshot = try await base.trashContents()
+            await withCheckedContinuation { continuation in gate.withLock { $0.waiting.append(continuation) } }
+            return snapshot
+        }
         await withCheckedContinuation { continuation in
             let resumeNow = gate.withLock { gate -> Bool in
                 if gate.held {
@@ -542,9 +591,9 @@ private final class GatedTrashStore: VaultStoring {
 
     var root: VaultDirectory { base.root }
     var isEncrypted: Bool { base.isEncrypted }
-    func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection)
-        async throws -> [VaultItem]
-    { try await base.contents(of: directory, sortedBy: option, direction) }
+    func contents(of dir: VaultDirectory, sortedBy key: SortOption, _ way: SortDirection) async throws -> [VaultItem] {
+        try await base.contents(of: dir, sortedBy: key, way)
+    }
     func open(_ item: VaultItem) async throws -> URL { try await base.open(item) }
     func write(_ data: Data, to item: VaultItem) async throws { try await base.write(data, to: item) }
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
