@@ -76,7 +76,7 @@
       "dependsOn": [
         "VaultCrypto"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -97,8 +97,8 @@
             "OrphanSweep.swift",
             "VaultTempFiles.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         }
       ]
     },
@@ -362,7 +362,7 @@
         "Entitlements",
         "SharedUI"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -372,7 +372,7 @@
             "PaywallViewModel.swift",
             "RecentlyDeletedViewModel.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         },
         {
@@ -404,7 +404,7 @@
         "Settings",
         "LockScreens"
       ],
-      "state": "done",
+      "state": "in_progress",
       "units": [
         {
           "number": 1,
@@ -413,8 +413,8 @@
             "FolderPickerViewModel.swift",
             "FileCellModel.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 2,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-13T18:51:46-08:00",
+  "updatedAt": "2026-11-13T19:46:45-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",
