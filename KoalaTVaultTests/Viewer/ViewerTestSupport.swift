@@ -189,6 +189,8 @@ final class ViewerGatedStore: VaultStoring {
     }
 
     func moveToTrash(_ item: VaultItem) async throws { try await inner.moveToTrash(item) }
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] { await inner.moveToTrash(items) }
 
     // feature multiple-vaults-duress-password: signature updated
     func remove(_ item: VaultItem) async throws { try await inner.remove(item) }

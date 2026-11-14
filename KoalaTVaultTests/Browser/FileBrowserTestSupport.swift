@@ -179,6 +179,11 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
         try await inner.moveToTrash(item)
     }
 
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        await inner.moveToTrash(items)
+    }
+
     func open(_ item: VaultItem) async throws -> URL { try await inner.open(item) }
     func write(_ data: Data, to item: VaultItem) async throws { try await inner.write(data, to: item) }
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {

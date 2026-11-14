@@ -123,6 +123,12 @@ final class TransferTestStore: VaultStoring {
         try await inner.moveToTrash(item)
     }
 
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        log.append("\(label).moveToTrash:\(items.map(\.id))")
+        return await inner.moveToTrash(items)
+    }
+
     func removeTemporary(_ url: URL) {
         log.append("\(label).removeTemporary:\(url.path)")
         inner.removeTemporary(url)

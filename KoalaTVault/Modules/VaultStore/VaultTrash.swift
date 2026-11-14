@@ -136,6 +136,10 @@ extension LiveVaultStore {
         try autoreleasepool { try unpooledMoveToTrash(item) }
     }
 
+    func moveToTrash(_ items: [VaultItem]) -> [VaultItem.ID: VaultStoreError] {
+        fatalError("Not implemented: LiveVaultStore.moveToTrash (feature multiple-vaults-duress-password)")
+    }
+
     private func unpooledMoveToTrash(_ item: VaultItem) throws {
         let mode = try beginOperation()
         try requireExists(item.diskURL)

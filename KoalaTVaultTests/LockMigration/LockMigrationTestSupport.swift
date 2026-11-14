@@ -214,6 +214,8 @@ final class FakeLeftoverStore: VaultStoring {
     }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw VaultStoreError.notFound }
     func moveToTrash(_ item: VaultItem) async throws {}
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] { [:] }
     func remove(_ item: VaultItem) async throws {}
     func trashContents() async throws -> [VaultItem] { [] }
     func restore(_ trashed: VaultItem) async throws -> VaultItem { throw VaultStoreError.notFound }
