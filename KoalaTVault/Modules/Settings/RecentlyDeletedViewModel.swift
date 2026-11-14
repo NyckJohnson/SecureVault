@@ -51,6 +51,12 @@ final class RecentlyDeletedViewModel: ObservableObject {
     private let onRestore: @MainActor () -> Void
     /// The store is asked about unreadable trash at most once per opening of the screen (one instance).
     private var hasCheckedUnreadableTrash = false
+    /// True only while the rows come from a listing that succeeded and was empty: the empty state shows
+    /// then and never after a listing error.
+    private var lastListingWasEmpty = false
+    /// Counts list changes. A reload applies its result only if nothing changed the list (another reload,
+    /// or a row removed after an action) while it waited, so the newest result wins.
+    private var listGeneration = 0
 
     /// - Parameters:
     ///   - store: the vault store, which holds the trash.
@@ -75,8 +81,8 @@ final class RecentlyDeletedViewModel: ObservableObject {
         Date()
     }
 
-    /// True when the trash holds nothing.
-    var isEmpty: Bool { rows.isEmpty }
+    /// True when the last listing succeeded and the trash held nothing (never after a listing error).
+    var isEmpty: Bool { rows.isEmpty && lastListingWasEmpty }
 
     /// Whether Empty Trash can be chosen.
     var canEmptyTrash: Bool { !rows.isEmpty }
@@ -108,14 +114,20 @@ final class RecentlyDeletedViewModel: ObservableObject {
         isAskingToClearUnreadableTrash = false
     }
 
-    /// Puts the item back and refreshes the browser.
+    /// Puts the item back and refreshes the browser. Its row goes at once, before the list is read again;
+    /// an item already gone (`.notFound`) loses its row with no alert.
     func restore(_ item: VaultItem) async {
         do {
             _ = try await store.restore(item)
+        } catch VaultStoreError.notFound {
+            removeRow(of: item)
+            await load()
+            return
         } catch {
             alerts?.showError(error)
             return
         }
+        removeRow(of: item)
         await load()
         onRestore()
     }
@@ -143,28 +155,56 @@ final class RecentlyDeletedViewModel: ObservableObject {
         case .deletePermanently(let item):
             do {
                 try await store.deletePermanently(item)
+            } catch VaultStoreError.notFound {
+                // Already gone: the row goes like after a success, with no alert.
             } catch {
                 alerts?.showError(error)
                 return
             }
+            removeRow(of: item)
         case .emptyTrash:
             await store.emptyTrash()
+            replaceRows(with: [])
         }
         await load()
     }
 
     // MARK: - Private
 
+    /// Reads the trash. Success replaces the rows; a failure keeps the rows shown and shows the error.
+    /// A result that a newer list change overtook is dropped.
     private func reloadRows() async {
+        listGeneration += 1
+        let generation = listGeneration
         do {
             let items = try await store.trashContents().sorted {
                 ($0.deletedAt ?? $0.dateModified) > ($1.deletedAt ?? $1.dateModified)
             }
+            guard generation == listGeneration else { return }
+            lastListingWasEmpty = items.isEmpty
             rows = items.map(row(for:))
         } catch {
-            rows = []
+            guard generation == listGeneration else { return }
+            if lastListingWasEmpty {
+                // No longer known to be empty: republish the rows so the screen hides the empty state.
+                lastListingWasEmpty = false
+                rows = rows
+            }
             alerts?.showError(error)
         }
+    }
+
+    /// Drops the item's row at once, ahead of the reload that follows an action.
+    private func removeRow(of item: VaultItem) {
+        replaceRows(with: rows.filter { $0.item.id != item.id })
+    }
+
+    /// Changes the rows locally; a reload already in flight was read before this change, so it is dropped.
+    /// The empty state still waits for a listing.
+    private func replaceRows(with newRows: [RecentlyDeletedRow]) {
+        listGeneration += 1
+        lastListingWasEmpty = false
+        rows = newRows
     }
 
     private func row(for item: VaultItem) -> RecentlyDeletedRow {
