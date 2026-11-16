@@ -403,7 +403,7 @@ import Testing
         let task = Task { await viewModel.delete(many) }
         // Bounded wait: a delete that never makes a batch call fails the test instead of hanging it.
         var spins = 0
-        while gated.waitingCount == 0, !task.isCancelled, spins < 200_000 {
+        while gated.waitingCount == 0, spins < 200_000 {
             await Task.yield()
             spins += 1
         }
@@ -413,5 +413,64 @@ import Testing
         await task.value
         #expect(mock.trashBatches.count == 1)
         #expect(alerts.alerts.isEmpty)
+    }
+
+    private struct CancellingRig {
+        let viewModel: FileBrowserViewModel
+        let gated: GatedVaultStore
+        let mock: MockVaultStoring
+        let alerts: MockAlertPresenting
+        var chosen: [VaultItem] {
+            ["Beach.jpg", "Notes.rtf", "Documents"].compactMap { name in mock.allItems.first { $0.name == name } }
+        }
+    }
+
+    private func cancellingRig() -> CancellingRig {
+        let mock = MockVaultStoring(withSampleContent: true)
+        let gated = GatedVaultStore(mock, cancellingMoveAndCopy: true)
+        let alerts = MockAlertPresenting()
+        let viewModel = FileBrowserViewModel(
+            directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
+            exporter: MockVaultExporting(), alerts: alerts,
+            lock: MockVaultLocking(), transfer: MockVaultTransferring())
+        return CancellingRig(viewModel: viewModel, gated: gated, mock: mock, alerts: alerts)
+    }
+
+    @Test("A bulk move cancelled by the store stops, shows no failure, ends select mode and reloads")
+    func cancelledBulkMoveStops() async throws {
+        let rig = cancellingRig()
+        let (viewModel, gated, mock, alerts) = (rig.viewModel, rig.gated, rig.mock, rig.alerts)
+        await viewModel.load()
+        let documents = try #require(try item("Documents", in: mock).asDirectory)
+        let chosen = rig.chosen
+        #expect(chosen.count == 3)
+        viewModel.toggleSelectMode()
+        chosen.forEach { viewModel.toggleSelection(of: $0) }
+        viewModel.beginMove(chosen)
+        let reloadsBefore = mock.calls.count
+        await viewModel.pickerChose(documents)
+        #expect(gated.moveCopyCalls == 1)
+        #expect(alerts.alerts.isEmpty)
+        #expect(!viewModel.isSelecting)
+        #expect(viewModel.selectedItems.isEmpty)
+        #expect(mock.calls.count > reloadsBefore)
+    }
+
+    @Test("A bulk copy cancelled by the store stops, shows no failure, ends select mode and reloads")
+    func cancelledBulkCopyStops() async throws {
+        let rig = cancellingRig()
+        let (viewModel, gated, mock, alerts) = (rig.viewModel, rig.gated, rig.mock, rig.alerts)
+        await viewModel.load()
+        let chosen = rig.chosen
+        #expect(chosen.count == 3)
+        viewModel.toggleSelectMode()
+        chosen.forEach { viewModel.toggleSelection(of: $0) }
+        let reloadsBefore = mock.calls.count
+        await viewModel.copy(chosen)
+        #expect(gated.moveCopyCalls == 1)
+        #expect(alerts.alerts.isEmpty)
+        #expect(!viewModel.isSelecting)
+        #expect(viewModel.selectedItems.isEmpty)
+        #expect(mock.calls.count > reloadsBefore)
     }
 }
