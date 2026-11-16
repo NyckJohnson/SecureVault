@@ -1216,6 +1216,7 @@ reads it, and only whether it is an encrypt; then it clears both keys. Nothing w
 - Batch `moveToTrash`: the same id twice in one call reports an error for an item that was trashed (callers never send duplicates); `relativePath` is worked out per item rather than per source folder; later `hasUnreadableTrash` batches don't re-run `keyMatchesVault` (harmless: `clearUnreadableTrash` re-checks); a batch of 256 trashed folders with deep trees is one long step — VaultTrash.swift, VaultUnreadableTrash.swift — open, minor (large-trash review 2026-11-13)
 - The `.trash`-replaced-by-symlink test moves the real trash beside it inside the vault root (removed with the root by the fixture's clean-up, unverified) — HousekeepingTrashBatchTests.swift — open, minor
 - Recently Deleted: no test asserts that a local row change drops a reload already in flight (the generation bump in `replaceRows`), nor that an overtaken reload's failure shows no alert; after the last row is removed locally (or Empty Trash) the screen is blank until the reload returns (spec-compliant; a flicker at most) — RecentlyDeletedViewModel.swift:206-212 — open, minor (review 2026-11-13)
+- Browser bulk-Delete tests: `cancelledBulkDeleteStops`'s bounded wait checks `!task.isCancelled` needlessly; `GatedVaultStore`'s `cancelAfterHold` / `firstMoveToTrash` may now be unused test support — FileBrowserViewModelBulkTests.swift, FileBrowserTestSupport.swift — open, minor (large-trash review 2026-11-16)
 ## Features
 <!-- Accepted features, oldest first. -->
 
