@@ -119,7 +119,7 @@ final class HeldTransfer: VaultTransferring, @unchecked Sendable {
 
 /// A store that forwards to a `MockVaultStoring` and can hold calls until the test releases them.
 final class GatedVaultStore: VaultStoring, @unchecked Sendable {
-    enum HeldCall { case firstContents, firstMoveToTrash }
+    enum HeldCall { case firstContents, firstMoveToTrash, firstBatchMoveToTrash }
 
     let inner: MockVaultStoring
     private let lock = NSLock()
@@ -127,6 +127,7 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
     private let cancelAfterHold: Bool
     private var contentsCalls = 0
     private var trashCalls = 0
+    private var batchTrashCalls = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
     init(_ inner: MockVaultStoring, holding held: HeldCall? = nil, cancelAfterHold: Bool = false) {
@@ -181,7 +182,12 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
 
     // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
     func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
-        await inner.moveToTrash(items)
+        let number = lock.withLock { () -> Int in
+            batchTrashCalls += 1
+            return batchTrashCalls
+        }
+        if held == .firstBatchMoveToTrash, number == 1 { await hold() }
+        return await inner.moveToTrash(items)
     }
 
     func open(_ item: VaultItem) async throws -> URL { try await inner.open(item) }
