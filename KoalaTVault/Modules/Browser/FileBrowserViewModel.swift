@@ -263,10 +263,24 @@ final class FileBrowserViewModel: ObservableObject {
             title: "Delete \(items.count) items?", message: "The items move to Recently Deleted.")
     }
 
-    /// Moves each item to the trash, leaves select mode and reloads.
+    /// The most items sent to the store's batch `moveToTrash(_:)` in one call.
+    static let trashBatchSize = 256
+
+    /// Moves the items to the trash through the store's batch call, at most `trashBatchSize` per call in
+    /// selection order; then leaves select mode and reloads. Cancellation stops between batches and is not
+    /// a failure. One item failing alone shows its error; otherwise failures across every batch show
+    /// "N of M failed." with the error of the first failed item in selection order.
     func delete(_ items: [VaultItem]) async {
-        let store = store
-        await perform(on: items) { try await store.moveToTrash($0) }
+        var errors: [VaultItem.ID: VaultStoreError] = [:]
+        var start = items.startIndex
+        while start < items.endIndex, !Task.isCancelled {
+            let end = min(start + Self.trashBatchSize, items.endIndex)
+            let batch = Array(items[start..<end])
+            errors.merge(await store.moveToTrash(batch)) { first, _ in first }
+            start = end
+        }
+        let firstError = items.lazy.compactMap { errors[$0.id] }.first
+        await finish(itemCount: items.count, failureCount: errors.count, firstError: firstError)
     }
 
     /// Copies each item into this folder, leaves select mode and reloads.
@@ -460,13 +474,19 @@ final class FileBrowserViewModel: ObservableObject {
                 errors.append(error)
             }
         }
+        await finish(itemCount: items.count, failureCount: errors.count, firstError: errors.first)
+    }
+
+    /// Ends an operation on `itemCount` items: leaves select mode and reloads, then shows the failure, if
+    /// any: one item's own error, or "N of M failed." with the first error.
+    private func finish(itemCount: Int, failureCount: Int, firstError: (any Error)?) async {
         cancelSelection()
-        await load(showingErrors: errors.isEmpty)
-        guard let firstError = errors.first else { return }
-        if items.count == 1 {
+        await load(showingErrors: firstError == nil)
+        guard let firstError else { return }
+        if itemCount == 1 {
             alerts?.showError(firstError)
         } else {
-            alerts?.showError("\(errors.count) of \(items.count) failed. \(firstError.localizedDescription)")
+            alerts?.showError("\(failureCount) of \(itemCount) failed. \(firstError.localizedDescription)")
         }
     }
 }
