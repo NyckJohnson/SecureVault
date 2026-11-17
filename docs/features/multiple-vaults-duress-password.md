@@ -280,3 +280,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   the feature branch; `gates --after-merge`; journeys (`gates --app-ui-tests`, ~45 min, run in background); the
   human's device retest (Recently Deleted with thousands of items; bulk Delete), then acceptance. Paused for the
   weekly usage limit (95%).
+- 2026-11-16 (verify, large trash merged): `fix/large-trash` merged (549e415). Browser unit 1: bulk Delete uses the batch
+  `moveToTrash(_:)`, 256 per call (review pass; the context-menu Delete is a one-item batch). Coverage triage: VaultStore
+  tests added for four missed blocks; Browser: the human chose to keep "a cancelled bulk Move/Copy is not a failure" and
+  spec it (memo + test). Full gates for VaultStore, Settings, Browser and `gates --after-merge` pass. Next: journeys
+  (`gates --app-ui-tests`), then the human's device retest (Recently Deleted with thousands of items; bulk Delete), then
+  acceptance.
