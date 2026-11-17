@@ -119,21 +119,25 @@ final class HeldTransfer: VaultTransferring, @unchecked Sendable {
 
 /// A store that forwards to a `MockVaultStoring` and can hold calls until the test releases them.
 final class GatedVaultStore: VaultStoring, @unchecked Sendable {
-    enum HeldCall { case firstContents, firstMoveToTrash }
+    enum HeldCall { case firstContents, firstBatchMoveToTrash }
 
     let inner: MockVaultStoring
     private let lock = NSLock()
     private let held: HeldCall?
-    private let cancelAfterHold: Bool
+    /// When true, `move` and `copy` throw `CancellationError` (and are counted in `moveCopyCalls`).
+    private let cancellingMoveAndCopy: Bool
+    private var moveCopyCount = 0
     private var contentsCalls = 0
-    private var trashCalls = 0
+    private var batchTrashCalls = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
-    init(_ inner: MockVaultStoring, holding held: HeldCall? = nil, cancelAfterHold: Bool = false) {
+    init(_ inner: MockVaultStoring, holding held: HeldCall? = nil, cancellingMoveAndCopy: Bool = false) {
         self.inner = inner
         self.held = held
-        self.cancelAfterHold = cancelAfterHold
+        self.cancellingMoveAndCopy = cancellingMoveAndCopy
     }
+
+    var moveCopyCalls: Int { lock.withLock { moveCopyCount } }
 
     var waitingCount: Int { lock.withLock { waiting.count } }
 
@@ -167,16 +171,16 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
         return result
     }
 
-    func moveToTrash(_ item: VaultItem) async throws {
+    func moveToTrash(_ item: VaultItem) async throws { try await inner.moveToTrash(item) }
+
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
         let number = lock.withLock { () -> Int in
-            trashCalls += 1
-            return trashCalls
+            batchTrashCalls += 1
+            return batchTrashCalls
         }
-        if held == .firstMoveToTrash, number == 1 {
-            await hold()
-            if cancelAfterHold { throw CancellationError() }
-        }
-        try await inner.moveToTrash(item)
+        if held == .firstBatchMoveToTrash, number == 1 { await hold() }
+        return await inner.moveToTrash(items)
     }
 
     func open(_ item: VaultItem) async throws -> URL { try await inner.open(item) }
@@ -198,10 +202,14 @@ final class GatedVaultStore: VaultStoring, @unchecked Sendable {
         try await inner.findItem(named: name, in: directory)
     }
     func move(_ item: VaultItem, to directory: VaultDirectory) async throws {
+        lock.withLock { moveCopyCount += 1 }
+        if cancellingMoveAndCopy { throw CancellationError() }
         try await inner.move(item, to: directory)
     }
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
-        try await inner.copy(item, to: directory)
+        lock.withLock { moveCopyCount += 1 }
+        if cancellingMoveAndCopy { throw CancellationError() }
+        return try await inner.copy(item, to: directory)
     }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem {
         try await inner.rename(item, to: name)

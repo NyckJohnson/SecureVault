@@ -468,6 +468,7 @@ import UIKit
         let alert = try #require(await rig.host.alert())
         #expect(alert.title == "Delete 2 items?")
         #expect(alert.message?.contains("Recently Deleted") == true)
+        #expect(rig.store.trashBatches.isEmpty)
         #expect(
             !rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
         alert.fire("Delete")
@@ -484,6 +485,7 @@ import UIKit
         let alert = try #require(await rig.host.alert())
         alert.fire("Cancel")
         await BrowserViewSupport.settle()
+        #expect(rig.store.trashBatches.isEmpty)
         #expect(
             !rig.store.calls.contains { if case .moveToTrash = $0 { return true } else { return false } })
     }

@@ -272,3 +272,11 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   human chose the full fix with batch delete (contract change: `moveToTrash(_ items:)`) and "missing file on
   Restore/Delete just removes the row". Order: contract (skeleton-builder, MODE: feature), then VaultStore, Settings,
   Browser; then journeys and the human's device retest.
+- 2026-11-13 (large trash, RESUME HERE): on branch `fix/large-trash`. Done: batch `moveToTrash(_ items:)` contract
+  (snapshot written), VaultStore unit 2 (stored-flag listing, own-file restore probe, missing-file handling, batched
+  trash checks; review pass), Settings unit 1 (Recently Deleted rows update at once, not-found silent, errors never
+  shown as empty; review pass). Next: Browser unit 1 (bulk Delete uses the batch call, 256 per call): test-writer,
+  code-writer, gates, review; then coverage triage and full gates for VaultStore, Settings and Browser; merge into
+  the feature branch; `gates --after-merge`; journeys (`gates --app-ui-tests`, ~45 min, run in background); the
+  human's device retest (Recently Deleted with thousands of items; bulk Delete), then acceptance. Paused for the
+  weekly usage limit (95%).

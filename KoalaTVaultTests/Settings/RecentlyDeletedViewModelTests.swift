@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 
 @testable import KoalaTVault
 
@@ -153,9 +154,9 @@ import Testing
         let rig = try await makeRig(trashing: ["Old.pdf"])
         await rig.viewModel.load()
         let item = try #require(rig.viewModel.rows.first?.item)
-        rig.store.errorToThrow = .notFound
+        rig.store.errorToThrow = .io("Disk error")
         await rig.viewModel.restore(item)
-        #expect(rig.alerts.alerts == [.error(VaultStoreError.notFound.localizedDescription)])
+        #expect(rig.alerts.alerts == [.error(VaultStoreError.io("Disk error").localizedDescription)])
         #expect(rig.restored.values.isEmpty)
         #expect(rig.viewModel.rows.count == 1)
     }
@@ -244,6 +245,170 @@ import Testing
         await rig.viewModel.confirmPending()
         #expect(!rig.store.calls.contains(.emptyTrash))
         #expect(rig.viewModel.rows.count == 1)
+    }
+
+    // MARK: - List updates (large trash)
+
+    /// A view model over a gated store whose trash holds `files`; the gate is open until `hold()`.
+    private struct GatedRig {
+        let viewModel: RecentlyDeletedViewModel
+        let gated: GatedTrashStore
+        let store: MockVaultStoring
+        let alerts: MockAlertPresenting
+        let restored: SettingsRecorder<Void>
+    }
+
+    private func makeGatedRig(trashing files: [String]) async throws -> GatedRig {
+        let store = MockVaultStoring(withSampleContent: false)
+        for name in files {
+            let source = URL(fileURLWithPath: "/nonexistent/source")
+            let item = try await store.addFile(from: source, named: name, to: store.root)
+            try await store.moveToTrash(item)
+        }
+        let gated = GatedTrashStore(store)
+        let alerts = MockAlertPresenting()
+        let restored = SettingsRecorder<Void>()
+        let viewModel = RecentlyDeletedViewModel(
+            store: gated, alerts: alerts, folderAssetAvailable: true, onRestore: { restored.record(()) })
+        await viewModel.load()
+        return GatedRig(viewModel: viewModel, gated: gated, store: store, alerts: alerts, restored: restored)
+    }
+
+    @Test("A successful Restore removes the row before the list is read again, then the reload replaces rows")
+    func restoreRemovesRowAtOnce() async throws {
+        let rig = try await makeGatedRig(trashing: ["Old.pdf", "Keep.pdf"])
+        let item = try #require(rig.viewModel.rows.first { $0.name == "Old.pdf" }?.item)
+        rig.gated.hold()
+        let viewModel = rig.viewModel
+        let action = Task { await viewModel.restore(item) }
+        await rig.gated.waitUntilReloadHeld()
+        #expect(rig.viewModel.rows.map(\.name) == ["Keep.pdf"])
+        // Make the reload differ from the local update, to show that its result replaces the rows.
+        let extra = try await rig.store.addFile(
+            from: URL(fileURLWithPath: "/nonexistent/source"), named: "Late.pdf", to: rig.store.root)
+        try await rig.store.moveToTrash(extra)
+        rig.gated.release()
+        await action.value
+        #expect(rig.viewModel.rows.map(\.name).sorted() == ["Keep.pdf", "Late.pdf"])
+        #expect(rig.restored.values.count == 1)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A successful Delete Permanently removes the row before the list is read again")
+    func deleteRemovesRowAtOnce() async throws {
+        let rig = try await makeGatedRig(trashing: ["Old.pdf", "Keep.pdf"])
+        let item = try #require(rig.viewModel.rows.first { $0.name == "Old.pdf" }?.item)
+        rig.viewModel.requestDelete(item)
+        rig.gated.hold()
+        let viewModel = rig.viewModel
+        let action = Task { await viewModel.confirmPending() }
+        await rig.gated.waitUntilReloadHeld()
+        #expect(rig.viewModel.rows.map(\.name) == ["Keep.pdf"])
+        rig.gated.release()
+        await action.value
+        #expect(rig.viewModel.rows.map(\.name) == ["Keep.pdf"])
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A successful Empty Trash empties the rows before the list is read again")
+    func emptyTrashEmptiesRowsAtOnce() async throws {
+        let rig = try await makeGatedRig(trashing: ["Old.pdf", "Keep.pdf"])
+        rig.viewModel.requestEmptyTrash()
+        rig.gated.hold()
+        let viewModel = rig.viewModel
+        let action = Task { await viewModel.confirmPending() }
+        await rig.gated.waitUntilReloadHeld()
+        #expect(rig.viewModel.rows.isEmpty)
+        rig.gated.release()
+        await action.value
+        #expect(rig.viewModel.rows.isEmpty)
+    }
+
+    @Test("Restore of an item that is already gone removes its row and shows no alert")
+    func restoreNotFoundRemovesRowSilently() async throws {
+        let rig = try await makeRig(trashing: ["Gone.pdf", "Keep.pdf"])
+        await rig.viewModel.load()
+        let item = try #require(rig.viewModel.rows.first { $0.name == "Gone.pdf" }?.item)
+        try await rig.store.deletePermanently(item)
+        await rig.viewModel.restore(item)
+        #expect(rig.viewModel.rows.map(\.name) == ["Keep.pdf"])
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("Delete Permanently of an item that is already gone removes its row and shows no alert")
+    func deleteNotFoundRemovesRowSilently() async throws {
+        let rig = try await makeRig(trashing: ["Gone.pdf", "Keep.pdf"])
+        await rig.viewModel.load()
+        let item = try #require(rig.viewModel.rows.first { $0.name == "Gone.pdf" }?.item)
+        try await rig.store.deletePermanently(item)
+        rig.viewModel.requestDelete(item)
+        await rig.viewModel.confirmPending()
+        #expect(rig.viewModel.rows.map(\.name) == ["Keep.pdf"])
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("A listing error on a reload keeps the rows already shown and shows the error")
+    func reloadErrorKeepsRows() async throws {
+        let rig = try await makeRig(trashing: ["Old.pdf", "Keep.pdf"])
+        await rig.viewModel.load()
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        #expect(rig.viewModel.rows.map(\.name).sorted() == ["Keep.pdf", "Old.pdf"])
+        #expect(rig.alerts.alerts == [.error(VaultStoreError.locked.localizedDescription)])
+        #expect(!rig.viewModel.isEmpty)
+        #expect(rig.viewModel.canEmptyTrash)
+    }
+
+    @Test("A listing error on the first load does not show the empty state and keeps Empty Trash disabled")
+    func firstLoadErrorIsNotEmpty() async throws {
+        let rig = try await makeRig(trashing: ["Old.pdf"])
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        #expect(rig.alerts.alerts == [.error(VaultStoreError.locked.localizedDescription)])
+        #expect(!rig.viewModel.isEmpty)
+        #expect(!rig.viewModel.canEmptyTrash)
+    }
+
+    @Test("The empty state shows after a later successful empty listing following an error")
+    func emptyStateAfterSuccessfulEmptyListing() async throws {
+        let rig = try await makeRig()
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        rig.store.errorToThrow = nil
+        await rig.viewModel.load()
+        #expect(rig.viewModel.isEmpty)
+        #expect(!rig.viewModel.canEmptyTrash)
+    }
+
+    @Test("Overlapping reloads: the newest listing wins over an older one that finishes later")
+    func newestReloadWins() async throws {
+        let rig = try await makeGatedRig(trashing: ["Old.pdf"])
+        let viewModel = rig.viewModel
+        // The first reload reads the trash now (only Old.pdf) but finishes later.
+        rig.gated.holdNextReadingFirst()
+        let stale = Task { await viewModel.load() }
+        await rig.gated.waitUntilReloadHeld()
+        let extra = try await rig.store.addFile(
+            from: URL(fileURLWithPath: "/nonexistent/source"), named: "New.pdf", to: rig.store.root)
+        try await rig.store.moveToTrash(extra)
+        let fresh = Task { await viewModel.load() }
+        await SettingsTestSupport.waitUntil { viewModel.rows.count == 2 }
+        rig.gated.release()
+        await stale.value
+        await fresh.value
+        #expect(rig.viewModel.rows.map(\.name).sorted() == ["New.pdf", "Old.pdf"])
+    }
+
+    @Test("A listing error after an empty listing hides the empty state and shows the error")
+    func errorAfterEmptyListingHidesEmptyState() async throws {
+        let rig = try await makeRig()
+        await rig.viewModel.load()
+        #expect(rig.viewModel.isEmpty)
+        rig.store.errorToThrow = .locked
+        await rig.viewModel.load()
+        #expect(!rig.viewModel.isEmpty)
+        #expect(!rig.viewModel.canEmptyTrash)
+        #expect(rig.alerts.alerts == [.error(VaultStoreError.locked.localizedDescription)])
     }
 
     // MARK: - Errors
@@ -365,4 +530,115 @@ import Testing
         await reopened.load()
         #expect(reopened.isAskingToClearUnreadableTrash)
     }
+}
+
+/// Forwards every call to `base`; while held, `trashContents()` waits (after reading nothing) until released.
+private final class GatedTrashStore: VaultStoring {
+    private struct Gate {
+        var held = false
+        var readFirstNext = false
+        var waiting: [CheckedContinuation<Void, Never>] = []
+    }
+    private let base: MockVaultStoring
+    private let gate = OSAllocatedUnfairLock(initialState: Gate())
+
+    init(_ base: MockVaultStoring) { self.base = base }
+
+    func hold() { gate.withLock { $0.held = true } }
+
+    /// The next `trashContents()` reads the trash at once, then waits for `release()` before returning
+    /// that (by then stale) listing; later calls are not held.
+    func holdNextReadingFirst() { gate.withLock { $0.readFirstNext = true } }
+
+    func release() {
+        let waiting = gate.withLock { gate in
+            gate.held = false
+            defer { gate.waiting = [] }
+            return gate.waiting
+        }
+        for continuation in waiting { continuation.resume() }
+    }
+
+    /// Returns once a `trashContents()` call is waiting at the gate.
+    func waitUntilReloadHeld() async {
+        for _ in 0..<10_000 {
+            if gate.withLock({ !$0.waiting.isEmpty }) { return }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
+    func trashContents() async throws -> [VaultItem] {
+        if gate.withLock({ gate -> Bool in
+            defer { gate.readFirstNext = false }
+            return gate.readFirstNext
+        }) {
+            let snapshot = try await base.trashContents()
+            await withCheckedContinuation { continuation in gate.withLock { $0.waiting.append(continuation) } }
+            return snapshot
+        }
+        await withCheckedContinuation { continuation in
+            let resumeNow = gate.withLock { gate -> Bool in
+                if gate.held {
+                    gate.waiting.append(continuation)
+                    return false
+                }
+                return true
+            }
+            if resumeNow { continuation.resume() }
+        }
+        return try await base.trashContents()
+    }
+
+    var root: VaultDirectory { base.root }
+    var isEncrypted: Bool { base.isEncrypted }
+    func contents(of dir: VaultDirectory, sortedBy key: SortOption, _ way: SortDirection) async throws -> [VaultItem] {
+        try await base.contents(of: dir, sortedBy: key, way)
+    }
+    func open(_ item: VaultItem) async throws -> URL { try await base.open(item) }
+    func write(_ data: Data, to item: VaultItem) async throws { try await base.write(data, to: item) }
+    func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await base.createFolder(named: name, in: directory)
+    }
+    func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
+        try await base.createDocument(named: name, in: directory)
+    }
+    func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
+        try await base.addFile(from: source, named: name, to: directory)
+    }
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        try await base.addFiles(files, to: directory)
+    }
+    func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        try await base.findItem(named: name, in: directory)
+    }
+    func move(_ item: VaultItem, to directory: VaultDirectory) async throws {
+        try await base.move(item, to: directory)
+    }
+    func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem {
+        try await base.copy(item, to: directory)
+    }
+    func rename(_ item: VaultItem, to name: String) async throws -> VaultItem {
+        try await base.rename(item, to: name)
+    }
+    func moveToTrash(_ item: VaultItem) async throws { try await base.moveToTrash(item) }
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        await base.moveToTrash(items)
+    }
+    func remove(_ item: VaultItem) async throws { try await base.remove(item) }
+    func restore(_ trashed: VaultItem) async throws -> VaultItem { try await base.restore(trashed) }
+    func deletePermanently(_ trashed: VaultItem) async throws { try await base.deletePermanently(trashed) }
+    func emptyTrash() async { await base.emptyTrash() }
+    func purgeExpiredTrash(now: Date) async throws -> Int { try await base.purgeExpiredTrash(now: now) }
+    func hasUnreadableTrash() async -> Bool { await base.hasUnreadableTrash() }
+    func clearUnreadableTrash() async throws { try await base.clearUnreadableTrash() }
+    func countFiles() async throws -> Int { try await base.countFiles() }
+    func itemsToEncrypt() async throws -> [VaultItem] { try await base.itemsToEncrypt() }
+    func migrateToEncrypted(_ item: VaultItem) async throws { try await base.migrateToEncrypted(item) }
+    func finishEncryption() async throws { try await base.finishEncryption() }
+    func hasUnencryptedFiles() async throws -> Bool { try await base.hasUnencryptedFiles() }
+    func keyMatchesVault() async -> Bool { await base.keyMatchesVault() }
+    func sweepOrphans() async { await base.sweepOrphans() }
+    func makeTempDirectory() throws -> URL { try base.makeTempDirectory() }
+    func removeTemporary(_ url: URL) { base.removeTemporary(url) }
+    func removeAllTemporaryFiles() { base.removeAllTemporaryFiles() }
 }

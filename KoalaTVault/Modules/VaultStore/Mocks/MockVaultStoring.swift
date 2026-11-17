@@ -21,6 +21,8 @@ final class MockVaultStoring: VaultStoring {
         case copy(String, destination: String)
         case rename(String, newName: String)
         case moveToTrash(String)
+        /// One batch `moveToTrash(_:)` call: the ids of its items, in order.
+        case moveToTrashItems([String])
         case remove(String)
         case trashContents
         case restore(String)
@@ -49,6 +51,7 @@ final class MockVaultStoring: VaultStoring {
         var tempDirectories: [URL] = []
         var calls: [Call] = []
         var errorToThrow: VaultStoreError?
+        var trashErrors: [String: VaultStoreError] = [:]
         var keyMatches = true
         var unreadableTrash = false
     }
@@ -78,6 +81,22 @@ final class MockVaultStoring: VaultStoring {
     var errorToThrow: VaultStoreError? {
         get { state.withLock { $0.errorToThrow } }
         set { state.withLock { $0.errorToThrow = newValue } }
+    }
+
+    /// Errors the batch `moveToTrash(_:)` returns for these item ids; those items stay where they are.
+    var trashErrors: [String: VaultStoreError] {
+        get { state.withLock { $0.trashErrors } }
+        set { state.withLock { $0.trashErrors = newValue } }
+    }
+
+    /// Every batch `moveToTrash(_:)` call so far: the ids of its items, in order.
+    var trashBatches: [[String]] {
+        state.withLock { state in
+            state.calls.compactMap { call in
+                if case .moveToTrashItems(let ids) = call { return ids }
+                return nil
+            }
+        }
     }
 
     /// What `keyMatchesVault()` returns.
@@ -228,17 +247,42 @@ final class MockVaultStoring: VaultStoring {
 
     func moveToTrash(_ item: VaultItem) async throws {
         try record(.moveToTrash(item.id)) { state in
-            guard state.items.contains(where: { $0.id == item.id }) else { throw VaultStoreError.notFound }
-            let trashURL = self.root.rootURL.appendingPathComponent(
-                ".trash/\(UUID().uuidString)", isDirectory: item.isDirectory)
-            let trashed = Self.modified(item) { fields in
-                fields.diskURL = trashURL
-                fields.deletedAt = Date()
-            }
-            state.items.removeAll { Self.isSameOrDescendant($0.diskURL, of: item.diskURL) }
-            state.trash.append(trashed)
-            state.trashOrigins[trashed.id] = item.diskURL.deletingLastPathComponent()
+            try self.trash(item, in: &state)
         }
+    }
+
+    /// Trashes each item as the single call does; an item with a scripted `trashErrors` entry, or any item while
+    /// `errorToThrow` is set, stays and gets that error; an unknown item gets `.notFound`.
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        state.withLock { state in
+            state.calls.append(.moveToTrashItems(items.map(\.id)))
+            var errors: [VaultItem.ID: VaultStoreError] = [:]
+            for item in items {
+                if let error = state.errorToThrow ?? state.trashErrors[item.id] {
+                    errors[item.id] = error
+                    continue
+                }
+                do throws(VaultStoreError) {
+                    try trash(item, in: &state)
+                } catch {
+                    errors[item.id] = error
+                }
+            }
+            return errors
+        }
+    }
+
+    private func trash(_ item: VaultItem, in state: inout State) throws(VaultStoreError) {
+        guard state.items.contains(where: { $0.id == item.id }) else { throw VaultStoreError.notFound }
+        let trashURL = root.rootURL.appendingPathComponent(
+            ".trash/\(UUID().uuidString)", isDirectory: item.isDirectory)
+        let trashed = Self.modified(item) { fields in
+            fields.diskURL = trashURL
+            fields.deletedAt = Date()
+        }
+        state.items.removeAll { Self.isSameOrDescendant($0.diskURL, of: item.diskURL) }
+        state.trash.append(trashed)
+        state.trashOrigins[trashed.id] = item.diskURL.deletingLastPathComponent()
     }
 
     func remove(_ item: VaultItem) async throws {

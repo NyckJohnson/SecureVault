@@ -81,6 +81,9 @@ protocol VaultStoring: Sendable {
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem
     /// Moves the item to the trash.
     func moveToTrash(_ item: VaultItem) async throws
+    /// Moves many items to the trash in one step, writing the trash index once; returns the error of each item that
+    /// stayed where it was, keyed by its id (empty: all trashed).
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError]
     /// Deletes the item (a folder with its whole tree) for good, never into the trash.
     func remove(_ item: VaultItem) async throws
     /// Every item in the trash.

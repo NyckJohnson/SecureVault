@@ -169,6 +169,10 @@ final class ExportTestStore: VaultStoring, @unchecked Sendable {
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem { throw unsupported }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw unsupported }
     func moveToTrash(_ item: VaultItem) async throws { throw unsupported }
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        Dictionary(items.map { ($0.id, unsupported) }, uniquingKeysWith: { first, _ in first })
+    }
     // feature multiple-vaults-duress-password: signature updated
     func remove(_ item: VaultItem) async throws { throw unsupported }
     func trashContents() async throws -> [VaultItem] { throw unsupported }

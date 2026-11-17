@@ -47,6 +47,7 @@
 - `VaultStoring: func migrateToEncrypted(_ item: VaultItem) async throws`
 - `VaultStoring: func move(_ item: VaultItem, to directory: VaultDirectory) async throws`
 - `VaultStoring: func moveToTrash(_ item: VaultItem) async throws`
+- `VaultStoring: func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError]`
 - `VaultStoring: func open(_ item: VaultItem) async throws -> URL`
 - `VaultStoring: func purgeExpiredTrash(now: Date) async throws -> Int`
 - `VaultStoring: func remove(_ item: VaultItem) async throws`

@@ -304,6 +304,7 @@ nonisolated struct SlowMigrationVaultStore: VaultStoring {
     }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { try await base.rename(item, to: name) }
     func moveToTrash(_ item: VaultItem) async throws { try await base.moveToTrash(item) }
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] { await base.moveToTrash(items) }
     func remove(_ item: VaultItem) async throws { try await base.remove(item) }
     func trashContents() async throws -> [VaultItem] { try await base.trashContents() }
     func restore(_ trashed: VaultItem) async throws -> VaultItem { try await base.restore(trashed) }

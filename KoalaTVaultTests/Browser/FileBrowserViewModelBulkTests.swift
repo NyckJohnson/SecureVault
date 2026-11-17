@@ -24,9 +24,9 @@ import Testing
         await rig.viewModel.load()
         let two = try ["Beach.jpg", "Notes.rtf"].map { try item($0, in: rig.store) }
         await rig.viewModel.delete(two)
-        #expect(rig.store.calls.contains(.moveToTrash("Beach.jpg")))
-        #expect(rig.store.calls.contains(.moveToTrash("Notes.rtf")))
+        #expect(rig.store.trashBatches == [two.map(\.id)])
         #expect(!rig.viewModel.items.map(\.name).contains("Beach.jpg"))
+        #expect(!rig.viewModel.items.map(\.name).contains("Notes.rtf"))
         #expect(rig.alerts.alerts.isEmpty)
     }
 
@@ -36,7 +36,8 @@ import Testing
         await rig.viewModel.load()
         let items = [try item("Beach.jpg", in: rig.store), ghost("Missing.txt", store: rig.store)]
         await rig.viewModel.delete(items)
-        #expect(rig.store.calls.contains(.moveToTrash("Beach.jpg")))
+        #expect(rig.store.trashBatches == [items.map(\.id)])
+        #expect(!rig.viewModel.items.map(\.name).contains("Beach.jpg"))
         #expect(errorMessages(rig.alerts).contains { $0.contains("1 of 2 failed") })
     }
 
@@ -48,6 +49,130 @@ import Testing
         rig.store.errorToThrow = .io("disk")
         await rig.viewModel.delete(items)
         #expect(errorMessages(rig.alerts).contains { $0.contains("2 of 2 failed") })
+    }
+
+    // MARK: - Bulk delete batching (large trash, 2026-11-13)
+
+    /// Creates `count` empty documents in the store's root, in order.
+    private func makeFiles(_ count: Int, in store: MockVaultStoring) async throws -> [VaultItem] {
+        var items: [VaultItem] = []
+        for index in 0..<count {
+            items.append(try await store.createDocument(named: "File \(index).txt", in: store.root))
+        }
+        return items
+    }
+
+    @Test("Bulk delete uses the batch trash call and never the single-item one")
+    func deleteUsesBatchCallOnly() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let two = try ["Beach.jpg", "Notes.rtf"].map { try item($0, in: rig.store) }
+        await rig.viewModel.delete(two)
+        #expect(!rig.store.calls.contains { if case .moveToTrash = $0 { true } else { false } })
+        #expect(rig.store.trashBatches.count == 1)
+    }
+
+    @Test("A selection is sent in selection order, not store order")
+    func deleteKeepsSelectionOrder() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let chosen = try ["Notes.rtf", "Beach.jpg", "Holiday.mov"].map { try item($0, in: rig.store) }
+        await rig.viewModel.delete(chosen)
+        #expect(rig.store.trashBatches == [chosen.map(\.id)])
+    }
+
+    @Test("Deleting nothing makes no store call and shows nothing")
+    func deleteEmptySelection() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        await rig.viewModel.delete([])
+        #expect(rig.store.trashBatches.isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("Selections up to 256 items go in one batch", arguments: [1, 255, 256])
+    func deleteSmallSelectionOneBatch(count: Int) async throws {
+        let rig = try makeRig(withSampleContent: false)
+        let items = try await makeFiles(count, in: rig.store)
+        await rig.viewModel.load()
+        await rig.viewModel.delete(items)
+        #expect(rig.store.trashBatches == [items.map(\.id)])
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("257 items go in batches of 256 and 1")
+    func deleteJustOverOneBatch() async throws {
+        let rig = try makeRig(withSampleContent: false)
+        let items = try await makeFiles(257, in: rig.store)
+        await rig.viewModel.load()
+        await rig.viewModel.delete(items)
+        #expect(rig.store.trashBatches.map(\.count) == [256, 1])
+    }
+
+    @Test("600 items go in batches of 256, 256 and 88, in selection order, then the grid reloads")
+    func deleteLargeSelectionInBatches() async throws {
+        let rig = try makeRig(withSampleContent: false)
+        let items = try await makeFiles(600, in: rig.store)
+        await rig.viewModel.load()
+        #expect(rig.viewModel.items.count == 600)
+        await rig.viewModel.delete(items)
+        let batches = rig.store.trashBatches
+        #expect(batches.map(\.count) == [256, 256, 88])
+        #expect(batches.flatMap { $0 } == items.map(\.id))
+        #expect(rig.viewModel.items.isEmpty)
+        #expect(rig.alerts.alerts.isEmpty)
+    }
+
+    @Test("Failures from every batch are counted together as N of M")
+    func deleteCountsFailuresAcrossBatches() async throws {
+        let rig = try makeRig(withSampleContent: false)
+        let items = try await makeFiles(600, in: rig.store)
+        await rig.viewModel.load()
+        rig.store.trashErrors = [
+            items[10].id: .io("disk first"), items[300].id: .io("disk second"), items[590].id: .io("disk third"),
+        ]
+        await rig.viewModel.delete(items)
+        let messages = errorMessages(rig.alerts)
+        #expect(messages.count == 1)
+        #expect(messages.first?.contains("3 of 600 failed") == true)
+        #expect(rig.viewModel.items.count == 3)
+    }
+
+    @Test("The message shows the first failed item's error in selection order, even from a later batch")
+    func deleteShowsFirstFailureFromLaterBatch() async throws {
+        let rig = try makeRig(withSampleContent: false)
+        let items = try await makeFiles(600, in: rig.store)
+        await rig.viewModel.load()
+        rig.store.trashErrors = [items[590].id: .io("disk late"), items[300].id: .io("disk middle")]
+        await rig.viewModel.delete(items)
+        let message = try #require(errorMessages(rig.alerts).first)
+        #expect(message.contains("2 of 600 failed"))
+        #expect(message.contains("disk middle"))
+        #expect(!message.contains("disk late"))
+    }
+
+    @Test("The first failure is by selection order, not by the order of the returned errors")
+    func deleteFirstFailureBySelectionOrder() async throws {
+        let rig = try makeRig()
+        await rig.viewModel.load()
+        let beach = try item("Beach.jpg", in: rig.store)
+        let notes = try item("Notes.rtf", in: rig.store)
+        let holiday = try item("Holiday.mov", in: rig.store)
+        rig.store.trashErrors = [holiday.id: .io("disk holiday"), notes.id: .io("disk notes")]
+        await rig.viewModel.delete([holiday, beach, notes])
+        let message = try #require(errorMessages(rig.alerts).first)
+        #expect(message.contains("2 of 3 failed"))
+        #expect(message.contains("disk holiday"))
+        #expect(!message.contains("disk notes"))
+    }
+
+    @Test("No failures means no failure message after a multi-batch delete")
+    func deleteNoFailureMessage() async throws {
+        let rig = try makeRig(withSampleContent: false)
+        let items = try await makeFiles(300, in: rig.store)
+        await rig.viewModel.load()
+        await rig.viewModel.delete(items)
+        #expect(errorMessages(rig.alerts).isEmpty)
     }
 
     // MARK: - Copy
@@ -264,43 +389,88 @@ import Testing
         store.calls.filter { if case .moveToTrash = $0 { true } else { false } }.count
     }
 
-    @Test("Cancelling a bulk delete stops before the remaining items and shows no failure")
+    @Test("Cancelling a bulk delete stops before the remaining batches and shows no failure")
     func cancelledBulkDeleteStops() async throws {
         let mock = MockVaultStoring()
-        let gated = GatedVaultStore(mock, holding: .firstMoveToTrash)
+        let gated = GatedVaultStore(mock, holding: .firstBatchMoveToTrash)
         let alerts = MockAlertPresenting()
         let viewModel = FileBrowserViewModel(
             directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
             exporter: MockVaultExporting(), alerts: alerts,
             lock: MockVaultLocking(), transfer: MockVaultTransferring())
         await viewModel.load()
-        let three = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: mock) }
-        let task = Task { await viewModel.delete(three) }
-        while gated.waitingCount == 0 { await Task.yield() }
+        let many = try await makeFiles(600, in: mock)
+        let task = Task { await viewModel.delete(many) }
+        // Bounded wait: a delete that never makes a batch call fails the test instead of hanging it.
+        var spins = 0
+        while gated.waitingCount == 0, spins < 200_000 {
+            await Task.yield()
+            spins += 1
+        }
+        #expect(gated.waitingCount == 1)
         task.cancel()
         gated.releaseAll()
         await task.value
-        #expect(trashCalls(mock) == 1)
+        #expect(mock.trashBatches.count == 1)
         #expect(alerts.alerts.isEmpty)
     }
 
-    @Test("A cancellation error from the store is not counted as a failure and stops the rest")
-    func cancellationErrorNotAFailure() async throws {
-        let mock = MockVaultStoring()
-        let gated = GatedVaultStore(mock, holding: .firstMoveToTrash, cancelAfterHold: true)
+    private struct CancellingRig {
+        let viewModel: FileBrowserViewModel
+        let gated: GatedVaultStore
+        let mock: MockVaultStoring
+        let alerts: MockAlertPresenting
+        var chosen: [VaultItem] {
+            ["Beach.jpg", "Notes.rtf", "Documents"].compactMap { name in mock.allItems.first { $0.name == name } }
+        }
+    }
+
+    private func cancellingRig() -> CancellingRig {
+        let mock = MockVaultStoring(withSampleContent: true)
+        let gated = GatedVaultStore(mock, cancellingMoveAndCopy: true)
         let alerts = MockAlertPresenting()
         let viewModel = FileBrowserViewModel(
             directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
             exporter: MockVaultExporting(), alerts: alerts,
             lock: MockVaultLocking(), transfer: MockVaultTransferring())
+        return CancellingRig(viewModel: viewModel, gated: gated, mock: mock, alerts: alerts)
+    }
+
+    @Test("A bulk move cancelled by the store stops, shows no failure, ends select mode and reloads")
+    func cancelledBulkMoveStops() async throws {
+        let rig = cancellingRig()
+        let (viewModel, gated, mock, alerts) = (rig.viewModel, rig.gated, rig.mock, rig.alerts)
         await viewModel.load()
-        let three = try ["Beach.jpg", "Holiday.mov", "Notes.rtf"].map { try item($0, in: mock) }
-        let task = Task { await viewModel.delete(three) }
-        while gated.waitingCount == 0 { await Task.yield() }
-        task.cancel()
-        gated.releaseAll()
-        await task.value
-        #expect(trashCalls(mock) == 0)
+        let documents = try #require(try item("Documents", in: mock).asDirectory)
+        let chosen = rig.chosen
+        #expect(chosen.count == 3)
+        viewModel.toggleSelectMode()
+        chosen.forEach { viewModel.toggleSelection(of: $0) }
+        viewModel.beginMove(chosen)
+        let reloadsBefore = mock.calls.count
+        await viewModel.pickerChose(documents)
+        #expect(gated.moveCopyCalls == 1)
         #expect(alerts.alerts.isEmpty)
+        #expect(!viewModel.isSelecting)
+        #expect(viewModel.selectedItems.isEmpty)
+        #expect(mock.calls.count > reloadsBefore)
+    }
+
+    @Test("A bulk copy cancelled by the store stops, shows no failure, ends select mode and reloads")
+    func cancelledBulkCopyStops() async throws {
+        let rig = cancellingRig()
+        let (viewModel, gated, mock, alerts) = (rig.viewModel, rig.gated, rig.mock, rig.alerts)
+        await viewModel.load()
+        let chosen = rig.chosen
+        #expect(chosen.count == 3)
+        viewModel.toggleSelectMode()
+        chosen.forEach { viewModel.toggleSelection(of: $0) }
+        let reloadsBefore = mock.calls.count
+        await viewModel.copy(chosen)
+        #expect(gated.moveCopyCalls == 1)
+        #expect(alerts.alerts.isEmpty)
+        #expect(!viewModel.isSelecting)
+        #expect(viewModel.selectedItems.isEmpty)
+        #expect(mock.calls.count > reloadsBefore)
     }
 }

@@ -10,9 +10,10 @@ import Foundation
 /// The trash is encrypted too: trash items are converted in place and keep their trash id; folders in the
 /// trash are walked like any other folder. A kill between a trash item's map update and its file replace
 /// leaves the entry's flag disagreeing with the file. That is harmless because a file's real form is always
-/// read from its SVC5 header (`fileForm(at:)`), never from an index or trash-entry flag alone: listings,
-/// and the encrypt steps use the real form and correct the entry, and the next step on that item removes its
-/// leftover hidden `.<id>.migrating` staging file and converts it from the untouched original.
+/// read from its SVC5 header (`fileForm(at:)`), never from an index or trash-entry flag alone, wherever it
+/// matters: restore checks its own file, the plaintext checks read each file's header, and the encrypt steps
+/// use the real form and correct the entry; the next step on that item removes its leftover hidden
+/// `.<id>.migrating` staging file and converts it from the untouched original.
 ///
 /// Steps run without suspending, so each is one serialized step on the actor. `hasUnencryptedFiles()` differs:
 /// it suspends between folders and between batches of a large folder's files (never inside a batch), so
@@ -59,8 +60,9 @@ extension LiveVaultStore {
     /// file's SVC5 header as `itemsToEncrypt()` judges it; stops at the first one found.
     ///
     /// Works in small steps, so housekeeping never holds up browsing: the root's folders breadth-first (the root
-    /// itself in the first step, then every folder one level down, and so on), then the trash (its map and its
-    /// files as one step), then the folders in the trash, breadth-first. A folder's files are checked in batches
+    /// itself in the first step, then every folder one level down, and so on), then the trash (its map read in
+    /// one step, its files checked in batches as a folder's are), then the folders in the trash, breadth-first.
+    /// A trash file's form is read through a probe of its leading bytes. A folder's files are checked in batches
     /// of at most `plaintextCheckBatchSize`, each its own step; the folder is listed once, in its first batch's
     /// step, and the subfolders found there are queued. Each step checks the mode again and has no suspension
     /// inside it; the check suspends only between steps, where other store operations may run. A folder removed
@@ -94,6 +96,8 @@ extension LiveVaultStore {
         var folders: HousekeepingQueue<VaultDirectory>
         /// The files of the folder being checked that no batch has reached yet; nil between folders.
         var unchecked: ArraySlice<VaultItem>?
+        /// Whether `unchecked` holds top-level trash files (with their entries' stored flags).
+        var uncheckedInTrash = false
         var trashChecked = false
     }
 
@@ -116,18 +120,24 @@ extension LiveVaultStore {
                 let items = try plaintextCheckListing(folder, mode: mode, isRoot: isRoot)
                 walk.folders.enqueue(items.compactMap(\.asDirectory))
                 walk.unchecked = ArraySlice(items.filter { !$0.isDirectory })
+                walk.uncheckedInTrash = false
             }
             if let files = walk.unchecked {
                 let batch = files.prefix(Self.plaintextCheckBatchSize)
-                if try containsPlaintext(batch) { return .found }
+                if try walk.uncheckedInTrash ? containsPlaintextTrashFile(batch) : containsPlaintext(batch) {
+                    return .found
+                }
                 let rest = files.dropFirst(batch.count)
                 walk.unchecked = rest.isEmpty ? nil : rest
                 return .unfinished
             }
             guard !walk.trashChecked else { return .clean }
             walk.trashChecked = true
-            let items = trashItems(map: try correctedTrashMap(trashMap.read(mode: mode)))
-            if items.contains(where: { !$0.isDirectory && !$0.isEncrypted }) { return .found }
+            // The trash's files are checked in batches like a folder's, then the folders in it.
+            let items = trashItems(map: try trashMap.read(mode: mode))
+            let files = items.filter { !$0.isDirectory }
+            walk.unchecked = files.isEmpty ? nil : ArraySlice(files)
+            walk.uncheckedInTrash = true
             walk.folders = HousekeepingQueue(items.compactMap(\.asDirectory))
             return .unfinished
         }
@@ -163,6 +173,37 @@ extension LiveVaultStore {
             } catch {
                 // Removed since the folder was listed (before or during its check): nothing left to judge.
                 if FileManager.default.fileExists(atPath: item.diskURL.path) { throw error }
+            }
+        }
+        return false
+    }
+
+    /// One trash batch of `hasUnencryptedFiles()`: whether any of the top-level trash `files` is plaintext,
+    /// stopping at the first one. Each file's form comes from its SVC5 header, read through a probe (one header
+    /// read per file), where that is conclusive, as `correctedTrashMap` judges it; otherwise (not a regular file,
+    /// an undetermined header) the entry's stored flag stands. A file gone by its batch is skipped. Never suspends.
+    /// - Throws: the form check's error for a file that still exists (`.locked`, `.io`).
+    private func containsPlaintextTrashFile(_ files: ArraySlice<VaultItem>) throws -> Bool {
+        let probe = TrashFileProbe(store: self)
+        defer { probe.close() }
+        for item in files {
+            guard let type = Self.fileType(item.diskURL) else { continue }
+            guard type == .typeRegular else {
+                if !item.isEncrypted { return true }
+                continue
+            }
+            let form: FileForm
+            do {
+                form = try fileForm(at: item.diskURL, probe: probe)
+            } catch {
+                // Removed while it was checked: nothing left to judge.
+                if Self.fileType(item.diskURL) == nil { continue }
+                throw error
+            }
+            switch form {
+            case .plaintext: return true
+            case .encrypted: continue
+            case .undetermined: if !item.isEncrypted { return true }
             }
         }
         return false
@@ -228,10 +269,10 @@ extension LiveVaultStore {
 
     /// `map` with each trash file's `isEncrypted` set from the file's real form where its header is conclusive.
     ///
-    /// Encrypt steps pass `strict: true`: a file whose form can't be read stops them. Listing and restore pass
-    /// `strict: false`: such a file keeps its stored flag, so one unreadable trash file never hides the others.
-    /// - Throws: with `strict`, `.locked` without the key, `.io` when a trash file can't be read.
-    func correctedTrashMap(_ map: [String: VaultTrashEntry], strict: Bool = true) throws -> [String: VaultTrashEntry] {
+    /// Strict, for the encrypt steps: a file whose form can't be read stops them. (The trash listing uses the
+    /// stored flags and restore checks only its own file, so neither reads the whole trash.)
+    /// - Throws: `.locked` without the key, `.io` when a trash file can't be read.
+    func correctedTrashMap(_ map: [String: VaultTrashEntry]) throws -> [String: VaultTrashEntry] {
         var result = map
         // Trash files are judged on copies of bytes the store reads itself; the cipher never opens them.
         let probe = TrashFileProbe(store: self)
@@ -239,15 +280,7 @@ extension LiveVaultStore {
         for (trashName, entry) in map where VaultTrashMap.isItemName(trashName) {
             let url = trashMap.folderURL.appendingPathComponent(trashName)
             guard Self.isRegularFile(url) else { continue }
-            let form: FileForm
-            do {
-                form = try fileForm(at: url, probe: probe)
-            } catch {
-                guard !strict else { throw error }
-                // Best-effort for listing and restore: the stored flag stands for a file that can't be checked.
-                continue
-            }
-            switch form {
+            switch try fileForm(at: url, probe: probe) {
             case .encrypted where !entry.isEncrypted: result[trashName]?.isEncrypted = true
             case .plaintext where entry.isEncrypted: result[trashName]?.isEncrypted = false
             default: break
