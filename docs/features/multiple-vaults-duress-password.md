@@ -286,3 +286,7 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   spec it (memo + test). Full gates for VaultStore, Settings, Browser and `gates --after-merge` pass. Next: journeys
   (`gates --app-ui-tests`), then the human's device retest (Recently Deleted with thousands of items; bulk Delete), then
   acceptance.
+- 2026-11-16 (verify, RESUME HERE): after the large-trash merge, all journeys pass (`--app-ui-tests`). Next: the human's
+  device retest (Recently Deleted with thousands of items: opens quickly, Restore/Delete removes the row at once; bulk
+  Delete of many items from select mode), then acceptance. The human's app-icon rename (koalaT → koalatvault) is in
+  `git stash` ("interrupted step (app icon rename …)"), to restore or commit when the human says.
