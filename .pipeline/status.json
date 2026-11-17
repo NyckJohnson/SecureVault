@@ -1,7 +1,7 @@
 {
   "stage": 6,
-  "paused": true,
-  "pauseReason": "device retest",
+  "paused": false,
+  "pauseReason": null,
   "checkpoints": {
     "outline-approved": "2026-10-24T13:06:36-07:00",
     "setup": "2026-10-24T13:39:18-07:00",
@@ -118,7 +118,7 @@
             "Views/AlertPresenting.swift",
             "Views/UIViewController+Topmost.swift"
           ],
-          "state": "done",
+          "state": "pending",
           "attempts": 0
         }
       ]
@@ -423,8 +423,8 @@
             "Views/FileCell.swift",
             "Views/FolderPickerViewController.swift"
           ],
-          "state": "done",
-          "attempts": 1
+          "state": "pending",
+          "attempts": 0
         },
         {
           "number": 3,
@@ -438,7 +438,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-16T17:07:46-08:00",
+  "updatedAt": "2026-11-16T17:55:16-08:00",
   "features": [
     {
       "slug": "accessibility-and-dynamic-type",

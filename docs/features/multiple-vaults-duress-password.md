@@ -290,3 +290,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   device retest (Recently Deleted with thousands of items: opens quickly, Restore/Delete removes the row at once; bulk
   Delete of many items from select mode), then acceptance. The human's new app icon / logo image (koalatvault.png) is
   committed on the feature branch (47ea62d).
+- 2026-11-16 (device test notes, RESUME HERE): the human's `docs/Notes.rtf`. Decided: one folder size (the larger,
+  pre-thumbnail one; thumbnail requested at the icon area's size); selection no longer reloads the grid (no flicker);
+  no long-press menu in select mode; `FileIconMapping.swift` deleted (SharedUI unit 1); right-side bar buttons become a
+  named menu (Select stays a button); select mode's actions, Move/Copy to Vault included, in a ☰ menu ("To Vault" never
+  appeared on the phone). Branch `fix/browser-notes`; SharedUI unit 1 then Browser unit 2 reopened; journeys that tap
+  the old bar buttons are updated in verify. Large-trash device retest result not yet reported by the human.
