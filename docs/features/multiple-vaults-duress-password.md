@@ -296,3 +296,9 @@ the vault it belongs to, a second vault doubles as a duress (decoy) vault.
   named menu (Select stays a button); select mode's actions, Move/Copy to Vault included, in a ☰ menu ("To Vault" never
   appeared on the phone). Branch `fix/browser-notes`; SharedUI unit 1 then Browser unit 2 reopened; journeys that tap
   the old bar buttons are updated in verify. Large-trash device retest result not yet reported by the human.
+- 2026-11-16 (verify, RESUME HERE): device-test notes merged (`fix/browser-notes`, 911b5c2): SharedUI unit 1 (empty file
+  deleted) and Browser unit 2 (bar menus, select-mode ☰ menu with Move/Copy to Vault, no long press in select mode,
+  no reload on selection, one folder size) done; review minors logged (unbounded thumbnail cache now holds larger
+  folder thumbnails; stale width after rotation; FileBrowserViewController at 900 lines). Full gates, after-merge
+  gates and all journeys (123 UI tests) pass. Next: the human's device retest (these notes + the large-trash retest
+  still unreported), then acceptance.
