@@ -50,7 +50,7 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
     // MARK: - Editor
 
     func testJourney5_NewDocumentOpensEditorWithToolbarAndDoneCloses() {
-        app.navigationBars.buttons["browser.newDocumentButton"].tap()
+        tapNewDocumentMenuEntry()
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Notes", into: alert.textFields["browser.newDocumentNameField"])
@@ -82,7 +82,7 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
     }
 
     func testJourney5_AutosavesOneSecondAfterTyping() {
-        app.navigationBars.buttons["browser.newDocumentButton"].tap()
+        tapNewDocumentMenuEntry()
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Auto", into: alert.textFields["browser.newDocumentNameField"])

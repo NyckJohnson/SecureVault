@@ -162,6 +162,42 @@ class JourneyTestCase: XCTestCase {
                 file: file, line: line)
     }
 
+
+    // MARK: - Bar menus (device test 2026-11-16)
+
+    /// Opens a bar menu button (identifier) and taps the entry found by identifier, then by title.
+    private func tapMenuEntry(menuButton: String, identifier: String, title: String,
+                              file: StaticString, line: UInt) {
+        let menu = app.buttons[menuButton]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "\(menuButton) missing", file: file, line: line)
+        menu.tap()
+        let candidates: [XCUIElement] = [
+            app.buttons[identifier], app.menuItems[identifier],
+            app.buttons[title], app.menuItems[title]
+        ]
+        for candidate in candidates where candidate.waitForExistence(timeout: 2) {
+            candidate.tap()
+            return
+        }
+        XCTFail("No menu entry \(identifier) / \(title). UI: \(app.debugDescription)", file: file, line: line)
+    }
+
+    /// Opens the ☰ Actions menu (outside select mode) and taps an entry: New Folder, New Document, Import, Sort.
+    func tapActionsMenuEntry(_ identifier: String, title: String,
+                             file: StaticString = #filePath, line: UInt = #line) {
+        tapMenuEntry(menuButton: "browser.actionsMenuButton", identifier: identifier, title: title, file: file, line: line)
+    }
+
+    /// Opens the select-mode ☰ Actions menu and taps an entry (Move, Copy, Export, Move/Copy to Vault…, Delete).
+    func tapSelectActionsMenuEntry(_ identifier: String, title: String,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        tapMenuEntry(menuButton: "browser.selectActionsMenuButton", identifier: identifier, title: title, file: file, line: line)
+    }
+
+    func tapNewDocumentMenuEntry(file: StaticString = #filePath, line: UInt = #line) {
+        tapActionsMenuEntry("browser.menu.newDocument", title: "New Document", file: file, line: line)
+    }
+
     // MARK: - Alerts
 
     /// Taps a `UIAlertAction` button (found by label; alert actions cannot take identifiers).
@@ -207,9 +243,7 @@ class JourneyTestCase: XCTestCase {
 
     /// Creates a document through New Document and closes the editor with Done. Returns once the cell shows.
     func createDocument(named name: String, text: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
-        let button = app.navigationBars.buttons["browser.newDocumentButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "New Document button missing", file: file, line: line)
-        button.tap()
+        tapNewDocumentMenuEntry(file: file, line: line)
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Document alert missing", file: file, line: line)
         type(name, into: alert.textFields["browser.newDocumentNameField"], file: file, line: line)
@@ -287,9 +321,7 @@ class JourneyTestCase: XCTestCase {
     /// `resultingFileName`, optionally types `text`, taps Done and waits for that cell.
     func createDocument(named name: String, resultingFileName: String, text: String? = nil,
                         file: StaticString = #filePath, line: UInt = #line) {
-        let button = app.navigationBars.buttons["browser.newDocumentButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "New Document button missing", file: file, line: line)
-        button.tap()
+        tapNewDocumentMenuEntry(file: file, line: line)
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Document alert missing", file: file, line: line)
         type(name, into: alert.textFields["browser.newDocumentNameField"], file: file, line: line)
@@ -308,7 +340,7 @@ class JourneyTestCase: XCTestCase {
 
     /// Creates a folder through New Folder (the button may be in the overflow menu).
     func createFolderViaBar(named name: String, file: StaticString = #filePath, line: UInt = #line) {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder", file: file, line: line)
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder", file: file, line: line)
         let alert = app.alerts["New Folder"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Folder alert missing", file: file, line: line)
         type(name, into: alert.textFields["browser.newFolderNameField"], file: file, line: line)

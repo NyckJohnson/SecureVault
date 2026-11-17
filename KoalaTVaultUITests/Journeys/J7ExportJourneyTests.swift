@@ -82,7 +82,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
         XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5))
         cell(seedName).tap()
         XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
+        tapSelectActionsMenuEntry("browser.menu.bulkExport", title: "Export")
         assertExportSheetOffersFilesNotCameraRoll()
         exportSheet.buttons["Save to Files"].tap()
         assertPickerThenCancel()
@@ -90,7 +90,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
     /// Folders in a selection are skipped: a file plus a folder still exports (the sheet appears).
     func testJourney7_FolderInSelectionDoesNotBlockExportOfFile() {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder")
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder")
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Docs", into: alert.textFields["browser.newFolderNameField"])
@@ -101,7 +101,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
         cell("Docs").tap()
         cell(seedName).tap()
         XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
+        tapSelectActionsMenuEntry("browser.menu.bulkExport", title: "Export")
         assertExportSheetOffersFilesNotCameraRoll()
         exportSheet.buttons["Save to Files"].tap()
         assertPickerThenCancel()
@@ -185,7 +185,7 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell(seedName).tap()
         XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
+        tapSelectActionsMenuEntry("browser.menu.bulkExport", title: "Export")
         chooseSaveToFiles()
         assertPickerOffersThenCancel(name: seedName)
     }

@@ -95,14 +95,15 @@ final class J11TransferBetweenVaultsJourneyTests: JourneyTestCase {
 
     // MARK: - Select mode
 
-    func testJourney11_SelectModeToVaultOffersMoveCopyAndCancel() {
+    func testJourney11_SelectModeMenuOffersMoveAndCopyToVault() {
         openUnencryptedVault()
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell(seedName).tap()
         XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkVaultButton", fallbackLabel: "To Vault")
+        app.buttons["browser.selectActionsMenuButton"].tap()
         XCTAssertTrue(app.buttons["Move to Vault…"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Copy to Vault…"].exists)
+        XCTAssertFalse(app.buttons["To Vault"].exists, "The To Vault button is gone")
         app.buttons["Copy to Vault…"].tap()
         usePickedVault(password: Self.password)
         expectPickerClosed()

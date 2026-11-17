@@ -24,7 +24,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
 
     /// Starts New Folder and returns the alert (the caller types and confirms).
     private func openNewFolderAlert() -> XCUIElement {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder")
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder")
         let alert = app.alerts["New Folder"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "The New Folder alert did not appear")
         return alert
@@ -80,9 +80,15 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell(seedName).staticTexts["browser.cell.\(seedName).sizeLabel"].exists)
         XCTAssertTrue(app.buttons["settingsButton"].exists, "Gear should show on the root")
         XCTAssertTrue(app.buttons["selectButton"].exists)
-        XCTAssertTrue(app.buttons["sortButton"].exists)
-        XCTAssertTrue(app.buttons["importButton"].exists)
-        XCTAssertTrue(app.buttons["browser.newDocumentButton"].exists)
+        XCTAssertTrue(app.buttons["browser.actionsMenuButton"].exists)
+        app.buttons["browser.actionsMenuButton"].tap()
+        for title in ["New Folder", "New Document", "Import", "Sort"] {
+            XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5), "Actions menu lacks \(title)")
+        }
+        app.buttons["New Folder"].firstMatch.tap()  // dismiss by opening an alert, then cancel
+        let alert = app.alerts["New Folder"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        tapAlertButton("Cancel", in: alert)
         XCTAssertFalse(app.staticTexts["browser.emptyStateLabel"].exists)
     }
 
@@ -176,7 +182,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
     // MARK: - Sort
 
     func testJourney3_SortSheetListsOptionsAndTappingCurrentFlipsDirection() {
-        app.buttons["sortButton"].tap()
+        tapActionsMenuEntry("browser.menu.sort", title: "Sort")
         let sheet = app.sheets.firstMatch
         XCTAssertTrue(sheet.waitForExistence(timeout: 5), "The sort sheet did not appear")
         XCTAssertTrue(sheet.buttons["Name ↑"].exists, "Name should be the current option, ascending")
@@ -186,7 +192,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         sheet.buttons["Name ↑"].tap()
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
 
-        app.buttons["sortButton"].tap()
+        tapActionsMenuEntry("browser.menu.sort", title: "Sort")
         XCTAssertTrue(app.sheets.firstMatch.buttons["Name ↓"].waitForExistence(timeout: 5),
                       "Tapping the current option should flip it to descending")
     }
@@ -196,7 +202,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         // Folders first; within files, name ascending then descending.
         let ascending = cell("alpha.txt").frame.minX
         _ = ascending
-        app.buttons["sortButton"].tap()
+        tapActionsMenuEntry("browser.menu.sort", title: "Sort")
         app.sheets.firstMatch.buttons["Name ↑"].tap()
         XCTAssertTrue(cell("alpha.txt").waitForExistence(timeout: 5))
         let a = cell("Alpha").frame, b = cell("Beta").frame
@@ -342,7 +348,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         cell(seedName).tap()
         cell("Pics").tap()
         XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkCopyButton", fallbackLabel: "Copy")
+        tapSelectActionsMenuEntry("browser.menu.bulkCopy", title: "Copy")
         XCTAssertTrue(cell("alpha 1.txt").waitForExistence(timeout: 5))
         XCTAssertTrue(cell("Pics 1").waitForExistence(timeout: 5))
     }
@@ -353,7 +359,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         enterSelectMode()
         cell(seedName).tap()
         cell("Other").tap()
-        tapBarButton("browser.bulkMoveButton", fallbackLabel: "Move")
+        tapSelectActionsMenuEntry("browser.menu.bulkMove", title: "Move")
         pickMoveTarget("Dest")
         XCTAssertTrue(cell(seedName).waitForNonExistence(timeout: 5))
         XCTAssertFalse(cell("Other").exists)
@@ -366,7 +372,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
     func testJourney3_BulkDeleteRemovesSelectedItemsAfterConfirm() {
         enterSelectMode()
         cell(seedName).tap()
-        tapBarButton("browser.bulkDeleteButton", fallbackLabel: "Delete")
+        tapSelectActionsMenuEntry("browser.menu.bulkDelete", title: "Delete")
         let confirm = app.alerts.firstMatch.exists ? app.alerts.firstMatch : app.sheets.firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Delete should ask for confirmation")
         tapAlertButton("Delete", in: confirm)
@@ -401,7 +407,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         cell("A.rtf").tap()
         cell("B.rtf").tap()
         XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkMoveButton", fallbackLabel: "Move")
+        tapSelectActionsMenuEntry("browser.menu.bulkMove", title: "Move")
         let cancel = app.buttons["folderPicker.cancelButton"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 5), "The folder picker did not appear")
         cancel.tap()
@@ -421,7 +427,7 @@ final class J3BrowseJourneyTests: JourneyTestCase {
         enterSelectMode()
         cell("A.rtf").tap()
         cell("B.rtf").tap()
-        tapBarButton("browser.bulkMoveButton", fallbackLabel: "Move")
+        tapSelectActionsMenuEntry("browser.menu.bulkMove", title: "Move")
         let moveHere = app.buttons["folderPicker.moveHereButton"]
         XCTAssertTrue(moveHere.waitForExistence(timeout: 5), "The folder picker did not appear")
         let window = app.windows.firstMatch

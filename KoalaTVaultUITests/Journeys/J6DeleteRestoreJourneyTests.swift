@@ -69,7 +69,7 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         cell(seedName).tap()
         cell("Second.rtf").tap()
         XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
-        app.buttons["browser.bulkDeleteButton"].tap()
+        tapSelectActionsMenuEntry("browser.menu.bulkDelete", title: "Delete")
         let alert = app.alerts["Delete 2 items?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "Bulk delete needs a confirm")
         tapAlertButton("Delete", in: alert)
@@ -174,7 +174,7 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
 
     /// Restoring when the original folder is gone recreates it.
     func testJourney6_RestoreWhenOriginalFolderGoneRecreatesIt() {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder")
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder")
         let alert = app.alerts["New Folder"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Box", into: alert.textFields["browser.newFolderNameField"])
