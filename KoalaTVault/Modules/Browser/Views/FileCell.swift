@@ -100,13 +100,26 @@ final class FileCell: UICollectionViewCell {
         checkmark.accessibilityIdentifier = "browser.cell.\(item.name).checkmark"
 
         let scale = traitCollection.displayScale
+        let size = item.isDirectory ? folderThumbnailSize() : Self.fileThumbnailSize
         thumbnailTask = Task { [weak self, model] in
-            let image = await model.thumbnail(size: CGSize(width: 40, height: 40), scale: scale)
+            let image = await model.thumbnail(size: size, scale: scale)
             // The model drops a thumbnail for an item the cell no longer shows; a new model means the same.
             guard let self, let image, !Task.isCancelled, self.model === model else { return }
             self.thumbnailView.image = image
             self.thumbnailView.contentMode = .scaleAspectFit
         }
+    }
+
+    /// The size a file's thumbnail is asked for.
+    private static let fileThumbnailSize = CGSize(width: 40, height: 40)
+
+    /// A folder's thumbnail is asked for at the icon area's laid-out size, so the folder drawn in it lines up
+    /// with the plain folder icon fitted to the same area (memo, Browser "Folder icon size"). A cell configured
+    /// before its first layout is laid out first.
+    private func folderThumbnailSize() -> CGSize {
+        if thumbnailView.bounds.isEmpty { layoutIfNeeded() }
+        let size = thumbnailView.bounds.size
+        return size.width > 0 && size.height > 0 ? size : Self.fileThumbnailSize
     }
 
     /// Shows the select-mode checkmark when the item is chosen, and dims unchosen items in select mode.

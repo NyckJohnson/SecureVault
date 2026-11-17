@@ -33,14 +33,6 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
     private let nameLabel = UILabel()
     /// "<" (Back, pops one folder) in a subfolder; "< lock" (Lock, calls `onLock`) on a vault's root.
     private lazy var arrowButton = BrowserTitleArrow(showsLock: viewModel.showsLockButton)
-    private lazy var sortButton = makeButton(
-        image: "arrow.up.arrow.down", id: "sortButton", action: #selector(sortTapped))
-    private lazy var newFolderButton = makeButton(
-        image: "folder.badge.plus", id: "newFolderButton", action: #selector(newFolderTapped))
-    private lazy var newDocumentButton = makeButton(
-        image: "doc.badge.plus", id: "browser.newDocumentButton", action: #selector(newDocumentTapped))
-    private lazy var importButton = makeButton(
-        image: "square.and.arrow.down", id: "importButton", action: #selector(importTapped))
     private lazy var selectButton: UIBarButtonItem = {
         let button = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(selectTapped))
         button.accessibilityIdentifier = "selectButton"
@@ -53,29 +45,41 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         button.accessibilityIdentifier = "browser.cancelSelectButton"
         return button
     }()
-    private lazy var bulkDeleteButton: UIBarButtonItem = {
-        let button = makeButton(image: "trash", id: "browser.bulkDeleteButton", action: #selector(bulkDeleteTapped))
-        button.tintColor = .systemRed
-        return button
-    }()
-    private lazy var bulkMoveButton = makeButton(
-        image: "arrow.right.circle", id: "browser.bulkMoveButton", action: #selector(bulkMoveTapped))
-    private lazy var bulkExportButton = makeButton(
-        image: "square.and.arrow.up", id: "browser.bulkExportButton", action: #selector(bulkExportTapped))
-    private lazy var bulkCopyButton = makeButton(
-        image: "doc.on.doc", id: "browser.bulkCopyButton", action: #selector(bulkCopyTapped))
-    private lazy var bulkVaultButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(
-            title: "To Vault", style: .plain, target: self, action: #selector(bulkVaultTapped))
-        button.accessibilityIdentifier = "browser.bulkVaultButton"
-        return button
-    }()
+    /// Outside select mode: the menu of New Folder, New Document, Import and Sort (memo, Browser "Bar menus").
+    private lazy var actionsMenuButton = makeMenuButton(
+        id: "browser.actionsMenuButton",
+        entries: [
+            menuEntry("New Folder", "folder.badge.plus", "browser.menu.newFolder") { $0.newFolderChosen() },
+            menuEntry("New Document", "doc.badge.plus", "browser.menu.newDocument") { $0.newDocumentChosen() },
+            menuEntry("Import", "square.and.arrow.down", "browser.menu.import") { $0.importChosen() },
+            menuEntry("Sort", "arrow.up.arrow.down", "browser.menu.sort") { $0.sortChosen() },
+        ])
+    /// In select mode, the only right-side button: the menu of the bulk actions, Delete last.
+    private lazy var selectActionsMenuButton = makeMenuButton(
+        id: "browser.selectActionsMenuButton",
+        entries: [
+            menuEntry("Move", "folder", "browser.menu.bulkMove") { $0.bulkMoveChosen() },
+            menuEntry("Copy", "doc.on.doc", "browser.menu.bulkCopy") { $0.bulkCopyChosen() },
+            menuEntry("Export", "square.and.arrow.up", "browser.menu.bulkExport") { $0.bulkExportChosen() },
+            menuEntry("Move to Vault…", "arrow.right.square", "browser.menu.moveToVault") {
+                $0.bulkVaultChosen(isMove: true)
+            },
+            menuEntry("Copy to Vault…", "plus.square.on.square", "browser.menu.copyToVault") {
+                $0.bulkVaultChosen(isMove: false)
+            },
+            menuEntry("Delete", "trash", "browser.menu.bulkDelete", attributes: .destructive) {
+                $0.bulkDeleteChosen()
+            },
+        ])
     /// The transfer's progress overlay while one runs.
     private var transferOverlay: ProgressOverlayView?
 
     /// The items the grid shows: the view model's items as of the last render, so the grid's counts and
     /// cells always agree with each other.
     private var shownItems: [VaultItem] = []
+    /// Whether the grid was last drawn in select mode; a render that only changes the selection then updates
+    /// the visible cells' checkmarks in place instead of reloading the grid.
+    private var shownInSelectMode = false
     /// Whether the bundle has the folder image the icons prefer.
     private let folderAssetAvailable: Bool
     /// The navigation controller whose edge-swipe back gesture this browser answers for, and the gesture's
@@ -310,6 +314,30 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         return button
     }
 
+    /// A bar button whose menu opens on every tap (no primary action), labelled "Actions".
+    private func makeMenuButton(id: String, entries: [UIAction]) -> UIBarButtonItem {
+        let button = UIBarButtonItem(
+            title: nil, image: UIImage(systemName: "line.3.horizontal"), primaryAction: nil,
+            menu: UIMenu(children: entries))
+        button.accessibilityIdentifier = id
+        button.accessibilityLabel = "Actions"
+        return button
+    }
+
+    /// A bar-menu entry: its name beside its symbol, running `handler` on this browser.
+    private func menuEntry(
+        _ title: String, _ symbol: String, _ id: String, attributes: UIMenuElement.Attributes = [],
+        handler: @escaping @MainActor (FileBrowserViewController) -> Void
+    ) -> UIAction {
+        UIAction(
+            title: title, image: UIImage(systemName: symbol), identifier: UIAction.Identifier(id),
+            attributes: attributes
+        ) { [weak self] _ in
+            guard let self else { return }
+            handler(self)
+        }
+    }
+
     // MARK: - Binding
 
     private func bindViewModel() {
@@ -338,27 +366,39 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         arrowButton.isAccessibilityElement = !selecting
         if viewModel.isSelecting {
             navigationItem.leftBarButtonItems = [cancelSelectButton]
-            let bulkButtons = [bulkDeleteButton, bulkMoveButton, bulkExportButton, bulkCopyButton, bulkVaultButton]
-            navigationItem.rightBarButtonItems = bulkButtons
-            let hasSelection = !viewModel.selectedItems.isEmpty
-            for button in bulkButtons {
-                button.isEnabled = hasSelection
-            }
+            navigationItem.rightBarButtonItems = [selectActionsMenuButton]
+            selectActionsMenuButton.isEnabled = !viewModel.selectedItems.isEmpty
         } else {
             var leftButtons: [UIBarButtonItem] = []
             if viewModel.showsSettingsButton { leftButtons.append(settingsButton) }
             navigationItem.leftBarButtonItems = leftButtons
-            navigationItem.rightBarButtonItems = [
-                newFolderButton, newDocumentButton, importButton, sortButton, selectButton,
-            ]
+            navigationItem.rightBarButtonItems = [actionsMenuButton, selectButton]
         }
 
-        shownItems = viewModel.items
-        collectionView.reloadData()
-        collectionView.layoutIfNeeded()
+        // Toggling a selection changes neither the items nor the mode: update the checkmarks and dimming in
+        // place, so no cell redraws its icon or thumbnail (memo, Browser "Select mode and long press").
+        if selecting && shownInSelectMode && shownItems == viewModel.items {
+            updateVisibleSelection()
+        } else {
+            shownItems = viewModel.items
+            shownInSelectMode = selecting
+            collectionView.reloadData()
+            collectionView.layoutIfNeeded()
+        }
 
         emptyStateLabel.text = viewModel.emptyStateMessage
         emptyStateLabel.isHidden = viewModel.emptyStateMessage == nil
+    }
+
+    /// Shows each visible cell's selection as the view model has it; cells scrolled in later get it from
+    /// the data source.
+    private func updateVisibleSelection() {
+        let selectedIDs = Set(viewModel.selectedItems.map(\.id))
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard let cell = collectionView.cellForItem(at: indexPath) as? FileCell, let item = item(at: indexPath)
+            else { continue }
+            cell.setSelected(selectedIDs.contains(item.id), inSelectMode: true)
+        }
     }
 
     private func item(at indexPath: IndexPath?) -> VaultItem? {
@@ -421,7 +461,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
-    @objc private func sortTapped() {
+    private func sortChosen() {
         let sheet = UIAlertController(title: "Sort By", message: nil, preferredStyle: .actionSheet)
         for option in SortOption.allCases {
             var title = option.displayName
@@ -434,11 +474,11 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
                 })
         }
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        sheet.popoverPresentationController?.barButtonItem = sortButton
+        sheet.popoverPresentationController?.barButtonItem = actionsMenuButton
         present(sheet, animated: true)
     }
 
-    @objc private func newFolderTapped() {
+    private func newFolderChosen() {
         presentNamePrompt(
             title: "New Folder", placeholder: "Folder name", fieldID: "browser.newFolderNameField"
         ) { [weak self] name in
@@ -446,7 +486,7 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
-    @objc private func newDocumentTapped() {
+    private func newDocumentChosen() {
         presentNamePrompt(
             title: "New Document", placeholder: "Document name", fieldID: "browser.newDocumentNameField"
         ) { [weak self] name in
@@ -454,9 +494,9 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         }
     }
 
-    @objc private func importTapped() {
+    private func importChosen() {
         importPresenter.presentImportSheet(
-            into: directory, from: self, anchor: .barButton(importButton),
+            into: directory, from: self, anchor: .barButton(actionsMenuButton),
             onLimitReached: { [weak self] in
                 guard let self else { return }
                 self.present(self.settingsFactory.makePaywall(onUnlock: {}), animated: true)
@@ -474,45 +514,35 @@ final class FileBrowserViewController: UIViewController, AlertPresenting {
         viewModel.cancelSelection()
     }
 
-    @objc private func bulkDeleteTapped() {
+    private func bulkDeleteChosen() {
         let selected = viewModel.selectedItems
         guard !selected.isEmpty else { return }
         confirmDelete(selected)
     }
 
-    @objc private func bulkMoveTapped() {
+    private func bulkMoveChosen() {
         let selected = viewModel.selectedItems
         guard !selected.isEmpty else { return }
         viewModel.beginMove(selected)
     }
 
-    @objc private func bulkExportTapped() {
+    private func bulkExportChosen() {
         let selected = viewModel.selectedItems
         guard !selected.isEmpty else { return }
-        exportPresenter.presentExportSheet(for: selected, from: self, anchor: .barButton(bulkExportButton))
+        exportPresenter.presentExportSheet(for: selected, from: self, anchor: .barButton(selectActionsMenuButton))
     }
 
-    @objc private func bulkCopyTapped() {
+    private func bulkCopyChosen() {
         let selected = viewModel.selectedItems
         guard !selected.isEmpty else { return }
         Task { await viewModel.copy(selected) }
     }
 
-    @objc private func bulkVaultTapped() {
+    /// Move to Vault… / Copy to Vault…: straight to the vault picker, no sheet in between.
+    private func bulkVaultChosen(isMove: Bool) {
         let selected = viewModel.selectedItems
         guard !selected.isEmpty else { return }
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(
-            UIAlertAction(title: "Move to Vault…", style: .default) { [weak self] _ in
-                self?.viewModel.beginVaultTransfer(selected, isMove: true)
-            })
-        sheet.addAction(
-            UIAlertAction(title: "Copy to Vault…", style: .default) { [weak self] _ in
-                self?.viewModel.beginVaultTransfer(selected, isMove: false)
-            })
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        sheet.popoverPresentationController?.barButtonItem = bulkVaultButton
-        present(sheet, animated: true)
+        viewModel.beginVaultTransfer(selected, isMove: isMove)
     }
 
     // MARK: - Prompts
@@ -691,15 +721,16 @@ extension FileBrowserViewController: UICollectionViewDelegate {
         }
     }
 
-    /// One item gets its context menu; an empty or multi-item press gets none (there is no
+    /// One item gets its context menu outside select mode; an empty or multi-item press gets none (there is no
     /// multi-item menu). The willDisplay/willEnd methods below serve this API as well.
     func collectionView(
         _ collectionView: UICollectionView, contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard indexPaths.count == 1, let indexPath = indexPaths.first, let item = item(at: indexPath) else {
-            return nil
-        }
+        // In select mode a long press gives no menu; a tap still toggles the cell.
+        guard !viewModel.isSelecting, indexPaths.count == 1, let indexPath = indexPaths.first,
+            let item = item(at: indexPath)
+        else { return nil }
         let actions = viewModel.contextActions(for: item)
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             self?.menu(for: item, actions: actions, at: indexPath)
@@ -867,34 +898,3 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
         }
     }
 }
-
-/// What the browser needs for the Lock button and Move/Copy to Vault (feature multiple-vaults-duress-password):
-/// the app's vaults, the transfer between them, and the Lock action the shell gives.
-@MainActor
-struct BrowserVaultServices {
-    let lock: any VaultLocking
-    let transfer: any VaultTransferring
-    let onLock: () -> Void
-}
-
-#if DEBUG
-    @available(iOS 17.0, *)
-    #Preview("Browser: root of an encrypted vault, Lock button") {
-        let store = MockVaultStoring(name: "Travel", isEncrypted: true)
-        let exporter = MockVaultExporting()
-        let lock = MockVaultLocking(
-            vaults: [MockVaultLocking.Vault(id: "primary", name: "My Vault", password: "correct horse")], isPro: true)
-        let browser = FileBrowserViewController(
-            directory: store.root, store: store, preferences: MockPreferencesStoring(),
-            thumbnails: MockThumbnailProviding(), exporter: exporter,
-            exportPresenter: ExportPresenter(exporter: exporter),
-            importPresenter: ImportPresenter(
-                importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
-            viewerFactory: MockViewerFactory(), settingsFactory: MockSettingsFactory(),
-            vaultServices: BrowserVaultServices(
-                lock: lock, transfer: MockVaultTransferring(), onLock: {}))
-        let navigation = UINavigationController(rootViewController: browser)
-        navigation.navigationBar.prefersLargeTitles = true
-        return navigation
-    }
-#endif

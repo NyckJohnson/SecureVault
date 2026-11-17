@@ -282,12 +282,15 @@ extension FileBrowserViewControllerTests {
         #expect(ids == ["settingsButton"])
     }
 
-    @Test("The right-side bar buttons are unchanged on the root")
+    @Test("The root's right side holds Select and the actions menu button")
     func rightItemsUnchanged() async throws {
         let rig = try await makeRig()
         let ids = TitleRow.barIdentifiers(of: rig.controller)
-        for id in ["sortButton", "newFolderButton", "browser.newDocumentButton", "importButton", "selectButton"] {
+        for id in ["selectButton", "browser.actionsMenuButton"] {
             #expect(ids.contains(id), "missing \(id)")
+        }
+        for id in ["sortButton", "newFolderButton", "browser.newDocumentButton", "importButton"] {
+            #expect(!ids.contains(id), "\(id) should be a menu entry now")
         }
     }
 

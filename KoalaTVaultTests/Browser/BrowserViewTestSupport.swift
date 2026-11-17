@@ -170,12 +170,15 @@ extension UIAlertController {
 final class BrowserFakeThumbnails: ThumbnailProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var requestedIDs: [String] = []
+    private var requestedSizes: [String: [CGSize]] = [:]
     private var cancelledIDs: [String] = []
     private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
     private var held: Set<String> = []
     private var images: [String: UIImage] = [:]
 
     func requested() -> [String] { lock.withLock { requestedIDs } }
+    /// The sizes asked for the item's thumbnail, in request order.
+    func sizes(for id: String) -> [CGSize] { lock.withLock { requestedSizes[id] ?? [] } }
     func cancelled() -> [String] { lock.withLock { cancelledIDs } }
 
     /// The image this fake returns for the item, made on first use.
@@ -207,6 +210,7 @@ final class BrowserFakeThumbnails: ThumbnailProviding, @unchecked Sendable {
     func thumbnail(for item: VaultItem, size: CGSize, scale: CGFloat) async -> UIImage? {
         let shouldHold = lock.withLock { () -> Bool in
             requestedIDs.append(item.id)
+            requestedSizes[item.id, default: []].append(size)
             return held.contains(item.id)
         }
         if shouldHold {

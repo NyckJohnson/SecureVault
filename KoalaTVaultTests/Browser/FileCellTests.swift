@@ -90,4 +90,70 @@ import UIKit
         #expect(BrowserViewHost.texts(in: cell).contains("Tax Return 2025.pdf"))
         #expect(!BrowserViewHost.texts(in: cell).contains("Beach.jpg"))
     }
+
+    // MARK: - Folder icon size (device test 2026-11-16)
+
+    private func laidOutCell() -> FileCell {
+        let cell = makeCell()
+        cell.layoutIfNeeded()
+        return cell
+    }
+
+    @Test("A folder cell asks for its thumbnail at the size of its icon area, not 40 by 40")
+    func folderThumbnailRequestedAtIconAreaSize() async throws {
+        let thumbnails = BrowserFakeThumbnails()
+        let cell = laidOutCell()
+        let item = try sampleItem("Photos")
+        cell.configure(with: item, thumbnails: thumbnails, folderAssetAvailable: true)
+        await BrowserViewSupport.waitUntil { !thumbnails.sizes(for: item.id).isEmpty }
+        let size = try #require(thumbnails.sizes(for: item.id).first)
+        cell.layoutIfNeeded()
+        #expect(size != CGSize(width: 40, height: 40))
+        #expect(size.width > 40 && size.height > 40)
+        #expect(size == cell.thumbnailView.bounds.size)
+    }
+
+    @Test("A folder's plain icon and its thumbnail occupy the same frame")
+    func folderIconAndThumbnailShareFrame() async throws {
+        let thumbnails = BrowserFakeThumbnails()
+        let cell = laidOutCell()
+        let item = try sampleItem("Photos")
+        thumbnails.hold(item.id)
+        cell.configure(with: item, thumbnails: thumbnails, folderAssetAvailable: true)
+        await BrowserViewSupport.waitUntil { thumbnails.isWaiting }
+        cell.layoutIfNeeded()
+        let plainImage = try #require(cell.thumbnailView.image)
+        let plainFrame = cell.thumbnailView.frame
+        let plainMode = cell.thumbnailView.contentMode
+        #expect(plainMode == .scaleAspectFit)
+
+        thumbnails.release(item.id)
+        let expected = thumbnails.image(for: item.id)
+        await BrowserViewSupport.waitUntil { cell.thumbnailView.image === expected }
+        cell.layoutIfNeeded()
+        #expect(cell.thumbnailView.image === expected)
+        #expect(cell.thumbnailView.image !== plainImage)
+        #expect(cell.thumbnailView.frame == plainFrame)
+        #expect(cell.thumbnailView.contentMode == plainMode)
+    }
+
+    @Test("The plain folder icon is fitted to the cell's 80 pt icon area")
+    func plainFolderIconFillsIconArea() async throws {
+        let cell = laidOutCell()
+        cell.configure(with: try sampleItem("Photos"), thumbnails: BrowserFakeThumbnails(), folderAssetAvailable: true)
+        cell.layoutIfNeeded()
+        #expect(cell.thumbnailView.bounds.width >= 80)
+        #expect(cell.thumbnailView.bounds.height >= 80)
+        #expect(cell.thumbnailView.contentMode == .scaleAspectFit)
+    }
+
+    @Test("A file cell still asks for its thumbnail at 40 by 40")
+    func fileThumbnailSizeUnchanged() async throws {
+        let thumbnails = BrowserFakeThumbnails()
+        let cell = laidOutCell()
+        let item = try sampleItem("Beach.jpg")
+        cell.configure(with: item, thumbnails: thumbnails, folderAssetAvailable: true)
+        await BrowserViewSupport.waitUntil { !thumbnails.sizes(for: item.id).isEmpty }
+        #expect(thumbnails.sizes(for: item.id).first == CGSize(width: 40, height: 40))
+    }
 }
