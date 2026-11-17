@@ -8,20 +8,26 @@ import UIKit
 /// old buttons in `FileBrowserViewControllerTests.swift`, which now choose the entries through the menus.
 @MainActor
 extension FileBrowserViewControllerTests {
-    private static let normalEntries: [(id: String, title: String, symbol: String)] = [
-        ("browser.menu.newFolder", "New Folder", "folder.badge.plus"),
-        ("browser.menu.newDocument", "New Document", "doc.badge.plus"),
-        ("browser.menu.import", "Import", "square.and.arrow.down"),
-        ("browser.menu.sort", "Sort", "arrow.up.arrow.down"),
+    private struct MenuEntrySpec {
+        let id: String
+        let title: String
+        let symbol: String
+    }
+
+    private static let normalEntries: [MenuEntrySpec] = [
+        MenuEntrySpec(id: "browser.menu.newFolder", title: "New Folder", symbol: "folder.badge.plus"),
+        MenuEntrySpec(id: "browser.menu.newDocument", title: "New Document", symbol: "doc.badge.plus"),
+        MenuEntrySpec(id: "browser.menu.import", title: "Import", symbol: "square.and.arrow.down"),
+        MenuEntrySpec(id: "browser.menu.sort", title: "Sort", symbol: "arrow.up.arrow.down"),
     ]
 
-    private static let selectEntries: [(id: String, title: String, symbol: String)] = [
-        ("browser.menu.bulkMove", "Move", "folder"),
-        ("browser.menu.bulkCopy", "Copy", "doc.on.doc"),
-        ("browser.menu.bulkExport", "Export", "square.and.arrow.up"),
-        ("browser.menu.moveToVault", "Move to Vault…", "arrow.right.square"),
-        ("browser.menu.copyToVault", "Copy to Vault…", "plus.square.on.square"),
-        ("browser.menu.bulkDelete", "Delete", "trash"),
+    private static let selectEntries: [MenuEntrySpec] = [
+        MenuEntrySpec(id: "browser.menu.bulkMove", title: "Move", symbol: "folder"),
+        MenuEntrySpec(id: "browser.menu.bulkCopy", title: "Copy", symbol: "doc.on.doc"),
+        MenuEntrySpec(id: "browser.menu.bulkExport", title: "Export", symbol: "square.and.arrow.up"),
+        MenuEntrySpec(id: "browser.menu.moveToVault", title: "Move to Vault…", symbol: "arrow.right.square"),
+        MenuEntrySpec(id: "browser.menu.copyToVault", title: "Copy to Vault…", symbol: "plus.square.on.square"),
+        MenuEntrySpec(id: "browser.menu.bulkDelete", title: "Delete", symbol: "trash"),
     ]
 
     private func selectItems(_ rig: Rig, _ names: [String]) async {
@@ -78,7 +84,8 @@ extension FileBrowserViewControllerTests {
     @Test("The actions menu button is enabled with nothing selected")
     func actionsMenuEnabled() async throws {
         let rig = try await makeRig()
-        #expect(BarMenu.isEnabled("browser.actionsMenuButton", in: rig.controller) == true)
+        #expect(BarMenu.item("browser.actionsMenuButton", in: rig.controller) != nil)
+        #expect(BarMenu.isEnabled("browser.actionsMenuButton", in: rig.controller))
     }
 
     // MARK: - Select actions menu
@@ -136,17 +143,17 @@ extension FileBrowserViewControllerTests {
         await BrowserViewSupport.waitUntil {
             BarMenu.item("browser.selectActionsMenuButton", in: rig.controller) != nil
         }
-        #expect(BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller) == false)
+        #expect(!BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller))
         rig.tapCell("Beach.jpg")
         await BrowserViewSupport.waitUntil {
-            BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller) == true
+            BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller)
         }
-        #expect(BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller) == true)
+        #expect(BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller))
         rig.tapCell("Beach.jpg")
         await BrowserViewSupport.waitUntil {
-            BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller) == false
+            !BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller)
         }
-        #expect(BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller) == false)
+        #expect(!BarMenu.isEnabled("browser.selectActionsMenuButton", in: rig.controller))
     }
 
     @Test("Delete from the select menu asks Delete N items? for the selection")

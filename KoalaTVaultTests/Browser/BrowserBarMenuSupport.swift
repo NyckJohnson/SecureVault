@@ -33,8 +33,9 @@ enum BarMenu {
         return item.menu != nil && item.primaryAction == nil && item.action == nil
     }
 
-    static func isEnabled(_ id: String, in controller: UIViewController) -> Bool? {
-        guard let item = item(id, in: controller) else { return nil }
+    /// False when the item is missing; tests that care assert it exists with `item(_:in:)`.
+    static func isEnabled(_ id: String, in controller: UIViewController) -> Bool {
+        guard let item = item(id, in: controller) else { return false }
         if let button = item.customView as? UIButton { return button.isEnabled && item.isEnabled }
         return item.isEnabled
     }
