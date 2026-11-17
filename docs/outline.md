@@ -1226,6 +1226,7 @@ reads it, and only whether it is an encrypt; then it clears both keys. Nothing w
 - FileBrowserViewController.swift is exactly 900 lines, the SwiftLint file_length limit; the next edit must move an extension (Prompts or context menu) to its own file — open, minor (same review)
 ## Features
 <!-- Accepted features, oldest first. -->
+- 2026-11-16: multiple-vaults-duress-password (Multiple vaults / duress password): an always-there unencrypted vault plus named encrypted vaults opened by their password on the Vaults screen (any vault can be a decoy); the app-wide lock removed; Face ID opens one chosen vault; Move/Copy to Vault; delete a vault by password; free 1 encrypted vault and 100 files per vault, Pro more; 1.2 vaults upgraded once. Device-test fixes folded in: open-vault housekeeping and large-folder speed-ups, large-folder import memory, large trash, title row with back arrow, design tweaks, bar menus. Brief: docs/features/multiple-vaults-duress-password.md
 
 ## Decisions log
 - 2026-10-24: Every adopted screen stays `UI: UIKit`, logic in tested view models — adoption keeps behavior; changing UI technology at the same time doubles the risk — approved by the human (discussion)
