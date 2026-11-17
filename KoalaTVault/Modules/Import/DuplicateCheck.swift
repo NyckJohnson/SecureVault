@@ -22,12 +22,15 @@ struct DuplicateCheck: Sendable {
             return false
         }
         defer { if existing.isEncrypted { store.removeTemporary(existingURL.deletingLastPathComponent()) } }
-        guard let sourceHash = Self.sha256(ofFileAt: source),
-            let existingHash = Self.sha256(ofFileAt: existingURL)
-        else {
-            return false
+        // Hashing is synchronous, so its temporary memory is released here, with no await inside the pool.
+        return autoreleasepool {
+            guard let sourceHash = Self.sha256(ofFileAt: source),
+                let existingHash = Self.sha256(ofFileAt: existingURL)
+            else {
+                return false
+            }
+            return sourceHash == existingHash
         }
-        return sourceHash == existingHash
     }
 
     /// The file's hash, read a piece at a time so a large video stays out of memory; nil if it can't be read.

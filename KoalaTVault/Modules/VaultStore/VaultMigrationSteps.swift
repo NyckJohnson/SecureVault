@@ -1,25 +1,33 @@
 import Foundation
 
-/// The per-file steps of a lock migration, and the checks around it.
+/// The per-file steps that encrypt a vault's leftover plaintext files, and the checks around them. A store's
+/// encryption is fixed for its life, so nothing decrypts a whole vault; these steps only ever encrypt.
 ///
 /// Every step can be interrupted and run again without losing content. For files in folders, at each point
 /// either the source or a verified, indexed copy exists, and a rerun finishes the work (a leftover plaintext
 /// is removed only after a byte-for-byte match; an incomplete copy is dropped with its entry).
 ///
-/// The trash is migrated too: trash items are converted in place and keep their trash id; folders in the
+/// The trash is encrypted too: trash items are converted in place and keep their trash id; folders in the
 /// trash are walked like any other folder. A kill between a trash item's map update and its file replace
 /// leaves the entry's flag disagreeing with the file. That is harmless because a file's real form is always
-/// read from its SVC5 header (`fileForm(at:)`), never from an index or trash-entry flag alone: listings,
-/// migration steps and `finishDecryption` use the real form and correct the entry, and the next step on that
-/// item removes its leftover hidden `.<id>.migrating` staging file and converts it from the untouched original.
+/// read from its SVC5 header (`fileForm(at:)`), never from an index or trash-entry flag alone, wherever it
+/// matters: restore checks its own file, the plaintext checks read each file's header, and the encrypt steps
+/// use the real form and correct the entry; the next step on that item removes its leftover hidden
+/// `.<id>.migrating` staging file and converts it from the untouched original.
 ///
-/// Steps run without suspending, so each is one serialized step on the actor.
+/// Steps run without suspending, so each is one serialized step on the actor. `hasUnencryptedFiles()` differs:
+/// it suspends between folders and between batches of a large folder's files (never inside a batch), so
+/// browsing isn't held up.
 extension LiveVaultStore {
     // MARK: - Counting and listing
 
     /// Counts regular files under the root; hidden entries (indexes, the trash) are skipped. Reads no index or
     /// file content, so it needs no key.
     func countFiles() throws -> Int {
+        try autoreleasepool { try unpooledCountFiles() }
+    }
+
+    private func unpooledCountFiles() throws -> Int {
         let keys: [URLResourceKey] = [.isRegularFileKey]
         var count = 0
         var enumerationError: (any Error)?
@@ -38,23 +46,186 @@ extension LiveVaultStore {
         return count
     }
 
-    func itemsToMigrate(toEncrypted: Bool) throws -> [VaultItem] {
+    /// Every plaintext file under the root and in the trash; empty for a plaintext store, which never encrypts.
+    func itemsToEncrypt() throws -> [VaultItem] {
+        try autoreleasepool { try unpooledItemsToEncrypt() }
+    }
+
+    private func unpooledItemsToEncrypt() throws -> [VaultItem] {
+        guard isEncrypted else { return [] }
+        return try plaintextFiles()
+    }
+
+    /// Whether any plaintext file is under the root or in the trash (in either kind of store), judged by each
+    /// file's SVC5 header as `itemsToEncrypt()` judges it; stops at the first one found.
+    ///
+    /// Works in small steps, so housekeeping never holds up browsing: the root's folders breadth-first (the root
+    /// itself in the first step, then every folder one level down, and so on), then the trash (its map read in
+    /// one step, its files checked in batches as a folder's are), then the folders in the trash, breadth-first.
+    /// A trash file's form is read through a probe of its leading bytes. A folder's files are checked in batches
+    /// of at most `plaintextCheckBatchSize`, each its own step; the folder is listed once, in its first batch's
+    /// step, and the subfolders found there are queued. Each step checks the mode again and has no suspension
+    /// inside it; the check suspends only between steps, where other store operations may run. A folder removed
+    /// in between is skipped, as is a file gone by its batch (or while it is checked); a folder changed in
+    /// between is judged by the listing taken at its first batch. A cancelled task stops between steps.
+    /// - Throws: `.locked` without the key in encrypted mode (checked at every step); `.io` when the root
+    ///   folder is missing at the first step; `.indexUnreadable` / `.io` when an index or a file's form can't
+    ///   be read; `CancellationError` when the task is cancelled during the walk.
+    func hasUnencryptedFiles() async throws -> Bool {
+        var walk = PlaintextCheckWalk(folders: HousekeepingQueue([root]))
+        var isFirstStep = true
+        while true {
+            if !isFirstStep {
+                await Task.yield()
+                // A cancelled task (the shell cancels it on lock or a vault switch) stops between steps.
+                try Task.checkCancellation()
+            }
+            let isRootStep = isFirstStep
+            isFirstStep = false
+            switch try plaintextCheckStep(&walk, isRoot: isRootStep) {
+            case .found: return true
+            case .clean: return false
+            case .unfinished: continue
+            }
+        }
+    }  // coverage-exempt: unreachable, the while-true loop exits only by return or throw
+
+    /// Where `hasUnencryptedFiles()` is in its walk, carried from one step to the next.
+    private struct PlaintextCheckWalk {
+        /// The folders still to visit, breadth-first.
+        var folders: HousekeepingQueue<VaultDirectory>
+        /// The files of the folder being checked that no batch has reached yet; nil between folders.
+        var unchecked: ArraySlice<VaultItem>?
+        /// Whether `unchecked` holds top-level trash files (with their entries' stored flags).
+        var uncheckedInTrash = false
+        var trashChecked = false
+    }
+
+    /// What one step of `hasUnencryptedFiles()` found.
+    private enum PlaintextCheckOutcome {
+        /// A plaintext file: the answer is true.
+        case found
+        /// Everything has been checked and nothing was plaintext: the answer is false.
+        case clean
+        /// No plaintext yet and more steps to go.
+        case unfinished
+    }
+
+    /// One step of `hasUnencryptedFiles()`: a folder's first batch (listing it and queuing its subfolders), a
+    /// further batch of its files, or the trash. Never suspends; its temporary memory is freed when it ends.
+    private func plaintextCheckStep(_ walk: inout PlaintextCheckWalk, isRoot: Bool) throws -> PlaintextCheckOutcome {
+        try autoreleasepool {
+            let mode = try beginOperation()
+            if walk.unchecked == nil, let folder = walk.folders.dequeue() {
+                let items = try plaintextCheckListing(folder, mode: mode, isRoot: isRoot)
+                walk.folders.enqueue(items.compactMap(\.asDirectory))
+                walk.unchecked = ArraySlice(items.filter { !$0.isDirectory })
+                walk.uncheckedInTrash = false
+            }
+            if let files = walk.unchecked {
+                let batch = files.prefix(Self.plaintextCheckBatchSize)
+                if try walk.uncheckedInTrash ? containsPlaintextTrashFile(batch) : containsPlaintext(batch) {
+                    return .found
+                }
+                let rest = files.dropFirst(batch.count)
+                walk.unchecked = rest.isEmpty ? nil : rest
+                return .unfinished
+            }
+            guard !walk.trashChecked else { return .clean }
+            walk.trashChecked = true
+            // The trash's files are checked in batches like a folder's, then the folders in it.
+            let items = trashItems(map: try trashMap.read(mode: mode))
+            let files = items.filter { !$0.isDirectory }
+            walk.unchecked = files.isEmpty ? nil : ArraySlice(files)
+            walk.uncheckedInTrash = true
+            walk.folders = HousekeepingQueue(items.compactMap(\.asDirectory))
+            return .unfinished
+        }
+    }
+
+    /// The most files `hasUnencryptedFiles()` checks in one step.
+    private static let plaintextCheckBatchSize = 256
+
+    /// The listing of `folder` for `hasUnencryptedFiles()`, taken at its first batch. Never suspends.
+    /// - Parameter isRoot: true for the walk's first step, the root folder, which must exist.
+    /// - Returns: the folder's items; none when a non-root folder was removed since it was queued.
+    /// - Throws: `.io` when `isRoot` and the root folder is missing; the listing's errors.
+    private func plaintextCheckListing(
+        _ folder: VaultDirectory, mode: VaultOperationMode, isRoot: Bool
+    ) throws -> [VaultItem] {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.diskURL.path, isDirectory: &isDirectory),
+            isDirectory.boolValue
+        else {
+            if isRoot { throw VaultStoreError.io("The vault folder can't be read.") }
+            return []
+        }
+        return try listing(of: folder, mode: mode)
+    }
+
+    /// One batch of `hasUnencryptedFiles()`: whether any of `files` is plaintext, stopping at the first one.
+    /// A file that is gone when its form is checked is skipped. Never suspends.
+    /// - Throws: the form check's error for a file that still exists (`.locked`, `.io`, `.notFound`).
+    private func containsPlaintext(_ files: ArraySlice<VaultItem>) throws -> Bool {
+        for item in files {
+            do {
+                if try realForm(of: item) == .plaintext { return true }
+            } catch {
+                // Removed since the folder was listed (before or during its check): nothing left to judge.
+                if FileManager.default.fileExists(atPath: item.diskURL.path) { throw error }
+            }
+        }
+        return false
+    }
+
+    /// One trash batch of `hasUnencryptedFiles()`: whether any of the top-level trash `files` is plaintext,
+    /// stopping at the first one. Each file's form comes from its SVC5 header, read through a probe (one header
+    /// read per file), where that is conclusive, as `correctedTrashMap` judges it; otherwise (not a regular file,
+    /// an undetermined header) the entry's stored flag stands. A file gone by its batch is skipped. Never suspends.
+    /// - Throws: the form check's error for a file that still exists (`.locked`, `.io`).
+    private func containsPlaintextTrashFile(_ files: ArraySlice<VaultItem>) throws -> Bool {
+        let probe = TrashFileProbe(store: self)
+        defer { probe.close() }
+        for item in files {
+            guard let type = Self.fileType(item.diskURL) else { continue }
+            guard type == .typeRegular else {
+                if !item.isEncrypted { return true }
+                continue
+            }
+            let form: FileForm
+            do {
+                form = try fileForm(at: item.diskURL, probe: probe)
+            } catch {
+                // Removed while it was checked: nothing left to judge.
+                if Self.fileType(item.diskURL) == nil { continue }
+                throw error
+            }
+            switch form {
+            case .plaintext: return true
+            case .encrypted: continue
+            case .undetermined: if !item.isEncrypted { return true }
+            }
+        }
+        return false
+    }
+
+    /// Every plaintext file under the root and in the trash, each judged by its SVC5 header; unindexed SVC5
+    /// files (orphans) are left out.
+    /// - Throws: `.locked` without the key in encrypted mode; `.indexUnreadable` / `.io` when an index or a
+    ///   file's form can't be read.
+    private func plaintextFiles() throws -> [VaultItem] {
         let mode = try beginOperation()
         let map = try correctedTrashMap(trashMap.read(mode: mode))
         var result: [VaultItem] = []
         try forEachListing(trash: map, mode: mode) { _, items in
             for item in items where !item.isDirectory {
                 let form = try realForm(of: item)
-                guard form != .orphan, (form == .encrypted) != toEncrypted else { continue }
-                result.append(Self.item(item, isEncrypted: form == .encrypted))
+                guard form == .plaintext else { continue }
+                result.append(Self.plaintext(item))
             }
         }
-        result += trashItems(map: map).filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
+        result += trashItems(map: map).filter { !$0.isDirectory && !$0.isEncrypted }
         return result
-    }
-
-    func hasUnencryptedFiles() throws -> Bool {
-        try !itemsToMigrate(toEncrypted: true).isEmpty
     }
 
     /// Calls `body` with every folder and its listing: the root and its non-hidden subfolders, then each folder
@@ -72,10 +243,10 @@ extension LiveVaultStore {
         }
     }
 
-    /// What a listed file really is for a migration.
+    /// What a listed file really is for encryption.
     private enum MigrationForm {
         case encrypted, plaintext
-        /// An unindexed SVC5 file: an orphan, never migrated (the sweep removes it).
+        /// An unindexed SVC5 file: an orphan, never encrypted (the sweep removes it).
         case orphan
     }
 
@@ -87,20 +258,21 @@ extension LiveVaultStore {
         return form == .encrypted ? .orphan : .plaintext
     }
 
-    private static func item(_ item: VaultItem, isEncrypted: Bool) -> VaultItem {
-        guard item.isEncrypted != isEncrypted else { return item }
+    /// `item` marked plaintext (an indexed entry whose file isn't an SVC5 file is listed as encrypted).
+    private static func plaintext(_ item: VaultItem) -> VaultItem {
+        guard item.isEncrypted else { return item }
         return VaultItem(
             id: item.id, name: item.name, isDirectory: item.isDirectory, dateModified: item.dateModified,
             fileSize: item.fileSize, deletedAt: item.deletedAt, diskURL: item.diskURL, rootURL: item.rootURL,
-            isEncrypted: isEncrypted)
+            isEncrypted: false)
     }
 
     /// `map` with each trash file's `isEncrypted` set from the file's real form where its header is conclusive.
     ///
-    /// Migration steps pass `strict: true`: a file whose form can't be read stops them. Listing and restore pass
-    /// `strict: false`: such a file keeps its stored flag, so one unreadable trash file never hides the others.
-    /// - Throws: with `strict`, `.locked` without the key, `.io` when a trash file can't be read.
-    func correctedTrashMap(_ map: [String: VaultTrashEntry], strict: Bool = true) throws -> [String: VaultTrashEntry] {
+    /// Strict, for the encrypt steps: a file whose form can't be read stops them. (The trash listing uses the
+    /// stored flags and restore checks only its own file, so neither reads the whole trash.)
+    /// - Throws: `.locked` without the key, `.io` when a trash file can't be read.
+    func correctedTrashMap(_ map: [String: VaultTrashEntry]) throws -> [String: VaultTrashEntry] {
         var result = map
         // Trash files are judged on copies of bytes the store reads itself; the cipher never opens them.
         let probe = TrashFileProbe(store: self)
@@ -108,15 +280,7 @@ extension LiveVaultStore {
         for (trashName, entry) in map where VaultTrashMap.isItemName(trashName) {
             let url = trashMap.folderURL.appendingPathComponent(trashName)
             guard Self.isRegularFile(url) else { continue }
-            let form: FileForm
-            do {
-                form = try fileForm(at: url, probe: probe)
-            } catch {
-                guard !strict else { throw error }
-                // Best-effort for listing and restore: the stored flag stands for a file that can't be checked.
-                continue
-            }
-            switch form {
+            switch try fileForm(at: url, probe: probe) {
             case .encrypted where !entry.isEncrypted: result[trashName]?.isEncrypted = true
             case .plaintext where entry.isEncrypted: result[trashName]?.isEncrypted = false
             default: break
@@ -182,6 +346,10 @@ extension LiveVaultStore {
     /// removed. A plaintext whose same-name encrypted copy already matches byte for byte (an earlier run that
     /// stopped before removing it) is only removed; a different copy keeps both, the new one numbered.
     func migrateToEncrypted(_ item: VaultItem) throws {
+        try autoreleasepool { try unpooledMigrateToEncrypted(item) }
+    }
+
+    private func unpooledMigrateToEncrypted(_ item: VaultItem) throws {
         let mode = try beginOperation()
         guard mode.keyLoaded else { throw VaultStoreError.locked }
         guard !item.isDirectory else { throw VaultStoreError.io("A folder has no content to encrypt.") }
@@ -295,7 +463,7 @@ extension LiveVaultStore {
     private func encryptTrashItem(_ item: VaultItem, mode: VaultOperationMode) throws {
         let trashName = item.diskURL.lastPathComponent
         guard
-            let prepared = try prepareTrashConversion(trashName, at: item.diskURL, mode: mode, toEncrypted: true),
+            let prepared = try prepareTrashEncryption(trashName, at: item.diskURL, mode: mode),
             var entry = prepared.map[trashName]
         else { return }
         let (map, staging) = (prepared.map, prepared.staging)
@@ -310,89 +478,13 @@ extension LiveVaultStore {
         try replaceTrashFile(trashName, with: staging, entry: entry, map: map, mode: mode)
     }
 
-    // MARK: - Decrypt
-
-    /// Plaintext written under the original name (" 1" on conflict) → entry removed → encrypted file removed.
-    /// A decrypt failure leaves the encrypted file and its entry. An earlier run's plaintext that matches
-    /// byte for byte is kept and only the encrypted file and its entry are removed.
-    func migrateToDecrypted(_ item: VaultItem) throws {
-        let mode = try beginOperation()
-        guard mode.keyLoaded else { throw VaultStoreError.locked }
-        guard !item.isDirectory else { throw VaultStoreError.io("A folder has no content to decrypt.") }
-        if isTrashItem(item) {
-            try decryptTrashItem(item, mode: mode)
-            return
-        }
-        // Removed only by an earlier run, after its plaintext was in place.
-        guard FileManager.default.fileExists(atPath: item.diskURL.path) else { return }
-        let folder = item.diskURL.deletingLastPathComponent()
-        let diskName = item.diskURL.lastPathComponent
-        var entries = try index.read(in: folder, mode: mode)
-        // Not listed: not an encrypted file, or an earlier run already removed its entry.
-        guard let entry = entries[diskName] else { return }
-        let originalName = Self.safeFileName(entry.originalName, fallback: diskName)
-        let sameName = folder.appendingPathComponent(originalName)
-        if Self.isRegularFile(sameName), try encryptedFile(at: item.diskURL, matches: sameName) {
-            entries.removeValue(forKey: diskName)
-            try index.write(entries, in: folder, mode: mode)
-            try removeFile(item.diskURL)
-            return
-        }
-        let staging = try makeTempDirectory()
-        defer { removeTemporary(staging) }
-        let plaintext = staging.appendingPathComponent("plain")
-        do {
-            try cipher.decryptFile(at: item.diskURL, to: plaintext)
-        } catch {
-            throw VaultStoreError.from(error)
-        }
-        let taken = try takenNames(in: folder, entries: entries, excluding: diskName)
-        let name = VaultNaming.resolvedName(for: originalName) { candidate in
-            taken.contains(candidate) || exists(candidate, in: folder)
-        }
-        let destination = folder.appendingPathComponent(name)
-        do {
-            try FileManager.default.moveItem(at: plaintext, to: destination)
-        } catch {
-            throw VaultStoreError.from(error)
-        }
-        entries.removeValue(forKey: diskName)
-        do {
-            try index.write(entries, in: folder, mode: mode)
-        } catch {
-            // Back to the state before: the encrypted file and its entry, no plaintext copy.
-            removeLeftover(destination)
-            throw error
-        }
-        try removeFile(item.diskURL)
-    }
-
-    /// Decrypts an encrypted trash item in place: the plaintext is staged next to it, the entry is marked
-    /// plaintext, then the plaintext replaces the file (the entry is restored if that fails).
-    private func decryptTrashItem(_ item: VaultItem, mode: VaultOperationMode) throws {
-        let trashName = item.diskURL.lastPathComponent
-        guard
-            let prepared = try prepareTrashConversion(trashName, at: item.diskURL, mode: mode, toEncrypted: false),
-            var entry = prepared.map[trashName]
-        else { return }
-        let (map, staging) = (prepared.map, prepared.staging)
-        do {
-            try cipher.decryptFile(at: item.diskURL, to: staging)
-        } catch {
-            removeLeftover(staging)
-            throw VaultStoreError.from(error)
-        }
-        entry.isEncrypted = false
-        try replaceTrashFile(trashName, with: staging, entry: entry, map: map, mode: mode)
-    }
-
-    /// Readies the conversion of trash item `trashName`: removes a leftover staging file (an interrupted run's;
+    /// Readies the encryption of trash item `trashName`: removes a leftover staging file (an interrupted run's;
     /// the original is untouched until the final replace, so it is redone from the original), reads the
-    /// item's real form, and saves a corrected entry when the item is already in the wanted form.
-    /// - Returns: the corrected map and the staging URL, or nil when there is nothing to convert.
+    /// item's real form, and saves a corrected entry when the item is already encrypted.
+    /// - Returns: the corrected map and the staging URL, or nil when there is nothing to encrypt.
     /// - Throws: `.notFound` for an unknown trash item.
-    private func prepareTrashConversion(
-        _ trashName: String, at url: URL, mode: VaultOperationMode, toEncrypted: Bool
+    private func prepareTrashEncryption(
+        _ trashName: String, at url: URL, mode: VaultOperationMode
     ) throws -> (map: [String: VaultTrashEntry], staging: URL)? {
         let stored = try trashMap.read(mode: mode)
         guard VaultTrashMap.isItemName(trashName), let storedEntry = stored[trashName] else {
@@ -400,17 +492,17 @@ extension LiveVaultStore {
         }
         let staging = Self.stagingURL(for: trashName, in: trashMap.folderURL)
         if FileManager.default.fileExists(atPath: staging.path) { try removeFile(staging) }
-        // A trash item whose file is gone has nothing to convert; checked before any cipher or probe call.
+        // A trash item whose file is gone has nothing to encrypt; checked before any cipher or probe call.
         guard Self.isRegularFile(url) else { return nil }
         let map = try correctedTrashMap(stored)
-        guard let entry = map[trashName], entry.isEncrypted != toEncrypted else {
+        guard let entry = map[trashName], !entry.isEncrypted else {
             if map[trashName] != storedEntry { try trashMap.write(map, mode: mode) }
             return nil
         }
         return (map, staging)
     }
 
-    /// The hidden staging file for converting trash item `trashName`.
+    /// The hidden staging file for encrypting trash item `trashName`.
     private static func stagingURL(for trashName: String, in trashFolder: URL) -> URL {
         trashFolder.appendingPathComponent(".\(trashName)\(stagingSuffix)")
     }
@@ -445,41 +537,18 @@ extension LiveVaultStore {
 
     // MARK: - Finish
 
-    func finishDecryption() throws {
-        let mode = try beginOperation()
-        // Judged by each file's header, so an entry's wrong flag neither hides nor invents an encrypted file.
-        let map = try correctedTrashMap(trashMap.read(mode: mode))
-        var folders: [VaultDirectory] = []
-        var remaining = 0
-        try forEachListing(trash: map, mode: mode) { folder, items in
-            folders.append(folder)
-            for item in items where !item.isDirectory {
-                if try realForm(of: item) == .encrypted { remaining += 1 }
-            }
-        }
-        remaining += trashItems(map: map).filter { $0.isEncrypted && !$0.isDirectory }.count
-        guard remaining == 0 else { throw VaultStoreError.stillEncrypted(count: remaining) }
-        // Staging files of interrupted trash conversions: their originals are intact and now plaintext.
-        let trashNames = (try? FileManager.default.contentsOfDirectory(atPath: trashMap.folderURL.path)) ?? []
-        for name in trashNames where name.hasPrefix(".") && name.hasSuffix(Self.stagingSuffix) {
-            try removeFile(trashMap.folderURL.appendingPathComponent(name))
-        }
-        if trashMap.exists {
-            try trashMap.write(map, mode: VaultOperationMode(isEncrypted: false, keyLoaded: mode.keyLoaded))
-        }
-        for folder in folders {
-            let url = folder.diskURL.appendingPathComponent(VaultIndex.fileName)
-            if FileManager.default.fileExists(atPath: url.path) { try removeFile(url) }
-        }
-    }
-
-    /// Seals every index older builds left as plaintext JSON: each `.vault_map` under the root (and in folders
-    /// in the trash) with ".vault_map", and `.trash/.trash_map` with ".trash_map", keeping their entries.
-    /// Already-encrypted and unreadable indexes are left byte for byte; plaintext mode changes nothing.
-    /// Runs without suspending, so it is one serialized step with every other index write.
+    /// The last step of an encrypt migration. Seals every index older builds left as plaintext JSON: each
+    /// `.vault_map` under the root (and in folders in the trash) with ".vault_map", and `.trash/.trash_map`
+    /// with ".trash_map", keeping their entries. Already-encrypted and unreadable indexes are left byte for
+    /// byte; plaintext mode changes nothing. Runs without suspending, so it is one serialized step with every
+    /// other index write.
     /// - Throws: `.locked` in encrypted mode without the key (before anything is written); `.io` when a
     ///   folder can't be listed or an index can't be written.
     func finishEncryption() throws {
+        try autoreleasepool { try unpooledFinishEncryption() }
+    }
+
+    private func unpooledFinishEncryption() throws {
         let mode = try beginOperation()
         guard mode.isEncrypted else { return }
         var pending = [root.diskURL] + (try subfolders(of: trashMap.folderURL))
@@ -522,6 +591,10 @@ extension LiveVaultStore {
     }
 
     func keyMatchesVault() -> Bool {
+        autoreleasepool { unpooledKeyMatchesVault() }
+    }
+
+    private func unpooledKeyMatchesVault() -> Bool {
         let url = root.diskURL.appendingPathComponent(VaultIndex.fileName)
         guard FileManager.default.fileExists(atPath: url.path) else { return true }
         // A plaintext index reads without a key (nothing encrypted to check); an encrypted one needs the key
@@ -662,12 +735,5 @@ extension LiveVaultStore {
     static func isRegularFile(_ url: URL) -> Bool {
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attributes?[.type] as? FileAttributeType == .typeRegular
-    }
-
-    /// `name` as a single file name: "/" replaced, and `fallback` for an empty, "." or ".." name (an index
-    /// read from plaintext is unauthenticated).
-    private static func safeFileName(_ name: String, fallback: String) -> String {
-        let cleaned = name.replacingOccurrences(of: "/", with: "-")
-        return cleaned.isEmpty || cleaned == "." || cleaned == ".." ? fallback : cleaned
     }
 }

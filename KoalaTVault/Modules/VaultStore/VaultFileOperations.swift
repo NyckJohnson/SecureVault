@@ -9,6 +9,10 @@ extension LiveVaultStore {
     // MARK: - Create
 
     func createFolder(named name: String, in directory: VaultDirectory) throws -> VaultItem {
+        try autoreleasepool { try unpooledCreateFolder(named: name, in: directory) }
+    }
+
+    private func unpooledCreateFolder(named name: String, in directory: VaultDirectory) throws -> VaultItem {
         try VaultNaming.validateUserName(name)
         let mode = try beginOperation()
         let taken = try takenNames(in: directory.diskURL, mode: mode)
@@ -26,6 +30,10 @@ extension LiveVaultStore {
     }
 
     func createDocument(named name: String, in directory: VaultDirectory) throws -> VaultItem {
+        try autoreleasepool { try unpooledCreateDocument(named: name, in: directory) }
+    }
+
+    private func unpooledCreateDocument(named name: String, in directory: VaultDirectory) throws -> VaultItem {
         try VaultNaming.validateUserName(name)
         let mode = try beginOperation()
         let staging = try makeTempDirectory()
@@ -43,25 +51,107 @@ extension LiveVaultStore {
     }
 
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) throws -> VaultItem {
-        try VaultNaming.validate(name)
-        let mode = try beginOperation()
+        try autoreleasepool {
+            try VaultNaming.validate(name)
+            let mode = try beginOperation()
+            try Self.requireReadableFile(source)
+            return try insertFile(from: source, named: name, in: directory, mode: mode)
+        }
+    }
+
+    /// One serialized step for the whole batch: the folder's index is read and the folder listed once, each
+    /// file is added as `addFile` adds it (its work in its own autorelease pool, so memory doesn't grow with
+    /// the number of files), and in encrypted mode the index is written once, after the last file.
+    ///
+    /// A file that fails stops the call: the files before it are kept (and indexed by the one write), later
+    /// files are not attempted, and its error is thrown. If the index write fails, every file this call
+    /// encrypted is removed and the write's error is thrown.
+    /// - Throws: `.locked` before anything is written; `.indexUnreadable` for an unreadable index; per file
+    ///   `.invalidName`, or `.io` for a missing, folder or unreadable source or a failed encryption or copy.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) throws -> [VaultItem] {
+        try autoreleasepool {
+            let mode = try beginOperation()
+            guard !files.isEmpty else { return [] }
+            var batch = try startInsert(in: directory, mode: mode)
+            var failure: (any Error)?
+            for file in files {
+                do {
+                    try autoreleasepool {
+                        try VaultNaming.validate(file.name)
+                        try Self.requireReadableFile(file.source)
+                        _ = try insert(from: file.source, named: file.name, into: &batch, in: directory, mode: mode)
+                    }
+                } catch {
+                    failure = error
+                    break
+                }
+            }
+            try writeIndex(of: batch, in: directory, mode: mode)
+            if let failure { throw failure }
+            return try batch.inserted.map { added in
+                try autoreleasepool {
+                    try makeItem(
+                        diskName: added.diskName, in: directory, displayName: added.displayName,
+                        isEncrypted: mode.isEncrypted)
+                }
+            }
+        }
+    }
+
+    /// Throws `.io` unless `source` is a readable regular file (not a folder).
+    private static func requireReadableFile(_ source: URL) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory), !isDirectory.boolValue,
             FileManager.default.isReadableFile(atPath: source.path)
         else {
             throw VaultStoreError.io("The file to add can't be read.")
         }
-        return try insertFile(from: source, named: name, in: directory, mode: mode)
     }
 
-    /// Adds a copy of `source` as `name` (numbered on conflict): in encrypted mode encrypted as a new
-    /// `<UUID>` and then indexed, removing the file again if the index write fails; otherwise copied.
-    private func insertFile(
-        from source: URL, named name: String, in directory: VaultDirectory, mode: VaultOperationMode
-    ) throws -> VaultItem {
-        var entries = try index.read(in: directory.diskURL, mode: mode)
-        let taken = try takenNames(in: directory.diskURL, entries: entries)
-        guard mode.isEncrypted else {
+    /// One file added by an insert: its name on disk and the name it is listed under.
+    private struct InsertedFile {
+        let diskName: String
+        let displayName: String
+    }
+
+    /// The state of one insert step into a folder: its index entries and taken names as read once at the
+    /// start, updated with each file added, and the files added so far.
+    private struct InsertBatch {
+        var entries: [String: VaultIndexEntry]
+        var taken: Set<String>
+        var inserted: [InsertedFile] = []
+    }
+
+    /// Reads the folder's index and lists its names once, for an insert step.
+    private func startInsert(in directory: VaultDirectory, mode: VaultOperationMode) throws -> InsertBatch {
+        let entries = try index.read(in: directory.diskURL, mode: mode)
+        return InsertBatch(entries: entries, taken: try takenNames(in: directory.diskURL, entries: entries))
+    }
+
+    /// Adds a copy of `source` as `name` (numbered on conflict) to `batch`: in encrypted mode encrypted as a
+    /// new `<UUID>` and entered in `batch.entries` (written by `writeIndex(of:in:mode:)`); otherwise copied.
+    /// Its names are added to `batch.taken`, so later files of the batch are numbered against it.
+    private func insert(
+        from source: URL, named name: String, into batch: inout InsertBatch, in directory: VaultDirectory,
+        mode: VaultOperationMode
+    ) throws -> InsertedFile {
+        let added: InsertedFile
+        if mode.isEncrypted {
+            let taken = batch.taken
+            let displayName = VaultNaming.resolvedName(for: name) { taken.contains($0) }
+            let diskName = freshDiskName(in: directory.diskURL)
+            let destination = directory.diskURL.appendingPathComponent(diskName)
+            do {
+                try cipher.encryptFile(at: source, to: destination)
+            } catch {
+                removeLeftover(destination)
+                throw Self.addError(error)
+            }
+            batch.entries[diskName] = VaultIndexEntry(originalName: displayName)
+            batch.taken.insert(diskName)
+            added = InsertedFile(diskName: diskName, displayName: displayName)
+        } else {
+            let taken = batch.taken
             let fileName = VaultNaming.resolvedName(for: name) { candidate in
                 taken.contains(candidate) || exists(candidate, in: directory.diskURL)
             }
@@ -70,25 +160,37 @@ extension LiveVaultStore {
             } catch {
                 throw Self.addError(error)
             }
-            return try makeItem(diskName: fileName, in: directory, displayName: fileName, isEncrypted: false)
+            added = InsertedFile(diskName: fileName, displayName: fileName)
         }
-        let displayName = VaultNaming.resolvedName(for: name) { taken.contains($0) }
-        let diskName = freshDiskName(in: directory.diskURL)
-        let destination = directory.diskURL.appendingPathComponent(diskName)
+        batch.taken.insert(added.displayName)
+        batch.inserted.append(added)
+        return added
+    }
+
+    /// In encrypted mode, writes the batch's index once if it added any file; if the write fails, removes
+    /// every file the batch encrypted and throws the write's error.
+    private func writeIndex(of batch: InsertBatch, in directory: VaultDirectory, mode: VaultOperationMode) throws {
+        guard mode.isEncrypted, !batch.inserted.isEmpty else { return }
         do {
-            try cipher.encryptFile(at: source, to: destination)
+            try index.write(batch.entries, in: directory.diskURL, mode: mode)
         } catch {
-            removeLeftover(destination)
-            throw Self.addError(error)
-        }
-        entries[diskName] = VaultIndexEntry(originalName: displayName)
-        do {
-            try index.write(entries, in: directory.diskURL, mode: mode)
-        } catch {
-            removeLeftover(destination)
+            for added in batch.inserted {
+                removeLeftover(directory.diskURL.appendingPathComponent(added.diskName))
+            }
             throw error
         }
-        return try makeItem(diskName: diskName, in: directory, displayName: displayName, isEncrypted: true)
+    }
+
+    /// Adds a copy of `source` as `name` (numbered on conflict): in encrypted mode encrypted as a new
+    /// `<UUID>` and then indexed, removing the file again if the index write fails; otherwise copied.
+    private func insertFile(
+        from source: URL, named name: String, in directory: VaultDirectory, mode: VaultOperationMode
+    ) throws -> VaultItem {
+        var batch = try startInsert(in: directory, mode: mode)
+        let added = try insert(from: source, named: name, into: &batch, in: directory, mode: mode)
+        try writeIndex(of: batch, in: directory, mode: mode)
+        return try makeItem(
+            diskName: added.diskName, in: directory, displayName: added.displayName, isEncrypted: mode.isEncrypted)
     }
 
     /// A read failure of the source is `.io`, never `.notFound` (the item that's missing is outside the vault).
@@ -100,6 +202,10 @@ extension LiveVaultStore {
     // MARK: - Move
 
     func move(_ item: VaultItem, to directory: VaultDirectory) throws {
+        try autoreleasepool { try unpooledMove(item, to: directory) }
+    }
+
+    private func unpooledMove(_ item: VaultItem, to directory: VaultDirectory) throws {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         let sourceFolder = item.diskURL.deletingLastPathComponent()
@@ -158,6 +264,10 @@ extension LiveVaultStore {
     // MARK: - Copy
 
     func copy(_ item: VaultItem, to directory: VaultDirectory) throws -> VaultItem {
+        try autoreleasepool { try unpooledCopy(item, to: directory) }
+    }
+
+    private func unpooledCopy(_ item: VaultItem, to directory: VaultDirectory) throws -> VaultItem {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         if item.isDirectory, Self.isSameOrInside(directory.diskURL, item.diskURL) {
@@ -197,9 +307,64 @@ extension LiveVaultStore {
         return try makeItem(diskName: diskName, in: directory, displayName: displayName, isEncrypted: true)
     }
 
+    // MARK: - Remove
+
+    /// Deletes the item for good, never into the trash. An encrypted file's index entry is removed and the
+    /// index written before the file is deleted, so a failed index write deletes nothing and a failed delete
+    /// restores the entry (best-effort). A folder is deleted with its whole tree, its indexes included.
+    /// - Throws: `.notFound` for an unknown item or anything in the trash (that is `deletePermanently`);
+    ///   `.locked` in encrypted mode without the key, before anything is deleted; `.io` when a deletion
+    ///   fails part-way (what it hasn't reached is left).
+    func remove(_ item: VaultItem) throws {
+        try autoreleasepool { try unpooledRemove(item) }
+    }
+
+    private func unpooledRemove(_ item: VaultItem) throws {
+        let mode = try beginOperation()
+        if item.deletedAt != nil || Self.isSameOrInside(item.diskURL, trashMap.folderURL) {
+            throw VaultStoreError.notFound
+        }
+        try requireExists(item.diskURL)
+        guard item.isEncrypted, !item.isDirectory else {
+            try deleteFromDisk(item.diskURL)
+            return
+        }
+        let folder = item.diskURL.deletingLastPathComponent()
+        let diskName = item.diskURL.lastPathComponent
+        let entries = try index.read(in: folder, mode: mode)
+        guard entries[diskName] != nil else {
+            try deleteFromDisk(item.diskURL)
+            return
+        }
+        var remaining = entries
+        remaining.removeValue(forKey: diskName)
+        try index.write(remaining, in: folder, mode: mode)
+        do {
+            try deleteFromDisk(item.diskURL)
+        } catch {
+            // Put the entry back so the file that's still there stays listed; the delete failure is reported.
+            try? index.write(entries, in: folder, mode: mode)
+            throw error
+        }
+    }
+
+    /// Deletes the file or folder tree at `url`; any failure is `.io` (the item existed when checked).
+    private func deleteFromDisk(_ url: URL) throws {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            let mapped = VaultStoreError.from(error)
+            throw mapped == .notFound ? VaultStoreError.io(error.localizedDescription) : mapped
+        }
+    }
+
     // MARK: - Rename
 
     func rename(_ item: VaultItem, to name: String) throws -> VaultItem {
+        try autoreleasepool { try unpooledRename(item, to: name) }
+    }
+
+    private func unpooledRename(_ item: VaultItem, to name: String) throws -> VaultItem {
         try VaultNaming.validateUserName(name)
         let mode = try beginOperation()
         try requireExists(item.diskURL)

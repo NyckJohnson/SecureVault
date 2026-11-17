@@ -38,7 +38,9 @@ struct LiveVaultImporter: VaultImporting {
 
     /// Checks the limit for the whole selection, then imports it. Throws `ImportError.fileLimitReached`
     /// before anything is imported, or the first error part-way (earlier files stay imported):
-    /// `ImportError.unreadableSource` for a folder that can't be listed, otherwise the store's error.
+    /// `ImportError.unreadableSource` for a folder that can't be listed, `CancellationError` when the task
+    /// is cancelled, otherwise the store's error. On any failure part-way, the files already waiting in
+    /// batches are added first (best effort), then the original error is thrown.
     @concurrent
     func importItems(
         _ urls: [URL],
@@ -55,17 +57,27 @@ struct LiveVaultImporter: VaultImporting {
 
         var run = ImportRun(total: total)
         progress(0)
-        for url in urls {
-            guard let name = Self.storedName(for: url.lastPathComponent) else {
-                run.failed += 1
-                continue
+        // The picked loose files share the destination, so they share its listing and its batches.
+        var destination = Destination(directory: directory)
+        do {
+            for url in urls {
+                try Task.checkCancellation()
+                guard let name = Self.storedName(for: url.lastPathComponent) else {
+                    run.failed += 1
+                    continue
+                }
+                if Self.isFolder(url) {
+                    try await importSubfolder(
+                        from: url, named: name, into: &destination, run: &run, progress: progress)
+                } else {
+                    try await importFile(from: url, named: name, into: &destination, run: &run, progress: progress)
+                }
             }
-            if Self.isFolder(url) {
-                try await importFolder(from: url, named: name, into: directory, run: &run, progress: progress)
-            } else {
-                try await importFile(from: url, named: name, into: directory, run: &run, progress: progress)
-            }
+        } catch {
+            await flushAfterFailure(&destination, run: &run, progress: progress)
+            throw error
         }
+        try await flush(&destination, run: &run, progress: progress)
         progress(1)
         return ImportResult(imported: run.imported, skippedDuplicates: run.skippedDuplicates, failed: run.failed)
     }
@@ -95,6 +107,9 @@ struct LiveVaultImporter: VaultImporting {
 
     // MARK: - Files and folders
 
+    /// Files are sent to the store in batches of at most this many, each batch one store step.
+    private static let batchSize = 64
+
     /// The running totals of one `importItems` call.
     private struct ImportRun {
         let total: Int
@@ -104,63 +119,192 @@ struct LiveVaultImporter: VaultImporting {
         var failed = 0
 
         /// Share of the selection done so far; counted files can differ from what is found later on, so it's capped.
-        mutating func completeOne() -> Double {
-            completed += 1
+        mutating func complete(_ count: Int) -> Double {
+            completed += count
             return min(1, Double(completed) / Double(max(total, 1)))
         }
     }
 
+    /// One folder files are being imported into: what it held when its import started, what this import has
+    /// added to it, and the files waiting to be sent to the store.
+    ///
+    /// The folder is listed at most once (on first need), so the work per file doesn't grow with the folder:
+    /// only a name found in the listing, or one this import added, can be a duplicate and needs a store lookup.
+    private struct Destination {
+        let directory: VaultDirectory
+        /// Lowercased names of the folder's items when it was listed; nil until it is listed. Names are
+        /// compared without case, so a name that may clash on disk is still looked up (a lookup never
+        /// changes the outcome, only skipping one could).
+        var existingNames: Set<String>?
+        /// The folder's subfolders when it was listed, by exact name: a picked folder of that name merges in.
+        var existingFolders: [String: VaultDirectory] = [:]
+        /// Lowercased names this import has sent (or will send) to this folder.
+        var addedNames: Set<String> = []
+        /// Lowercased names of the files in `pending`.
+        var pendingNames: Set<String> = []
+        /// Folders this import created here, by exact name, so a second pick of the same name merges into it.
+        var createdFolders: [String: VaultDirectory] = [:]
+        var pending: [VaultFileToAdd] = []
+
+        init(directory: VaultDirectory, isNew: Bool = false) {
+            self.directory = directory
+            existingNames = isNew ? [] : nil
+        }
+    }
+
+    /// Lists the destination unless it has been listed already.
+    private func loadListing(_ destination: inout Destination) async throws {
+        guard destination.existingNames == nil else { return }
+        let items = try await store.contents(of: destination.directory, sortedBy: .name, .ascending)
+        var names = Set<String>(minimumCapacity: items.count)
+        for item in items {
+            names.insert(item.name.lowercased())
+            if let folder = item.asDirectory { destination.existingFolders[item.name] = folder }
+        }
+        destination.existingNames = names
+    }
+
+    /// Sends the pending files of `destination` to the store in one `addFiles` call and reports progress.
+    /// The names the store gave (" 1" on a clash) count as added, so a later file of that name is checked.
+    /// A failure keeps the files the store added before it and rethrows.
+    private func flush(
+        _ destination: inout Destination,
+        run: inout ImportRun,
+        progress: @Sendable (Double) -> Void
+    ) async throws {
+        guard !destination.pending.isEmpty else { return }
+        let batch = destination.pending
+        destination.pending = []
+        destination.pendingNames = []
+        let added = try await store.addFiles(batch, to: destination.directory)
+        for item in added { destination.addedNames.insert(item.name.lowercased()) }
+        run.imported += batch.count
+        progress(run.complete(batch.count))
+    }
+
+    /// After a failure part-way (cancellation included), adds the files already waiting, so every file
+    /// before the failure is kept; nothing new is started. The original error is the one to report, so a
+    /// failure here is dropped: the store keeps what it added before it.
+    private func flushAfterFailure(
+        _ destination: inout Destination,
+        run: inout ImportRun,
+        progress: @Sendable (Double) -> Void
+    ) async {
+        try? await flush(&destination, run: &run, progress: progress)
+    }
+
+    /// Queues the file for `destination`, unless the folder already has it (counted as a skipped duplicate).
     private func importFile(
         from url: URL,
         named name: String,
-        into directory: VaultDirectory,
+        into destination: inout Destination,
         run: inout ImportRun,
         progress: @Sendable (Double) -> Void
     ) async throws {
-        if try await addUnlessDuplicate(url, named: name, to: directory) {
-            run.imported += 1
-        } else {
-            run.skippedDuplicates += 1
+        try await loadListing(&destination)
+        let key = name.lowercased()
+        let mayBeDuplicate = destination.existingNames?.contains(key) == true || destination.addedNames.contains(key)
+        if mayBeDuplicate {
+            // The hash check must see a same-name file this import is still holding back.
+            if destination.pendingNames.contains(key) {
+                try await flush(&destination, run: &run, progress: progress)
+            }
+            if try await duplicateCheck.isDuplicate(source: url, named: name, in: destination.directory) {
+                run.skippedDuplicates += 1
+                progress(run.complete(1))
+                return
+            }
         }
-        progress(run.completeOne())
+        // The store resolves a clash with " 1" when the batch is added; `flush` records the name it gives.
+        // Until then the expected name stands in as waiting, so a later file of that name sends the batch
+        // first and is then checked against it.
+        destination.pending.append(autoreleasepool { VaultFileToAdd(source: url, name: name) })
+        destination.pendingNames.insert(key)
+        destination.addedNames.insert(key)
+        if mayBeDuplicate {
+            let clashKey = Self.expectedClashName(for: name, in: destination).lowercased()
+            destination.pendingNames.insert(clashKey)
+            destination.addedNames.insert(clashKey)
+        }
+        if destination.pending.count >= Self.batchSize {
+            try await flush(&destination, run: &run, progress: progress)
+        }
     }
 
+    /// Imports a folder into `parent`. The parent keeps its pending files (each destination has its own
+    /// batches), except that a pending file of the folder's name is sent first, so the names come out as if
+    /// each item were added in turn. If the folder fails, the parent's pending files are still sent, as files
+    /// picked before it, and the folder's error is rethrown.
+    private func importSubfolder(
+        from url: URL,
+        named name: String,
+        into parent: inout Destination,
+        run: inout ImportRun,
+        progress: @Sendable (Double) -> Void
+    ) async throws {
+        if parent.pendingNames.contains(name.lowercased()) {
+            try await flush(&parent, run: &run, progress: progress)
+        }
+        do {
+            try await importFolder(from: url, named: name, into: &parent, run: &run, progress: progress)
+        } catch {
+            await flushAfterFailure(&parent, run: &run, progress: progress)
+            throw error
+        }
+    }
+
+    /// Imports a folder into `parent`, merging into a folder of the same name. The folder's own files are
+    /// all sent before this returns, also when it fails part-way (then the error is rethrown).
     private func importFolder(
         from url: URL,
         named name: String,
-        into directory: VaultDirectory,
+        into parent: inout Destination,
         run: inout ImportRun,
         progress: @Sendable (Double) -> Void
     ) async throws {
-        let destination = try await destinationFolder(named: name, in: directory)
+        var destination = try await destinationFolder(named: name, in: &parent)
         let children: [URL]
         do {
-            children = try Self.visibleChildren(of: url)
+            children = try autoreleasepool { try Self.visibleChildren(of: url) }
         } catch {
             throw ImportError.unreadableSource(name)
         }
-        for child in children {
-            if Self.isFolder(child) {
-                try await importFolder(
-                    from: child, named: child.lastPathComponent, into: destination, run: &run, progress: progress)
-            } else {
-                try await importFile(
-                    from: child, named: child.lastPathComponent, into: destination, run: &run, progress: progress)
+        do {
+            for child in children {
+                try Task.checkCancellation()
+                let (childName, isFolder) = autoreleasepool { (child.lastPathComponent, Self.isFolder(child)) }
+                if isFolder {
+                    try await importSubfolder(
+                        from: child, named: childName, into: &destination, run: &run, progress: progress)
+                } else {
+                    try await importFile(
+                        from: child, named: childName, into: &destination, run: &run, progress: progress)
+                }
             }
+        } catch {
+            await flushAfterFailure(&destination, run: &run, progress: progress)
+            throw error
         }
+        try await flush(&destination, run: &run, progress: progress)
     }
 
-    /// The existing folder of that name to merge into, or a new one; the store finds a free name if the
-    /// name belongs to a file.
-    private func destinationFolder(named name: String, in directory: VaultDirectory) async throws -> VaultDirectory {
-        if let existing = try await store.findItem(named: name, in: directory)?.asDirectory {
-            return existing
+    /// The existing folder of that name to merge into (from the parent's listing, or one this import made),
+    /// or a new one; the store finds a free name if the name belongs to a file.
+    private func destinationFolder(named name: String, in parent: inout Destination) async throws -> Destination {
+        if let made = parent.createdFolders[name] {
+            return Destination(directory: made)
         }
-        guard let created = try await store.createFolder(named: name, in: directory).asDirectory else {
+        try await loadListing(&parent)
+        if let folder = parent.existingFolders[name] {
+            return Destination(directory: folder)
+        }
+        guard let created = try await store.createFolder(named: name, in: parent.directory).asDirectory else {
             // Unreachable: createFolder always returns a folder.
             throw VaultStoreError.notFound
         }
-        return created
+        parent.createdFolders[name] = created
+        parent.addedNames.insert(created.name.lowercased())
+        return Destination(directory: created, isNew: true)
     }
 
     // MARK: - Photos
@@ -192,6 +336,22 @@ struct LiveVaultImporter: VaultImporting {
         return true
     }
 
+    /// The name the store is expected to give a file whose name is taken: " 1", " 2"… before the extension,
+    /// the first not known to be taken in `destination` (case ignored).
+    private static func expectedClashName(for name: String, in destination: Destination) -> String {
+        let ext = (name as NSString).pathExtension
+        let base = ext.isEmpty ? name : (name as NSString).deletingPathExtension
+        var number = 1
+        while true {
+            let candidate = ext.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(ext)"
+            let key = candidate.lowercased()
+            if destination.existingNames?.contains(key) != true, !destination.addedNames.contains(key) {
+                return candidate
+            }
+            number += 1
+        }
+    }  // coverage-exempt: unreachable, the while-true loop exits only by return
+
     /// The name a picked item is stored under: its leading dots removed, since a dot-named item would be
     /// hidden from a no-lock vault's listings (and a root ".trash" would clash with the trash). Nil for a
     /// name with nothing left, which can't be stored.
@@ -208,11 +368,14 @@ struct LiveVaultImporter: VaultImporting {
         var count = 0
         var queue = [url]
         while let folder = queue.popLast() {
-            for child in (try? visibleChildren(of: folder)) ?? [] {
-                if isFolder(child) {
-                    queue.append(child)
-                } else {
-                    count += 1
+            // A large folder's listing is released before the next folder is read.
+            autoreleasepool {
+                for child in (try? visibleChildren(of: folder)) ?? [] {
+                    if isFolder(child) {
+                        queue.append(child)
+                    } else {
+                        count += 1
+                    }
                 }
             }
         }

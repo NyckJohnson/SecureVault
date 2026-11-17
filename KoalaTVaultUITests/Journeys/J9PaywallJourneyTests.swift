@@ -4,8 +4,9 @@
 //
 //  Journey 9: Paywall. Purchases run against premiumTesting.storekit through an in-process
 //  SKTestSession (dialogs disabled), as the legacy PaywallUITests did.
-//  Not covered: the import-limit entry (needs a picked item to reach the 100-file check) and the
-//  user cancelling the App Store sheet (system UI; SKTestSession cannot simulate a cancel).
+//  Not covered: the import-limit entry (needs a picked item to reach the 100-file check), the transfer-limit entry
+//  (needs a target past 100 files, which means moving over 100 items through the UI) and the user cancelling the
+//  App Store sheet (system UI; SKTestSession cannot simulate a cancel).
 //
 
 import XCTest
@@ -16,33 +17,11 @@ private final class SessionBox: @unchecked Sendable {
     init(_ session: SKTestSession) { self.session = session }
 }
 
-final class J9PaywallJourneyTests: JourneyTestCase {
-
-    private var session: SKTestSession!
-    private let productID = "nej.KoalaTVault.unlockpro"
-
-    override var launchesInSetUp: Bool { false }
-
-    override func setUp() async throws {
-        let url = try XCTUnwrap(
-            Bundle(for: Self.self).url(forResource: "premiumTesting", withExtension: "storekit"),
-            "premiumTesting.storekit is not in the KoalaTVaultUITests bundle")
-        session = try SKTestSession(contentsOf: url)
-        session.resetToDefaultState()
-        session.clearTransactions()
-        session.disableDialogs = true
-        try await super.setUp()
-    }
-
-    override func tearDown() async throws {
-        session?.clearTransactions()
-        session?.resetToDefaultState()
-        try await super.tearDown()
-    }
+final class J9PaywallJourneyTests: StoreKitJourneyTestCase {
 
     private func startAndOpenPaywall() {
-        launch(environment: ["UITEST_SEED_FILE_NAME": "paywall-note.txt"])
-        completeSetupWithNoLockIfShown()
+        launch(environment: ["UITEST_SEED_FILE_NAME": "paywall-note.txt", "UITEST_PASSWORD": Self.password])
+        openUnencryptedVault()
         openSettings()
         let pro = app.cells["upgradeToProCell"]
         XCTAssertTrue(pro.waitForExistence(timeout: 5), "Pro row missing")
@@ -55,7 +34,7 @@ final class J9PaywallJourneyTests: JourneyTestCase {
     func testJourney9_PaywallShowsTitleDescriptionPriceAndButtons() {
         startAndOpenPaywall()
         XCTAssertEqual(app.staticTexts["paywall.titleLabel"].label, "Unlock Pro")
-        XCTAssertEqual(app.staticTexts["paywall.descriptionLabel"].label, "Store more than 100 files.")
+        XCTAssertEqual(app.staticTexts["paywall.descriptionLabel"].label, "Store more than 100 files in a vault and keep more than one encrypted vault.")
         let price = app.staticTexts["paywall.priceLabel"]
         XCTAssertTrue(price.exists, "Price label missing")
         let hasPrice = NSPredicate(format: "label.length > 1")
@@ -79,7 +58,7 @@ final class J9PaywallJourneyTests: JourneyTestCase {
         app.buttons["paywallUnlockButton"].tap()
         XCTAssertTrue(app.buttons["paywallUnlockButton"].waitForNonExistence(timeout: 15),
                       "Paywall did not close after the purchase")
-        XCTAssertTrue(app.cells["upgradeToProCell"].staticTexts["Pro Unlocked"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 10),
                       "Settings should show \"Pro Unlocked\"")
     }
 
@@ -104,7 +83,7 @@ final class J9PaywallJourneyTests: JourneyTestCase {
         // The purchase may already have unlocked Pro via Transaction.updates and closed the paywall.
         if app.buttons["restoreButton"].exists { app.buttons["restoreButton"].tap() }
         XCTAssertTrue(app.buttons["restoreButton"].waitForNonExistence(timeout: 10), "Paywall did not close")
-        XCTAssertTrue(app.cells["upgradeToProCell"].staticTexts["Pro Unlocked"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 10))
     }
 
     @available(iOS 17.0, *)
@@ -121,5 +100,23 @@ final class J9PaywallJourneyTests: JourneyTestCase {
                        .completed, "Expected \"Price unavailable\". Label: \"\(price.label)\"")
         let unlock = app.buttons["paywallUnlockButton"]
         XCTAssertTrue(unlock.exists && unlock.isEnabled && unlock.isHittable, "Unlock must still be usable")
+    }
+
+    /// Create New Vault with one encrypted vault already there opens the paywall instead; after Unlock the user
+    /// taps it again and gets the Create Vault screen.
+    func testJourney9_CreateNewVaultWithOneEncryptedVaultOpensPaywallThenUnlockAllowsIt() {
+        launch(environment: ["UITEST_PASSWORD": Self.password])
+        waitForLockScreen()
+        app.buttons["vaults.createButton"].tap()
+        XCTAssertTrue(app.buttons["paywallUnlockButton"].waitForExistence(timeout: 10),
+                      "The paywall should open instead of Create Vault")
+        XCTAssertFalse(app.textFields["createVault.nameField"].exists)
+        app.buttons["paywallUnlockButton"].tap()
+        XCTAssertTrue(app.buttons["paywallUnlockButton"].waitForNonExistence(timeout: 15),
+                      "Paywall did not close after the purchase")
+        waitForLockScreen()
+        app.buttons["vaults.createButton"].tap()
+        XCTAssertTrue(app.textFields["createVault.nameField"].waitForExistence(timeout: 10),
+                      "After unlocking Pro, Create New Vault should open the Create Vault screen")
     }
 }

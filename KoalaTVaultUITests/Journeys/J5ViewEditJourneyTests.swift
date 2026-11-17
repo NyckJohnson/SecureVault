@@ -20,7 +20,7 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     // MARK: - Viewer
@@ -50,7 +50,7 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
     // MARK: - Editor
 
     func testJourney5_NewDocumentOpensEditorWithToolbarAndDoneCloses() {
-        app.navigationBars.buttons["browser.newDocumentButton"].tap()
+        tapNewDocumentMenuEntry()
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Notes", into: alert.textFields["browser.newDocumentNameField"])
@@ -82,7 +82,7 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
     }
 
     func testJourney5_AutosavesOneSecondAfterTyping() {
-        app.navigationBars.buttons["browser.newDocumentButton"].tap()
+        tapNewDocumentMenuEntry()
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Auto", into: alert.textFields["browser.newDocumentNameField"])
@@ -122,14 +122,18 @@ final class J5ViewEditJourneyTests: JourneyTestCase {
         XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 2), "The editor must be read-only after a load failure")
     }
 
-    /// Launches an unlocked password vault whose seeded file is plaintext, so decrypting it fails.
+    /// Opens "My Vault" (made from a seeded 1.2 vault) holding `seed` as a plaintext leftover that Skip left
+    /// unencrypted, so decrypting it fails.
     private func launchUndecryptable(seed: String) {
         app.terminate()
-        launch(environment: ["UITEST_PASSWORD": Self.password, "UITEST_SEED_FILE_NAME": seed])
-        XCTAssertTrue(app.staticTexts["lockScreen.titleLabel"].waitForExistence(timeout: 10), "Lock screen missing")
-        type(Self.password, into: app.secureTextFields["passwordField"])
-        app.buttons["unlockButton"].tap()
+        launch(environment: ["UITEST_LEGACY_LOCK": "password", "UITEST_PASSWORD": Self.password,
+                             "UITEST_SEED_FILE_NAME": seed, "UITEST_FAIL_MIGRATION_FILE": seed])
+        attemptOpen(with: Self.password)
+        let alert = app.alerts["Some Files Failed"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 15), "The migration should report the failed file")
+        tapAlertButton("Skip", in: alert)
         waitForBrowser()
+        XCTAssertTrue(cell(seed).waitForExistence(timeout: 10), "\(seed) should be listed")
     }
 }
 
@@ -223,7 +227,7 @@ final class J5ViewerRtfPageJourneyTests: J5ViewerRtfPageJourneyBase {
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
         createDocument(named: rtfBase, text: "Page text")
     }
 
@@ -250,9 +254,8 @@ final class J5ViewerRtfPageJourneyTests: J5ViewerRtfPageJourneyBase {
     }
 }
 
-/// The same return path in a password vault. The seeded images are plaintext there, so they are not decrypted
-/// images (their pages may show an error); the title and paging are what matter, and paging works. The `.rtf`
-/// is created inside the vault and so is encrypted.
+/// The same return path in an encrypted vault. The seeded images are moved into Test Vault (journey 11), so they are
+/// encrypted there; the `.rtf` is created inside the vault.
 final class J5ViewerRtfPageUnderLockJourneyTests: J5ViewerRtfPageJourneyBase {
 
     override var launchEnvironment: [String: String] {
@@ -261,7 +264,13 @@ final class J5ViewerRtfPageUnderLockJourneyTests: J5ViewerRtfPageJourneyBase {
 
     override func setUp() async throws {
         try await super.setUp()
+        // The seeds are plaintext in the unencrypted vault: move them into Test Vault (encrypting them), then open it.
+        openUnencryptedVault()
+        moveToVault(first)
+        moveToVault(last)
+        lockApp()
         unlockWithPassword()
+        XCTAssertTrue(cell(first).waitForExistence(timeout: 10), "The images should be in Test Vault")
         createDocument(named: rtfBase, text: "Locked text")
     }
 

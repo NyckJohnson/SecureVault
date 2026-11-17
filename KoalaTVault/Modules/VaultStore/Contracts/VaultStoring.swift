@@ -12,15 +12,13 @@ enum VaultStoreError: Error, Equatable, Sendable {
     case notFound
     /// A folder can't be moved into itself or a descendant.
     case moveIntoItself
-    /// Decryption can't finish while files are still encrypted.
-    case stillEncrypted(count: Int)
     /// A file-system failure.
     case io(String)  // swiftlint:disable:this identifier_name
 }
 
 /// User-facing text for each error, shown in alerts through `localizedDescription`.
 extension VaultStoreError: LocalizedError {
-    /// The error's user-facing description; `.stillEncrypted` includes the count, `.io` is its message.
+    /// The error's user-facing description; `.io` is its message.
     var errorDescription: String? {
         switch self {
         case .indexUnreadable:
@@ -29,17 +27,29 @@ extension VaultStoreError: LocalizedError {
         case .invalidName: "Names can't contain / or start with ."
         case .notFound: "This item no longer exists."
         case .moveIntoItself: "A folder can't be moved into itself"
-        case .stillEncrypted(let count):
-            count == 1 ? "1 file is still encrypted." : "\(count) files are still encrypted."
         case .io(let message): message
         }
     }
+}
+
+/// One file for `VaultStoring.addFiles(_:to:)`: the file at `source`, added under `name`.
+///
+/// The files of one call go into one folder, in order, as one serialized store step; the folder's index is
+/// read once and (in encrypted mode) written once, after the last file. Each file is added exactly as
+/// `addFile` would add it, its name resolved against the folder and the earlier files of the same call.
+struct VaultFileToAdd: Sendable, Equatable {
+    /// The file to copy (plaintext mode) or encrypt (encrypted mode).
+    let source: URL
+    /// The name to give it in the vault (" 1" added on a clash).
+    let name: String
 }
 
 /// The vault on disk: indexes, browsing, file operations, trash, migration steps and temp files.
 protocol VaultStoring: Sendable {
     /// The vault's root folder.
     var root: VaultDirectory { get }
+    /// Whether the vault is encrypted; fixed for the store's life.
+    var isEncrypted: Bool { get }
     /// The folder's items, folders first, sorted by `option` and `direction`.
     func contents(
         of directory: VaultDirectory,
@@ -56,6 +66,11 @@ protocol VaultStoring: Sendable {
     func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem
     /// Adds a copy of the file at `source`.
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem
+    /// Adds many files to one folder in one step, writing the folder's index once (large imports).
+    /// Returns the added items in order. A failing file stops the call: the files before it are kept and
+    /// indexed, the error is thrown and later files are not attempted. An empty list returns `[]`.
+    /// - Throws: `.locked` before anything is written; `.invalidName`, `.io` for the failing file.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem]
     /// The item with that display name, or nil.
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem?
     /// Moves the item into `directory`.
@@ -66,6 +81,11 @@ protocol VaultStoring: Sendable {
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem
     /// Moves the item to the trash.
     func moveToTrash(_ item: VaultItem) async throws
+    /// Moves many items to the trash in one step, writing the trash index once; returns the error of each item that
+    /// stayed where it was, keyed by its id (empty: all trashed).
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError]
+    /// Deletes the item (a folder with its whole tree) for good, never into the trash.
+    func remove(_ item: VaultItem) async throws
     /// Every item in the trash.
     func trashContents() async throws -> [VaultItem]
     /// Moves a trashed item back to its original folder.
@@ -89,14 +109,10 @@ protocol VaultStoring: Sendable {
     func clearUnreadableTrash() async throws
     /// The number of files in the vault (subfolders included, trash excluded).
     func countFiles() async throws -> Int
-    /// The files a lock migration must convert.
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]
+    /// Every plaintext file under the root and in the trash; empty in plaintext mode.
+    func itemsToEncrypt() async throws -> [VaultItem]
     /// Encrypts one plaintext file.
     func migrateToEncrypted(_ item: VaultItem) async throws
-    /// Decrypts one encrypted file.
-    func migrateToDecrypted(_ item: VaultItem) async throws
-    /// Removes the indexes after every file is decrypted.
-    func finishDecryption() async throws
     /// Re-encrypts every index older builds left as plaintext, as the encrypt migration's last step.
     /// Already-encrypted and unreadable indexes are left as they are; plaintext mode changes nothing.
     /// - Throws: `.locked` in encrypted mode without the key, before anything is written.

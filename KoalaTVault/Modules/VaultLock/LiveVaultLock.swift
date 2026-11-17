@@ -2,406 +2,576 @@ import Foundation
 import Security
 import os
 
-/// The live vault lock: the key lifecycle over the master-key store, the lock mode in the preferences,
-/// and the lock state derived from both.
+/// The live vaults (feature multiple-vaults-duress-password): the unencrypted vault over Documents, always there,
+/// and the encrypted vaults under `Vaults/` (see `VaultCatalog`), each opened by its own password or, for at most
+/// one vault, Face ID.
 ///
-/// Key operations (PBKDF2, Keychain reads behind a Face ID prompt) run off the main actor; the state
-/// and the lock mode are only changed on the main actor, after each awaited step returns.
+/// The lock never lists or counts encrypted vaults for the user: a password opens whichever vault it belongs to,
+/// and every failure reads the same (`.wrongPassword`). Key work (PBKDF2, Keychain reads behind a Face ID prompt,
+/// the upgrade's file moves) runs off the main actor; the state (`current`, the open key stores) lives on it.
+///
+/// Races: a password is always tried on a fresh key store, never on the open vault's own. Every close, background
+/// or change of `current` bumps `epoch`; a call that awaited key work checks it afterwards and, if it moved, wipes
+/// the key it loaded and drops the result (`.notOpen`, except `createVault`, which keeps the finished vault but
+/// doesn't open it). `createVault` calls run one at a time.
 @MainActor
 final class LiveVaultLock: VaultLocking {
     private static let logger = Logger(subsystem: "com.KoalaTVault", category: "VaultLock")
-    /// The plaintext password item from old app versions; deleted whenever it may still exist.
-    nonisolated private static let legacyPasswordAccount = "com.KoalaTVault.password"
-    /// The reason shown with the biometric prompt.
+    /// The reason shown with the Face ID prompt.
     nonisolated private static let biometricPrompt = "Unlock your vault"
+    private static let unencryptedID = "unencrypted"
+    private static let unencryptedName = "KoalaTVault"
 
-    private let masterKeys: any MasterKeyStoring
-    private let keychain: any KeychainAccessing
-    private let preferences: any PreferencesStoring
-    private let store: any VaultStoring
-    private let biometricInfo: BiometricInfo
-    private let vaultHoldsEncryptedData: @Sendable () async -> Bool
-
-    private(set) var state: LockState {
-        didSet {
-            guard state != oldValue else { return }
-            for continuation in continuations.values { continuation.yield(state) }
-        }
+    /// A vault whose key a fresh key store has loaded, found by a password.
+    private struct Match: Sendable {
+        let id: String
+        let keyStore: any MasterKeyStoring
     }
 
-    private var continuations: [UUID: AsyncStream<LockState>.Continuation] = [:]
+    /// An encrypted vault in use (current or a transfer target) and the key store holding its key.
+    private struct LoadedVault {
+        let vault: OpenVault
+        let keyStore: any MasterKeyStoring
+    }
+
+    private let catalog: VaultCatalog
+    private let upgrade: VaultUpgrade
+    private let pro: any ProUnlocking
+    private let biometricInfo: BiometricInfo
+    private let makeKeyStore: @Sendable (_ blobAccount: String) -> any MasterKeyStoring
+    /// The decoy key store (over a private in-memory Keychain) whose derivation stands in for a search with no
+    /// vault to try; see "Decoy derivation" in the memo. Never listed, never opened, its key always wiped.
+    private let decoy: any MasterKeyStoring
+    /// Makes the decoy's blob (for a random password) off the main actor, started in `init`; searches await it.
+    private let decoyBlob: Task<Void, Never>
+    private let makeCipher: @Sendable (any MasterKeyStoring) -> any FileCipher
+    private let makeStore:
+        @Sendable (_ root: URL, _ name: String, _ isEncrypted: Bool, any MasterKeyStoring, any FileCipher) ->
+            any VaultStoring
+
+    private let state: OpenVaultState
+    /// The open encrypted vault (`current`) and its key store; nil while the unencrypted vault is current.
+    private var openEncrypted: LoadedVault?
+    /// The open transfer targets, by vault ID.
+    private var transferTargets: [String: LoadedVault] = [:]
+    /// Bumped by every close (background included) and every change of `current`; see the type's notes.
+    private var epoch = 0
+    /// Whether a `createVault` call is running; later calls wait in `createWaiters`, in order.
+    private var isCreating = false
+    private var createWaiters: [CheckedContinuation<Void, Never>] = []
+
+    let unencryptedVault: OpenVault
 
     /// - Parameters:
-    ///   - vaultHoldsEncryptedData: whether the vault holds any index, encrypted file or trash entry
-    ///     (see `VaultEncryptedDataCheck`); decides whether an existing key blob is stale.
+    ///   - documents: the unencrypted vault's root (Documents), also the source of the one-time upgrade.
+    ///   - vaultsFolder: `Application Support/Vaults`, holding one folder per encrypted vault.
+    ///   - unencryptedStore: the plaintext store over `documents`.
+    ///   - keychain: the Keychain seam, for the vault blobs' existence and the Face ID marker.
+    ///   - preferences: the old lock settings and the `vaultsUpgraded` flag, for the upgrade.
+    ///   - pro: the Pro entitlement (more than one encrypted vault).
+    ///   - biometricInfo: the device's biometrics.
+    ///   - makeKeyStore: a key store for a vault's blob account.
+    ///   - makeDecoyKeyStore: the decoy key store for password searches with no vault to try (over a private
+    ///     in-memory Keychain, never the real one).
+    ///   - makeCipher: a cipher over a key store.
+    ///   - makeStore: a vault store for a root, name, encrypted flag, key store and cipher.
     init(
-        masterKeys: any MasterKeyStoring,
-        keychain: any KeychainAccessing,
-        preferences: any PreferencesStoring,
-        store: any VaultStoring,
-        biometricInfo: BiometricInfo,
-        vaultHoldsEncryptedData: @escaping @Sendable () async -> Bool
+        documents: URL, vaultsFolder: URL, unencryptedStore: any VaultStoring, keychain: any KeychainAccessing,
+        preferences: any PreferencesStoring, pro: any ProUnlocking, biometricInfo: BiometricInfo,
+        makeKeyStore: @escaping @Sendable (_ blobAccount: String) -> any MasterKeyStoring,
+        makeDecoyKeyStore: @escaping @Sendable () -> any MasterKeyStoring,
+        makeCipher: @escaping @Sendable (any MasterKeyStoring) -> any FileCipher,
+        makeStore:
+            @escaping @Sendable (
+                _ root: URL, _ name: String, _ isEncrypted: Bool, any MasterKeyStoring, any FileCipher
+            ) -> any VaultStoring
     ) {
-        self.masterKeys = masterKeys
-        self.keychain = keychain
-        self.preferences = preferences
-        self.store = store
+        catalog = VaultCatalog(vaultsFolder: vaultsFolder, keychain: keychain)
+        upgrade = VaultUpgrade(
+            documents: documents, vaultsFolder: vaultsFolder, keychain: keychain, preferences: preferences)
+        self.pro = pro
         self.biometricInfo = biometricInfo
-        self.vaultHoldsEncryptedData = vaultHoldsEncryptedData
-        // At launch no key is loaded: a lock starts locked, no lock starts open.
-        state = LockState(lockMode: preferences.lockMode, keyLoaded: false)
+        self.makeKeyStore = makeKeyStore
+        let decoy = makeDecoyKeyStore()
+        self.decoy = decoy
+        decoyBlob = Task {
+            do {
+                try await Self.offMain {
+                    defer { decoy.wipeKey() }
+                    try decoy.createMasterKey(password: try Self.randomDecoyPassword())
+                }
+            } catch {
+                // A decoy without a blob still answers `.wrongPassword` searches, only faster.
+                Self.logger.error("Could not make the decoy key: \(error, privacy: .public)")
+            }
+        }
+        self.makeCipher = makeCipher
+        self.makeStore = makeStore
+        let unencrypted = OpenVault(
+            id: Self.unencryptedID, name: Self.unencryptedName, isEncrypted: false, store: unencryptedStore)
+        unencryptedVault = unencrypted
+        state = OpenVaultState(initial: unencrypted)
     }
 
-    deinit {
-        for continuation in continuations.values { continuation.finish() }
-    }
+    // MARK: State
 
-    var lockMode: LockMode { preferences.lockMode }
+    var current: OpenVault { state.current }
+
+    func currentUpdates() -> AsyncStream<OpenVault> { state.updates() }
+
     var biometricKind: BiometricKind { biometricInfo.kind }
+
     var biometricsAvailable: Bool { biometricInfo.isAvailable }
 
-    func stateUpdates() -> AsyncStream<LockState> {
-        let id = UUID()
-        let (stream, continuation) = AsyncStream<LockState>.makeStream()
-        continuations[id] = continuation
-        continuation.onTermination = { _ in
-            Task { @MainActor [weak self] in self?.continuations[id] = nil }
-        }
-        return stream
+    var hasBiometricVault: Bool {
+        guard let id = catalog.biometricVaultID() else { return false }
+        return catalog.vaultIDs().contains(id)
     }
 
-    // MARK: - Setting up a lock
+    var currentUsesBiometrics: Bool {
+        guard let open = openEncrypted else { return false }
+        return catalog.biometricVaultID() == open.vault.id
+    }
 
-    func setUp(mode: LockMode, password: String?) async throws {
-        guard mode != .none else {
-            preferences.lockMode = .none
-            refreshState()
+    // MARK: Launch
+
+    func upgradeIfNeeded() async throws {
+        let upgrade = self.upgrade
+        let catalog = self.catalog
+        do {
+            try await Self.offMain {
+                try upgrade.run()
+                catalog.removeInterruptedCreations()
+            }
+        } catch {
+            throw Self.lockError(from: error)
+        }
+    }
+
+    // MARK: Opening
+
+    func open(password: String) async throws {
+        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
+        let started = epoch
+        let match = await findVault(password: password)
+        try ensureUninterrupted(since: started, wiping: match?.keyStore)
+        guard let match else { throw VaultLockError.wrongPassword }
+        guard match.id != openEncrypted?.vault.id else {
+            match.keyStore.wipeKey()  // the vault already open: no change
             return
         }
-        guard let password, !password.isEmpty else { throw VaultLockError.emptyPassword }
-        try await addLock(mode: mode, password: password)
+        let loaded = try await load(match, verifyKey: false)
+        try ensureUninterrupted(since: started, wiping: loaded.keyStore)
+        makeCurrent(loaded)
     }
 
-    func prepareToAddLock(mode: LockMode, password: String) async throws {
-        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
-        try await addLock(mode: mode, password: password)
-    }
-
-    /// Loads or creates the key for `password`, stores the biometric item for biometric mode, then writes
-    /// `mode`. Any failure after the key was loaded or created rolls back and leaves the lock mode as it was.
-    private func addLock(mode: LockMode, password: String) async throws {
-        defer { refreshState() }
-        if mode == .passwordAndBiometrics && !biometricInfo.isAvailable {
-            throw VaultLockError.biometricsUnavailable
+    func openWithBiometrics() async throws {
+        guard let id = catalog.biometricVaultID(), catalog.vaultIDs().contains(id) else {
+            throw VaultLockError.noBiometricVault
         }
-        let createdNewKey = try await establishKey(password: password)
-        if mode == .passwordAndBiometrics {
-            do {
-                try await offMain { [masterKeys] in try masterKeys.storeBiometricKey() }
-            } catch {
-                await rollBack(createdNewKey: createdNewKey)
-                throw Self.lockError(from: error)
-            }
-        }
-        preferences.lockMode = mode
-    }
-
-    /// Loads the key for `password`, creating it when there is no usable blob.
-    ///
-    /// A blob over a vault without encrypted data is stale (e.g. left from an earlier install): it and its
-    /// biometric item are deleted and a new key is created. A blob over encrypted data is never replaced;
-    /// `password` must unlock it. Returns true when a new key was created.
-    private func establishKey(password: String) async throws -> Bool {
-        let keys = masterKeys
-        let hasBlob: Bool
+        guard biometricInfo.isAvailable else { throw VaultLockError.biometricsUnavailable }
+        guard id != openEncrypted?.vault.id else { return }
+        let started = epoch
+        let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
         do {
-            hasBlob = try await offMain { try keys.hasMasterKeyBlob() }
+            try await Self.offMain { try keyStore.unlockWithBiometricKey(prompt: Self.biometricPrompt) }
+        } catch VaultCryptoError.biometricItemMissing, VaultCryptoError.invalidKeyData {
+            try ensureUninterrupted(since: started, wiping: keyStore)
+            forgetFaceID(keyStore: keyStore)
+            throw VaultLockError.biometricChanged
         } catch {
+            keyStore.wipeKey()
+            try ensureUninterrupted(since: started, wiping: nil)
             throw Self.lockError(from: error)
         }
-        if hasBlob {
-            if await vaultHoldsEncryptedData() {
+        try ensureUninterrupted(since: started, wiping: keyStore)
+        let loaded: LoadedVault
+        do {
+            loaded = try await load(Match(id: id, keyStore: keyStore), verifyKey: true)
+        } catch {
+            try ensureUninterrupted(since: started, wiping: keyStore)
+            // The biometric key does not open this vault (Face ID was re-enrolled or the item is stale).
+            forgetFaceID(keyStore: keyStore)
+            throw error
+        }
+        try ensureUninterrupted(since: started, wiping: keyStore)
+        makeCurrent(loaded)
+    }
+
+    // MARK: Creating
+
+    func canCreateVault() async -> Bool {
+        pro.isUnlocked || catalog.vaultIDs().isEmpty
+    }
+
+    func createVault(name: String, password: String) async throws {
+        await beginCreating()
+        defer { endCreating() }
+        let started = epoch
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw VaultLockError.emptyName }
+        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
+        guard await canCreateVault() else { throw VaultLockError.vaultLimitReached }
+        if let match = await findVault(password: password) {
+            match.keyStore.wipeKey()
+            throw VaultLockError.passwordInUse
+        }
+
+        let id = UUID().uuidString
+        let folder = catalog.folderURL(for: id)
+        let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
+        var blobMade = false
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try await Self.offMain { try keyStore.createMasterKey(password: password) }
+            blobMade = true
+            let cipher = makeCipher(keyStore)
+            try catalog.writeName(trimmed, of: id, cipher: cipher)
+            guard epoch == started else {
+                // Closed meanwhile: the finished vault stays (it opens by its password) but is not opened.
+                keyStore.wipeKey()
+                return
+            }
+            let store = makeStore(folder, trimmed, true, keyStore, cipher)
+            let vault = OpenVault(id: id, name: trimmed, isEncrypted: true, store: store)
+            makeCurrent(LoadedVault(vault: vault, keyStore: keyStore))
+        } catch {
+            // No half-made vault: remove the folder, then the blob.
+            keyStore.wipeKey()
+            removeFolderIfPresent(folder)
+            if blobMade {
                 do {
-                    try await offMain { try keys.unlock(password: password) }
-                } catch VaultCryptoError.wrongPassword {
-                    throw VaultLockError.existingPasswordRequired
+                    try keyStore.deleteMasterKeyBlob()
                 } catch {
-                    throw Self.lockError(from: error)
+                    Self.logger.error("Could not remove the key of an unfinished vault: \(error, privacy: .public)")
                 }
-                return false
             }
-            do {
-                try await offMain { try keys.deleteMasterKeyBlob() }
-            } catch {
-                throw Self.lockError(from: error)
-            }
-            // A stale biometric item only holds the stale key; storing a new one replaces it.
-            await deleteBiometricKeyLogging("stale biometric item")
-        }
-        do {
-            try await offMain { try keys.createMasterKey(password: password) }
-        } catch {
             throw Self.lockError(from: error)
         }
-        return true
     }
 
-    /// Undoes `establishKey` after a later step failed: deletes the biometric item, deletes the blob when it
-    /// was newly created (a kept blob still protects encrypted data), and wipes the key. A blob that can't be
-    /// deleted is logged; the next setup on the empty vault replaces it.
-    private func rollBack(createdNewKey: Bool) async {
-        await deleteBiometricKeyLogging("rollback biometric item")
-        if createdNewKey {
-            do {
-                try await offMain { [masterKeys] in try masterKeys.deleteMasterKeyBlob() }
-            } catch {
-                Self.logger.error("Rollback blob delete failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-        masterKeys.wipeKey()
+    // MARK: Closing
+
+    func close() {
+        epoch += 1
+        closeTransferTargets()
+        guard openEncrypted != nil else { return }
+        closeOpenVault()
+        state.set(unencryptedVault)
     }
-
-    // MARK: - Unlocking
-
-    func unlock(password: String) async throws {
-        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
-        defer { refreshState() }
-        let keys = masterKeys
-        do {
-            try await offMain { try keys.unlock(password: password) }
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        await deleteLegacyPasswordItem()
-        if preferences.lockMode == .passwordAndBiometrics {
-            // Refreshes the item after biometric enrollment changes; the password still unlocks if this fails.
-            do {
-                try await offMain { try keys.storeBiometricKey() }
-            } catch {
-                Self.logger.error(
-                    "Refreshing the biometric item failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    func unlockWithBiometrics() async throws {
-        guard preferences.lockMode == .passwordAndBiometrics else { throw VaultLockError.biometricsUnavailable }
-        defer { refreshState() }
-        let keys = masterKeys
-        do {
-            try await offMain { try keys.unlockWithBiometricKey(prompt: Self.biometricPrompt) }
-        } catch VaultCryptoError.biometricItemMissing {
-            throw VaultLockError.biometricChanged
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        // The item holds raw key bytes; any 32 bytes load, so check them against the vault.
-        guard await store.keyMatchesVault() else {
-            masterKeys.wipeKey()
-            await deleteBiometricKeyLogging("mismatched biometric item")
-            throw VaultLockError.biometricChanged
-        }
-    }
-
-    // MARK: - Scene lifecycle
 
     func appWillResignActive() -> Bool {
-        preferences.lockMode != .none && state == .unlocked
+        current.isEncrypted
     }
 
     func appDidEnterBackground() {
-        guard preferences.lockMode != .none else { return }
-        masterKeys.wipeKey()
-        store.removeAllTemporaryFiles()
-        state = .locked
+        close()
     }
 
-    func appWillEnterForeground() {
-        if preferences.lockMode == .none { state = .open }
-    }
+    // MARK: Managing the open vault
 
-    // MARK: - Settings
-
-    func changePassword(current: String, new: String) async throws {
-        guard !new.isEmpty else { throw VaultLockError.emptyPassword }
-        defer { refreshState() }
-        let keys = masterKeys
+    func changePassword(current currentPassword: String, new newPassword: String) async throws {
+        guard let open = openEncrypted else { throw VaultLockError.notOpen }
+        guard !newPassword.isEmpty else { throw VaultLockError.emptyPassword }
+        let started = epoch
+        // The fresh store that checked the password holds the key and does the rewrap, so a close meanwhile
+        // can't wipe the key under it.
+        let checked = try await check(currentPassword, of: open.vault.id, since: started)
+        defer { checked.wipeKey() }
+        let match = await findVault(password: newPassword, excluding: open.vault.id)
+        try ensureUninterrupted(since: started, wiping: match?.keyStore)
+        if let match {
+            match.keyStore.wipeKey()
+            throw VaultLockError.passwordInUse
+        }
         do {
-            try await offMain { try keys.unlock(password: current) }
-            // The key stays the same, so files and the biometric item stay valid.
-            try await offMain { try keys.rewrap(newPassword: new) }
+            try await Self.offMain { try checked.rewrap(newPassword: newPassword) }
         } catch {
             throw Self.lockError(from: error)
         }
     }
 
-    func switchMode(to mode: LockMode) async throws {
-        let current = preferences.lockMode
-        // Adding or removing the lock goes through the migration (`prepareToAddLock` / `removeKeysAfterDecryption`).
-        guard mode != .none, current != .none else { throw VaultLockError.notUnlocked }
-        guard mode != current else { return }
-        let keys = masterKeys
-        if mode == .passwordAndBiometrics {
-            guard keys.isKeyLoaded else { throw VaultLockError.notUnlocked }
-            guard biometricInfo.isAvailable else { throw VaultLockError.biometricsUnavailable }
-            do {
-                try await offMain { try keys.storeBiometricKey() }
-            } catch {
-                throw Self.lockError(from: error)
+    func setUsesBiometrics(_ enabled: Bool) async throws {
+        guard let open = openEncrypted else {
+            if enabled { throw VaultLockError.notOpen }
+            return  // turning Face ID off in the unencrypted vault: nothing to do
+        }
+        do {
+            if enabled {
+                guard biometricInfo.isAvailable else { throw VaultLockError.biometricsUnavailable }
+                let started = epoch
+                let previousMarker = catalog.biometricVaultID()
+                let keyStore = open.keyStore
+                // The item is replaced first; the marker moves only once the item holds this vault's key.
+                try await Self.offMain { try keyStore.storeBiometricKey() }
+                guard epoch == started else {
+                    restoreBiometricItem(previousMarker: previousMarker, keyStore: keyStore)
+                    throw VaultLockError.notOpen
+                }
+                // If this write fails, the item holds this vault's key while the marker still names the previous
+                // vault: that vault's next Face ID open fails `keyMatchesVault` and ends in `.biometricChanged`,
+                // which forgets Face ID (accepted).
+                try catalog.setBiometricVaultID(open.vault.id)
+            } else if catalog.biometricVaultID() == open.vault.id {
+                try open.keyStore.deleteBiometricKey()
+                try catalog.setBiometricVaultID(nil)
             }
-            preferences.lockMode = mode
+        } catch {
+            throw Self.lockError(from: error)
+        }
+    }
+
+    func deleteCurrentVault(password: String) async throws {
+        guard let open = openEncrypted else { throw VaultLockError.notOpen }
+        let started = epoch
+        let checked = try await check(password, of: open.vault.id, since: started)
+        checked.wipeKey()
+        // From here on nothing awaits: the vault cannot be closed part-way.
+        let id = open.vault.id
+        do {
+            if catalog.biometricVaultID() == id {
+                try open.keyStore.deleteBiometricKey()
+                try catalog.setBiometricVaultID(nil)
+            }
+            // The folder goes before the blob: a blob with no folder is harmless, a folder with no blob is not a vault.
+            try FileManager.default.removeItem(at: catalog.folderURL(for: id))
+        } catch {
+            throw Self.lockError(from: error)
+        }
+        do {
+            try open.keyStore.deleteMasterKeyBlob()
+        } catch {
+            close()  // the folder is gone: the vault cannot stay open
+            throw Self.lockError(from: error)
+        }
+        close()
+    }
+
+    // MARK: Transfer target
+
+    func openTransferTarget(password: String) async throws -> OpenVault {
+        guard !password.isEmpty else { throw VaultLockError.emptyPassword }
+        let started = epoch
+        let match = await findVault(password: password)
+        try ensureUninterrupted(since: started, wiping: match?.keyStore)
+        guard let match else { throw VaultLockError.wrongPassword }
+        guard match.id != openEncrypted?.vault.id else {
+            match.keyStore.wipeKey()
+            throw VaultLockError.sameVault
+        }
+        let loaded = try await load(match, verifyKey: false)
+        try ensureUninterrupted(since: started, wiping: loaded.keyStore)
+        if let previous = transferTargets[match.id] { Self.release(previous) }
+        transferTargets[match.id] = loaded
+        return loaded.vault
+    }
+
+    func closeTransferTarget(_ vault: OpenVault) {
+        guard let target = transferTargets.removeValue(forKey: vault.id) else { return }
+        Self.release(target)
+    }
+
+    // MARK: Helpers
+
+    /// The first vault, in sorted ID order, that `password` unlocks (one PBKDF2 per vault tried, off the main
+    /// actor), on a fresh key store that then holds its key; nil when none does. The caller adopts or wipes it.
+    private func findVault(password: String, excluding excludedID: String? = nil) async -> Match? {
+        let ids = catalog.vaultIDs().filter { $0 != excludedID }
+        guard !ids.isEmpty else {
+            await runDecoyDerivation(password: password)
+            return nil
+        }
+        let makeKeyStore = self.makeKeyStore
+        return try? await Self.offMain { () -> Match? in
+            for id in ids {
+                let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
+                do {
+                    try keyStore.unlock(password: password)
+                    return Match(id: id, keyStore: keyStore)
+                } catch {
+                    continue  // not this vault (or its blob can't be read): try the next one
+                }
+            }
+            return nil
+        }
+    }
+
+    /// With no vault to try, runs one derivation of `password` on the decoy (after its blob is made, off the main
+    /// actor) so the search takes as long as trying one vault; the result is ignored and the key wiped.
+    private func runDecoyDerivation(password: String) async {
+        await decoyBlob.value
+        let decoy = self.decoy
+        _ = try? await Self.offMain {
+            defer { decoy.wipeKey() }
+            try? decoy.unlock(password: password)  // `.wrongPassword` expected; any error means nothing here
+        }
+    }
+
+    /// A random password for the decoy's blob: 32 bytes from the system's secure random source, base64-encoded.
+    /// - Throws: `VaultLockError.io` if the random source fails.
+    nonisolated private static func randomDecoyPassword() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else { throw VaultLockError.io("Secure random bytes unavailable (\(status))") }
+        return Data(bytes).base64EncodedString()
+    }
+
+    /// Checks that `password` opens vault `id` on a fresh key store, which is returned with the key loaded (the
+    /// caller wipes it).
+    /// - Throws: `.notOpen` if the lock changed since `started` (the store is wiped), else the mapped key error
+    ///   (`.wrongPassword` for a wrong password).
+    private func check(_ password: String, of id: String, since started: Int) async throws -> any MasterKeyStoring {
+        let keyStore = makeKeyStore(VaultCatalog.blobAccount(for: id))
+        do {
+            try await Self.offMain { try keyStore.unlock(password: password) }
+        } catch {
+            try ensureUninterrupted(since: started, wiping: keyStore)
+            throw Self.lockError(from: error)
+        }
+        try ensureUninterrupted(since: started, wiping: keyStore)
+        return keyStore
+    }
+
+    /// Throws `.notOpen`, after wiping `keyStore`, when a close or a change of `current` happened since `started`.
+    private func ensureUninterrupted(since started: Int, wiping keyStore: (any MasterKeyStoring)?) throws {
+        guard epoch != started else { return }
+        keyStore?.wipeKey()
+        throw VaultLockError.notOpen
+    }
+
+    /// After an interrupted `setUsesBiometrics(true)`: puts the biometric item back as it was where possible. With
+    /// no Face ID vault before, the item is deleted. The previous vault's key can't be written back (it isn't
+    /// loaded), so its next Face ID open ends in `.biometricChanged`; the same vault's key is already right.
+    private func restoreBiometricItem(previousMarker: String?, keyStore: any MasterKeyStoring) {
+        guard previousMarker == nil else { return }
+        do {
+            try keyStore.deleteBiometricKey()
+        } catch {
+            Self.logger.error("Could not delete the biometric key: \(error, privacy: .public)")
+        }
+    }
+
+    /// Builds the open vault of `match`: its name from `.vault_info` ("My Vault" when missing, then written) and
+    /// its store. With `verifyKey`, a key that does not open the vault throws `.biometricChanged` before anything
+    /// is written.
+    private func load(_ match: Match, verifyKey: Bool) async throws -> LoadedVault {
+        let cipher = makeCipher(match.keyStore)
+        let storedName = catalog.readName(of: match.id, cipher: cipher)
+        let name = storedName ?? VaultCatalog.defaultName
+        let store = makeStore(catalog.folderURL(for: match.id), name, true, match.keyStore, cipher)
+        if verifyKey, !(await store.keyMatchesVault()) {
+            throw VaultLockError.biometricChanged
+        }
+        if storedName == nil {
+            do {
+                try catalog.writeName(name, of: match.id, cipher: cipher)
+            } catch {
+                // The name shows anyway; it is written again on the next open.
+                Self.logger.error("Could not write a vault's name: \(error, privacy: .public)")
+            }
+        }
+        let vault = OpenVault(id: match.id, name: name, isEncrypted: true, store: store)
+        return LoadedVault(vault: vault, keyStore: match.keyStore)
+    }
+
+    /// Closes the open vault and any transfer target, then makes `loaded` current.
+    private func makeCurrent(_ loaded: LoadedVault) {
+        epoch += 1
+        closeTransferTargets()
+        closeOpenVault()
+        openEncrypted = loaded
+        state.set(loaded.vault)
+    }
+
+    /// Wipes the open encrypted vault's key and temp files; `current` is left for the caller to set.
+    private func closeOpenVault() {
+        guard let open = openEncrypted else { return }
+        openEncrypted = nil
+        Self.release(open)
+    }
+
+    private func closeTransferTargets() {
+        let targets = transferTargets.values
+        transferTargets = [:]
+        for target in targets { Self.release(target) }
+    }
+
+    /// Wipes a vault's key and removes its temp files.
+    private static func release(_ loaded: LoadedVault) {
+        loaded.keyStore.wipeKey()
+        loaded.vault.store.removeAllTemporaryFiles()
+    }
+
+    /// Waits until no other `createVault` runs, then marks one as running.
+    private func beginCreating() async {
+        guard isCreating else {
+            isCreating = true
+            return
+        }
+        // `endCreating` hands the running mark straight to the first waiter.
+        await withCheckedContinuation { createWaiters.append($0) }
+    }
+
+    /// Lets the next waiting `createVault` run, or clears the running mark.
+    private func endCreating() {
+        if createWaiters.isEmpty {
+            isCreating = false
         } else {
-            preferences.lockMode = mode
-            // A leftover item is harmless once the mode is password; the error is still reported.
-            do {
-                try await offMain { try keys.deleteBiometricKey() }
-            } catch {
-                throw Self.lockError(from: error)
+            createWaiters.removeFirst().resume()
+        }
+    }
+
+    /// Wipes the key and forgets Face ID: the biometric item and the marker are deleted (best effort).
+    private func forgetFaceID(keyStore: any MasterKeyStoring) {
+        keyStore.wipeKey()
+        do {
+            try keyStore.deleteBiometricKey()
+        } catch {
+            Self.logger.error("Could not delete the biometric key: \(error, privacy: .public)")
+        }
+        do {
+            try catalog.setBiometricVaultID(nil)
+        } catch {
+            Self.logger.error("Could not delete the Face ID vault marker: \(error, privacy: .public)")
+        }
+    }
+
+    private func removeFolderIfPresent(_ folder: URL) {
+        guard FileManager.default.fileExists(atPath: folder.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: folder)
+        } catch {
+            // An empty blobless folder is removed at the next launch.
+            Self.logger.error("Could not remove an unfinished vault's folder: \(error, privacy: .public)")
+        }
+    }
+
+    /// Runs `work` off the main actor, on a GCD queue rather than the Swift concurrency pool: key work blocks
+    /// (PBKDF2, a Keychain read waiting on Face ID) and must not hold one of the pool's few threads.
+    private static func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: Result { try work() })
             }
         }
     }
 
-    // MARK: - Removing the lock
-
-    func removeKeysAfterDecryption() async throws {
-        defer { refreshState() }
-        let keys = masterKeys
-        // Each step is idempotent; a failure stops here and the next call redoes the remaining steps.
-        do {
-            try await offMain { try keys.deleteBiometricKey() }
-            preferences.lockMode = .none
-            try await offMain { try keys.deleteMasterKeyBlob() }
-        } catch {
-            throw Self.lockError(from: error)
-        }
-        keys.wipeKey()
-        await deleteLegacyPasswordItem()
-    }
-
-    // MARK: - Helpers
-
-    /// Sets the state from the lock mode and whether the key is loaded; publishes only a change.
-    private func refreshState() {
-        state = LockState(lockMode: preferences.lockMode, keyLoaded: masterKeys.isKeyLoaded)
-    }
-
-    /// Deletes the old plaintext password item; a failure is logged and otherwise ignored.
-    private func deleteLegacyPasswordItem() async {
-        let keychain = keychain
-        do {
-            try await offMain { try keychain.delete(account: Self.legacyPasswordAccount) }
-        } catch {
-            Self.logger.error(
-                "Deleting the legacy password item failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    /// Deletes the biometric item where a failure must not stop the caller; the failure is logged.
-    private func deleteBiometricKeyLogging(_ what: StaticString) async {
-        do {
-            try await offMain { [masterKeys] in try masterKeys.deleteBiometricKey() }
-        } catch {
-            Self.logger.error(
-                "Deleting the \(what, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    /// Runs blocking Keychain and key-derivation work off the main actor.
-    private func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await Task.detached(priority: .userInitiated) { try work() }.value
-    }
-
-    /// Maps a key-store error to the lock's error.
-    ///
-    /// Key-store failures with no lock equivalent (corrupt blob, invalid key data, a crypto failure, an
-    /// existing key) surface as a Keychain error with the closest Security status.
+    /// Maps a failure to the lock's error: crypto errors to the same-named case, a Keychain status to
+    /// `.keychain`, anything else to `.io` with its description.
     private static func lockError(from error: any Error) -> VaultLockError {
-        guard let error = error as? VaultCryptoError else {
-            return (error as? VaultLockError) ?? .keychain(errSecInternalError)
-        }
-        if let biometricError = biometricLockError(from: error) { return biometricError }
-        switch error {
+        if let lockError = error as? VaultLockError { return lockError }
+        guard let crypto = error as? VaultCryptoError else { return .io(error.localizedDescription) }
+        switch crypto {
         case .wrongPassword: return .wrongPassword
         case .emptyPassword: return .emptyPassword
-        case .noMasterKeyBlob: return .passwordMissing
-        case .noKeyLoaded: return .notUnlocked
-        case .keychain(let status): return .keychain(status)
-        case .masterKeyAlreadyExists: return .keychain(errSecDuplicateItem)
-        default: return .keychain(errSecDecode)
-        }
-    }
-
-    /// The lock error for a biometric key-store error, or nil for any other error.
-    private static func biometricLockError(from error: VaultCryptoError) -> VaultLockError? {
-        switch error {
         case .biometricCancelled: return .biometricCancelled
-        case .biometricItemMissing: return .biometricChanged
         case .biometryLockedOut: return .biometryLockedOut
         case .biometryNotEnrolled: return .biometryNotEnrolled
         case .passcodeNotSet: return .passcodeNotSet
-        default: return nil
-        }
-    }
-}
-
-/// The check behind `LiveVaultLock`'s `vaultHoldsEncryptedData`: whether anything under the vault root was
-/// encrypted with a vault key. Needs no key.
-enum VaultEncryptedDataCheck {
-    /// The first bytes of an SVC5 vault file.
-    private static let encryptedFileMagic = Data("SVC5".utf8)
-
-    /// Whether `rootURL` holds a `.vault_map` index, a file in the encrypted format, or a trash entry (a
-    /// `.trash_map` or anything in a `.trash` folder). Hidden files are included. Errs on the safe side: a
-    /// root or entry that can't be read counts as encrypted data.
-    static func holdsEncryptedData(at rootURL: URL, fileManager: FileManager) -> Bool {
-        // A root that can't be listed (missing, no permission) is treated as not empty.
-        guard (try? fileManager.contentsOfDirectory(atPath: rootURL.path)) != nil else { return true }
-        let unreadable = OSAllocatedUnfairLock(initialState: false)
-        guard
-            let enumerator = fileManager.enumerator(
-                at: rootURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [],
-                errorHandler: { _, _ in
-                    unreadable.withLock { $0 = true }
-                    return false
-                }
-            )
-        else { return true }
-
-        while let url = enumerator.nextObject() as? URL {
-            let name = url.lastPathComponent
-            if name == ".vault_map" || name == ".trash_map" { return true }
-            guard let isDirectory = try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory else {
-                return true  // coverage-exempt: only if the entry vanishes between listing and reading its properties
-            }
-            if isDirectory {
-                if name == ".trash", (try? fileManager.contentsOfDirectory(atPath: url.path))?.isEmpty != true {
-                    return true
-                }
-            } else if mayBeEncryptedFile(at: url) {
-                return true
-            }
-        }
-        return unreadable.withLock { $0 }
-    }
-
-    /// Whether the file starts with the encrypted format's magic bytes; a file that can't be read counts
-    /// as encrypted.
-    private static func mayBeEncryptedFile(at url: URL) -> Bool {
-        do {
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            var prefix = Data()
-            while prefix.count < encryptedFileMagic.count {
-                guard let chunk = try handle.read(upToCount: encryptedFileMagic.count - prefix.count),
-                    !chunk.isEmpty
-                else { break }
-                prefix.append(chunk)
-            }
-            return prefix == encryptedFileMagic
-        } catch {
-            return true
+        case .keychain(let status): return .keychain(status)
+        case .biometricItemMissing, .corruptBlob, .invalidKeyData, .encryptionFailed, .decryptionFailed,
+            .noKeyLoaded, .noMasterKeyBlob, .masterKeyAlreadyExists:
+            return .io(crypto.localizedDescription)
         }
     }
 }

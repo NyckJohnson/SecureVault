@@ -4,7 +4,7 @@ import UIKit
 @testable import KoalaTVault
 
 /// `LiveBrowserFactory(store:preferences:thumbnails:exporter:exportPresenter:importPresenter:viewerFactory:
-/// settingsFactory:)` conforming to `BrowserFactory`.
+/// settingsFactory:vaultServices:)` conforming to `BrowserFactory`.
 @MainActor
 @Suite struct LiveBrowserFactoryTests {
     private func makeFactory(store: MockVaultStoring) -> LiveBrowserFactory {
@@ -14,7 +14,19 @@ import UIKit
             exporter: exporter, exportPresenter: ExportPresenter(exporter: exporter),
             importPresenter: ImportPresenter(
                 importer: MockVaultImporting(), cameraRoll: MockCameraRollDeleting(), store: store),
-            viewerFactory: MockViewerFactory(), settingsFactory: MockSettingsFactory())
+            viewerFactory: MockViewerFactory(), settingsFactory: MockSettingsFactory(),
+            vaultServices: BrowserVaultServices(
+                lock: MockVaultLocking(), transfer: MockVaultTransferring(),
+                onLock: { [lockCounter] in
+                    lockCounter.count += 1
+                }))
+    }
+
+    private let lockCounter = LockCounter()
+
+    @MainActor
+    final class LockCounter {
+        var count = 0
     }
 
     private func loads(_ store: MockVaultStoring) -> Int {
@@ -26,6 +38,15 @@ import UIKit
         let navigation = makeFactory(store: MockVaultStoring()).makeRootBrowser()
         #expect(navigation.navigationBar.prefersLargeTitles)
         #expect(navigation.viewControllers.first is FileBrowserViewController)
+    }
+
+    @Test("The root browser has a Lock button that calls onLock")
+    func rootBrowserHasLockButton() async throws {
+        let factory = makeFactory(store: MockVaultStoring())
+        let host = BrowserViewHost(content: factory.makeRootBrowser())
+        #expect(await host.waitForElement("lockButton") != nil)
+        host.tap("lockButton")
+        #expect(lockCounter.count == 1)
     }
 
     @Test("reloadAll lists the folder again in the root and in a pushed subfolder")

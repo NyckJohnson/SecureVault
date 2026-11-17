@@ -22,7 +22,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     private var exportSheet: XCUIElement { app.sheets.firstMatch }
@@ -79,10 +79,10 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
     func testJourney7_BulkExportHandsOffToDocumentPicker() {
         tapBarButton("selectButton", fallbackLabel: "Select")
-        XCTAssertTrue(app.navigationBars["Select Items"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5))
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
+        XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
+        tapSelectActionsMenuEntry("browser.menu.bulkExport", title: "Export")
         assertExportSheetOffersFilesNotCameraRoll()
         exportSheet.buttons["Save to Files"].tap()
         assertPickerThenCancel()
@@ -90,7 +90,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
     /// Folders in a selection are skipped: a file plus a folder still exports (the sheet appears).
     func testJourney7_FolderInSelectionDoesNotBlockExportOfFile() {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder")
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder")
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Docs", into: alert.textFields["browser.newFolderNameField"])
@@ -100,8 +100,8 @@ final class J7ExportJourneyTests: JourneyTestCase {
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell("Docs").tap()
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
+        XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
+        tapSelectActionsMenuEntry("browser.menu.bulkExport", title: "Export")
         assertExportSheetOffersFilesNotCameraRoll()
         exportSheet.buttons["Save to Files"].tap()
         assertPickerThenCancel()
@@ -126,7 +126,7 @@ final class J7ExportJourneyTests: JourneyTestCase {
 
 // MARK: - Regression: export from an encrypted vault is decrypted (baseline fix 20)
 
-/// In a password vault the disk holds UUID-named encrypted files and `.vault_map` indexes. Export must hand the
+/// In an encrypted vault (the seed file moved into Test Vault, journey 11) the disk holds UUID-named encrypted files and `.vault_map` indexes. Export must hand the
 /// document picker a decrypted copy under the real name. The picker's "Save as" field (`DOCPicker.filenameTextField`)
 /// shows the name of the single item being saved, which is the one thing XCUITest can see of the hand-off; the
 /// bytes written into Files and the contents of an exported folder are not observable.
@@ -139,7 +139,7 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
     override func setUp() async throws {
         try await super.setUp()
         launch(environment: ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password])
-        unlockWithPassword()
+        openTestVaultHolding(seedName)
     }
 
     private var exportSheet: XCUIElement { app.sheets.firstMatch }
@@ -184,8 +184,8 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
     func testJourney7_BulkExportFromPasswordVaultOffersDecryptedFileUnderItsRealName() {
         tapBarButton("selectButton", fallbackLabel: "Select")
         cell(seedName).tap()
-        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
-        tapBarButton("browser.bulkExportButton", fallbackLabel: "Export")
+        XCTAssertTrue(browserTitle("1 Selected").waitForExistence(timeout: 5))
+        tapSelectActionsMenuEntry("browser.menu.bulkExport", title: "Export")
         chooseSaveToFiles()
         assertPickerOffersThenCancel(name: seedName)
     }
@@ -207,9 +207,9 @@ final class J7ExportEncryptedVaultJourneyTests: JourneyTestCase {
     func testJourney7_ExportFolderFromPasswordVaultOffersItUnderItsRealName() {
         createFolderViaBar(named: "Docs")
         cell("Docs").tap()
-        XCTAssertTrue(app.navigationBars["Docs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Docs").waitForExistence(timeout: 5))
         createDocument(named: "notes")
-        app.navigationBars["Docs"].buttons.firstMatch.tap()
+        app.buttons["browser.backButton"].tap()
         XCTAssertTrue(cell("Docs").waitForExistence(timeout: 5))
 
         longPressCell("Docs")

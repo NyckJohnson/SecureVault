@@ -16,18 +16,16 @@ final class J4ImportJourneyTests: JourneyTestCase {
     private let seedName = "alpha.txt"
 
     override var launchEnvironment: [String: String] {
-        ["UITEST_SEED_FILE_NAME": seedName]
+        ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password]
     }
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     private func openImportSheet() -> XCUIElement {
-        let button = app.buttons["importButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "Import button missing")
-        button.tap()
+        tapActionsMenuEntry("browser.menu.import", title: "Import")
         let sheet = app.sheets.firstMatch
         XCTAssertTrue(sheet.waitForExistence(timeout: 5), "The import sheet did not appear")
         return sheet
@@ -36,6 +34,19 @@ final class J4ImportJourneyTests: JourneyTestCase {
     private func assertGridUnchanged(file: StaticString = #filePath, line: UInt = #line) {
         let names = app.collectionViews["fileGrid"].cells.allElementsBoundByIndex.map(\.identifier)
         XCTAssertEqual(names, ["browser.cell.\(seedName)"], "Nothing should have been imported", file: file, line: line)
+    }
+
+    /// Each vault imports on its own: the sheet is the same in an encrypted vault.
+    func testJourney4_ImportSheetInAnEncryptedVaultOffersTheSameChoices() {
+        lockApp()
+        unlockWithPassword()
+        let sheet = openImportSheet()
+        XCTAssertTrue(sheet.buttons["Choose Files"].exists)
+        XCTAssertTrue(sheet.buttons["Choose Folder"].exists)
+        XCTAssertTrue(sheet.buttons["Choose Photos"].exists)
+        dismissActionSheetByTappingOutside()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(app.collectionViews["fileGrid"].cells.count, 0, "Test Vault is empty, nothing imported")
     }
 
     func testJourney4_ImportSheetListsChooseFilesFolderPhotosAndCancel() {
@@ -61,7 +72,7 @@ final class J4ImportJourneyTests: JourneyTestCase {
         let cancel = app.buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 10), "The document picker did not appear (no Cancel button)")
         cancel.tap()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), "The picker did not close")
+        XCTAssertTrue(app.buttons["browser.actionsMenuButton"].waitForExistence(timeout: 10), "The picker did not close")
         XCTAssertFalse(app.otherElements["progressOverlay"].exists)
         assertGridUnchanged()
     }
@@ -73,7 +84,7 @@ final class J4ImportJourneyTests: JourneyTestCase {
         let cancel = app.buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 10), "The folder picker did not appear (no Cancel button)")
         cancel.tap()
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 10), "The picker did not close")
+        XCTAssertTrue(app.buttons["browser.actionsMenuButton"].waitForExistence(timeout: 10), "The picker did not close")
         assertGridUnchanged()
     }
 
@@ -94,7 +105,7 @@ final class J4ImportJourneyTests: JourneyTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 10), "The photo picker did not appear (no Cancel button)")
         cancel.tap()
         XCTAssertTrue(cancel.waitForNonExistence(timeout: 5), "Cancel must close the photo picker")
-        XCTAssertTrue(app.buttons["importButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["browser.actionsMenuButton"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.alerts.firstMatch.exists, "Cancel must not raise an error")
         assertGridUnchanged()
     }

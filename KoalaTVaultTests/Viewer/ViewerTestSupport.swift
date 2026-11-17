@@ -101,6 +101,9 @@ final class ViewerGatedStore: VaultStoring {
 
     var root: VaultDirectory { inner.root }
 
+    // feature multiple-vaults-duress-password: signature updated
+    var isEncrypted: Bool { inner.isEncrypted }
+
     /// How many writes have been requested, including the one waiting at the gate.
     var writeCallCount: Int { state.withLock { $0.writeCalls } }
 
@@ -164,6 +167,11 @@ final class ViewerGatedStore: VaultStoring {
         try await inner.addFile(from: source, named: name, to: directory)
     }
 
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        try await inner.addFiles(files, to: directory)
+    }
+
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
         try await inner.findItem(named: name, in: directory)
     }
@@ -181,6 +189,11 @@ final class ViewerGatedStore: VaultStoring {
     }
 
     func moveToTrash(_ item: VaultItem) async throws { try await inner.moveToTrash(item) }
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] { await inner.moveToTrash(items) }
+
+    // feature multiple-vaults-duress-password: signature updated
+    func remove(_ item: VaultItem) async throws { try await inner.remove(item) }
 
     func trashContents() async throws -> [VaultItem] { try await inner.trashContents() }
 
@@ -198,15 +211,10 @@ final class ViewerGatedStore: VaultStoring {
 
     func countFiles() async throws -> Int { try await inner.countFiles() }
 
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
-        try await inner.itemsToMigrate(toEncrypted: toEncrypted)
-    }
+    // feature multiple-vaults-duress-password: signature updated
+    func itemsToEncrypt() async throws -> [VaultItem] { try await inner.itemsToEncrypt() }
 
     func migrateToEncrypted(_ item: VaultItem) async throws { try await inner.migrateToEncrypted(item) }
-
-    func migrateToDecrypted(_ item: VaultItem) async throws { try await inner.migrateToDecrypted(item) }
-
-    func finishDecryption() async throws { try await inner.finishDecryption() }
 
     func finishEncryption() async throws { try await inner.finishEncryption() }
 

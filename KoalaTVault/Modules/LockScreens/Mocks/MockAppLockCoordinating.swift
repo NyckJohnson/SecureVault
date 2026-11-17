@@ -5,20 +5,20 @@ import UIKit
 final class MockAppLockCoordinating: AppLockCoordinating {
     /// A recorded call.
     enum Call: Equatable, Sendable {
-        case sceneDidConnect(needsSetup: Bool)
+        case sceneDidConnect
         case sceneWillResignActive
         case sceneDidEnterBackground
         case sceneDidBecomeActive
+        case lock
     }
 
     /// Every call so far, in order.
     private(set) var calls: [Call] = []
-    var onUnlocked: (() -> Void)?
 
     init() {}
 
-    func sceneDidConnect(window: UIWindow, needsSetup: Bool) {
-        calls.append(.sceneDidConnect(needsSetup: needsSetup))
+    func sceneDidConnect(window: UIWindow) {
+        calls.append(.sceneDidConnect)
     }
 
     func sceneWillResignActive() {
@@ -33,8 +33,7 @@ final class MockAppLockCoordinating: AppLockCoordinating {
         calls.append(.sceneDidBecomeActive)
     }
 
-    /// Acts as if the user unlocked: calls `onUnlocked`.
-    func simulateUnlock() {
-        onUnlocked?()
+    func lock() {
+        calls.append(.lock)
     }
 }

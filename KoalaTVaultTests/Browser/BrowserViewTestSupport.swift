@@ -6,7 +6,7 @@ import UIKit
 /// Seams the Browser view tests assume (the code-writer builds them):
 ///
 /// `FileBrowserViewController(directory:store:preferences:thumbnails:exporter:exportPresenter:importPresenter:
-/// viewerFactory:settingsFactory:)` is a `UIViewController & AlertPresenting` that makes its own
+/// viewerFactory:settingsFactory:vaultServices:)` is a `UIViewController & AlertPresenting` that makes its own
 /// `FileBrowserViewModel` (alerts = itself) and loads it when it appears. Its `fileGrid` is a
 /// `UICollectionView` whose data source returns `FileCell`s. Bar buttons carry the memo's identifiers (nav bar
 /// or the controller's `toolbarItems`).
@@ -31,7 +31,14 @@ final class BrowserViewHost {
     /// so an action sheet is adapted to a popover (as on iPad) and its anchor can be inspected.
     init(content: UIViewController, regularWidth: Bool = false) {
         root = content
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        // A window with a scene lets animated pushes and pops finish; a scene-less window leaves them running.
+        let frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            window = UIWindow(windowScene: scene)
+            window.frame = frame
+        } else {
+            window = UIWindow(frame: frame)
+        }
         if regularWidth {
             let container = UIViewController()
             container.addChild(content)
@@ -47,6 +54,11 @@ final class BrowserViewHost {
         }
         window.makeKeyAndVisible()
         content.view.layoutIfNeeded()
+    }
+
+    /// Hides the scene-attached window so it does not outlive the test.
+    isolated deinit {
+        window.isHidden = true
     }
 
     var topmost: UIViewController {
@@ -127,11 +139,6 @@ final class BrowserViewHost {
         for subview in view.subviews { result += texts(in: subview) }
         return result
     }
-
-    /// The title shown by the top of the navigation stack.
-    var shownTitle: String? {
-        navigation?.topViewController?.navigationItem.title ?? navigation?.topViewController?.title
-    }
 }
 
 enum BrowserViewSupport {
@@ -163,12 +170,15 @@ extension UIAlertController {
 final class BrowserFakeThumbnails: ThumbnailProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var requestedIDs: [String] = []
+    private var requestedSizes: [String: [CGSize]] = [:]
     private var cancelledIDs: [String] = []
     private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
     private var held: Set<String> = []
     private var images: [String: UIImage] = [:]
 
     func requested() -> [String] { lock.withLock { requestedIDs } }
+    /// The sizes asked for the item's thumbnail, in request order.
+    func sizes(for id: String) -> [CGSize] { lock.withLock { requestedSizes[id] ?? [] } }
     func cancelled() -> [String] { lock.withLock { cancelledIDs } }
 
     /// The image this fake returns for the item, made on first use.
@@ -200,6 +210,7 @@ final class BrowserFakeThumbnails: ThumbnailProviding, @unchecked Sendable {
     func thumbnail(for item: VaultItem, size: CGSize, scale: CGFloat) async -> UIImage? {
         let shouldHold = lock.withLock { () -> Bool in
             requestedIDs.append(item.id)
+            requestedSizes[item.id, default: []].append(size)
             return held.contains(item.id)
         }
         if shouldHold {

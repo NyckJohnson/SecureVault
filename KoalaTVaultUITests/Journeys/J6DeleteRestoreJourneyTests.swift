@@ -13,12 +13,12 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
     private let seedName = "alpha.txt"
 
     override var launchEnvironment: [String: String] {
-        ["UITEST_SEED_FILE_NAME": seedName]
+        ["UITEST_SEED_FILE_NAME": seedName, "UITEST_PASSWORD": Self.password]
     }
 
     override func setUp() async throws {
         try await super.setUp()
-        completeSetupWithNoLockIfShown()
+        openUnencryptedVault()
     }
 
     private func trashRow(_ name: String) -> XCUIElement {
@@ -65,11 +65,11 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
     func testJourney6_BulkDeleteMovesSelectionToRecentlyDeleted() {
         createDocument(named: "Second")
         tapBarButton("selectButton", fallbackLabel: "Select")
-        XCTAssertTrue(app.navigationBars["Select Items"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Select Items").waitForExistence(timeout: 5))
         cell(seedName).tap()
         cell("Second.rtf").tap()
-        XCTAssertTrue(app.navigationBars["2 Selected"].waitForExistence(timeout: 5))
-        app.buttons["browser.bulkDeleteButton"].tap()
+        XCTAssertTrue(browserTitle("2 Selected").waitForExistence(timeout: 5))
+        tapSelectActionsMenuEntry("browser.menu.bulkDelete", title: "Delete")
         let alert = app.alerts["Delete 2 items?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "Bulk delete needs a confirm")
         tapAlertButton("Delete", in: alert)
@@ -174,17 +174,17 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
 
     /// Restoring when the original folder is gone recreates it.
     func testJourney6_RestoreWhenOriginalFolderGoneRecreatesIt() {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder")
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder")
         let alert = app.alerts["New Folder"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         type("Box", into: alert.textFields["browser.newFolderNameField"])
         tapAlertButton("Create", in: alert)
         cell("Box").tap()
-        XCTAssertTrue(app.navigationBars["Box"].waitForExistence(timeout: 5))
+        XCTAssertTrue(browserTitle("Box").waitForExistence(timeout: 5))
         createDocument(named: "inner")
         deleteViaContextMenu("inner.rtf")
-        app.navigationBars["Box"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["KoalaTVault"].waitForExistence(timeout: 5))
+        app.buttons["browser.backButton"].tap()
+        XCTAssertTrue(browserTitle("KoalaTVault").waitForExistence(timeout: 5))
         deleteViaContextMenu("Box")
 
         openRecentlyDeleted()
@@ -197,37 +197,107 @@ final class J6DeleteRestoreJourneyTests: JourneyTestCase {
         XCTAssertTrue(cell("inner.rtf").waitForExistence(timeout: 5), "The file should be inside the recreated folder")
     }
 
-    // MARK: - Regression: trash across adding a lock (baseline fix 12)
+    // MARK: - Several items in the trash (stale row regression)
 
-    func testJourney6_TrashStaysReadableAfterAddingLock() {
+    private let trashNames = ["One.rtf", "Two.rtf", "Three.rtf"]
+
+    private func trashTable() -> XCUIElement { app.tables["recentlyDeleted.list"] }
+
+    /// Visible labels of every row in the trash table, matched by text, not identifier.
+    private func trashRowLabels() -> [String] {
+        trashTable().cells.allElementsBoundByIndex.map { cell in
+            cell.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
+        }
+    }
+
+    private func trashHasRow(labelled name: String) -> Bool {
+        trashRowLabels().contains { $0.contains(name) }
+    }
+
+    private func fillTrashWithThreeItems() {
+        for name in ["One", "Two", "Three"] { createDocument(named: name) }
+        for name in trashNames { deleteViaContextMenu(name) }
+        openRecentlyDeleted()
+        XCTAssertTrue(trashRow(trashNames[0]).waitForExistence(timeout: 5))
+        XCTAssertEqual(trashTable().cells.count, 3, "Three deleted items expected; rows: \(trashRowLabels())")
+    }
+
+    /// Waits for the table to show `expected` rows by cell count, then checks the labels.
+    private func expectTrashRows(_ expected: [String], absent: [String],
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, trashTable().cells.count != expected.count || absent.contains(where: trashHasRow(labelled:)) {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        let labels = trashRowLabels()
+        XCTAssertEqual(trashTable().cells.count, expected.count, "Row count. Visible rows: \(labels)", file: file, line: line)
+        for name in absent {
+            XCTAssertFalse(trashHasRow(labelled: name), "\(name) should not be drawn. Visible rows: \(labels)", file: file, line: line)
+        }
+        for name in expected {
+            XCTAssertTrue(trashHasRow(labelled: name), "\(name) should still be shown. Visible rows: \(labels)", file: file, line: line)
+        }
+    }
+
+    private func restoreRow(_ name: String) {
+        trashRow(name).tap()
+        tapSheetButton("Restore")
+    }
+
+    func testJourney6_RestoreOneOfSeveralRemovesOnlyThatRow() {
+        fillTrashWithThreeItems()
+        restoreRow("Two.rtf")
+        expectTrashRows(["One.rtf", "Three.rtf"], absent: ["Two.rtf"])
+        leaveTrash()
+        XCTAssertTrue(cell("Two.rtf").waitForExistence(timeout: 5), "Restored item is back in the grid")
+        XCTAssertFalse(cell("One.rtf").exists)
+        XCTAssertFalse(cell("Three.rtf").exists)
+    }
+
+    func testJourney6_DeletePermanentlyOneOfSeveralRemovesOnlyThatRow() {
+        fillTrashWithThreeItems()
+        trashRow("Two.rtf").tap()
+        tapSheetButton("Delete Permanently")
+        let alert = app.alerts["Delete Permanently?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        tapAlertButton("Delete", in: alert)
+        expectTrashRows(["One.rtf", "Three.rtf"], absent: ["Two.rtf"])
+        leaveTrash()
+        XCTAssertFalse(cell("Two.rtf").exists, "Permanently deleted item must not return")
+    }
+
+    func testJourney6_RestoreTwiceOnSameOpenScreenKeepsRowsInSync() {
+        fillTrashWithThreeItems()
+        restoreRow("Two.rtf")
+        expectTrashRows(["One.rtf", "Three.rtf"], absent: ["Two.rtf"])
+        restoreRow("One.rtf")
+        expectTrashRows(["Three.rtf"], absent: ["One.rtf", "Two.rtf"])
+        leaveTrash()
+        XCTAssertTrue(cell("Two.rtf").waitForExistence(timeout: 5))
+        XCTAssertTrue(cell("One.rtf").exists)
+        XCTAssertFalse(cell("Three.rtf").exists)
+    }
+
+    // MARK: - Each vault has its own Recently Deleted
+
+    func testJourney6_EncryptedVaultHasItsOwnTrash() {
+        deleteViaContextMenu(seedName)
+        openRecentlyDeleted()
+        XCTAssertTrue(trashRow(seedName).waitForExistence(timeout: 5))
+        leaveTrash()
+
+        lockApp()
+        unlockWithPassword()
+        XCTAssertTrue(browserTitle("Test Vault").waitForExistence(timeout: 5), "Browser is titled with the vault")
+        XCTAssertFalse(cell(seedName).exists)
         createDocument(named: "A")
         deleteViaContextMenu("A.rtf")
-
-        app.buttons["settingsButton"].tap()
-        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 5), "Settings did not open")
-        app.cells["settings.lockMode.passwordRow"].tap()
-        let setAlert = app.alerts["Set Password"]
-        XCTAssertTrue(setAlert.waitForExistence(timeout: 5), "Set Password alert missing")
-        type(Self.password, into: setAlert.secureTextFields["settings.passwordField"])
-        type(Self.password, into: setAlert.secureTextFields["settings.confirmPasswordField"])
-        tapAlertButton("Set", in: setAlert)
-        XCTAssertTrue(app.staticTexts["migration.titleLabel"].waitForNonExistence(timeout: 30), "Migration did not close")
-        XCTAssertTrue(app.navigationBars["Security"].waitForExistence(timeout: 10), "Settings should be back")
-        XCTAssertTrue(app.cells["settings.lockMode.passwordRow"].isSelected, "Password should be the lock mode")
-        dismissSettingsSheet()
-
-        createDocument(named: "B")
-        deleteViaContextMenu("B.rtf")
-        XCTAssertFalse(app.alerts.firstMatch.exists, "Deleting under a lock must not fail")
-
         openRecentlyDeleted()
-        XCTAssertTrue(trashRow("A.rtf").waitForExistence(timeout: 5), "A.rtf (deleted before the lock) should be listed")
-        XCTAssertTrue(trashRow("B.rtf").exists, "B.rtf (deleted after the lock) should be listed")
-
+        XCTAssertTrue(trashRow("A.rtf").waitForExistence(timeout: 5), "A.rtf should be in Test Vault's trash")
+        XCTAssertFalse(trashRow(seedName).exists, "The unencrypted vault's trash is not shown here")
         trashRow("A.rtf").tap()
         tapSheetButton("Restore")
-        XCTAssertTrue(trashRow("A.rtf").waitForNonExistence(timeout: 5), "A.rtf should leave the trash")
-        XCTAssertTrue(trashRow("B.rtf").exists)
+        XCTAssertTrue(trashRow("A.rtf").waitForNonExistence(timeout: 5))
         leaveTrash()
         XCTAssertTrue(cell("A.rtf").waitForExistence(timeout: 5), "A.rtf should be back in the grid")
     }

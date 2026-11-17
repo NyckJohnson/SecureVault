@@ -3,12 +3,28 @@ import Foundation
 
 /// What the security settings screen is asking the user.
 enum SecuritySettingsPrompt: Sendable, Equatable {
-    /// Confirm removing the lock.
-    case removeLock
-    /// A new password and its confirmation, to add a lock ending in the mode.
-    case newPassword(LockMode)
-    /// The password of the key already on this device, to add a lock ending in the mode.
-    case existingPassword(LockMode)
+    /// Confirm deleting the open vault by typing its password.
+    case deleteVault
+}
+
+/// A section of the security settings screen, in display order.
+enum SecuritySettingsSection: Sendable, Equatable {
+    /// The Pro row.
+    case pro
+    /// The open vault's section: Change Password and the biometric switch.
+    case vault
+    /// Storage: Recently Deleted.
+    case storage
+    /// Delete This Vault, in a section of its own, last.
+    case deleteVault
+}
+
+/// A row of the Vault section, in display order.
+enum SecuritySettingsVaultRow: Sendable, Equatable {
+    /// "Change Password".
+    case changePassword
+    /// The "Use <biometric name>" switch.
+    case biometricSwitch
 }
 
 extension BiometricKind {
@@ -22,65 +38,47 @@ extension BiometricKind {
     }
 }
 
-/// The logic of the security settings screen: the Pro row, the lock mode rows, Re-encrypt Everything and
-/// Change Password.
+/// The logic of the security settings screen for the open vault: the Pro row, the Vault section (Change
+/// Password and the biometric switch; only for an encrypted vault), Storage, and last Delete This Vault in a
+/// section of its own (only for an encrypted vault).
 ///
-/// A lock is never added or removed while a migration is under way: `LockMigrating.start` does nothing
-/// while a run exists, so the lock would change with no migration to bring the files in line.
+/// Settings is built for one open vault: the vault is read once, when this is made.
 @MainActor
 final class SecuritySettingsViewModel: ObservableObject {
-    /// The title of the prompt that confirms removing the lock.
-    static let removeLockTitle = "Remove Lock?"
-    /// The message of the prompt that confirms removing the lock.
-    static let removeLockMessage = "Your files will be decrypted and no longer protected."
-    /// Why an incomplete migration left the vault on Password. It says "Face ID" on every device, as today's app does.
-    private static let biometricsNotTurnedOnMessage =
-        "Face ID wasn't turned on because some files aren't encrypted yet. "
-        + "Use Re-encrypt Everything, then turn on Face ID."
+    /// The title of the prompt that confirms deleting the vault.
+    static let deleteVaultTitle = "Delete This Vault?"
 
-    /// The lock mode in force.
-    @Published private(set) var currentMode: LockMode
     /// True when Pro is unlocked.
     @Published private(set) var isProUnlocked: Bool
-    /// True when the Re-encrypt Everything row shows: a lock and unencrypted files.
-    @Published private(set) var showsReencrypt = false
+    /// True when the open vault uses biometrics (the switch's state).
+    @Published private(set) var usesBiometrics: Bool
     /// The question to put to the user, if any.
     @Published private(set) var prompt: SecuritySettingsPrompt?
-    /// True while a password is being set or changed.
+    /// True while a password change, a biometric change or a deletion is in progress.
     @Published private(set) var isBusy = false
-    /// The kind of the migration last started; read it in `onShowMigration` to title the screen.
-    private(set) var migrationKind: MigrationKind = .encrypt
 
     private let lock: any VaultLocking
-    private let migrator: any LockMigrating
-    private let store: any VaultStoring
     private let pro: any ProUnlocking
+    private let vault: OpenVault
     private weak var alerts: (any AlertPresenting)?
-    private let onShowMigration: @MainActor () -> Void
-    /// True from adding Password + biometric until that migration is reported finished. It lives only here:
-    /// the migration runs under Password, so after a kill it resumes under Password and the vault stays Password.
-    private var turnsOnBiometricsAfterMigration = false
+    private let onVaultDeleted: @MainActor () -> Void
 
     /// - Parameters:
-    ///   - lock: the app's vault lock.
-    ///   - migrator: the app's one lock migration.
-    ///   - store: the vault store, for the unencrypted-file check.
+    ///   - lock: the vaults; `current` is the vault these settings are for.
     ///   - pro: the "Unlock Pro" entitlement.
     ///   - alerts: shows errors and successes (held weakly; usually the view controller that owns this).
-    ///   - onShowMigration: shows the migration screen. It must create the screen's `MigrationViewModel`
-    ///     before it returns, because the migration starts right afterwards.
+    ///   - onVaultDeleted: called once the open vault has been deleted, so Settings can report it is done.
     init(
-        lock: any VaultLocking, migrator: any LockMigrating, store: any VaultStoring, pro: any ProUnlocking,
-        alerts: any AlertPresenting, onShowMigration: @escaping @MainActor () -> Void
+        lock: any VaultLocking, pro: any ProUnlocking, alerts: any AlertPresenting,
+        onVaultDeleted: @escaping @MainActor () -> Void
     ) {
         self.lock = lock
-        self.migrator = migrator
-        self.store = store
         self.pro = pro
         self.alerts = alerts
-        self.onShowMigration = onShowMigration
-        currentMode = lock.lockMode
+        self.onVaultDeleted = onVaultDeleted
+        vault = lock.current
         isProUnlocked = pro.isUnlocked
+        usesBiometrics = lock.currentUsesBiometrics
     }
 
     // MARK: - Rows
@@ -88,21 +86,39 @@ final class SecuritySettingsViewModel: ObservableObject {
     /// The Pro row's title.
     var proTitle: String { isProUnlocked ? "Pro Unlocked" : "Upgrade to Pro" }
 
-    /// True when the Change Password row shows.
-    var showsChangePassword: Bool { currentMode != .none }
+    /// True when the Vault section shows: the open vault is encrypted.
+    var showsVaultSection: Bool { vault.isEncrypted }
 
-    /// A lock mode row's title.
-    func title(for mode: LockMode) -> String {
-        switch mode {
-        case .none: "No Lock"
-        case .password: "Password"
-        case .passwordAndBiometrics: "Password + \(lock.biometricKind.settingsDisplayName)"
-        }
+    /// The Vault section's title: the vault's name.
+    var vaultSectionTitle: String { vault.name }
+
+    /// True when the biometric switch shows.
+    var showsBiometricSwitch: Bool { vault.isEncrypted && lock.biometricsAvailable }
+
+    /// The biometric switch's title, e.g. "Use Face ID".
+    var biometricTitle: String { "Use \(lock.biometricKind.settingsDisplayName)" }
+
+    /// The Vault section's footer under the biometric switch, e.g. "Note: only one vault can use Face ID.";
+    /// nil when the switch is hidden.
+    var biometricNote: String? {
+        guard showsBiometricSwitch else { return nil }
+        return "Note: only one vault can use \(lock.biometricKind.settingsDisplayName)."
     }
 
-    /// Whether a lock mode row can be chosen.
-    func isEnabled(_ mode: LockMode) -> Bool {
-        mode != .passwordAndBiometrics || lock.biometricsAvailable
+    /// The sections to show, in order.
+    var sections: [SecuritySettingsSection] {
+        vault.isEncrypted ? [.pro, .vault, .storage, .deleteVault] : [.pro, .storage]
+    }
+
+    /// The Vault section's rows, in order; empty when the Vault section is hidden.
+    var vaultRows: [SecuritySettingsVaultRow] {
+        guard showsVaultSection else { return [] }
+        return showsBiometricSwitch ? [.changePassword, .biometricSwitch] : [.changePassword]
+    }
+
+    /// The message of the prompt that confirms deleting the vault.
+    var deleteVaultMessage: String {
+        "Everything in \"\(vault.name)\" will be erased. This can't be undone. Enter the vault's password to confirm."
     }
 
     /// Follows the Pro entitlement until the calling task is cancelled.
@@ -115,89 +131,25 @@ final class SecuritySettingsViewModel: ObservableObject {
         }
     }
 
-    /// Re-reads the lock mode and whether any file is unencrypted. Call on appearing.
-    func reload() async {
-        // Locked or unreadable counts as "nothing to re-encrypt", as the screen has always done.
-        let hasUnencryptedFiles = (try? await store.hasUnencryptedFiles()) ?? false
-        currentMode = lock.lockMode
-        showsReencrypt = currentMode != .none && hasUnencryptedFiles
+    /// Re-reads the biometric state. Call on appearing.
+    func reload() {
+        usesBiometrics = lock.currentUsesBiometrics
     }
 
-    // MARK: - Choosing a lock mode
+    // MARK: - Biometrics
 
-    /// The user chose a lock mode row.
-    func select(_ mode: LockMode) async {
-        currentMode = lock.lockMode
-        guard mode != currentMode, isEnabled(mode), !refusedForMigrationUnderWay() else { return }
-        if mode == .none {
-            prompt = .removeLock
-        } else if currentMode == .none {
-            prompt = .newPassword(mode)
-        } else {
-            await switchMode(to: mode)
+    /// The user flipped the biometric switch. An error is shown, and the switch shows the real state afterwards.
+    func setUsesBiometrics(_ enabled: Bool) async {
+        isBusy = true
+        defer {
+            usesBiometrics = lock.currentUsesBiometrics
+            isBusy = false
         }
-    }
-
-    /// The user dismissed the current prompt.
-    func cancelPrompt() {
-        prompt = nil
-    }
-
-    /// The user confirmed removing the lock.
-    func confirmRemoveLock() async {
-        guard prompt == .removeLock else { return }
-        prompt = nil
-        guard !refusedForMigrationUnderWay() else { return }
-        await beginMigration(.decrypt, target: nil)
-    }
-
-    /// The user entered a new password for the lock being added.
-    func submitNewPassword(_ password: String, confirm: String) async {
-        guard case .newPassword(let target) = prompt else { return }
-        prompt = nil
-        guard !password.isEmpty else {
-            alerts?.showError("Password cannot be empty")
-            return
+        do {
+            try await lock.setUsesBiometrics(enabled)
+        } catch {
+            alerts?.showError(error)
         }
-        guard password == confirm else {
-            alerts?.showError("Passwords do not match")
-            return
-        }
-        await addLock(ending: target, password: password, asksForExistingPassword: true)
-    }
-
-    /// The user entered the password of the key already on this device.
-    func submitExistingPassword(_ password: String) async {
-        guard case .existingPassword(let target) = prompt else { return }
-        prompt = nil
-        await addLock(ending: target, password: password, asksForExistingPassword: false)
-    }
-
-    /// The user chose Re-encrypt Everything. The lock is already on; a pending encrypt's target is kept.
-    func reencryptEverything() async {
-        let pending = migrator.pending
-        guard lock.lockMode != .none else { return }
-        guard !hasRunUnderWay, pending?.kind != .decrypt else {
-            showMigrationUnderWay()
-            return
-        }
-        await beginMigration(.encrypt, target: pending?.kind == .encrypt ? pending?.targetLockMode : nil)
-    }
-
-    /// The migration screen reported its end. After adding Password + biometric, a full migration turns
-    /// biometrics on (a failure shows the error and keeps Password) and an incomplete one says why it didn't.
-    /// Every call refreshes the rows; only the first after adding the lock acts on the choice.
-    func migrationFinished(completedFully: Bool) async {
-        let turnsOnBiometrics = turnsOnBiometricsAfterMigration
-        turnsOnBiometricsAfterMigration = false
-        if turnsOnBiometrics {
-            if completedFully {
-                await switchMode(to: .passwordAndBiometrics)
-            } else {
-                alerts?.showError(Self.biometricsNotTurnedOnMessage)
-            }
-        }
-        await reload()
     }
 
     // MARK: - Change Password
@@ -219,68 +171,42 @@ final class SecuritySettingsViewModel: ObservableObject {
             alerts?.showSuccess("Password changed successfully")
         } catch VaultLockError.wrongPassword {
             alerts?.showError("Current password is incorrect")
+        } catch VaultLockError.passwordInUse {
+            alerts?.showError("Choose a different password.")
         } catch {
             alerts?.showError(error)
         }
     }
 
-    // MARK: - Private
+    // MARK: - Delete This Vault
 
-    /// A run exists when the migrator would ignore a new `start`.
-    private var hasRunUnderWay: Bool {
-        switch migrator.phase {
-        case .running, .paused, .failed, .unreadableTrash: true
-        case .idle, .completed: false
-        }
+    /// The user chose Delete This Vault: ask for the vault's password.
+    func requestDeleteVault() {
+        guard vault.isEncrypted else { return }
+        prompt = .deleteVault
     }
 
-    /// Shows why the lock can't change if a migration is under way or waiting to resume.
-    private func refusedForMigrationUnderWay() -> Bool {
-        guard hasRunUnderWay || migrator.pending != nil else { return false }
-        showMigrationUnderWay()
-        return true
+    /// The user dismissed the current prompt.
+    func cancelPrompt() {
+        prompt = nil
     }
 
-    private func showMigrationUnderWay() {
-        alerts?.showError("A migration is still in progress. Let it finish, then try again.")
-    }
-
-    private func switchMode(to mode: LockMode) async {
-        do {
-            try await lock.switchMode(to: mode)
-        } catch {
-            alerts?.showError(error)
-        }
-        currentMode = lock.lockMode
-    }
-
-    /// Adds the lock under the password alone, then encrypts under it. `migrationFinished` moves it to `target`
-    /// if that is Password + biometric and every file was encrypted.
-    private func addLock(ending target: LockMode, password: String, asksForExistingPassword: Bool) async {
-        guard !refusedForMigrationUnderWay() else { return }
+    /// The user confirmed deleting the vault with `password`. An empty password is ignored.
+    func confirmDeleteVault(password: String) async {
+        guard prompt == .deleteVault else { return }
+        prompt = nil
+        guard !password.isEmpty else { return }
         isBusy = true
         do {
-            try await lock.prepareToAddLock(mode: .password, password: password)
-        } catch VaultLockError.existingPasswordRequired where asksForExistingPassword {
+            try await lock.deleteCurrentVault(password: password)
             isBusy = false
-            prompt = .existingPassword(target)
-            return
+            onVaultDeleted()
+        } catch VaultLockError.wrongPassword {
+            isBusy = false
+            alerts?.showError("Incorrect password")
         } catch {
             isBusy = false
             alerts?.showError(error)
-            return
         }
-        isBusy = false
-        await beginMigration(.encrypt, target: .password, turnsOnBiometrics: target == .passwordAndBiometrics)
-    }
-
-    /// Shows the screen first: `start` may not return until the migration ends, so `migrationFinished` can
-    /// arrive before this returns.
-    private func beginMigration(_ kind: MigrationKind, target: LockMode?, turnsOnBiometrics: Bool = false) async {
-        migrationKind = kind
-        turnsOnBiometricsAfterMigration = turnsOnBiometrics
-        onShowMigration()
-        await migrator.start(kind, target: target)
-        currentMode = lock.lockMode
     }
 }

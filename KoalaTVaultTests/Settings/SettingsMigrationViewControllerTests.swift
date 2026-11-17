@@ -9,7 +9,7 @@ import UIKit
 ///     func beginBackgroundTask(withName taskName: String?, expirationHandler handler: (() -> Void)?) -> UIBackgroundTaskIdentifier
 ///     func endBackgroundTask(_ identifier: UIBackgroundTaskIdentifier)
 /// }   // declared in Views/MigrationViewController.swift; `UIApplication` conforms in the same file
-/// MigrationViewController(kind: MigrationKind, migrator: any LockMigrating, waitsForNewRun: Bool = false,
+/// MigrationViewController(migrator: any LockMigrating, waitsForNewRun: Bool = false,
 ///     sleep: @escaping @Sendable (Duration) async throws -> Void = MigrationViewModel.liveSleep,
 ///     backgroundTime: any BackgroundTimeProviding = UIApplication.shared,
 ///     onFinish: @escaping @MainActor (Bool) -> Void)
@@ -25,13 +25,13 @@ import UIKit
         let finished: SettingsRecorder<Bool>
     }
 
-    private func makeRig(kind: MigrationKind = .encrypt, phase: MigrationPhase = .idle) -> Rig {
+    private func makeRig(phase: MigrationPhase = .idle) -> Rig {
         let migrator = SettingsScriptedMigrator(phase: phase)
         let sleeper = SettingsManualSleeper()
         let background = SettingsFakeBackgroundTime()
         let finished = SettingsRecorder<Bool>()
         let controller = MigrationViewController(
-            kind: kind, migrator: migrator, sleep: { try await sleeper.sleep($0) }, backgroundTime: background,
+            migrator: migrator, sleep: { try await sleeper.sleep($0) }, backgroundTime: background,
             onFinish: { finished.record($0) })
         let host = SettingsViewHost.presenting(controller)
         return Rig(host: host, migrator: migrator, sleeper: sleeper, background: background, finished: finished)
@@ -45,15 +45,10 @@ import UIKit
 
     @Test("An encrypt migration is titled Encrypting Files and starts at Preparing…")
     func encryptContent() async {
-        let rig = makeRig(kind: .encrypt)
+        let rig = makeRig()
         #expect(label("migration.titleLabel", rig) == "Encrypting Files")
         #expect(status(rig) == "Preparing…")
         #expect((rig.host.element("migration.progressBar") as? UIProgressView)?.progress == 0)
-    }
-
-    @Test("A decrypt migration is titled Decrypting Files")
-    func decryptTitle() {
-        #expect(label("migration.titleLabel", makeRig(kind: .decrypt)) == "Decrypting Files")
     }
 
     @Test("Running progress shows N% complete and moves the progress bar")
@@ -66,14 +61,6 @@ import UIKit
         #expect((rig.host.element("migration.progressBar") as? UIProgressView)?.progress == 0.5)
     }
 
-    @Test("A paused migration shows Paused — unlock to continue")
-    func pausedStatus() async {
-        let rig = makeRig()
-        rig.migrator.send(.paused(done: 2, total: 10))
-        await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
-        #expect(status(rig) == "Paused — unlock to continue")
-    }
-
     // MARK: - Failure alert
 
     @Test("Failed files show the Some Files Failed alert naming them, with Retry and Skip")
@@ -82,7 +69,7 @@ import UIKit
         rig.migrator.send(.failed(names: ["a.txt", "b.txt"]))
         let alert = try #require(await rig.host.alert())
         #expect(alert.title == "Some Files Failed")
-        #expect(alert.message == "These files couldn't be migrated: a.txt, b.txt")
+        #expect(alert.message == "These files couldn't be encrypted: a.txt, b.txt")
         #expect(alert.actionTitles == ["Retry", "Skip"])
     }
 
@@ -152,32 +139,6 @@ import UIKit
         #expect(rig.finished.values == [true])
     }
 
-    // MARK: - Reappearing
-
-    @Test("A paused migration whose screen disappears and appears again is not started again")
-    func reappearingWhilePausedDoesNotRestart() async {
-        let rig = makeRig()
-        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
-        rig.migrator.send(.paused(done: 2, total: 10))
-        await SettingsTestSupport.waitUntil { self.status(rig) == "Paused — unlock to continue" }
-        func runs() -> Int {
-            rig.migrator.calls.filter {
-                if case .start = $0 { return true }
-                return $0 == .resumeIfPending
-            }.count
-        }
-        let before = runs()
-        let cover = UIViewController()
-        cover.modalPresentationStyle = .fullScreen
-        rig.host.topmost.present(cover, animated: false)
-        await SettingsTestSupport.settle()
-        cover.dismiss(animated: false)
-        await SettingsTestSupport.waitUntil { rig.host.topmost !== cover }
-        await SettingsTestSupport.settle()
-        #expect(runs() == before)
-        #expect(status(rig) == "Paused — unlock to continue")
-    }
-
     // MARK: - Background time
 
     @Test("Background time is requested once while running, however many progress updates arrive")
@@ -197,17 +158,6 @@ import UIKit
         let rig = makeRig()
         await SettingsTestSupport.settle()
         #expect(rig.background.begun.isEmpty)
-    }
-
-    @Test("Pausing ends the background task that running began")
-    func pauseEndsBackground() async {
-        let rig = makeRig()
-        await SettingsTestSupport.waitUntil { rig.migrator.calls.contains(.phaseUpdates) }
-        rig.migrator.send(.running(done: 1, total: 10))
-        await SettingsTestSupport.waitUntil { rig.background.begun.count == 1 }
-        rig.migrator.send(.paused(done: 1, total: 10))
-        await SettingsTestSupport.waitUntil { rig.background.ended.count == 1 }
-        #expect(rig.background.ended == rig.background.begun)
     }
 
     @Test("A failure ends the background task, and running again begins a new one")
@@ -265,7 +215,7 @@ import UIKit
     private func makeRig() -> Rig {
         let migrator = SettingsScriptedMigrator()
         let controller = MigrationViewController(
-            kind: .decrypt, migrator: migrator, sleep: { _ in }, backgroundTime: SettingsFakeBackgroundTime(),
+            migrator: migrator, sleep: { _ in }, backgroundTime: SettingsFakeBackgroundTime(),
             onFinish: { _ in })
         return Rig(host: SettingsViewHost.presenting(controller), migrator: migrator)
     }

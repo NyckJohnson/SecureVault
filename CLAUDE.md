@@ -22,3 +22,5 @@ managed block above.
   unit 1, approved 2026-11-02). Same rules: tested, never `coverage-exempt`.
 - `Entitlements/Contracts/EntitlementsContract.swift` also holds real code (`ProUnlockError.errorDescription`, added during Settings
   unit 1, approved 2026-11-02). Same rules: tested, never `coverage-exempt`.
+- `VaultTransfer/Contracts/VaultTransferContract.swift` also holds real code (`VaultTransferError.errorDescription`, added in the
+  skeleton of feature multiple-vaults-duress-password, approved 2026-11-10). Same rules: tested, never `coverage-exempt`.

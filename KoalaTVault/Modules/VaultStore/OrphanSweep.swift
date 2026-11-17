@@ -11,31 +11,57 @@ extension LiveVaultStore {
     /// An extensionless UUID disk name, any case.
     private static let orphanNamePattern = #"^[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}$"#
 
-    func sweepOrphans() {
-        guard let mode = try? beginOperation(), mode.isEncrypted, mode.keyLoaded else { return }
-        var pending = [root.diskURL]
-        while let folder = pending.popLast() {
-            guard
-                let urls = try? FileManager.default.contentsOfDirectory(
-                    at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
-            else { continue }
-            // Subfolders have their own index and are judged on their own, whatever this folder's index is.
-            let entries = sweepableEntries(in: folder, mode: mode)
-            for url in urls {
-                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    pending.append(url)
-                    continue
-                }
-                guard let entries else { continue }
-                let name = url.lastPathComponent
-                guard entries[name] == nil,
-                    name.range(of: Self.orphanNamePattern, options: [.regularExpression, .caseInsensitive]) != nil,
-                    (try? fileForm(at: url)) == .encrypted
-                else { continue }
-                // Best-effort: an orphan that can't be removed now is removed by the next sweep.
-                try? FileManager.default.removeItem(at: url)
+    /// Sweeps one folder at a time, so housekeeping never holds up browsing: each folder (its listing, index
+    /// read and deletions) is one serialized step with no suspension inside it, and the sweep suspends only
+    /// between folders, where other store operations (a listing, an import, a move) may run. Folders are
+    /// visited breadth-first: the root, then every folder one level down, and so on. Each step checks the mode
+    /// again and stops once the store is locked; a folder removed in between is skipped, and one changed is
+    /// judged as it is when its step runs. A cancelled task stops between steps.
+    func sweepOrphans() async {
+        var pending = HousekeepingQueue([root.diskURL])
+        var isFirstStep = true
+        while let folder = pending.dequeue() {
+            if !isFirstStep {
+                await Task.yield()
+                // A cancelled task (the shell cancels it on lock or a vault switch) stops between steps.
+                guard !Task.isCancelled else { return }
             }
+            isFirstStep = false
+            // Each step frees its temporary memory when it ends, so a long walk doesn't build it up.
+            let subfolders: [URL]? = autoreleasepool {
+                guard let mode = try? beginOperation(), mode.isEncrypted, mode.keyLoaded else { return nil }
+                return sweepFolder(folder, mode: mode)
+            }
+            guard let subfolders else { return }
+            pending.enqueue(subfolders)
         }
+    }
+
+    /// One sweep step: deletes the orphans directly in `folder` and returns its subfolders (none when the
+    /// folder can't be listed, e.g. it was removed since it was queued). Never suspends.
+    private func sweepFolder(_ folder: URL, mode: VaultOperationMode) -> [URL] {
+        guard
+            let urls = try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+        else { return [] }
+        // Subfolders have their own index and are judged on their own, whatever this folder's index is.
+        let entries = sweepableEntries(in: folder, mode: mode)
+        var subfolders: [URL] = []
+        for url in urls {
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                subfolders.append(url)
+                continue
+            }
+            guard let entries else { continue }
+            let name = url.lastPathComponent
+            guard entries[name] == nil,
+                name.range(of: Self.orphanNamePattern, options: [.regularExpression, .caseInsensitive]) != nil,
+                (try? fileForm(at: url)) == .encrypted
+            else { continue }
+            // Best-effort: an orphan that can't be removed now is removed by the next sweep.
+            try? FileManager.default.removeItem(at: url)
+        }
+        return subfolders
     }
 
     /// The folder's index entries, or nil when the folder has no index or it can't be read (nothing there is
@@ -45,5 +71,29 @@ extension LiveVaultStore {
             return nil
         }
         return try? index.read(in: folder, mode: mode)
+    }
+}
+
+/// A first-in, first-out queue for the housekeeping walks (`sweepOrphans`, `hasUnencryptedFiles`), which visit
+/// folders breadth-first. Dequeuing moves an index instead of shifting the array, so each operation is O(1);
+/// dequeued slots are kept until the walk ends (one per folder in the vault, which stays small).
+struct HousekeepingQueue<Element> {
+    private var elements: [Element]
+    private var head = 0
+
+    init(_ elements: [Element]) {
+        self.elements = elements
+    }
+
+    /// Adds `newElements` at the back, in order.
+    mutating func enqueue(_ newElements: some Sequence<Element>) {
+        elements.append(contentsOf: newElements)
+    }
+
+    /// Removes and returns the front element, or nil when the queue is empty.
+    mutating func dequeue() -> Element? {
+        guard head < elements.count else { return nil }
+        defer { head += 1 }
+        return elements[head]
     }
 }

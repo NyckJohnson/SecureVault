@@ -11,6 +11,7 @@ final class LiveBrowserFactory: BrowserFactory {
     private let importPresenter: ImportPresenter
     private let viewerFactory: any ViewerFactory
     private let settingsFactory: any SettingsFactory
+    private let vaultServices: BrowserVaultServices
     /// The navigation controllers `makeRootBrowser()` made, held weakly so a dropped one goes away.
     private var navigations: [WeakNavigation] = []
 
@@ -23,10 +24,13 @@ final class LiveBrowserFactory: BrowserFactory {
     ///   - importPresenter: the app's one import presenter.
     ///   - viewerFactory: makes the viewer and the editor.
     ///   - settingsFactory: makes Settings and the paywall.
+    ///   - vaultServices: the app's vaults, the transfer and the Lock action, for the Lock button and
+    ///     Move/Copy to Vault (feature multiple-vaults-duress-password).
     init(
         store: any VaultStoring, preferences: any PreferencesStoring, thumbnails: any ThumbnailProviding,
         exporter: any VaultExporting, exportPresenter: ExportPresenter, importPresenter: ImportPresenter,
-        viewerFactory: any ViewerFactory, settingsFactory: any SettingsFactory
+        viewerFactory: any ViewerFactory, settingsFactory: any SettingsFactory,
+        vaultServices: BrowserVaultServices
     ) {
         self.store = store
         self.preferences = preferences
@@ -36,6 +40,7 @@ final class LiveBrowserFactory: BrowserFactory {
         self.importPresenter = importPresenter
         self.viewerFactory = viewerFactory
         self.settingsFactory = settingsFactory
+        self.vaultServices = vaultServices
     }
 
     /// A navigation controller (large titles, as today) rooted at the browser of the vault root.
@@ -43,7 +48,7 @@ final class LiveBrowserFactory: BrowserFactory {
         let root = FileBrowserViewController(
             directory: store.root, store: store, preferences: preferences, thumbnails: thumbnails,
             exporter: exporter, exportPresenter: exportPresenter, importPresenter: importPresenter,
-            viewerFactory: viewerFactory, settingsFactory: settingsFactory)
+            viewerFactory: viewerFactory, settingsFactory: settingsFactory, vaultServices: vaultServices)
         let navigation = UINavigationController(rootViewController: root)
         navigation.navigationBar.prefersLargeTitles = true
         navigations.removeAll { $0.navigation == nil }

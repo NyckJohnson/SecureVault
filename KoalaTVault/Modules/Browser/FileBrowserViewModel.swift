@@ -3,7 +3,8 @@ import Foundation
 
 /// The logic of one file browser screen: the folder's items, sorting, opening, New Folder / New Document,
 /// select mode with bulk actions, the context menu, moving through the folder picker, drag and drop, and
-/// the refreshes after restore, import, editor close and unlock.
+/// the refreshes after restore, import, editor close and unlock; and (feature multiple-vaults-duress-password) the
+/// Lock button and Move/Copy to Vault through the vault picker.
 @MainActor
 final class FileBrowserViewModel: ObservableObject {
     /// Where the browser asks its view controller to go.
@@ -16,11 +17,27 @@ final class FileBrowserViewModel: ObservableObject {
         case viewer(items: [VaultItem], startingAt: Int)
         /// Present Settings.
         case settings
+        /// Lock: close the open vault and show the lock screen (root only).
+        case lock
     }
 
     /// An entry of an item's context menu.
     enum ContextAction: Equatable {
         case export, move, copy, rename, delete
+        /// Move to Vault… / Copy to Vault….
+        case moveToVault, copyToVault
+    }
+
+    /// What the transfer progress overlay shows: "Moving…" or "Copying…" and N of M.
+    struct TransferProgress: Equatable {
+        var title: String
+        var done: Int
+        var total: Int
+
+        /// "N of M".
+        var status: String { "\(done) of \(total)" }
+        /// 0...1 for the progress bar.
+        var fraction: Float { total > 0 ? Float(done) / Float(total) : 0 }
     }
 
     /// The text of a delete confirmation alert.
@@ -35,6 +52,12 @@ final class FileBrowserViewModel: ObservableObject {
     var onShare: (ExportBundle) -> Void = { _ in }
     /// Called when the folder picker should open for the given items.
     var onPresentPicker: (_ moving: [VaultItem]) -> Void = { _ in }
+    /// Called when the vault picker should open: true for Move to Vault, false for Copy to Vault.
+    var onPresentVaultPicker: (_ isMove: Bool) -> Void = { _ in }
+    /// Called with the transfer's progress while it runs, and with nil when it ends.
+    var onTransferProgress: (TransferProgress?) -> Void = { _ in }
+    /// Called when a transfer was refused by the free tier's limit: the paywall should open.
+    var onNeedsPro: () -> Void = {}
 
     /// The folder's items, in the saved sort.
     @Published private(set) var items: [VaultItem] = []
@@ -51,6 +74,12 @@ final class FileBrowserViewModel: ObservableObject {
     private let preferences: any PreferencesStoring
     private let exporter: any VaultExporting
     private weak var alerts: (any AlertPresenting)?
+    private let lock: any VaultLocking
+    private let transfer: any VaultTransferring
+    /// The items and kind of the transfer waiting for the vault picker's choice.
+    private var pendingTransfer: (items: [VaultItem], isMove: Bool)?
+    /// True while a transfer runs; only one runs at a time.
+    private(set) var isTransferring = false
     /// The items waiting for the folder picker's choice; only one move is pending at a time.
     private var pendingMove: [VaultItem]?
     /// Bumped by each load so an older, slower load can't overwrite a newer one.
@@ -59,18 +88,23 @@ final class FileBrowserViewModel: ObservableObject {
     /// - Parameters:
     ///   - directory: the folder to show.
     ///   - store: the vault store.
-    ///   - preferences: holds the sort and the lock state the drag-out rule reads.
+    ///   - preferences: holds the sort.
     ///   - exporter: prepares items for the share sheet.
     ///   - alerts: shows errors (held weakly; usually the view controller that owns this).
+    ///   - lock: the app's vaults, to close a transfer target.
+    ///   - transfer: moves and copies items between vaults.
     init(
         directory: VaultDirectory, store: any VaultStoring, preferences: any PreferencesStoring,
-        exporter: any VaultExporting, alerts: any AlertPresenting
+        exporter: any VaultExporting, alerts: any AlertPresenting,
+        lock: any VaultLocking, transfer: any VaultTransferring
     ) {
         self.directory = directory
         self.store = store
         self.preferences = preferences
         self.exporter = exporter
         self.alerts = alerts
+        self.lock = lock
+        self.transfer = transfer
     }
 
     // MARK: - State
@@ -83,7 +117,11 @@ final class FileBrowserViewModel: ObservableObject {
     /// The settings button shows at the vault root only.
     var showsSettingsButton: Bool { directory == store.root }
 
-    /// The folder's name, or "Select Items" / "N Selected" in select mode.
+    /// The Lock button shows at the root of every vault.
+    var showsLockButton: Bool { directory == store.root }
+
+    /// The folder's name (at the root, the open vault's name: `root.name`), or "Select Items" / "N Selected" in
+    /// select mode.
     var title: String {
         guard isSelecting else { return directory.name }
         return selectedItems.isEmpty ? "Select Items" : "\(selectedItems.count) Selected"
@@ -149,6 +187,12 @@ final class FileBrowserViewModel: ObservableObject {
     /// Asks for Settings.
     func openSettings() {
         onRoute(.settings)
+    }
+
+    /// Lock: asks to close the open vault and show the lock screen; only where the Lock button shows.
+    func lockTapped() {
+        guard showsLockButton else { return }
+        onRoute(.lock)
     }
 
     // MARK: - New Folder / New Document
@@ -219,10 +263,24 @@ final class FileBrowserViewModel: ObservableObject {
             title: "Delete \(items.count) items?", message: "The items move to Recently Deleted.")
     }
 
-    /// Moves each item to the trash, leaves select mode and reloads.
+    /// The most items sent to the store's batch `moveToTrash(_:)` in one call.
+    static let trashBatchSize = 256
+
+    /// Moves the items to the trash through the store's batch call, at most `trashBatchSize` per call in
+    /// selection order; then leaves select mode and reloads. Cancellation stops between batches and is not
+    /// a failure. One item failing alone shows its error; otherwise failures across every batch show
+    /// "N of M failed." with the error of the first failed item in selection order.
     func delete(_ items: [VaultItem]) async {
-        let store = store
-        await perform(on: items) { try await store.moveToTrash($0) }
+        var errors: [VaultItem.ID: VaultStoreError] = [:]
+        var start = items.startIndex
+        while start < items.endIndex, !Task.isCancelled {
+            let end = min(start + Self.trashBatchSize, items.endIndex)
+            let batch = Array(items[start..<end])
+            errors.merge(await store.moveToTrash(batch)) { first, _ in first }
+            start = end
+        }
+        let firstError = items.lazy.compactMap { errors[$0.id] }.first
+        await finish(itemCount: items.count, failureCount: errors.count, firstError: firstError)
     }
 
     /// Copies each item into this folder, leaves select mode and reloads.
@@ -265,9 +323,9 @@ final class FileBrowserViewModel: ObservableObject {
 
     // MARK: - Context menu
 
-    /// Every item's menu: Export, Move, Copy, Rename, Delete.
+    /// Every item's menu: Export, Move, Copy, Rename, Delete, Move to Vault…, Copy to Vault….
     func contextActions(for item: VaultItem) -> [ContextAction] {
-        [.export, .move, .copy, .rename, .delete]
+        [.export, .move, .copy, .rename, .delete, .moveToVault, .copyToVault]
     }
 
     /// The Rename field starts with the current name.
@@ -305,11 +363,84 @@ final class FileBrowserViewModel: ObservableObject {
         await load()
     }
 
-    /// A drag may leave the app only for a known, unencrypted item in a no-lock vault with no
-    /// migration pending: otherwise the on-disk file could be ciphertext.
+    /// A drag may leave the app only for a known, unencrypted item of the unencrypted vault: it stays in when the
+    /// item is unknown (nil), the store `isEncrypted` or the item `isEncrypted`, since the on-disk file of an
+    /// encrypted item is ciphertext.
     func canDragOut(_ item: VaultItem?) -> Bool {
         guard let item else { return false }
-        return preferences.lockMode == .none && preferences.pendingMigration == nil && !item.isEncrypted
+        return !store.isEncrypted && !item.isEncrypted
+    }
+
+    // MARK: - Move/Copy to Vault
+
+    /// Remembers the items to move or copy to another vault and asks for the vault picker. Ignored while a
+    /// transfer runs or with nothing to transfer.
+    func beginVaultTransfer(_ items: [VaultItem], isMove: Bool) {
+        guard !isTransferring, !items.isEmpty else { return }
+        pendingTransfer = (items, isMove)
+        onPresentVaultPicker(isMove)
+    }
+
+    /// The vault picker's choice: nil (Cancel) drops the pending transfer; a target receives the pending items,
+    /// from this browser's store to the target's store, with progress. The target is closed afterwards (unless
+    /// it is the unencrypted vault); `.limitReached` asks for the paywall; failures show "N of M failed."; other
+    /// errors show their message. Leaves select mode and reloads.
+    func vaultPickerFinished(_ target: OpenVault?) async {
+        guard let target else {
+            pendingTransfer = nil
+            return
+        }
+        guard let pending = pendingTransfer, !isTransferring else {
+            // No transfer waits for this target (e.g. the picker was swiped away while it opened): close it.
+            closeTarget(target)
+            return
+        }
+        pendingTransfer = nil
+        isTransferring = true
+        let title = pending.isMove ? "Moving…" : "Copying…"
+        let total = pending.items.count
+        onTransferProgress(TransferProgress(title: title, done: 0, total: total))
+        let progress: @Sendable (Int, Int) -> Void = { [weak self] done, total in
+            Task { @MainActor in self?.transferProgressed(title: title, done: done, total: total) }
+        }
+        var failure: (any Error)?
+        var result: TransferResult?
+        do {
+            result = try await transfer.transfer(
+                pending.items, from: store, to: target.store, removingOriginals: pending.isMove, progress: progress)
+        } catch {
+            failure = error
+        }
+        closeTarget(target)
+        isTransferring = false
+        onTransferProgress(nil)
+        cancelSelection()
+        await load(showingErrors: failure == nil && (result?.failed ?? 0) == 0)
+        if let failure {
+            if (failure as? VaultTransferError) == .limitReached {
+                onNeedsPro()
+            } else if !(failure is CancellationError) {
+                alerts?.showError(failure)
+            }
+        } else if let result, result.failed > 0 {
+            alerts?.showError("\(result.failed) of \(result.done + result.failed) failed.")
+        }
+    }
+
+    /// Drops a pending transfer, e.g. when the picker was swiped away.
+    func vaultPickerCancelled() {
+        pendingTransfer = nil
+    }
+
+    private func transferProgressed(title: String, done: Int, total: Int) {
+        guard isTransferring else { return }
+        onTransferProgress(TransferProgress(title: title, done: done, total: total))
+    }
+
+    /// Closes a transfer target; the unencrypted vault is never closed.
+    private func closeTarget(_ target: OpenVault) {
+        guard target.isEncrypted else { return }
+        lock.closeTransferTarget(target)
     }
 
     // MARK: - Refresh triggers
@@ -343,13 +474,19 @@ final class FileBrowserViewModel: ObservableObject {
                 errors.append(error)
             }
         }
+        await finish(itemCount: items.count, failureCount: errors.count, firstError: errors.first)
+    }
+
+    /// Ends an operation on `itemCount` items: leaves select mode and reloads, then shows the failure, if
+    /// any: one item's own error, or "N of M failed." with the first error.
+    private func finish(itemCount: Int, failureCount: Int, firstError: (any Error)?) async {
         cancelSelection()
-        await load(showingErrors: errors.isEmpty)
-        guard let firstError = errors.first else { return }
-        if items.count == 1 {
+        await load(showingErrors: firstError == nil)
+        guard let firstError else { return }
+        if itemCount == 1 {
             alerts?.showError(firstError)
         } else {
-            alerts?.showError("\(errors.count) of \(items.count) failed. \(firstError.localizedDescription)")
+            alerts?.showError("\(failureCount) of \(itemCount) failed. \(firstError.localizedDescription)")
         }
     }
 }

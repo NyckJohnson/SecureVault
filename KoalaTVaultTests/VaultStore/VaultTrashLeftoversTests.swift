@@ -32,38 +32,19 @@ import os
 
     @Test("migrateToEncrypted on a trash item whose file is gone changes nothing and does not throw")
     func encryptMissingTrashFile() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
+        var vault = try VaultStoreFixture(lockMode: .none, headerAware: true)
         defer { vault.cleanUp() }
         let item = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(item)
         try await vault.add("keep.txt", "kept")
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
 
         let pending = try #require(
-            try await vault.store.itemsToMigrate(toEncrypted: true).first { $0.name == "old.txt" })
+            try await vault.store.itemsToEncrypt().first { $0.name == "old.txt" })
         try FileManager.default.removeItem(at: pending.diskURL)
         let before = try vaultFiles(vault)
 
         try await vault.store.migrateToEncrypted(pending)
-
-        #expect(try vaultFiles(vault) == before)
-    }
-
-    @Test("migrateToDecrypted on a trash item whose file is gone changes nothing and does not throw")
-    func decryptMissingTrashFile() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
-        defer { vault.cleanUp() }
-        let item = try await vault.add("old.txt", "old content")
-        try await vault.store.moveToTrash(item)
-        try await vault.add("keep.txt", "kept")
-        vault.prefs.lockMode = .none
-
-        let pending = try #require(
-            try await vault.store.itemsToMigrate(toEncrypted: false).first { $0.name == "old.txt" })
-        try FileManager.default.removeItem(at: pending.diskURL)
-        let before = try vaultFiles(vault)
-
-        try await vault.store.migrateToDecrypted(pending)
 
         #expect(try vaultFiles(vault) == before)
     }
@@ -120,26 +101,21 @@ import os
         #expect(children(of: folder) == [made.lastPathComponent])
     }
 
-    // MARK: - Header-only reads
+    // MARK: - Listing reads no trash file
 
-    @Test("Listing a large healthy encrypted trash file copies at most 8 KiB for the header read")
-    func listingCopiesOnlyTheHeader() async throws {
+    @Test("Listing a large healthy encrypted trash file reads and copies none of it")
+    func listingReadsNoTrashFile() async throws {
         let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
         defer { vault.cleanUp() }
         let failing = try #require(vault.failing)
         let item = try await vault.add("big.bin", String(repeating: "a", count: 300_000))
         try await vault.store.moveToTrash(item)
+        let probesBefore = failing.streamInfoURLs.count
 
-        let size = OSAllocatedUnfairLock<Int?>(initialState: nil)
-        failing.onFirstStreamInfo = { url in
-            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-            let bytes = attributes?[.size] as? Int
-            size.withLock { $0 = bytes }
-        }
         let listed = try await vault.store.trashContents()
 
         #expect(listed.map(\.name) == ["big.bin"])
-        let copied = try #require(size.withLock { $0 })
-        #expect(copied <= 4 * 1024)
+        #expect(failing.streamInfoURLs.count == probesBefore)
+        #expect(vault.tempContents().isEmpty)
     }
 }

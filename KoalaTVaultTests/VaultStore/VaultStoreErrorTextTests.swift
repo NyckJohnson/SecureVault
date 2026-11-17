@@ -47,21 +47,6 @@ import Testing
         expectText(.moveIntoItself, "A folder can't be moved into itself")
     }
 
-    @Test("stillEncrypted with one file uses the singular")
-    func stillEncryptedSingular() {
-        expectText(.stillEncrypted(count: 1), "1 file is still encrypted.")
-    }
-
-    @Test("stillEncrypted with several files uses the plural and the count", arguments: [2, 3, 10, 1000])
-    func stillEncryptedPlural(count: Int) {
-        expectText(.stillEncrypted(count: count), "\(count) files are still encrypted.")
-    }
-
-    @Test("stillEncrypted with zero files uses the plural")
-    func stillEncryptedZeroIsPlural() {
-        expectText(.stillEncrypted(count: 0), "0 files are still encrypted.")
-    }
-
     @Test("io returns its message itself")
     func ioText() {
         expectText(.io("Disk full"), "Disk full")

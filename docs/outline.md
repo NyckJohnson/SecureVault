@@ -5,37 +5,40 @@
 ## Purpose
 KoalaTVault is an offline, encrypted file store for iPhone and iPad. The user keeps files (photos, videos, documents) in
 a private vault on the device, browses them in folders, views images and videos, edits rich-text notes, and moves files in
-and out. The vault can be left open (no lock), locked with a password, or locked with a password plus Face ID / Touch ID;
-with a lock, file names and contents are encrypted on disk (SVC5 format). A one-time "Unlock Pro" purchase lifts the free
-limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but not yet released.
+and out. There is always one unencrypted vault, which the app opens to; the user can add encrypted vaults, each with its
+own name and password (file names and contents encrypted on disk, SVC5 format), opened by typing that password (one may
+also open with Face ID / Touch ID). Any password opens only its own vault, so a second vault doubles as a duress (decoy)
+vault. A one-time "Unlock Pro" purchase lifts the free limit of 100 files per vault and allows more than one encrypted
+vault. The app is accepted by App Store Connect (1.2, build 4) but not yet released.
 
 ## User journeys
-1. **First launch / setup** — a new user wants to protect the vault. The setup wizard appears full-screen over the browser
-   with three cards: No Lock (default), Password, "Password + <Face ID|Touch ID>" (disabled without biometrics). Continue
-   with No Lock → wizard closes, browser shows the empty vault. Continue with a password mode → "Set Password" alert with
-   password and confirm → progress "Setting password…" → wizard closes. Ends when the browser shows and the lock mode is set.
-   - Failure path: empty password → "Password cannot be empty"; mismatch → "Passwords do not match"; the alert closes and
-     the user retries. A Keychain or biometric failure shows the error, the wizard stays, and nothing is left half set up
-     (a created key is rolled back).
-   - Failure path: a vault password already exists on the device (e.g. after a reinstall). If the vault is empty (no
-     encrypted file, index or trash entry on disk), the stale key and biometric item are deleted and a new key is created.
-     Otherwise (e.g. restored from a backup) the typed password must unlock it; a wrong one shows "A vault password already
-     exists on this device. Enter that password." and that key is never replaced.
-2. **Unlock** — a returning user with a lock wants in. Cold launch or return from background shows the lock screen
-   ("KoalaTVault Locked", password field, Unlock, and "Use Face ID/Touch ID" in biometric mode). In biometric mode the
-   prompt starts automatically once the app is active. A correct password or biometric match dismisses the lock screen and
-   the browser reloads. Ends when the browser shows.
-   - Failure path: wrong password → "Incorrect password", field cleared; no lockout, no delay, no wipe.
-   - Failure path: biometric cancel → nothing shown; biometric lockout / not enrolled / no passcode → their own message;
-     enrolment changed or item missing → "Face ID changed. Use your password." and the next password unlock re-creates the
-     biometric item; other failures → "Biometric authentication failed". The password field always stays usable.
-   - Failure path: no password blob in the Keychain → "Your vault password is missing from this device." (no way forward
-     yet; feature `password-recovery`).
-   - Backgrounding with a lock shows a privacy cover at once; entering the background wipes the key and plaintext temp
-     files; returning shows the lock screen.
+1. **First launch** — a new user opens the app. The lock screen shows (journey 2): password field, Open, "Open
+   Unencrypted Vault" and "Create New Vault"; no setup wizard. "Open Unencrypted Vault" → the browser shows the
+   unencrypted vault's root ("KoalaTVault"), empty. Ends when the browser shows. (Changed by feature
+   multiple-vaults-duress-password: the setup wizard is gone; journey 10 creates an encrypted vault.)
+2. **Open a vault** — a user wants into a vault. The lock screen shows at launch, on every return from the background,
+   and after the Lock button on any vault's root (which closes the open vault): password field, Open, "Use <Face
+   ID|Touch ID>" (only when a vault has Face ID turned on and biometrics are available; tapped, never automatic), "Open
+   Unencrypted Vault" and "Create New Vault"; no Cancel. A password opens the vault it belongs to: the lock screen goes
+   and the browser shows that vault's root, titled with its name. Face ID opens the vault that has it. "Open Unencrypted
+   Vault" shows the unencrypted vault's root. Ends when the browser shows the vault. Nothing on any screen says how many
+   encrypted vaults exist.
+   - Failure path: a password that opens no vault → "Incorrect password", field cleared; no lockout, no delay, no wipe.
+   - Failure path: Face ID cancel → nothing shown; lockout → "Too many attempts. Use your password."; not enrolled →
+     "Face ID is not set up."; no passcode → "Set a device passcode to use Face ID."; enrolment changed or item missing →
+     "Face ID changed. Use your password." and Face ID is turned off for that vault (the button goes); other failures →
+     "Biometric authentication failed". The password field always stays usable.
+   - Lock (the browser's root, any vault) → the open vault closes (an encrypted vault's key and plaintext temp files
+     wiped) and the lock screen shows.
+   - Backgrounding with an encrypted vault open shows the privacy cover at once; entering the background closes the
+     vault (key and its plaintext temp files wiped, anything presented over the browser dismissed) and puts the lock
+     screen up, so the app switcher and the return both show the lock screen. In the unencrypted vault, entering the
+     background also puts the lock screen up.
+   - Opening a vault that has files a 1.2 lock change left unencrypted (journey 12) shows the Migration screen
+     ("Encrypting Files") until they are encrypted (journey 8's failure paths apply).
 3. **Browse** — the user wants to find and organise files. The browser shows a grid of folders and files (thumbnails,
    name, size), folders first, sorted by the global sort option. Tap a folder → push its browser; back returns. Bar
-   buttons: New Folder, New Document, Import, Sort, Select; the settings gear only on the root. Sort sheet: Name, Type,
+   buttons: New Folder, New Document, Import, Sort, Select; the settings gear and the Lock button (journey 2) only on the root. A back arrow sits on the same line as the folder's name, just left of it, under the bar (where the large title was): "<" in a subfolder goes up one folder; "< 🔒" on a vault's root locks (the lock screen). The bar has no back button and no Lock button; the gear stays at the left of the bar on the root (design tweaks, device retests 2026-11-12 and 2026-11-13). Sort sheet: Name, Type,
    Date Modified; tapping the current option flips ↑/↓. Long press: Export, Move, Copy, Rename, Delete. Select mode: tap
    to toggle, "N Selected", bulk Delete, Move, Export, Copy, Cancel. Move opens the folder picker at the root ("Move
    Here", "Cancel"); Copy always copies into the current folder with " 1", " 2" names; drag a cell onto a folder cell to
@@ -48,8 +51,9 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
    videos, unlimited) → "Importing Photos..." → if any failed, "N imported, M failed" → then iOS asks to delete the
    imported originals from the photo library. Same name and same content is skipped; same name, different content gets
    " 1". Ends when the grid shows the new files.
-   - Failure path: free tier and the import would pass 100 files (all non-hidden files in the vault, subfolders included,
-     trash excluded) → nothing is imported and the paywall opens after the picker closes.
+   - Failure path: free tier and the import would pass 100 files (all non-hidden files in the open vault, subfolders
+     included, trash excluded; each vault has its own 100) → nothing is imported and the paywall opens after the picker
+     closes.
    - Failure path: photo picker Cancel closes the picker and imports nothing.
    - Failure path: a file that fails mid-import → earlier files stay imported, the error is shown.
 5. **View / edit** — the user wants to look at or edit a file. Tap a non-`.rtf` file → full-screen viewer paging through
@@ -63,8 +67,9 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
      overwritten; a save failure shows the error.
 6. **Delete / restore** — the user wants to remove a file and maybe get it back. Delete (context menu or bulk, with a
    confirm) moves items to Recently Deleted (Settings → Storage → Recently Deleted): each row shows "Deletes in N days";
-   tap → Restore / Delete Permanently / Cancel; "Empty Trash" with a confirm. Items older than 30 days are purged
-   automatically when the vault is opened. Ends when the item is restored or gone.
+   tap → Restore / Delete Permanently / Cancel; "Empty Trash" with a confirm. Each vault has its own Recently Deleted.
+   Items older than 30 days are purged automatically when the vault is opened (the unencrypted vault: at launch and on
+   each return to the foreground). Ends when the item is restored or gone.
    - Failure path: restoring into a folder that has the same name gives " 1"; restoring when the original folder is gone
      recreates it; a failure shows its error.
    - Failure path: deleted items that can never be read (sealed with a key the vault no longer has, e.g. by an older
@@ -79,47 +84,91 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
      "Allow KoalaTVault to add photos in Settings.".
    - Folders are exported whole: an encrypted folder becomes a decrypted copy of its whole tree with the original names
      (no index files, no UUID names). Encrypted items can't be dragged out to other apps (drags stay inside the app).
-8. **Change lock mode** — the user wants more or less protection. Settings ("Security") → Lock Mode: No Lock, Password,
-   Password + Face ID, and "Re-encrypt Everything" when a lock is on and some files are still plaintext; Password section:
-   Change Password. No Lock → "Remove Lock?" → decrypt migration → lock removed. Password/biometric from No Lock → set a
-   password (or enter the existing one) → encrypt migration under Password; for Password + Face ID, Face ID is turned on
-   once the migration completes fully. Password ↔ Password + Face ID → immediate switch. Change
-   Password → current, new, confirm → "Password changed successfully". The migration screen shows "Encrypting Files" /
-   "Decrypting Files", a progress bar and "N% complete". Ends when the new mode is in force and every file (trash
-   included) matches it.
-   - Failure path: some files fail → "Some Files Failed" listing them, Retry (failed files only) or Skip (the lock mode
-     stays as it was for a removal; for an addition the remaining plaintext files show "Re-encrypt Everything").
-   - Failure path: backgrounding pauses the migration ("Paused — unlock to continue"); after unlock it resumes. A kill
-     resumes it after the next unlock (or launch, without a lock).
-   - Failure path: wrong current password → "Current password is incorrect".
-   - Failure path: the migration stops on deleted items that can never be read (see journey 6) → "Some Deleted Items
-     Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or
-     opened. Clear them to continue." with Clear and Continue (those items are removed and the migration picks up where
-     it stopped) / Skip (as for failed files).
-   - Failure path: Retry after a failure that happens again shows the failure again (never a screen stuck on
-     "Preparing…").
-   - Failure path: adding Password + Face ID and the migration ends incomplete (Skip, Close or a kill) → the vault stays
-     Password; after Skip or Close the alert "Face ID wasn't turned on because some files aren't encrypted yet. Use
-     Re-encrypt Everything, then turn on Face ID." A Face ID failure after a full migration shows the error and keeps Password.
-9. **Paywall** — a free user wants more than 100 files. Settings "Upgrade to Pro" or the import limit opens the paywall
-   ("Unlock Pro", "Store more than 100 files.", price, Unlock, Restore Purchases, X). Unlock → App Store purchase → paywall
+8. **Manage a vault** — the user wants to change an encrypted vault. In that vault, Settings ("Settings") → Vault
+   section: "Change Password", "Use <Face ID|Touch ID>" (a switch; hidden without biometrics) with the note "Note: only
+   one vault can use <Face ID|Touch ID>." under it (shown with the switch); "Delete This Vault" is in its own section at
+   the bottom of Settings, after Storage (design tweaks, device test 2026-11-12). The
+   unencrypted vault's Settings has no Vault section and no Delete This Vault. Change Password → current, new, confirm → "Password changed
+   successfully". Turning the switch on gives this vault Face ID and silently takes it from any other vault; off removes
+   it. Delete This Vault → "Delete This Vault?" / "Everything in "<name>" will be erased. This can't be undone. Enter the
+   vault's password to confirm." with a password field, Delete and Cancel → the vault (files, trash, key, Face ID) is
+   erased and the lock screen shows. Ends when the change is in force.
+   - Failure path: empty new password → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current
+     → "Current password is incorrect"; a new password another vault uses → "Choose a different password."
+   - Failure path: wrong password to delete → "Incorrect password", nothing erased.
+   - Failure path: Face ID can't be turned on (no biometrics, Keychain error) → the error, and the switch stays off.
+   - Migration screen (opening a vault with leftover unencrypted files, journey 2): "Encrypting Files", a progress bar
+     and "N% complete"; some files fail → "Some Files Failed" listing them, Retry (failed files only) or Skip (they stay
+     unencrypted and are offered again the next time the vault opens); deleted items that can never be read → "Some
+     Deleted Items Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be
+     restored or opened. Clear them to continue." with Clear and Continue / Skip; backgrounding closes the vault and
+     stops it (the rest is done the next time the vault opens); Retry after a failure that happens again shows it again.
+   (Before feature multiple-vaults-duress-password this journey was "Change lock mode": No Lock / Password / Password +
+   Face ID with encrypt and decrypt migrations of the whole vault; that is gone.)
+9. **Paywall** — a free user wants more than 100 files in a vault or a second encrypted vault. Settings "Upgrade to
+   Pro", the import limit, the transfer limit (journey 11) or Create New Vault with one encrypted vault already there
+   opens the paywall ("Unlock Pro", "Store more than 100 files in a vault and keep more than one encrypted vault.", price,
+   Unlock, Restore Purchases, X). Unlock → App Store purchase → paywall
    closes, Settings shows "Pro Unlocked". Ends when Pro is unlocked.
    - Failure path: cancel → paywall stays; pending → "Purchase pending approval."; restore with nothing → "No previous
      purchase found to restore."; price unavailable → "Price unavailable" and Unlock still works.
+10. **Create a vault** — the user wants a new encrypted vault. Lock screen → "Create New Vault" → Create Vault screen
+   (Name, Create) → Create opens the "Set Password" alert ("Choose a password for this vault.", Password, Confirm
+   Password, Cancel, Create) → "Creating Vault…" → both screens go and the browser shows the new,
+   empty vault's root, titled with its name. Ends when the new vault is open.
+   - Failure path: free tier with one encrypted vault already → tapping "Create New Vault" opens the paywall instead (this
+     tells whoever taps it that a vault exists; accepted, decision 2026-11-10); after unlocking, the user taps it again.
+   - Failure path: name empty after trimming → "Enter a name for the vault" (no alert); after the alert's Create, errors
+     show on the Create Vault screen and Create asks again: empty password → "Password cannot be empty";
+     mismatch → "Passwords do not match"; a password another vault already uses → "Choose a different password."; a
+     Keychain or disk failure shows the error and leaves no half-made vault.
+11. **Move or copy to another vault** — the user wants files in a different vault. Long press → "Move to Vault…" or "Copy
+   to Vault…"; Select mode → "To Vault" → "Move to Vault…" / "Copy to Vault…" / Cancel. The vault picker shows
+   "Unencrypted Vault" (only from an encrypted vault), a password field with "Use Vault", and Cancel. The items (folders
+   with everything in them) go to the target vault's root, decrypted or encrypted on the way, with "Moving…" /
+   "Copying…" progress; names that clash get " 1". Move removes the originals (not to Recently Deleted). Ends when the
+   items are in the target vault (the browser stays in the current vault).
+   - Failure path: a password that opens no vault → "Incorrect password"; the current vault's own password → "These
+     items are already in this vault."
+   - Failure path: free tier and the target would pass 100 files → nothing is transferred and the paywall opens.
+   - Failure path: an item that fails → the others still go; "N of M failed". A moved item is never lost: its original
+     is removed only after its copy is complete, so a failure or a kill part-way leaves it in the source (or, at worst,
+     in both vaults).
+   - Backgrounding stops the transfer (the vault closes); items already done stay done.
+12. **Upgrade from one vault** (once, at the first launch of this version; 1.2 has one vault with a lock mode) —
+   No Lock → the files are the unencrypted vault, unchanged. A lock (Password or Password + Face ID, or an unfinished
+   change to one) → the whole vault (files, folders, trash, indexes) becomes an encrypted vault named "My Vault" with the
+   same password (Face ID kept for it in Password + Face ID), and the unencrypted vault starts empty. Ends when the
+   lock screen shows.
+   - The upgrade is safe to interrupt: a kill part-way finishes it at the next launch; nothing is copied, only moved.
+   - Files the old app left unencrypted in a locked vault (a skipped or unfinished lock change) are encrypted when "My
+     Vault" is next opened (journey 2).
+   - An unfinished lock change with no password on the device (an encrypt that never got its key) is dropped and the
+     files are the unencrypted vault.
+   - A failure (disk or Keychain) shows "Couldn't finish updating your vaults. Restart the app to try again." over the
+     lock screen; the next launch carries on.
 
 ## Screens and navigation
-- **Setup wizard**: choose the lock mode on first launch. UI: UIKit. Presented full-screen over the browser at launch when
-  setup is not done. Serves journey 1.
-- **Lock screen**: unlock by password or biometrics. UI: UIKit. Presented full-screen, unanimated, over the topmost screen
-  at launch and on foreground when locked; a privacy cover hides content while inactive. Serves journey 2.
-- **File browser**: the vault grid; root of the navigation stack, one instance per folder. UI: UIKit. Serves 3, 4, 6, 7.
+- **Lock screen** (the Vaults screen; feature multiple-vaults-duress-password, revised at the prototype): open a vault by
+  password or Face ID, open the unencrypted vault, create one. UI: UIKit. Full-screen navigation controller over the
+  window's root, shown by the app lock coordinator at launch, on entering the background, and from the browser's Lock
+  button or a deleted vault. Serves 1, 2, 8, 10, 12. A privacy cover (no screen of its own) hides content while the app
+  is inactive with an encrypted vault open.
+- **Create Vault**: name on the screen, password and confirmation in a "Set Password" alert. UI: UIKit. Pushed in the lock screen's navigation. Serves 10.
+- **File browser**: the open vault's grid; root of the navigation stack, one instance per folder; replaced as a whole
+  when another vault opens or the vault closes. UI: UIKit. Serves 1, 3, 4, 6, 7, 11.
+- **Vault picker**: choose the target of "Move/Copy to Vault…". UI: UIKit. Form sheet from the browser. Serves 11.
 - **Folder picker**: choose a move target. UI: UIKit. Form sheet from the browser. Serves 3.
 - **File viewer** (with file pages): view images, video, QuickLook kinds. UI: UIKit. Full-screen from the browser. Serves 5, 7.
 - **Text editor**: edit `.rtf`. UI: UIKit. Full-screen nav from the browser (or a viewer page). Serves 5.
-- **Security settings**: lock mode, password, Pro, storage. UI: UIKit. Form-sheet nav from the browser's gear. Serves 6, 8, 9.
-- **Migration**: encrypt/decrypt progress. UI: UIKit. Full-screen from Settings, or from the app shell to resume. Serves 8.
+- **Security settings**: Pro, the open vault (password, Face ID, delete), storage. UI: UIKit. Form-sheet nav from the
+  browser's gear. Serves 6, 8, 9.
+- **Migration**: encrypting a vault's leftover unencrypted files. UI: UIKit. Full-screen, presented by the app shell when
+  such a vault opens. Serves 2, 8, 12.
 - **Recently Deleted**: the trash. UI: UIKit. Pushed from Settings. Serves 6.
-- **Paywall**: Unlock Pro. UI: UIKit. Form sheet from Settings or from an import. Serves 9.
+- **Paywall**: Unlock Pro. UI: UIKit. Form sheet from Settings, an import, a transfer or Create New Vault. Serves 9, 10, 11.
+- Removed by feature multiple-vaults-duress-password: the setup wizard and the old password lock screen (the lock screen
+  above replaces it).
 - Import and export sheets, pickers and share sheets are presented by the Import and Export modules' presenters over the
   calling screen.
 
@@ -136,17 +185,27 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
   PhotosUI/Photos, QuickLook, AVFoundation.
 - Compatibility: the SVC5 file format, the master-key blob v1 format, the Keychain items (service "com.KoalaTVault",
   accounts "com.KoalaTVault.masterKeyBlob" and "com.KoalaTVault.biometricMasterKey"), the `.vault_map` / `.trash_map` JSON
-  shapes and the UserDefaults keys stay readable as they are.
+  shapes and the UserDefaults keys stay readable as they are. A 1.2 vault is upgraded once (journey 12) without
+  rewriting any file or Keychain item: the upgraded vault keeps the old blob account.
 - Tests never touch the real Keychain, UserDefaults.standard or the real Documents vault: every module takes its
   storage (Keychain access, UserDefaults suite, vault root URL) by injection; the composition root wires the real ones.
 - The `-uiTesting` launch argument (replacing today's DEBUG `--uitesting`) starts the app with an empty vault in a
   temporary directory, an in-memory Keychain and a throwaway UserDefaults suite; `UITEST_SEED_FILE_NAME`,
-  `UITEST_SEED_FILE_COUNT`, `UITEST_PASSWORD` and `UITEST_FAIL_MIGRATION_FILE` keep their meaning in that mode only.
+  `UITEST_SEED_FILE_COUNT` and `UITEST_FAIL_MIGRATION_FILE` keep their meaning in that mode only (seed files go in the
+  unencrypted vault). From feature multiple-vaults-duress-password: `UITEST_PASSWORD` seeds an empty encrypted vault
+  named "Test Vault" with that password (the app still opens on the lock screen; journey tests open the vault they need through it,
+  "Open Unencrypted Vault" for the unencrypted one); `UITEST_LEGACY_LOCK` =
+  `password` / `biometric` seeds the 1.2 layout instead (the seed files, a blob for `UITEST_PASSWORD`, lock mode set, not
+  upgraded; `hasCompletedSetup` is no longer seeded) so the upgrade runs at launch; `UITEST_PENDING_MIGRATION` and `UITEST_PLAINTEXT_INDEX` go.
 
 ## Out of scope
 - New features: the queued backlog (below) is built after the adoption through `/feature`.
 - Moving screens to SwiftUI: later `/feature` work.
-- Changing the SVC5 format, the blob format or the Keychain layout.
+- Changing the SVC5 format or the blob format; the Keychain layout changes only by adding one blob account per new
+  vault and the Face ID vault marker.
+- Hiding encrypted vaults from someone examining the device itself (vault folders and Keychain items can be counted
+  with device-level access), and the time the password search takes (it grows with the number of vaults); renaming a
+  vault (feature multiple-vaults-duress-password, out of scope).
 - Repo-root `art samples/`, `previews/`, `vault_test_files/`: not app code; no module owns them.
 - `API-Memo.md` and `REVIEW.md` stay as references; this memo and `docs/api/` replace them for new work.
 
@@ -155,13 +214,11 @@ limit of 100 files. The app is accepted by App Store Connect (1.2, build 4) but 
 - Minimum password strength: REVIEW.md S2.
 - iCloud backup: back up the vault to iCloud.
 - Password recovery: a way back in when the password (or its Keychain blob) is lost.
-- Multiple vaults / duress password.
 - Timed lockout for failed passwords.
 - Encrypt folder names: folder names, sizes and structure are plaintext on disk today.
 - Vault size in Settings: show the current total size of the vault (and file count) in the Storage section.
 - Orphan sweep doesn't hold up the grid: after an unlock with a large vault, the grid's listing waits behind the sweep (one synchronous pass inside the VaultStore actor, OrphanSweep.swift); sweep per folder with yields — app review 2026-11-04.
 - Remove `ThumbnailProviding.clearCache(for:)` from the Media contract: no caller (the cache key includes modification date and size) — contract change — app review 2026-11-04.
-- Harden "no sweep while a migration is pending": it relies on main-actor ordering between `prepareToAddLock` and `migrator.start` (SecuritySettingsViewModel.swift); set the pending record before the lock state changes, or re-check right before the sweep — app review 2026-11-04.
 - Dark mode: the selection checkmark sits on a hard white disc (FileCell.swift `.white`); use a semantic colour — app review 2026-11-04 (may go with the accessibility feature).
 
 ## Data models
@@ -201,15 +258,25 @@ extension matching ignores case.
 | originalName | String | |
 | rootURL | String | kept for compatibility, not read |
 
-### PendingMigration (UserDefaults `pendingMigrationType` = "encrypt"/"decrypt", `pendingMigrationTargetLockMode`)
-| Field | Type | Notes |
-| --- | --- | --- |
-| kind | MigrationKind | encrypt / decrypt |
-| targetLockMode | LockMode? | encrypt only |
+### Pending migration (UserDefaults `pendingMigrationType` = "encrypt"/"decrypt", `pendingMigrationTargetLockMode`)
+Left by 1.2 when a lock migration didn't finish. Since feature multiple-vaults-duress-password only the upgrade (journey 12)
+reads it, and only whether it is an encrypt; then it clears both keys. Nothing writes it. (The `PendingMigration` /
+`MigrationKind` types went in the minors clean-up, 2026-11-11.)
 
 ### On-disk and Keychain formats (kept as they are)
-- **Vault root**: the app's Documents folder; real subfolders with plaintext names. Hidden entries (`.vault_map`, `.trash`,
-  `.trash_map`) are never listed.
+- **Unencrypted vault root**: the app's Documents folder; real subfolders with plaintext names; always plaintext mode.
+  Hidden entries (`.vault_map`, `.trash`, `.trash_map`, `.vault_info`) are never listed.
+- **Encrypted vaults** (feature multiple-vaults-duress-password): `Application Support/Vaults/<vaultID>/` is each
+  encrypted vault's root (same layout as an encrypted root above), always encrypted mode. `vaultID` is a new UUID
+  string, or `primary` for the vault the upgrade made. The vault's name is in `<root>/.vault_info`: JSON
+  `{ "name": "…" }` sealed like an index (AES-256-GCM with the vault's key, AAD ".vault_info"); missing or unreadable →
+  the name "My Vault" (written on the next open). A folder there with no blob in the Keychain is not a vault; an empty one (an
+  interrupted creation) is removed at launch, a non-empty one is left alone.
+- **Keychain per vault**: the blob of vault `primary` is the old account "com.KoalaTVault.masterKeyBlob"; any other
+  vault's is "com.KoalaTVault.masterKeyBlob.<vaultID>" (same v1 format). The biometric item (account
+  "com.KoalaTVault.biometricMasterKey", unchanged) holds the key of the one vault that has Face ID, named by the plain
+  item "com.KoalaTVault.biometricVaultID" (UTF-8 vaultID, accessible when unlocked). No list of vaults is stored: the
+  vaults are the folders under `Vaults/`.
 - **Plaintext mode** (lock mode none): files keep their names; conflicts get " 1", " 2" before the extension.
 - **Encrypted mode** (lock mode password or password + biometrics): each file is `<UUID>` with no extension; each folder's
   `.vault_map` is JSON `{ "<UUID>": { "originalName": "…" } }`, AES-256-GCM (nonce 12 | ciphertext | tag 16) with the
@@ -225,24 +292,27 @@ extension matching ignores case.
   NFC-normalised UTF-8 password.
 - **Biometric item** (account "com.KoalaTVault.biometricMasterKey", `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` +
   `.biometryCurrentSet`): the raw 32-byte master key. Legacy item account "com.KoalaTVault.password" is deleted on unlock.
-- **UserDefaults**: `hasCompletedSetup` (false), `lockMode` ("none"; unknown → none), `sortOption` ("name"),
-  `sortDirection` ("ascending"), `pendingMigrationType`, `pendingMigrationTargetLockMode`, `entitlement.isUnlocked`.
+- **UserDefaults**: `lockMode` ("none"; unknown → none), `sortOption` ("name"),
+  `sortDirection` ("ascending"), `pendingMigrationType`, `pendingMigrationTargetLockMode`, `entitlement.isUnlocked`,
+  `vaultsUpgraded` (false; feature multiple-vaults-duress-password). `lockMode` and the pending migration are read only
+  by the upgrade. 1.2's `hasCompletedSetup` key is no longer read or written (left on disk as it is).
 
 ## Build order
 1. VaultCrypto (depends on: none)
 2. Preferences (depends on: none)
 3. Entitlements (depends on: none)
-4. VaultStore (depends on: VaultCrypto, Preferences)
+4. VaultStore (depends on: VaultCrypto)
 5. SharedUI (depends on: VaultStore)
-6. VaultLock (depends on: VaultCrypto, Preferences, VaultStore)
-7. LockMigration (depends on: VaultStore, VaultLock, Preferences)
-8. Media (depends on: VaultStore, VaultCrypto, Preferences)
-9. Import (depends on: VaultStore, Entitlements, SharedUI)
-10. Export (depends on: VaultStore, SharedUI)
-11. LockScreens (depends on: VaultLock, VaultCrypto, Preferences, SharedUI)
-12. Viewer (depends on: VaultStore, Media, Export, SharedUI)
-13. Settings (depends on: VaultLock, LockMigration, VaultStore, Entitlements, Preferences, SharedUI)
-14. Browser (depends on: VaultStore, Preferences, Media, Import, Export, SharedUI, Viewer, Settings)
+6. VaultLock (depends on: VaultCrypto, Preferences, VaultStore, Entitlements)
+7. LockMigration (depends on: VaultStore)
+8. VaultTransfer (depends on: VaultStore, Entitlements)
+9. Media (depends on: VaultStore, VaultCrypto, Preferences)
+10. Import (depends on: VaultStore, Entitlements, SharedUI)
+11. Export (depends on: VaultStore, SharedUI)
+12. LockScreens (depends on: VaultLock, SharedUI)
+13. Viewer (depends on: VaultStore, Media, Export, SharedUI)
+14. Settings (depends on: VaultLock, LockMigration, VaultStore, Entitlements, SharedUI)
+15. Browser (depends on: VaultStore, VaultLock, VaultTransfer, Preferences, Media, Import, Export, SharedUI, Viewer, Settings, LockScreens)
 
 ## Modules
 
@@ -314,12 +384,19 @@ extension matching ignores case.
   - wipeKey: key unloaded; `isKeyLoaded` false; a `withKey` body already running finishes with its captured key.
   - withKey: no key → `.noKeyLoaded` without running the body.
   - Unlock deletes the legacy "com.KoalaTVault.password" item (errors ignored).
+  - One store per vault (feature multiple-vaults-duress-password): `LiveMasterKeyStore` takes the blob account at init (default
+    "com.KoalaTVault.masterKeyBlob", so existing callers and the upgraded vault are unchanged); every blob operation
+    (`hasMasterKeyBlob`, `createMasterKey`, `unlock`, `rewrap`, `deleteMasterKeyBlob`) uses that account only, so two
+    stores with different accounts never see each other's blob or key. The biometric item's account is the same for
+    every store (one vault has Face ID at a time). Only the store with the default account deletes the legacy
+    "com.KoalaTVault.password" item on unlock.
   - encrypt/decrypt(data): round trip with the same context; any listed context that matches decrypts (tried in order); other key or context → `.decryptionFailed`; no key → `.noKeyLoaded`; nonce differs per call.
   - encryptFile: writes SVC5 (layout in Data models) via a staging file with `.complete` protection, then atomically moves/replaces; source == destination works; no key → `.noKeyLoaded` and no output; empty file → header only; exactly 1 MiB → one chunk; over 2 TiB or short read → `.encryptionFailed`.
   - decryptFile: round trip; wrong magic, flipped header byte, swapped or foreign chunk, dropped last chunk, truncation, trailing bytes, or size mismatch → `.decryptionFailed`, an existing destination left untouched; success replaces the destination.
   - streamInfo: reads the header only; bad magic or truncated header → `.decryptionFailed`; chunkSize outside 1…16 MiB or total over 2 TiB → `.decryptionFailed`.
   - decryptChunk: index in range → that chunk's plaintext; out of range → `.decryptionFailed`.
   - errorDescription (logic in `Contracts/`): noKeyLoaded "No encryption key is loaded."; noMasterKeyBlob "No password has been set up."; masterKeyAlreadyExists "A master key already exists."; wrongPassword "Incorrect password."; emptyPassword "Password cannot be empty."; corruptBlob "The stored password data is damaged."; invalidKeyData "The stored key is invalid."; encryptionFailed "Encryption failed."; decryptionFailed "Decryption failed. The data may be damaged."; biometricItemMissing "Face ID key not found. Use your password."; biometricCancelled "Authentication was cancelled."; biometryLockedOut "Too many attempts. Use your password."; biometryNotEnrolled "Face ID is not set up."; passcodeNotSet "Set a device passcode to use Face ID."; keychain(status) "Couldn't access secure storage (error <status>)." (the status number appears in the text).
+- Changes (multiple-vaults-duress-password): LiveMasterKeyStore.swift
 - Contract: see `docs/api/VaultCrypto.md` (generated; do not edit by hand)
 
 ### Preferences
@@ -334,28 +411,31 @@ extension matching ignores case.
       var displayName: String { get }
   }
   enum SortDirection: String, Sendable, Codable, CaseIterable { case ascending, descending }
-  enum MigrationKind: String, Sendable, Codable { case encrypt, decrypt }
-  struct PendingMigration: Sendable, Codable, Equatable, Hashable {
-      var kind: MigrationKind
-      var targetLockMode: LockMode?
-  }
 
   protocol PreferencesStoring: AnyObject, Sendable {
-      var hasCompletedSetup: Bool { get set }
       var lockMode: LockMode { get set }
       var sortOption: SortOption { get set }
       var sortDirection: SortDirection { get set }
-      var pendingMigration: PendingMigration? { get set }
+      /// Whether 1.2 left an encrypt migration unfinished (`pendingMigrationType` == "encrypt").
+      var hasPendingEncryptMigration: Bool { get }
+      /// Removes both pending-migration keys.
+      func clearPendingMigration()
+      var vaultsUpgraded: Bool { get set }
   }
   ```
 - Behavior spec:
-  - Defaults on an empty store: `hasCompletedSetup` false, `lockMode` .none, `sortOption` .name, `sortDirection` .ascending, `pendingMigration` nil.
-  - Each property round-trips through the injected UserDefaults under the keys in Data models, with raw values "none"/"password"/"passwordAndBiometrics", "name"/"type"/"dateModified", "ascending"/"descending", "encrypt"/"decrypt".
+  - Defaults on an empty store: `lockMode` .none, `sortOption` .name, `sortDirection` .ascending, `hasPendingEncryptMigration` false, `vaultsUpgraded` false.
+  - vaultsUpgraded (feature multiple-vaults-duress-password): round-trips under the key `vaultsUpgraded`; persists across stores on the same suite.
+  - Each property round-trips through the injected UserDefaults under the keys in Data models, with raw values "none"/"password"/"passwordAndBiometrics", "name"/"type"/"dateModified", "ascending"/"descending".
   - Values written by a store are read by a new store on the same suite (persistence).
-  - Unknown raw values read as the defaults (an unknown `pendingMigrationType` reads as nil; an unknown or missing target of an encrypt migration reads as a nil target).
-  - pendingMigration nil removes both keys; a target is stored only for `.encrypt` and ignored for `.decrypt`.
+  - Unknown raw values read as the defaults.
+  - hasPendingEncryptMigration (minors clean-up 2026-11-11): true only when `pendingMigrationType` is "encrypt" ("decrypt", unknown or missing → false; `pendingMigrationTargetLockMode` is never read). clearPendingMigration removes `pendingMigrationType` and `pendingMigrationTargetLockMode`; other keys untouched.
   - displayName: "Name", "Type", "Date Modified". (Contract logic in `Contracts/PreferencesModels.swift`; unit 1 tests it.)
   - Thread-safe: reads and writes from several threads don't crash or tear.
+- Changes (multiple-vaults-duress-password): UserDefaultsPreferences.swift
+- Contract changes (multiple-vaults-duress-password): `PreferencesStoring` gains `var vaultsUpgraded: Bool { get set }`.
+  Minors clean-up (approved by the human 2026-11-11): `hasCompletedSetup` removed; `MigrationKind`, `PendingMigration` and
+  `pendingMigration` replaced by `hasPendingEncryptMigration` (get-only) and `clearPendingMigration()`.
 - Contract: see `docs/api/Preferences.md` (generated; do not edit by hand)
 
 ### Entitlements
@@ -403,7 +483,7 @@ extension matching ignores case.
 - Purpose: the vault on disk: folder indexes, browse and sort, open and write, folder and file operations, trash, the
   per-file migration steps, the orphan sweep and temp files. One module because all of these share the index
   read-modify-write and the rule for whether the vault is encrypted.
-- Depends on: VaultCrypto, Preferences
+- Depends on: VaultCrypto (Preferences until feature multiple-vaults-duress-password)
 - Files: VaultIndex.swift, VaultNaming.swift, LiveVaultStore.swift, VaultFileOperations.swift | VaultTrash.swift, VaultMigrationSteps.swift, OrphanSweep.swift, VaultTempFiles.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
@@ -436,24 +516,30 @@ extension matching ignores case.
       case invalidName
       case notFound
       case moveIntoItself
-      case stillEncrypted(count: Int)
       case io(String)
   }
   extension VaultStoreError: LocalizedError { var errorDescription: String? { get } }
 
   protocol VaultStoring: Sendable {
       var root: VaultDirectory { get }
+      var isEncrypted: Bool { get }
       func contents(of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection) async throws -> [VaultItem]
       func open(_ item: VaultItem) async throws -> URL
       func write(_ data: Data, to item: VaultItem) async throws
       func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem
       func createDocument(named name: String, in directory: VaultDirectory) async throws -> VaultItem
       func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem
+      /// Adds many files to one folder in one step, writing the folder's index once (large imports).
+      func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem]
       func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem?
       func move(_ item: VaultItem, to directory: VaultDirectory) async throws
       func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem
       func rename(_ item: VaultItem, to name: String) async throws -> VaultItem
       func moveToTrash(_ item: VaultItem) async throws
+      /// Moves many items to the trash in one step, writing the trash index once; returns the error of each item that
+      /// stayed where it was, keyed by its id (empty: all trashed).
+      func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError]
+      func remove(_ item: VaultItem) async throws
       func trashContents() async throws -> [VaultItem]
       func restore(_ trashed: VaultItem) async throws -> VaultItem
       func deletePermanently(_ trashed: VaultItem) async throws
@@ -462,10 +548,8 @@ extension matching ignores case.
       func hasUnreadableTrash() async -> Bool
       func clearUnreadableTrash() async throws
       func countFiles() async throws -> Int
-      func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem]
+      func itemsToEncrypt() async throws -> [VaultItem]
       func migrateToEncrypted(_ item: VaultItem) async throws
-      func migrateToDecrypted(_ item: VaultItem) async throws
-      func finishDecryption() async throws
       func finishEncryption() async throws
       func hasUnencryptedFiles() async throws -> Bool
       func keyMatchesVault() async -> Bool
@@ -476,48 +560,56 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - Encrypted mode is `lockMode != .none` (read from Preferences at the start of each operation). Each operation captures the key once at its start; in encrypted mode with no key, every operation that reads or writes an index or file content throws `.locked` before changing anything.
+  - One store per vault (feature multiple-vaults-duress-password): the live store is given its root folder, the root's display name (the vault's name; "KoalaTVault" for the unencrypted vault), whether it is encrypted, its own key store and cipher, and its temp folder; `root.name` is that name and `isEncrypted` that flag, fixed for the store's life (no longer read from Preferences, which VaultStore no longer uses). Two stores never touch each other's files, indexes, trash or temp files. Each operation captures the key once at its start; in encrypted mode with no key, every operation that reads or writes an index or file content throws `.locked` before changing anything.
   - Index writes are serialized (the live store is an actor): concurrent imports, moves and migration steps never lose an index entry.
   - Index read: absent → empty; encrypted with the key → decoded (AAD ".vault_map", then folder-relative path, then ""); plaintext JSON → decoded in either mode and rewritten encrypted on the next write in encrypted mode; unreadable → `.indexUnreadable(folder:)` and the index is never overwritten.
   - Index write: encrypted in encrypted mode, plaintext JSON in plaintext mode; never plaintext in encrypted mode.
   - contents: non-hidden entries; mapped files show their original name with `isEncrypted` true; unmapped files and folders show the disk name; folders first, then by option and direction (name: case-insensitive; type: by extension then name; dateModified); ids are root-relative paths and equal across listings.
+  - Large-folder listing speed (feature multiple-vaults-duress-password, device test 2026-11-12): a listing's cost per item is only that item's own work. Work that is the same for every item of a folder (its root-relative path, the folder's index) is done once per listing; sizes, dates and folder flags come from the directory read itself (attributes prefetched), not a separate stat per file; sorting compares precomputed keys. Results are exactly as before (same items, fields, ids and order, ties included).
   - open: plaintext item → its disk URL; encrypted → decrypted into a new temp folder as `<temp>/<name>`; failure → `.io` / `.locked` and no temp file left.
   - write: encrypted item → plaintext staged in temp, encrypted, atomically replaces the file, plaintext removed; plaintext item → atomic write; key missing → `.locked`, file unchanged.
   - Names: any other name is valid and kept exactly as given (long names up to 200 characters, spaces and symbols such as "&" and "!") through addFile, createFolder, createDocument, rename and contents, in both modes.
   - createFolder: plaintext name on disk in both modes, conflict → " 1"; empty, containing "/", or starting with "." → `.invalidName`.
   - createDocument: empty `.rtf` (".rtf" added if missing) through the same path as addFile, so it is encrypted and indexed in encrypted mode; conflict → " 1" (an existing document is never truncated); empty, containing "/", or starting with "." → `.invalidName`.
   - addFile: encrypted mode → encrypted as a new `<UUID>` and indexed in one serialized step; plaintext mode → copied with its name; name conflict → " 1"; key missing → `.locked`, nothing written; source unreadable → `.io`.
-  - findItem: the item with that display name (encrypted or plaintext), or nil.
+  - findItem: the item with that display name (encrypted or plaintext), or nil. It looks the one name up (in the folder's index and on disk); it never builds the folder's whole listing (large-folder import, device test 2026-11-12).
+  - addFiles (large-folder import, device test 2026-11-12): `VaultFileToAdd` is `struct VaultFileToAdd: Sendable, Equatable { let source: URL; let name: String }` (in `Contracts/VaultStoring.swift`). The files go into one folder, in order, as one serialized store step: the folder's index is read once and the folder listed once for names; each file is added exactly as `addFile` would (encrypted mode: encrypted as a new `<UUID>`; plaintext mode: copied; names resolved against the folder and against the earlier files of the same call, " 1" on a clash); in encrypted mode the index is written once, after the last file, with all their entries. Returns the added items in order. A file that fails (invalid name → `.invalidName`, source missing, a folder or unreadable → `.io`, encryption fails) stops the call there: the files before it are kept (and indexed by the one write) and the error is thrown; later files are not attempted. The index write failing removes every file this call encrypted and throws. Key missing → `.locked` before anything is written. An empty list → `[]`, nothing written. The memory a file's work uses is released when that file is done, so it doesn't grow with the number of files. Callers send at most 64 files per call, so a call never holds up other store operations (a listing) for long.
+  - Memory (device test 2026-11-12): every store operation releases the temporary memory its work uses when it ends (an autorelease pool around each operation's body, and around each step of the stepped housekeeping), so a long run of operations from one task (an import, a transfer) doesn't build up memory.
   - move: encrypted file → index entry moved and file moved, conflicts on the display name resolved with " 1"; plaintext → moved with " 1" on conflict; into its own folder → no change; a folder into itself or a descendant → `.moveIntoItself`; a failure part-way leaves the item findable in exactly one place.
   - copy: new item in the target with " 1", " 2" names; encrypted copies stay encrypted and decrypt to the same content; a folder into itself or a descendant → `.moveIntoItself`, nothing copied.
   - rename: encrypted → index only; plaintext → disk rename; conflict → " 1"; a name that differs from the item's own only in letter case is not a conflict (renamed in place, both modes); empty, containing "/", or starting with "." → `.invalidName`.
+  - remove (feature multiple-vaults-duress-password; a transfer's move removes originals with it): a file → the file and (encrypted) its index entry are deleted, index first; an encrypted file whose index entry is already gone (a stale item) → its file is just deleted; a folder → its whole tree, then the folder; never into the trash; an item of the trash → `.notFound` (that is `deletePermanently`); unknown item → `.notFound`; key missing for an encrypted item → `.locked`, nothing deleted; a failure part-way throws `.io` and leaves what it hasn't reached; if an encrypted file's delete fails after its entry was removed, the entry is written back, best-effort (should that also fail, the unlisted file is left for `sweepOrphans`).
   - moveToTrash: moves into `.trash/<newUUID>` and records a TrashEntry (relative original folder, deletedAt now, encryption state, original names) in one serialized step; a failure leaves the item where it was; folders keep `isDirectory` true.
-  - trashContents: one flat list of trash items with `deletedAt`; unreadable trash index → `.indexUnreadable`; a trash file whose header can't be read is still listed with its stored flag (listing and restore never fail because of one unreadable file; migration steps stay strict).
-  - restore: back to the original folder (recreated if missing; older absolute paths re-based onto the current root; a target outside the root, through `..`, a hidden folder or a symlink, or a bad disk name → `.io`, nothing moved, entry kept); name conflict → " 1"; encrypted items re-indexed; unknown trash item → `.notFound`.
-  - deletePermanently: removes the file and its entry; unknown → `.notFound`.
+  - moveToTrash of many items (feature multiple-vaults-duress-password, large trash, device retest 2026-11-13): one serialized step; the trash index is read once and written once with every new entry, and each source folder's index is read once and written once (encrypted mode) without the trashed items' entries. Each item is trashed exactly as the single call would (same files, entries and names); an item that fails (unknown → `.notFound`, a move fails → `.io`) stays where it was, its error is returned under its id, and the others still go. Order of writes keeps every item findable in exactly one place: the trash index (with all new entries) is written before the files move; an item whose file move fails has its entry dropped again before the final trash-index write; source indexes are written last. The trash-index write failing (before anything moved) → every item's error is that failure, nothing moved. Key missing → every item `.locked`, nothing changed. An empty list → empty result. Memory released after each item. Callers send at most 256 items per call.
+  - trashContents: one flat list of trash items with `deletedAt`; unreadable trash index → `.indexUnreadable`; an entry whose file is missing is not listed (listing and restore never fail because of one unreadable file; migration steps stay strict).
+  - Large-trash speed (feature multiple-vaults-duress-password, device retest 2026-11-13: thousands of trashed items took minutes to list): `trashContents` never opens, copies or decrypts a trash file: each item's `isEncrypted` is its entry's stored flag (the file's real form is read only when that one item is restored or migrated). The list is built in one pass, as `contents` is: the `.trash` folder is read once with attributes prefetched (size, date, folder flag), its root-relative path worked out once, and each entry matched to its file by name; cost per item is only that item's own work. Results are as before for every entry whose stored flag matches its file.
+  - restore: back to the original folder (recreated if missing; older absolute paths re-based onto the current root; a target outside the root, through `..`, a hidden folder or a symlink, or a bad disk name → `.io`, nothing moved, entry kept); name conflict → " 1"; encrypted items re-indexed; unknown trash item → `.notFound`. Only the restored item's own file is checked for its real form (its SVC5 header, as the correction did before), never the whole trash; an entry whose file is gone is dropped from the trash index and `.notFound` is thrown (large trash, 2026-11-13).
+  - deletePermanently: removes the file and its entry; an entry whose file is already gone → the entry is dropped, no error (large trash, 2026-11-13, decided by the human); not in the trash index → `.notFound`.
   - emptyTrash: removes everything in `.trash` and its index, best-effort.
   - purgeExpiredTrash: removes entries with `deletedAt` more than 30 days before `now` and returns how many; unreadable index → throws without writing; a file that can't be removed keeps its entry (retried on the next purge) while the other expired items are still removed, the map is saved, and then the first error is thrown.
   - countFiles: non-hidden files under the root, subfolders included, trash and indexes excluded; a subfolder that can't be read → `.io` (never a partial count).
-  - itemsToMigrate(toEncrypted: true): every plaintext file under the root and in the trash; (false): every encrypted file under the root and in the trash.
+  - itemsToEncrypt (was `itemsToMigrate(toEncrypted: true)`): every plaintext file under the root and in the trash; empty in plaintext mode.
   - migrateToEncrypted: plaintext file → encrypted `<UUID>`, indexed, plaintext removed (in that order); if an encrypted entry with the same original name already holds identical content, only the plaintext is removed; different content → kept as a new " 1" item. Trash items are re-encrypted in place and their entry updated. Interrupt-safe at every step: a rerun finds a plaintext file whose identical encrypted copy is already indexed and only removes the plaintext; an incomplete encrypted copy is dropped with its entry; a trash item's real form is read from the file's SVC5 header (not the entry's flag), so a conversion killed between the map update and the file replace is corrected on the next itemsToMigrate / migrate / finishDecryption and any leftover hidden `.migrating` staging file is finished or removed. A plaintext file is skipped as already migrated only if it really is an SVC5 file. Every content check (the byte-for-byte compare of a copy with its plaintext) streams one chunk at a time and frees each chunk's buffers before the next, so memory stays bounded by a few chunks whatever the file size (a multi-GB video verifies like a small file).
-  - migrateToDecrypted: encrypted file → plaintext with its original name (" 1" on conflict), entry removed, encrypted file removed (in that order); decrypt failure leaves the encrypted file and its entry. A rerun after an interrupted decrypt (matching plaintext already there) finishes without a duplicate. Trash items are decrypted in place by the same header rule. Either migration step on a trash item that has no trash entry → `.notFound`, nothing changed. Either migration step on a trash item whose entry exists but whose file is gone treats it as already done (no change, no error), as for files outside the trash.
-  - finishDecryption: any encrypted file left (judged by its SVC5 header, trash included) → `.stillEncrypted(count:)`; otherwise every `.vault_map` is deleted and `.trash_map` is rewritten as plaintext, so the vault lists with no key afterwards.
+  - migrateToEncrypted on a trash item that has no trash entry → `.notFound`, nothing changed; on a trash item whose entry exists but whose file is gone → treated as already done (no change, no error), as for files outside the trash. (Feature multiple-vaults-duress-password removes `migrateToDecrypted`, `finishDecryption` and `.stillEncrypted`: nothing decrypts a whole vault any more.)
   - finishEncryption: the last step of an encrypt migration; in encrypted mode with the key, every `.vault_map` under the root (folders inside `.trash` included) that is still plaintext JSON is rewritten encrypted (".vault_map" context) with the same entries, and a plaintext `.trash/.trash_map` likewise (".trash_map"); indexes that are already encrypted or are unreadable are left byte-for-byte as they are; no key → `.locked` before anything is written; plaintext mode → no change.
-  - hasUnencryptedFiles: true if any plaintext file is under the root or in the trash.
+  - hasUnencryptedFiles: true if any plaintext file is under the root or in the trash; stops at the first one found.
+  - Open-vault housekeeping never holds up browsing (feature multiple-vaults-duress-password, device test 2026-11-12): `sweepOrphans` and `hasUnencryptedFiles` work one folder at a time, visiting folders breadth-first (the root, then every folder at the next depth, and so on; then the trash, whose files `hasUnencryptedFiles` also checks in batches of at most 256, each its own step (large trash, 2026-11-13)); `hasUnencryptedFiles` also splits a large folder's file checks into batches of at most 256 files, each its own step (the folder's listing is taken once, at its first batch; a file gone by its batch is skipped). Each folder's work is one serialized step, as every other store operation, and other store operations (a listing, an import, a move) may run between folders, so a listing asked for while they run waits for at most the step in progress (one folder for the sweep, one batch for the check), never the whole vault. A folder found changed between steps is judged as it is when its step runs; one removed in between is skipped. The root missing at the first step of `hasUnencryptedFiles` throws `.io` as before. A cancelled task stops between steps (the sweep returns, the check throws `CancellationError`); a vault that locks mid-walk stops it (no deletion without the key; the check throws `.locked`). The results are as before: the same orphans deleted, the same answer.
   - keyMatchesVault: true when the loaded key decrypts the root index, or when there is no encrypted index to check; false otherwise.
   - sweepOrphans: only in encrypted mode with the key loaded; in each folder whose index exists and reads, deletes extensionless UUID-named files the index doesn't list and that carry an SVC5 header (a plaintext file with such a name is kept); folders with no index, an unreadable index, and the trash are never swept.
   - Unreadable trash (definition): trash that can never be decrypted, because it was sealed with a key the vault no longer has. Only when all hold: encrypted mode with the key loaded; the key opens the vault (as `keyMatchesVault`); the data was read in full (a read, file-protection or I/O error never counts) and fails authentication under every context it may have been sealed with. Two kinds: (a) the trash index `.trash/.trash_map` (only if it is at least as long as a sealed record, 12-byte nonce + 16-byte tag; an empty or shorter file is uncertain) → the whole trash is unreadable; (b) a top-level trash item (with a readable trash index): a file whose first encrypted chunk fails authentication or is incomplete, judged only on bytes the store itself read (the header and the first chunk, never the whole file; the cipher is never asked to re-read the trash file, so a read error can't pass for a wrong key) (an SVC5 file only; a plaintext file is never unreadable), or a folder in which any `.vault_map` or encrypted file (judged the same way) fails. Anything uncertain (no key, read error, key doesn't match, plaintext mode, `.trash` that is a symlink or not a folder) is never unreadable.
-  - hasUnreadableTrash: true when the trash holds unreadable trash as defined above; false otherwise, including on any error (never throws).
+  - hasUnreadableTrash: true when the trash holds unreadable trash as defined above; false otherwise, including on any error (never throws). The top-level trash items are checked in batches of at most 256, each its own serialized step, so a Restore or Delete asked for meanwhile waits for at most one batch (large trash, 2026-11-13); it stops at the first unreadable item found.
   - clearUnreadableTrash: re-checks the definition at the time of the call and removes only what still meets it: kind (a) → everything in `.trash`, the index included; kind (b) → those items (a folder with its whole tree) and their entries, the other items and their entries untouched; the trash index is rewritten without their entries before anything is removed (a failed write removes nothing). Each removal is logged (no names). Nothing unreadable → no change. A removal that fails throws `.io` after the rest are removed; no key → `.locked`, nothing removed.
   - Temp files: `makeTempDirectory` creates a unique folder under the app temp folder; `removeTemporary` removes one; `removeAllTemporaryFiles` removes everything the store created.
   - Contract logic (in `Contracts/VaultStoreModels.swift`; unit 1 tests it): `FileKind(extension:)` maps every extension in Data models › FileKind (one case per extension, also upper and mixed case); an empty or unknown extension → `.other`. `VaultItem.kind` comes from the display name's extension (an encrypted item's original name, not its UUID disk name). `asDirectory`: a folder → `VaultDirectory` with the item's name, diskURL and rootURL; a file → nil.
-  - errorDescription (logic in `Contracts/VaultStoring.swift`, next to `VaultStoreError`; tested in a reopened VaultStore change, one asserting test per case): indexUnreadable "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."; locked → the text of `VaultCryptoError.noKeyLoaded` ("No encryption key is loaded."); invalidName "Names can't contain / or start with ."; notFound "This item no longer exists."; moveIntoItself "A folder can't be moved into itself"; stillEncrypted(1) "1 file is still encrypted.", stillEncrypted(n) "<n> files are still encrypted."; io(message) → the message itself. Alerts show `localizedDescription`, so this is the text the user sees.
+  - errorDescription (logic in `Contracts/VaultStoring.swift`, next to `VaultStoreError`; tested in a reopened VaultStore change, one asserting test per case): indexUnreadable "Couldn't read the vault's file index. It may still be locked, or a file may have become corrupted."; locked → the text of `VaultCryptoError.noKeyLoaded` ("No encryption key is loaded."); invalidName "Names can't contain / or start with ."; notFound "This item no longer exists."; moveIntoItself "A folder can't be moved into itself"; io(message) → the message itself. Alerts show `localizedDescription`, so this is the text the user sees.
+- Changes (multiple-vaults-duress-password): LiveVaultStore.swift, VaultIndex.swift, VaultFileOperations.swift, VaultMigrationSteps.swift, OrphanSweep.swift, VaultTrash.swift (large-trash speed, batch moveToTrash, batched trash checks, 2026-11-13)
+- Contract changes (multiple-vaults-duress-password): `VaultStoring` gains `moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError]` (batch trash, device retest 2026-11-13; the mocks and the shell's store wrapper implement it); `VaultStoring` gains `addFiles(_:to:)` and `VaultFileToAdd` (large-folder import, device test 2026-11-12; the mocks and the shell's store wrapper implement it); `VaultStoring` gains `isEncrypted` and `remove(_:)`; `itemsToMigrate(toEncrypted:)` becomes `itemsToEncrypt()`; `migrateToDecrypted(_:)` and `finishDecryption()` are removed; `VaultStoreError.stillEncrypted(count:)` is removed (and its `errorDescription` case, in `Contracts/VaultStoring.swift`).
 - Contract: see `docs/api/VaultStore.md` (generated; do not edit by hand)
 
 ### SharedUI
 - Purpose: UIKit pieces several screens use: progress overlay, alerts, presentation helpers, file icons.
 - Depends on: VaultStore
-- Files: FileIconMapping.swift, Views/ProgressOverlayView.swift, Views/AlertPresenting.swift, Views/UIViewController+Topmost.swift
+- Files: Views/ProgressOverlayView.swift, Views/AlertPresenting.swift, Views/UIViewController+Topmost.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
   import UIKit
@@ -533,82 +625,161 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - FileIconMapping (the logic lives in `Contracts/FileIconMappingContract.swift`; unit 1 tests it there, and `FileIconMapping.swift` needs no code of its own): folders → `FileIcon("nej_FolderIconB", tint "clear", usesFolderAsset: true)` when the asset is available, else `("folder.fill", "systemYellow", false)`; files, by kind (symbol, tint): image ("photo", "systemGreen"), video ("video", "systemPurple"), audio ("music.note", "systemPink"), pdf ("doc.richtext", "systemRed"), word ("doc.text", "systemBlue"), spreadsheet ("tablecells", "systemGreen"), presentation ("rectangle.stack", "systemOrange"), archive ("archivebox", "systemBrown"), text ("doc.plaintext", "systemGray"), other ("doc", "systemGray"); one test per kind. Tints are `UIColor` names.
+  - FileIconMapping (the logic lives in `Contracts/FileIconMappingContract.swift`; unit 1 tests it there; the comment-only `FileIconMapping.swift` was deleted, device test 2026-11-16): folders → `FileIcon("nej_FolderIconB", tint "clear", usesFolderAsset: true)` when the asset is available, else `("folder.fill", "systemYellow", false)`; files, by kind (symbol, tint): image ("photo", "systemGreen"), video ("video", "systemPurple"), audio ("music.note", "systemPink"), pdf ("doc.richtext", "systemRed"), word ("doc.text", "systemBlue"), spreadsheet ("tablecells", "systemGreen"), presentation ("rectangle.stack", "systemOrange"), archive ("archivebox", "systemBrown"), text ("doc.plaintext", "systemGray"), other ("doc", "systemGray"); one test per kind. Tints are `UIColor` names.
   - AlertPresenting (default implementation for view controllers): error alert titled "Error" with OK and the message (or `localizedDescription`); success alert with no title; presented from the topmost presented controller so it never fails silently.
   - ProgressOverlayView: title, progress bar, status "Preparing...", optional Cancel; `update(progress:status:)` and `dismiss()` are main-actor and safe to call repeatedly. It covers the whole presenting screen including its navigation bar (shown on the navigation controller's view when the screen has one), so nothing behind it can be tapped while it shows, and it is modal for VoiceOver. It can also be shown without progress: an activity indicator in place of the bar, with a status line given at show time (fixed in verify, app review B1/B3). (View; covered by journey tests.)
   - UIViewController+Topmost: `topmostPresentedController` follows `presentedViewController` to the end, stopping before a controller that is being dismissed, so an alert shown right after a sheet closes is not lost (fixed in verify, app review B2). (View.)
+- Changes (multiple-vaults-duress-password): FileIconMapping.swift (deleted; device test 2026-11-16)
 - Contract: see `docs/api/SharedUI.md` (generated; do not edit by hand)
 
 ### VaultLock
-- Purpose: the key lifecycle and lock state: set up a lock, unlock, lock on background, change password, switch between
-  password and biometric modes, add a lock (before an encrypt migration), and remove the keys after a decrypt migration.
-- Depends on: VaultCrypto, Preferences, VaultStore
-- Files: LockState.swift, BiometricInfo.swift, LiveVaultLock.swift
+- Purpose: the vaults (feature multiple-vaults-duress-password; before it, the one vault's lock): which vault is open, the unencrypted vault,
+  finding and opening an encrypted vault by password or Face ID, creating, closing and deleting vaults, changing a
+  vault's password, its Face ID, the transfer target, closing on background, and the one-time upgrade from 1.2.
+- Depends on: VaultCrypto, Preferences, VaultStore, Entitlements
+- Files: LockState.swift, BiometricInfo.swift, LiveVaultLock.swift | VaultCatalog.swift, VaultUpgrade.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
   import Foundation
 
-  enum LockState: Sendable, Equatable { case open, locked, unlocked }
   enum BiometricKind: Sendable, Equatable { case none, faceID, touchID }
 
+  /// A vault ready to use: the unencrypted vault, or an encrypted vault whose key is loaded.
+  struct OpenVault: Sendable {
+      /// "unencrypted", "primary" (the upgraded vault) or a UUID string.
+      let id: String
+      let name: String
+      let isEncrypted: Bool
+      let store: any VaultStoring
+  }
+
   enum VaultLockError: Error, Equatable, Sendable {
-      case wrongPassword, existingPasswordRequired, emptyPassword, passwordMissing, notUnlocked
-      case biometricsUnavailable, biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet
-      case biometricChanged, keychain(Int32)
+      case wrongPassword, emptyPassword, emptyName, passwordInUse, vaultLimitReached, sameVault, notOpen
+      case biometricsUnavailable, noBiometricVault
+      case biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet, biometricChanged
+      case keychain(Int32), io(String)
   }
   extension VaultLockError: LocalizedError { var errorDescription: String? { get } }
 
   @MainActor
   protocol VaultLocking: AnyObject, Sendable {
-      var state: LockState { get }
-      var lockMode: LockMode { get }
+      var current: OpenVault { get }
+      var unencryptedVault: OpenVault { get }
+      func currentUpdates() -> AsyncStream<OpenVault>
       var biometricKind: BiometricKind { get }
       var biometricsAvailable: Bool { get }
-      func stateUpdates() -> AsyncStream<LockState>
-      func setUp(mode: LockMode, password: String?) async throws
-      func unlock(password: String) async throws
-      func unlockWithBiometrics() async throws
+      var hasBiometricVault: Bool { get }
+      var currentUsesBiometrics: Bool { get }
+      func upgradeIfNeeded() async throws
+      func canCreateVault() async -> Bool
+      func createVault(name: String, password: String) async throws
+      func open(password: String) async throws
+      func openWithBiometrics() async throws
+      func close()
       func appWillResignActive() -> Bool
       func appDidEnterBackground()
-      func appWillEnterForeground()
       func changePassword(current: String, new: String) async throws
-      func switchMode(to mode: LockMode) async throws
-      func prepareToAddLock(mode: LockMode, password: String) async throws
-      func removeKeysAfterDecryption() async throws
+      func setUsesBiometrics(_ enabled: Bool) async throws
+      func deleteCurrentVault(password: String) async throws
+      func openTransferTarget(password: String) async throws -> OpenVault
+      func closeTransferTarget(_ vault: OpenVault)
   }
   ```
-- Behavior spec:
-  - state: lockMode .none → `.open`; a lock and no key → `.locked`; a lock and key loaded → `.unlocked`; every change is published once on `stateUpdates`. Only changes are published (the current state is not replayed): subscribers read `state` first, then follow `stateUpdates`; there is no "vault unlocked" notification.
-  - Launch: with a lock, starts `.locked`; with none, `.open`.
-  - setUp(.none): lockMode .none; nothing in the Keychain changes.
-  - setUp(password modes): no blob → key created; blob exists and the vault holds no encrypted data (no index, encrypted file or trash entry) → the stale blob and biometric item are deleted and a new key created; blob exists otherwise → the password must unlock it (`.existingPasswordRequired` on a wrong one; that blob is never replaced); then (biometric mode) the biometric item is stored; then lockMode is written; any failure after a key was created deletes that blob and biometric item, wipes the key, leaves lockMode unchanged and rethrows; empty password → `.emptyPassword`; biometric mode without biometrics → `.biometricsUnavailable`. Ends `.unlocked`.
-  - What counts as encrypted data (the empty-vault check above; needs no key): a `.vault_map` index or a `.trash_map` anywhere under the vault root, a non-empty `.trash` folder, or a file that starts with the SVC5 header (`SVC5`); hidden files included, folders searched recursively. Plaintext files, empty files, files shorter than the header and an empty root are not encrypted data. Errs on the safe side: a root that is missing or can't be listed, a folder that can't be read, or a file that can't be read counts as encrypted data.
-  - unlock(password): right → key loaded, `.unlocked`; in biometric mode the biometric item is then refreshed and a failure there is reported in the log only; wrong → `.wrongPassword`, stays `.locked`; no blob → `.passwordMissing`; empty → `.emptyPassword`.
-  - unlockWithBiometrics: item read → key loaded; key not matching the vault (`VaultStoring.keyMatchesVault` false) → key wiped, item deleted, `.biometricChanged`; cancel → `.biometricCancelled`; missing/invalidated → `.biometricChanged`; lockout → `.biometryLockedOut`; not enrolled → `.biometryNotEnrolled`; no passcode → `.passcodeNotSet`; lockMode not biometric → `.biometricsUnavailable`.
-  - appWillResignActive: returns true (show the privacy cover) when a lock is set and the state is `.unlocked`; nothing is wiped.
-  - appDidEnterBackground: with a lock → key wiped, all store temp files removed, `.locked`; with none → nothing.
-  - appWillEnterForeground: with none → `.open`; otherwise the state is unchanged (the lock screen shows if `.locked`).
-  - changePassword: current verified then blob rewrapped; afterwards the new password unlocks and the old one gives `.wrongPassword`; wrong current → `.wrongPassword`, blob unchanged; empty new → `.emptyPassword`; files stay readable (same key).
-  - switchMode(.passwordAndBiometrics) from .password: key required (`.notUnlocked`); biometric item stored, then lockMode; failure → lockMode unchanged and error thrown.
-  - switchMode(.password) from .passwordAndBiometrics: lockMode written, then the biometric item deleted (a delete failure is thrown after lockMode is set; the item is harmless).
-  - switchMode to or from .none is not allowed here (those go through LockMigration) → `.notUnlocked`.
-  - prepareToAddLock(mode, password) from .none: no blob → key created; blob exists → as in setUp (empty vault: replaced; otherwise the password must unlock it, `.existingPasswordRequired`); biometric item stored for biometric mode (failure → rollback as in setUp); then lockMode = mode. Ends `.unlocked`.
-  - removeKeysAfterDecryption: in order: biometric item deleted, lockMode .none, blob deleted, key wiped; each step is safe to repeat; a failure throws and leaves the later steps for the next call. Ends `.open`.
-  - removeKeysAfterDecryption also deletes the legacy plaintext "com.KoalaTVault.password" Keychain item (through `KeychainAccessing.delete(account:)`, errors ignored), so a device that never password-unlocked since upgrading doesn't keep it.
-  - errorDescription (logic in `Contracts/VaultLockContract.swift`, next to `VaultLockError`; tested with one asserting test per case): wrongPassword "Incorrect password"; existingPasswordRequired "A vault password already exists on this device. Enter that password."; emptyPassword "Password cannot be empty"; passwordMissing "Your vault password is missing from this device."; notUnlocked "Unlock the vault first."; biometricsUnavailable "Biometric authentication isn't available on this device."; biometricCancelled, biometryLockedOut, biometryNotEnrolled, passcodeNotSet, biometricChanged "Biometric authentication failed"; keychain(status) "A Keychain error occurred (<status>)." (the status number appears in the text). Screens show `localizedDescription` for errors they don't map themselves, so this is the text the user sees.
+- Behavior spec (feature multiple-vaults-duress-password; replaces the lock-mode spec):
+  - Injection: the live lock takes the Documents root (the unencrypted vault), the `Vaults/` folder, the Keychain seam,
+    the preferences, the Pro entitlement, the biometric info, and factories for a vault's key store (by blob account),
+    cipher (over a key store) and store (root, name, encrypted, key store, cipher). Tests use temp folders, the
+    in-memory Keychain and fakes; nothing touches the real ones.
+  - VaultCatalog (VaultCatalog.swift): lists the vaults (each folder under `Vaults/` whose blob exists; the blob account
+    rule in Data models); reads a vault's name from `.vault_info` (missing or unreadable → "My Vault") and writes it
+    sealed (written atomically with complete file protection, like the other store files; minors clean-up 2026-11-11; the simulator doesn't record protection classes, so as for the other store files the reviewer checks the option and the device test confirms it — decided by the human); removes at launch a folder whose blob is missing only when it is empty (an interrupted creation holds no files; a blobless folder with anything in it is left alone and not listed, so files are never deleted); reads and
+    writes the Face ID vault marker ("com.KoalaTVault.biometricVaultID"). A Keychain error reading a blob counts as the
+    blob existing (a vault is never removed on an error).
+  - current / currentUpdates: launch → the unencrypted vault (id "unencrypted", name "KoalaTVault", plaintext store over
+    Documents). Each change of `current` is published once (only changes; subscribers read `current` first).
+  - open(password): empty → `.emptyPassword`; tries the password against each vault's blob (PBKDF2 once per vault) and
+    stops at the first that unlocks; none → `.wrongPassword` (no other information); with no encrypted vault to try,
+    the search still runs one decoy derivation at the blob's cost (see "Decoy derivation" below), so a wrong password
+    doesn't come back faster when there are no encrypted vaults; the vault already open → no change;
+    otherwise the open vault (if any) is closed first (key wiped, its temp files removed), the found vault's name is read
+    (and written if missing), and it becomes `current`.
+  - openWithBiometrics: no marker or its vault is gone → `.noBiometricVault`; not available → `.biometricsUnavailable`;
+    loads that vault's key from the biometric item; the key doesn't open the vault (`keyMatchesVault` false) or the item
+    is missing/invalidated → key wiped, item and marker deleted, `.biometricChanged`; cancel, lockout, not enrolled, no
+    passcode → their cases; success → as open.
+  - canCreateVault: true with Pro or with no encrypted vault yet; false otherwise.
+  - createVault(name, password): name trimmed; empty → `.emptyName`; empty password → `.emptyPassword`; not allowed
+    (`canCreateVault` false) → `.vaultLimitReached`; the password opens an existing vault → `.passwordInUse`; then a new
+    UUID folder, key created under its blob account, `.vault_info` written, and the vault opened as `current`. A
+    failure after the folder or blob was made removes both (no half-made vault) and rethrows.
+  - close: an encrypted vault open → key wiped, its temp files removed, a transfer target closed too, `current` = the
+    unencrypted vault; already unencrypted → nothing.
+  - appWillResignActive: true (show the privacy cover) when an encrypted vault is open. appDidEnterBackground: as close.
+  - changePassword(current:new:): only in an encrypted vault (`.notOpen` otherwise); empty new → `.emptyPassword`; wrong
+    current → `.wrongPassword`, blob unchanged; the new password opens another vault → `.passwordInUse`; then the blob
+    is rewrapped (same key, files stay readable).
+  - setUsesBiometrics(true): encrypted vault only (`.notOpen`); not available → `.biometricsUnavailable`; stores this
+    vault's key in the biometric item (replacing any other vault's), then the marker = this vault; a failure leaves the
+    marker as it was. (false): if this vault has it, marker and item deleted; otherwise nothing. currentUsesBiometrics:
+    the marker names `current`. hasBiometricVault: the marker exists and names a listed vault.
+  - deleteCurrentVault(password): encrypted vault only (`.notOpen`); the password must open this vault
+    (`.wrongPassword`, nothing erased); then Face ID (item and marker) if it is this vault's, then the folder, then the
+    blob; then as close. A failure part-way throws and what is left is still a vault, or (blob only) harmless.
+  - openTransferTarget(password): empty → `.emptyPassword`; the open vault's own password → `.sameVault`; no vault →
+    `.wrongPassword`; otherwise an `OpenVault` with its own loaded key, separate from `current`. closeTransferTarget wipes
+    its key and temp files. The unencrypted vault as a target needs no password (`unencryptedVault`).
+  - Password checks and races (VaultLock unit 1 review): a password is always tried on a fresh key store (never on the
+    open vault's own), and a fresh store that didn't become the open vault or the transfer target is wiped. If `close`,
+    `appDidEnterBackground` or another open runs while a check is in progress, the check's result is dropped and its key
+    wiped: `open`, `openWithBiometrics` and `openTransferTarget` throw `.notOpen` and open nothing; `changePassword`,
+    `deleteCurrentVault` and `setUsesBiometrics` throw `.notOpen` and change nothing; `createVault` keeps the finished
+    vault but doesn't open it (no error). `createVault` calls run one at a time (a second waits, then makes its own
+    checks), so two vaults never share a password. `setUsesBiometrics(false)` in the unencrypted vault does nothing.
+  - Decoy derivation (minors clean-up 2026-11-11, closes "timing reveals zero vs some vaults"): every password search
+    (open, createVault's and changePassword's in-use checks, openTransferTarget) that has no vault to try (none listed,
+    or none left after excluding the open one) runs one PBKDF2 derivation of the typed password at the real cost
+    (600,000 iterations) and discards it; nothing is stored or compared. The live lock takes a decoy key-store factory;
+    the shell gives a `LiveMasterKeyStore` over a private in-memory Keychain (never the real one). The lock creates the
+    decoy's blob for a random password (key wiped at once) once, off the main thread, starting when the lock is made,
+    so the first search isn't slower than later ones (a search that comes before it's ready waits for it); the decoy's `unlock(password:)` is the derivation and its `.wrongPassword` is ignored. The decoy
+    never unlocks, never becomes a vault and is never listed. With one or more vaults to try, nothing changes (the count of
+    vaults can still be told from timing; out of scope).
+  - VaultUpgrade (VaultUpgrade.swift), `upgradeIfNeeded` (journey 12), run once at launch before anything shows:
+    `vaultsUpgraded` true → nothing. A lock (`lockMode` not .none, or `hasPendingEncryptMigration` while a blob exists; a Keychain
+    error counts as a blob) → `Vaults/primary/` is created and every entry of Documents (hidden ones included) is moved
+    into it (moves only; an entry whose name is already there is left in Documents and logged, never overwritten);
+    `passwordAndBiometrics` → marker = "primary"; then `clearPendingMigration()` (always, whatever was stored) and `vaultsUpgraded` set (last).
+    No lock (a pending encrypt with no blob is dropped) → `vaultsUpgraded` set, nothing moved. A failure throws; the next
+    launch carries on from what is left. `lockMode` is not changed (nothing reads it after).
+  - errorDescription (logic in `Contracts/VaultLockContract.swift`; one asserting test per case): wrongPassword
+    "Incorrect password"; emptyPassword "Password cannot be empty"; emptyName "Enter a name for the vault"; passwordInUse
+    "Choose a different password."; vaultLimitReached "More vaults with Pro."; sameVault "These items are already in this
+    vault."; notOpen "Open a vault first."; biometricsUnavailable "Biometric authentication isn't available on this
+    device."; noBiometricVault "No vault uses Face ID."; biometricCancelled, biometryLockedOut, biometryNotEnrolled,
+    passcodeNotSet, biometricChanged "Biometric authentication failed"; keychain(status) "A Keychain error occurred
+    (<status>)."; io(message) → the message.
+  - Removed: `LockState`, `state`, `stateUpdates`, `lockMode`, `setUp`, `unlock`, `unlockWithBiometrics`,
+    `appWillEnterForeground`, `switchMode`, `prepareToAddLock`, `removeKeysAfterDecryption`, the empty-vault check, and
+    the errors `existingPasswordRequired`, `passwordMissing`, `notUnlocked`. LockState.swift keeps the open-vault state
+    (`current` and its publishing).
+  - Build note: the new unit 2 (VaultCatalog.swift, VaultUpgrade.swift) is built before the reopened unit 1, which uses it.
+- Changes (multiple-vaults-duress-password): LockState.swift, BiometricInfo.swift, LiveVaultLock.swift; minors clean-up
+  2026-11-11: LiveVaultLock.swift (decoy derivation), VaultCatalog.swift (file protection), VaultUpgrade.swift (new
+  Preferences calls). No VaultLock contract change.
+- Contract changes (multiple-vaults-duress-password): the `VaultLocking` protocol, `OpenVault` and `VaultLockError` above replace the lock-mode contract (`LockState` removed); VaultLock now depends on Entitlements.
 - Contract: see `docs/api/VaultLock.md` (generated; do not edit by hand)
 
 ### LockMigration
-- Purpose: encrypt or decrypt the whole vault when a lock is added or removed, with pause, resume, retry, skip and a
-  persisted pending record so a kill never leaves the lock and the files disagreeing.
-- Depends on: VaultStore, VaultLock, Preferences
+- Purpose: encrypt the files an encrypted vault still holds unencrypted (left by a 1.2 lock change, journey 12) when it
+  opens, with retry, skip and clearing unreadable trash. (Before feature multiple-vaults-duress-password: encrypt or decrypt the whole vault on a
+  lock change, with a persisted pending record.)
+- Depends on: VaultStore
 - Files: MigrationProgress.swift, LiveLockMigrator.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
   enum MigrationPhase: Sendable, Equatable {
       case idle
       case running(done: Int, total: Int)
-      case paused(done: Int, total: Int)
       case failed(names: [String])
       case completed(fully: Bool)
       case unreadableTrash
@@ -617,37 +788,89 @@ extension matching ignores case.
   @MainActor
   protocol LockMigrating: AnyObject, Sendable {
       var phase: MigrationPhase { get }
-      var pending: PendingMigration? { get }
       func phaseUpdates() -> AsyncStream<MigrationPhase>
-      func start(_ kind: MigrationKind, target: LockMode?) async
-      func resumeIfPending() async
+      func encryptLeftovers(in store: any VaultStoring) async
       func retryFailed() async
       func skipFailed() async
       func clearUnreadableTrash() async
+      func cancel()
+  }
+  ```
+- Behavior spec (feature multiple-vaults-duress-password):
+  - encryptLeftovers: lists `itemsToEncrypt`, then encrypts one file at a time (`migrateToEncrypted`), then
+    `finishEncryption`; phase `.running(0, n)` … `.completed(fully: true)`; nothing to encrypt → `.completed(fully: true)`
+    at once; a second call while a run exists (running, failed, unreadable trash) does nothing (one runner); a store that
+    isn't encrypted → no store calls, phase `.idle` (unless a run exists: it
+    is left as it is). With nothing to encrypt, `finishEncryption` still runs and no
+    `.running(0, 0)` is published.
+  - No persisted record: whatever is left unencrypted is found again the next time the vault opens.
+  - A file that fails → collected; at the end `.failed(names)` with the display names. retryFailed: only the failed files
+    again (publishing `.running` first, so a repeat failure is published again). skipFailed: `.completed(fully: false)`.
+  - A listing failure (not a lock) → `.failed(names: [])`, the error logged; Retry redoes the listing.
+    `finishEncryption` (the closing step) failing with the key loaded is logged and the run still completes.
+  - Unreadable trash: wherever the run would publish `.failed`, it first asks `hasUnreadableTrash()`; true →
+    `.unreadableTrash`. clearUnreadableTrash (only from there): publishes `.running`, `clearUnreadableTrash()` on the
+    store, then continues from a fresh listing; a clearing failure → `.failed(names: [])`. skipFailed from there as from
+    `.failed`; retryFailed does nothing there.
+  - cancel (the vault closed): the run stops after the file in progress (which finishes or fails without being counted)
+    and the phase is `.idle`; the file in progress is safe (the store's steps are interrupt-safe). A `.locked` error from
+    the store also ends the run as cancel does. An `encryptLeftovers` made while a cancelled run's file is still in
+    progress waits for that file, then runs; a `cancel` during that wait drops it (it never touches the store). The store
+    is held only while a run exists (running, failed, unreadable trash) and released when the run completes, is skipped
+    or is cancelled.
+  - `UITEST_FAIL_MIGRATION_FILE` (UI-test mode only) makes that file fail.
+  - Removed: `pending`, `start(_:target:)`, `resumeIfPending`, `.paused`, decrypting, lock-mode switching, and the
+    dependencies on VaultLock and Preferences.
+- Changes (multiple-vaults-duress-password): MigrationProgress.swift, LiveLockMigrator.swift
+- Contract changes (multiple-vaults-duress-password): `LockMigrating` above replaces `pending`, `start(_:target:)` and `resumeIfPending()` with `encryptLeftovers(in:)` and `cancel()`; `MigrationPhase.paused` removed.
+- Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
+
+### VaultTransfer
+- Purpose: move or copy items from one vault to another (feature multiple-vaults-duress-password, journey 11), decrypting or encrypting on the
+  way, with the target's free-tier limit.
+- Depends on: VaultStore, Entitlements
+- Files: TransferPlan.swift, LiveVaultTransfer.swift
+- Protocol (draft; lives in `Contracts/`):
+  ```swift
+  import Foundation
+
+  struct TransferResult: Sendable, Equatable, Hashable {
+      let done: Int
+      let failed: Int
+  }
+
+  enum VaultTransferError: Error, Equatable, Sendable { case limitReached, sameVault }
+  extension VaultTransferError: LocalizedError { var errorDescription: String? { get } }
+
+  protocol VaultTransferring: Sendable {
+      func transfer(
+          _ items: [VaultItem],
+          from source: any VaultStoring,
+          to target: any VaultStoring,
+          removingOriginals: Bool,
+          progress: @escaping @Sendable (Int, Int) -> Void
+      ) async throws -> TransferResult
   }
   ```
 - Behavior spec:
-  - start: writes the pending record before the first file, lists `itemsToMigrate`, then migrates one file at a time; phase goes `.running(0, n)` … `.completed`; a second `start` or `resumeIfPending` while running does nothing (one runner).
-  - Encrypt: the caller has already added the lock (VaultLock.prepareToAddLock); every plaintext file, trash included, is encrypted; on completion the pending record is cleared and (with a target) lockMode equals the target.
-  - Decrypt: lockMode stays as it was while running; every encrypted file, trash included, is decrypted; then the list is re-scanned and any new encrypted file migrated; then `finishDecryption`, then `removeKeysAfterDecryption`, then the pending record is cleared (last). A kill at any point leaves a state that `resumeIfPending` completes.
-  - Key wiped (app backgrounded) → the file in progress either finishes or fails without being counted as failed; phase `.paused`; the next unlock's `resumeIfPending` continues from the remaining files.
-  - A file that fails → collected; at the end `.failed(names)` with the files' display names.
-  - retryFailed: migrates only the failed files again.
-  - skipFailed: `.completed(fully: false)`; the pending record is cleared; decrypt → the lock and keys are kept; encrypt → lockMode stays at the target (the remaining plaintext files show "Re-encrypt Everything").
-  - resumeIfPending: with a pending record and (for a lock) the key loaded → continues; nothing pending → no change; locked → `.paused`.
-  - `UITEST_FAIL_MIGRATION_FILE` (UI-test mode only) makes that file fail.
-  - Encrypt's closing `finishEncryption` failing with the key loaded is logged and the migration still completes (as the legacy app; a folder index may stay plaintext).
-  - A listing or closing-step failure with the key loaded (not a lock) → `.failed(names: [])`; the error text is logged only; Retry redoes that step, Skip completes not fully. Settings shows the failure generically when `names` is empty.
-  - Files still encrypted after a decrypt (`VaultStoreError.stillEncrypted(count:)` from `finishDecryption`) → `.failed(names: [])`; Retry re-lists and migrates them; Skip keeps the lock and keys.
-  - While failures await Retry or Skip, `resumeIfPending` does nothing (the screen doesn't return after every unlock).
-  - Skip after an encrypt always completes, even if switching to the target lock mode fails (logged).
-  - Encrypt with a target calls `switchMode(to: target)` only if the current mode differs; the target is never `.none`, and an encrypt pending with lockMode `.none` is the launch recovery's job, not the migrator's.
-  - `resumeIfPending` while locked goes straight to `.paused` (no `.running` published first).
-  - `start` while a run exists (running, paused or failed) does nothing; a new migration starts only from `.idle` or `.completed`.
-  - Retry after a listing or closing-step failure publishes `.running(done, total)` before redoing the step, so the same failure happening again is published again (never swallowed as an unchanged phase).
-  - Unreadable trash: wherever the run would publish `.failed` (a listing or closing-step failure, or failed files at the end of a pass), it first asks `hasUnreadableTrash()`; true → `.unreadableTrash` instead. While `.unreadableTrash`, `start` and `resumeIfPending` do nothing, `skipFailed` behaves as from `.failed`, and `retryFailed` does nothing.
-  - clearUnreadableTrash: only from `.unreadableTrash`; publishes `.running`, calls the store's `clearUnreadableTrash()`, then continues the same migration from a fresh listing (files already migrated are not listed again; the decrypt re-scan and closing steps run as usual). A clearing failure (not a lock) → `.failed(names: [])`, logged.
-- Contract: see `docs/api/LockMigration.md` (generated; do not edit by hand)
+  - TransferPlan: counts the files the items hold (a file 1; a folder every file in its tree, through the source's
+    `contents`); without Pro, target `countFiles()` + that count > 100 → `.limitReached` before anything is written
+    (exactly 100 is allowed); with Pro no check. Source and target with the same root → `.sameVault`.
+  - transfer: items in order; each file: `open` from the source (a decrypted temp copy for an encrypted item, removed
+    afterwards), `addFile` into the target's root (or the matching folder for files inside a moved folder; folders are
+    recreated with `createFolder`, " 1" on a clash like any name), then, when moving, `remove` of the original only after
+    its copy is complete. A folder being moved is removed only after everything in it was copied; if anything in it
+    failed, the folder is kept in the source (its copied files stay in both). `progress(done, total)` after each file.
+  - A failure of one item doesn't stop the others; the result counts top-level items done and failed. Nothing is ever
+    removed from the source before its copy exists in the target.
+  - Edge cases: a folder that can't be created in the target fails its whole item (its files are not copied or removed, the
+    original stays in the source, and they still advance `progress` so it reaches the total); a `remove` of an original that
+    fails after its copy succeeded counts that item as failed (the copy stays in the target).
+  - Cancellation (the task cancelled because the vault closed) stops before the next file; what is done stays done.
+  - Plaintext → plaintext and encrypted → encrypted transfers work the same way (content always goes through `open`).
+  - errorDescription (logic in `Contracts/`; one asserting test per case): limitReached "The other vault would have more
+    than 100 files."; sameVault "These items are already in this vault."
+- Contract: see `docs/api/VaultTransfer.md` (generated; do not edit by hand)
 
 ### Media
 - Purpose: thumbnails for the grid and streaming encrypted video to AVPlayer without writing plaintext to disk.
@@ -707,13 +930,15 @@ extension matching ignores case.
   ```
 - Behavior spec:
   - checkAllowed: Pro → always passes; free → `countFiles() + count > 100` throws `.fileLimitReached(limit: 100)`; exactly 100 passes.
-  - importItems: counts every file in the selection (folders recursively) and checks the limit before importing anything (all or nothing); folders are recreated with their structure; a picked folder (or subfolder) whose name matches an existing folder in the destination is merged into it rather than getting " 1", and if the name belongs to a file the folder gets a free name; each file goes through `VaultStoring.addFile`; same name and same SHA-256 as an existing item → skipped and counted in `skippedDuplicates`; same name, different content → " 1"; progress reported from 0 to 1; a failure part-way keeps the earlier files and rethrows; security-scoped URLs are opened and closed.
+  - importItems: counts every file in the selection (folders recursively) and checks the limit before importing anything (all or nothing); folders are recreated with their structure; a picked folder (or subfolder) whose name matches an existing folder in the destination is merged into it rather than getting " 1", and if the name belongs to a file the folder gets a free name; files go through `VaultStoring.addFiles` in batches of at most 64 per destination folder (the picked loose files share the destination), each file's place in the order kept; same name and same SHA-256 as an existing item → skipped and counted in `skippedDuplicates`; same name, different content → " 1"; progress reported from 0 to 1, after each batch and each skipped duplicate; a failure part-way keeps the earlier files and rethrows; security-scoped URLs are opened and closed.
+  - Large folders (device test 2026-11-12: a 9,000-JPG folder crashed the app part-way): the work per file doesn't grow with the folder. The destination folder is listed once when its import starts; a file whose name isn't in that listing (or among the names this import has added there) is not a duplicate and needs no store lookup; only a name already there goes through the hash check (`findItem` + `open`). Memory is released after each file (hashing, building the batch) and after each batch, so a 9,000-file folder imports with memory that stays flat. A duplicate name found inside a pending batch counts as a duplicate only by the same rule as today (same name and content as an item already in the folder). A failure part-way (a lookup, a listing or a batch failing, or cancellation) first adds the files already waiting in batches, then rethrows, so every file before the failure is kept, as before. Names the store gives a file on a clash (" 1") count as names added by this import. A folder picked twice in one import, whose name belongs to a file in the destination, merges into the folder the first pick created ("Trip 1"), not a second one ("Trip 2") (review, 2026-11-12).
   - importPhotos: checks the limit for the count first; imports one at a time; returns the asset IDs that were imported or were already in the vault, and the failure count; temp copies are removed.
   - A photo is stored under its real name: the name iOS gives for it plus its type's extension, kept as is if the name already has an extension of that type (a dot alone doesn't make one: "Photo 2024.10.01" → "Photo 2024.10.01.heic"; JPEGs use ".jpg"); "photo" only when iOS gives no name.
   - Duplicate check in an encrypted vault decrypts the existing same-name file to a temp folder to hash it and removes it afterwards.
   - Names starting with ".": `VaultStoring.addFile` accepts them, but in a no-lock vault they would be hidden from listings (and a root ".trash" would clash with the trash), so Import handles them. A file or folder picked directly, or a photo's `suggestedName`, has its leading dots removed before it is stored (".env" → "env", ".trash" → "trash"), and the duplicate check uses the new name; it counts toward the limit. A name that is only dots counts as `failed` (`importPhotos`: in `failed`, with nothing imported for it). Hidden files and folders inside a picked folder are skipped: not imported, not counted toward the limit, not reported in `ImportResult`.
   - ImportError text: `.unreadableSource(name)` → `Couldn't read "<name>".`; `.fileLimitReached(limit)` → `This vault has reached its limit of <limit> files.`
   - ImportPresenter (view): sheet "Choose Files", "Choose Folder", "Choose Photos", "Cancel" anchored to the Import button on iPad; document pickers (multi-select); photo picker (images and videos, no limit, requests read-write access first); Cancel in any picker closes it; limit → picker closes then the caller's `onLimitReached` runs (the paywall); "Importing..." / "Importing Photos..." overlays with progress; "N imported, M failed" when any failed; then the camera-roll delete for the imported asset IDs (iOS shows its own confirmation); other errors shown after the picker closes.
+- Changes (multiple-vaults-duress-password): LiveVaultImporter.swift, DuplicateCheck.swift (large-folder import, device test 2026-11-12)
 - Contract: see `docs/api/Import.md` (generated; do not edit by hand)
 
 ### Export
@@ -743,29 +968,76 @@ extension matching ignores case.
 - Contract: see `docs/api/Export.md` (generated; do not edit by hand)
 
 ### LockScreens
-- Purpose: the setup wizard, the lock screen, the privacy cover, and presenting the lock over whatever is on screen.
-- Depends on: VaultLock, VaultCrypto, Preferences, SharedUI
-- Files: SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift | Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift
+- Purpose: the lock screen (the Vaults screen) and Create Vault, the privacy cover, and closing the open vault and
+  showing the lock screen at launch, on background and on Lock (feature multiple-vaults-duress-password; before it: the
+  setup wizard and the password lock screen).
+- Depends on: VaultLock, SharedUI
+- Files: SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift | Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift | VaultsViewModel.swift, CreateVaultViewModel.swift, Views/VaultsViewController.swift, Views/CreateVaultViewController.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
   import UIKit
 
   @MainActor
   protocol AppLockCoordinating: AnyObject {
-      func sceneDidConnect(window: UIWindow, needsSetup: Bool)
+      func sceneDidConnect(window: UIWindow)
       func sceneWillResignActive()
       func sceneDidEnterBackground()
       func sceneDidBecomeActive()
-      var onUnlocked: (() -> Void)? { get set }
+      /// Closes the open vault and shows the lock screen (the browser's Lock button, a deleted vault).
+      func lock()
+  }
+
+  @MainActor
+  protocol VaultsScreenFactory: AnyObject {
+      /// The lock screen in its navigation controller. `onDone` is called when a vault is open (by password, Face ID,
+      /// a new vault, or the unencrypted vault). `onNeedsPro` is called with the screen to present the paywall from
+      /// (Create New Vault without Pro, an encrypted vault already there).
+      func makeLockScreen(onDone: @escaping () -> Void,
+                          onNeedsPro: @escaping (UIViewController) -> Void) -> UIViewController
   }
   ```
-- Behavior spec:
-  - SetupWizardViewModel: three options (none, password, password + `biometricKind` name: Face ID, Touch ID, or "Biometrics" when the kind is none), none selected by default, the biometric one disabled without biometrics; continue with none → `setUp(.none)` and done; password modes → asks for password + confirm; `cancelPasswordPrompt()` hides the prompt; empty → "Password cannot be empty"; mismatch → "Passwords do not match"; `.existingPasswordRequired` → "A vault password already exists on this device. Enter that password."; other errors → their message; busy while setting up; done marks `hasCompletedSetup`.
-  - LockScreenViewModel: biometric button shown for biometric mode with biometrics available, titled "Use <`biometricKind` name>"; auto biometric attempt once the scene is active (biometric mode only); otherwise focus the password field; empty password ignored; busy while unlocking (button disabled); wrong → "Incorrect password"; every error, and a successful unlock, clears the field; `.passwordMissing` → "Your vault password is missing from this device."; biometric errors mapped: cancel → nothing, lockout → "Too many attempts. Use your password.", not enrolled → "Face ID is not set up.", passcode → "Set a device passcode to use Face ID.", changed → "Face ID changed. Use your password.", other → "Biometric authentication failed"; the error clears when typing starts.
-  - AppLockCoordinator: at connect, needs setup → wizard full-screen unanimated; with a lock → lock screen; resign active with an unlocked lock → privacy cover over the window; background → `appDidEnterBackground`; active → `appWillEnterForeground`, then lock screen if locked (presented on the topmost controller, once; a scene reconnecting gets a fresh lock screen); the cover is hidden either way, so it never sits over the lock screen; after unlock → dismiss only the lock screen and, once that dismissal has completed, hide the cover and call `onUnlocked` (so `onUnlocked` can present a screen). `LockPresenting`, the coordinator's presentation seam, stays in AppLockCoordinator.swift: it names module-internal view models and no other module uses it. `LockPresenter` in `Views/` is its real implementation, thin like the other views.
-  - Launch recovery (AppLockCoordinator, at connect, before anything that resumes a migration): a pending encrypt with no password blob can never finish, so the record is dropped, `lockMode` becomes .none, the lock is told `appWillEnterForeground` to refresh its state, and the app opens with no lock screen; a pending encrypt with a blob asks for the password even if `lockMode` is .none, and keeps the record; a Keychain error reading the blob counts as a blob (keep everything, ask for the password); no pending encrypt → the normal rule.
-  - LockScreenViewModel, unlocking with `lockMode` .none and a pending encrypt: first `unlock(password:)`, so a wrong password shows "Incorrect password", adds no lock and never replaces the blob; then `prepareToAddLock(mode: .password, password:)`, whatever the record's target (the migration switches to the target at its end). `onUnlocked` runs only after both succeed; a failure in the second step shows its message and stays on the lock screen.
-  - Views: identifiers `continueButton`, `passwordField`, `unlockButton`, `lockScreen.titleLabel`, `lockScreen.biometricButton`, `lockScreen.errorLabel`, `setupWizard.titleLabel`, `setupWizard.noLockCard`, `setupWizard.passwordCard`, `setupWizard.biometricCard`, `setupWizard.passwordField`, `setupWizard.confirmPasswordField`, `privacyCover`. (Views; covered by journey tests.)
+- Behavior spec (feature multiple-vaults-duress-password):
+  - VaultsViewModel (the lock screen): password field, Open, "Use <`biometricKind` name>" shown when `hasBiometricVault`
+    and biometrics are available, "Open Unencrypted Vault", "Create New Vault"; no Cancel and no Close Vault. Open: empty
+    password ignored; busy ("Opening…", buttons disabled) while it runs; success → done (the screen closes); every
+    error and a success clear the field; `.wrongPassword` → "Incorrect password"; other errors → their message.
+    Face ID: no automatic prompt; cancel → nothing; lockout → "Too many attempts. Use your password."; not enrolled →
+    "Face ID is not set up."; passcode → "Set a device passcode to use Face ID."; changed → "Face ID changed. Use your
+    password." and the button hides; other → "Biometric authentication failed". The error clears when typing starts.
+    Create New Vault: `canCreateVault()` true → the Create Vault screen; false → `onNeedsPro`. Open Unencrypted Vault → `close()`
+    (the unencrypted vault becomes `current`), done. Nothing in the model or its texts depends on how many vaults exist.
+  - Lock screen logo (view; design tweaks, device test 2026-11-12): the app logo is shown in a square frame exactly the
+    size of the logo image (no empty space around it), centred, with continuous rounded corners about 22.5% of its side,
+    as an app icon on the Home Screen; it still scales with the text size as today.
+  - CreateVaultViewModel: Name, Password, Confirm; Create: name trimmed empty → "Enter a name for the vault"; empty
+    password → "Password cannot be empty"; mismatch → "Passwords do not match"; then `createVault`; busy ("Creating
+    Vault…"); success → both password fields clear, then done (both screens close); `.passwordInUse` → "Choose a different password."; `.vaultLimitReached`
+    → `onNeedsPro`; other errors → their message (the fields keep the name, the password fields clear).
+  - AppLockCoordinator: connect → the lock screen full-screen over the window's root, without animation; resign active
+    with `appWillResignActive()` true → privacy cover over the window; background → `appDidEnterBackground()` (closes
+    the vault; the shell swaps the browser) and the lock screen up (if not already), for every vault, before the app
+    switcher snapshot; active → the cover hidden (the lock screen stays); `lock()` → `close()` and the lock screen up;
+    the lock screen's `onDone` → the lock screen dismissed. At most one lock screen at a time; anything presented over
+    the browser is dismissed first. `onNeedsPro` is given by the shell (the paywall). No setup, no launch recovery.
+  - Removed (the code-writer deletes the files and the test-writer their tests; the Files line drops them when the
+    feature is accepted): SetupWizardViewModel.swift, LockScreenViewModel.swift, Views/SetupWizardViewController.swift,
+    Views/LockScreenViewController.swift, and the old lock screen's presenting in `LockPresenter`
+    (Views/LockPresenter.swift now presents the new lock screen and the privacy cover).
+  - Views: identifiers `vaults.passwordField`, `vaults.openButton`, `vaults.biometricButton`, `vaults.createButton`,
+    `vaults.unencryptedButton`, `vaults.errorLabel`, `createVault.nameField`,
+    `createVault.createButton`, `createVault.errorLabel`, the alert's `createVault.alertPasswordField`,
+    `createVault.alertConfirmField`, `createVault.alertCreateButton`,
+    `privacyCover`. (Views; covered by journey tests.) `LiveVaultsScreenFactory` lives in `Views/VaultsViewController.swift`.
+    Vault password fields (lock screen, Create Vault's alert) set no `textContentType` (`nil`), so iOS never offers to
+    save a vault password to the Keychain / password manager or suggest a strong one (decided 2026-11-11). Create Vault
+    shows only the Name field (no content type) and Create on the screen; Create with a trimmed-empty name goes straight
+    to the view model (the name error), otherwise it opens the "Set Password" alert (title "Set Password", message
+    "Choose a password for this vault.", secure Password and Confirm Password fields, Cancel, Create); the alert's Create
+    passes both fields to the view model and runs Create; Cancel changes nothing. Name field Return = Create. (A
+    name + password + confirm form on one screen gets iOS Strong Password autofill even with no content type, which
+    gave vaults passwords the user never typed; decided 2026-11-11, verify.)
+- Changes (multiple-vaults-duress-password): SetupWizardViewModel.swift, LockScreenViewModel.swift, AppLockCoordinator.swift, Views/SetupWizardViewController.swift, Views/LockScreenViewController.swift, Views/PrivacyCoverView.swift, Views/LockPresenter.swift
+- Contract changes (multiple-vaults-duress-password): `AppLockCoordinating.sceneDidConnect(window:)` loses `needsSetup`; `onUnlocked` removed; new `VaultsScreenFactory` (`makeLockScreen(onDone:onNeedsPro:)`); `AppLockCoordinating` gains `lock()` (both revised at the prototype, 2026-11-10); LockScreens no longer depends on VaultCrypto or Preferences.
 - Contract: see `docs/api/LockScreens.md` (generated; do not edit by hand)
 
 ### Viewer
@@ -791,7 +1063,7 @@ extension matching ignores case.
 
 ### Settings
 - Purpose: security settings, the migration screen, the paywall and Recently Deleted.
-- Depends on: VaultLock, LockMigration, VaultStore, Entitlements, Preferences, SharedUI
+- Depends on: VaultLock, LockMigration, VaultStore, Entitlements, SharedUI
 - Files: SecuritySettingsViewModel.swift, MigrationViewModel.swift, PaywallViewModel.swift, RecentlyDeletedViewModel.swift | Views/SecuritySettingsViewController.swift, Views/MigrationViewController.swift, Views/PaywallViewController.swift, Views/RecentlyDeletedViewController.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
@@ -805,30 +1077,28 @@ extension matching ignores case.
   }
   ```
 - Behavior spec:
-  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" with a disclosure indicator, opens the paywall / "Pro Unlocked" with a checkmark, tapping does nothing; live from `unlockedUpdates`); Lock Mode (No Lock, Password, Password + <biometric name> disabled without biometrics, "Re-encrypt Everything" only with a lock and unencrypted files); Password ("Change Password", hidden without a lock); Storage ("Recently Deleted").
-  - Choosing the current mode does nothing.
-  - No Lock from a lock → confirm "Remove Lock?" → decrypt migration.
-  - A lock from No Lock → password + confirm (or, with an existing blob, the existing password) → `prepareToAddLock(.password)` → encrypt migration under `.password`; for Password + biometric, a full migration then calls `switchMode` (a failure shows the error and keeps Password), and an incomplete one (Skip, Close) shows "Face ID wasn't turned on because some files aren't encrypted yet. Use Re-encrypt Everything, then turn on Face ID."
-  - Password ↔ Password + biometric → `switchMode`; errors shown; the row reflects the real mode afterwards.
-  - Re-encrypt Everything → encrypt migration with no target, keeping a pending encrypt's target.
-  - A store that can't be read (locked or failing) hides Re-encrypt Everything rather than showing an error.
-  - The view model records the kind (`.decrypt` after Remove Lock, `.encrypt` after adding a lock or re-encrypting) of the migration it starts, for the Migration screen.
-  - Changing the lock mode or re-encrypting is refused during a migration (running, paused, failed, unreadable trash or pending): "A migration is still in progress. Let it finish, then try again."
-  - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; success → "Password changed successfully"; busy while working.
-  - MigrationViewModel: title "Encrypting Files" / "Decrypting Files"; status "Preparing…", "N% complete", "Paused — unlock to continue", "Complete"; failures → "Some Files Failed" with "These files couldn't be migrated: a, b" and Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; the screen reappearing while a migration is paused (back from the lock screen) does not start it again; `wantsBackgroundTime` is true while running and false when paused, failed or completed.
+  - Feature multiple-vaults-duress-password: Settings is built for the open vault (the shell builds a factory per vault); its contract is unchanged.
+  - SecuritySettingsViewModel rows: Pro ("Upgrade to Pro" with a disclosure indicator, opens the paywall / "Pro Unlocked" with a checkmark, tapping does nothing; live from `unlockedUpdates`); Vault (only when the open vault is encrypted; the section title is the vault's name): "Change Password", "Use <biometric name>" switch (hidden when biometrics aren't available; on = `currentUsesBiometrics`); Storage ("Recently Deleted"); then, last and only when the open vault is encrypted, a section of its own with "Delete This Vault" (no title). No Lock Mode section and no Re-encrypt Everything (removed). (Design tweaks, device test 2026-11-12: Delete This Vault moved out of the Vault section.)
+  - Face ID note (design tweaks, device test 2026-11-12): when the switch is shown, the Vault section's footer, directly under the switch, reads "Note: only one vault can use <biometric name>." (e.g. "Face ID", "Touch ID"); no footer when the switch is hidden. The text comes from the view model.
+  - Face ID switch: on → `setUsesBiometrics(true)`, off → `setUsesBiometrics(false)`; an error is shown and the switch shows the real state afterwards; busy while working.
+  - Change Password: empty → "Password cannot be empty"; mismatch → "Passwords do not match"; wrong current → "Current password is incorrect"; `.passwordInUse` → "Choose a different password."; success → "Password changed successfully"; busy while working.
+  - Delete This Vault: prompt "Delete This Vault?" / "Everything in "<name>" will be erased. This can't be undone. Enter the vault's password to confirm." with a password field, "Delete" (destructive) and "Cancel"; empty password ignored; → `deleteCurrentVault`; `.wrongPassword` → "Incorrect password"; other errors → their message; success → Settings reports it is done (the shell calls the coordinator's `lock()`: Settings is dismissed and the lock screen shows); busy while working.
+  - MigrationViewModel: title "Encrypting Files"; status "Preparing…", "N% complete", "Complete"; failures → "Some Files Failed" with "These files couldn't be encrypted: a, b" and Retry / Skip; an empty `names` failure → "Some files couldn't be encrypted." with Retry / Skip; finished → dismiss after 0.5 s and report whether it completed fully; `.idle` after a run started (the vault closed) → dismiss at once, reporting not fully; `wantsBackgroundTime` is true while running and false when failed or completed.
   - MigrationViewModel, unreadable trash: `.unreadableTrash` → alert "Some Deleted Items Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or opened. Clear them to continue." with "Clear and Continue" (→ `clearUnreadableTrash`) and "Skip" (→ `skipFailed`); `wantsBackgroundTime` false while it shows; the alert reappears if the phase is reached again.
-  - PaywallViewModel: "Store more than 100 files."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
-  - RecentlyDeletedViewModel: rows, most recently deleted first, with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown.
+  - PaywallViewModel: "Store more than 100 files in a vault and keep more than one encrypted vault."; price or "Price unavailable"; Unlock → `.unlocked` → close and `onUnlock`; `.cancelled` → stays; `.pending` → "Purchase pending approval."; Restore → unlocked → close, else "No previous purchase found to restore."; StoreKit cancel → silent; busy state.
+  - RecentlyDeletedViewModel: rows, most recently deleted first, with name, icon and "Deletes in N days" (N = 30 − whole days since deletion, at least 0; "1 day" singular); empty → "No recently deleted files" and Empty Trash disabled; Restore → item back and the browser refreshed; Delete Permanently → confirm first; Empty Trash → confirm; errors shown. The open vault's trash only.
+  - RecentlyDeletedViewModel, list updates (large trash, device retest 2026-11-13): a successful Restore or Delete Permanently removes that row at once (and a successful Empty Trash every row), before the list is read again; the reload that follows only corrects the list. `.notFound` from Restore or Delete Permanently (the item is already gone) removes the row with no alert (decided by the human). A failed listing keeps the rows already shown and shows the error; the empty state ("No recently deleted files", Empty Trash disabled) shows only after a listing that succeeded and was empty, never after an error.
   - RecentlyDeletedViewModel, unreadable trash: on each load (opening the screen), `hasUnreadableTrash()` true → prompt "Some Deleted Items Can't Be Read" / "They were encrypted with a key this vault no longer has, so they can never be restored or opened. Clear them now?" with "Clear" (destructive; → the store's `clearUnreadableTrash()`, then the list reloads; an error is shown) and "Not Now" (no change; an unreadable trash index still shows its error). Asked at most once per opening of the screen.
-  - Settings screen (view): a "Done" button at the top right closes Settings (identifier `settingsDoneButton`); it is disabled while Settings is busy (setting or changing a password, adding a lock), so the result alert and the Migration screen are never lost; swipe-down still closes it where the system allows (fixed in verify, app review B4).
-  - Views: identifiers `upgradeToProCell`, `lockModeNoneCell`, `lockModePasswordCell`, `lockModeBiometricCell`, `reencryptCell`, `changePasswordCell`, `recentlyDeletedCell`, `paywallUnlockButton`, `restoreButton`, `paywallCloseButton`, `migrationStatusLabel`, `emptyTrashButton`. (Views.)
+  - Settings screen (view): a "Done" button at the top right closes Settings (identifier `settingsDoneButton`); it is disabled while Settings is busy (changing a password, Face ID, deleting the vault), so the result alert is never lost; swipe-down still closes it where the system allows (fixed in verify, app review B4).
+  - Views: identifiers as the code and journey tests have them (2026-11-03 naming): `upgradeToProCell`, `settings.changePasswordRow`, `settings.biometricRow`, `settings.biometricSwitch`, `settings.deleteVaultRow`, `settings.deleteVaultPasswordField`, `settings.recentlyDeletedRow`, `settings.table`, `settingsDoneButton`, `paywallUnlockButton`, `restoreButton`, `paywall.closeButton`, `migration.statusLabel`, `recentlyDeleted.emptyTrashButton` (the `settings.lockMode.*` rows and the re-encrypt row removed). (Views.)
+- Changes (multiple-vaults-duress-password): SecuritySettingsViewModel.swift, MigrationViewModel.swift, PaywallViewModel.swift, RecentlyDeletedViewModel.swift, Views/SecuritySettingsViewController.swift, Views/MigrationViewController.swift, Views/RecentlyDeletedViewController.swift
 - Contract: see `docs/api/Settings.md` (generated; do not edit by hand)
 
 ### Browser
 - Purpose: the file browser grid and the folder picker: browsing, sorting, selection, folder and file operations, drag and
   drop, and starting import, export, viewing and settings.
-- Depends on: VaultStore, Preferences, Media, Import, Export, SharedUI, Viewer, Settings
-- Files: FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift | Views/FileBrowserViewController.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift
+- Depends on: VaultStore, VaultLock, VaultTransfer, Preferences, Media, Import, Export, SharedUI, Viewer, Settings
+- Files: FileBrowserViewModel.swift, FolderPickerViewModel.swift, FileCellModel.swift | Views/FileBrowserViewController.swift, Views/BrowserTitleArrow.swift, Views/BrowserVaultServices.swift, Views/FileCell.swift, Views/FolderPickerViewController.swift | VaultPickerViewModel.swift, Views/VaultPickerViewController.swift
 - Protocol (draft; lives in `Contracts/`):
   ```swift
   import UIKit
@@ -841,18 +1111,26 @@ extension matching ignores case.
   ```
 - Behavior spec:
   - FileBrowserViewModel load: items from `contents` with the global sort; a load error is shown once the vault is unlocked or open (never silently kept stale); empty → "No files yet"; the settings button only at the root.
+  - Feature multiple-vaults-duress-password: the browser shows the open vault (the shell builds a browser factory per vault; the contract is unchanged); the root's title is the vault's name (`root.name`); the root's bar has a Lock button (identifier `lockButton`, every vault) that calls the `onLock` action the shell gives (the coordinator's `lock()`); Browser no longer depends on LockScreens (revised at the prototype, 2026-11-10).
+  - Bar layout (view; design tweaks, device retests 2026-11-12 and 2026-11-13, replaces the earlier bar-layout rule): the browser no longer shows a navigation-bar title or a large title. Instead, a title row sits at the top of the screen, under the navigation bar and above the grid, pinned (it does not scroll with the grid): a back arrow, then the folder's name in the large-title font, left-aligned, on one line (long names truncate in the middle). The arrow points the reading direction (backward; flips in right-to-left languages) and is at least 44 pt tall to tap. The arrow is the only way back on screen: in a pushed subfolder it is a chevron "<" (accessibility label "Back", identifier `browser.backButton`) that pops to the parent folder; on a vault's root it is the chevron with a lock "< 🔒" (accessibility label "Lock", identifier `lockButton`) that calls `onLock`. The navigation bar shows no system back button and no Lock button in any folder; the edge-swipe back gesture still works in subfolders, but not on the root, not while a push or pop is still animating, and not in select mode (the arrow is hidden there too). The bar's left side holds only the settings gear on the root (identifier `settingsButton`, unchanged) and nothing in subfolders; the right side is described in "Bar menus" below. Select mode: the bar shows Cancel at the left as before, the title row shows "Select Items" / "N Selected" in place of the folder name and hides its arrow; leaving select mode restores the arrow and name; the select title stays at the same left edge as the folder name (no jump when the arrow hides). The title row shows the folder's name as it was when the folder was opened, as the old bar title did (a folder can only be renamed from its parent). The folder picker is unchanged.
+  - Bar menus (view; device test 2026-11-16, replaces the row of right-side icon buttons): outside select mode the bar's right side shows the Select button (identifier `selectButton`, unchanged) and one menu button (identifier `browser.actionsMenuButton`, SF Symbol `line.3.horizontal`, accessibility label "Actions") whose menu opens on tap every time (never collapsed by iOS for lack of space) and lists, each with its name beside its symbol: New Folder (`folder.badge.plus`), New Document (`doc.badge.plus`), Import (`square.and.arrow.down`), Sort (`arrow.up.arrow.down`; opens the sort choices as before). In select mode the left side shows Cancel as before and the right side shows only a menu button (identifier `browser.selectActionsMenuButton`, `line.3.horizontal`, accessibility label "Actions") whose menu lists, each named beside its symbol: Move (`folder`), Copy (`doc.on.doc`), Export (`square.and.arrow.up`), Move to Vault… (`arrow.right.square`), Copy to Vault… (`plus.square.on.square`), Delete (`trash`, destructive, last); with nothing selected the menu button is disabled. Each menu entry does exactly what its old button did (same confirmations, pickers and sheets; Export's sheet and the sort choices anchor on the menu button). Move to Vault… and Copy to Vault… go straight to the vault picker (no "To Vault" sheet in between). The human found the select-mode "To Vault" button never appeared on their phone (the crowded bar); in the menu it is always reachable. Menu entry identifiers: `browser.menu.newFolder`, `browser.menu.newDocument`, `browser.menu.import`, `browser.menu.sort`, `browser.menu.bulkMove`, `browser.menu.bulkCopy`, `browser.menu.bulkExport`, `browser.menu.moveToVault`, `browser.menu.copyToVault`, `browser.menu.bulkDelete`.
+  - Select mode and long press (device test 2026-11-16): in select mode a long press on a cell shows no context menu (a tap still toggles the cell); outside select mode the context menu is unchanged. Toggling a cell's selection updates only the checkmarks, dimming and the title row: the grid is not reloaded and no cell redraws its icon or thumbnail, so nothing flickers.
+  - Folder icon size (device test 2026-11-16): a folder cell shows its folder at one size and position whether it shows the plain folder icon (before or without a thumbnail) or the folder thumbnail (the folder with its first image or video drawn on it): the larger size, the plain folder icon fitted to the cell's icon area, as before thumbnails arrive today. The cell asks for a folder's thumbnail at the size of its icon area so the thumbnail's folder lines up with the plain icon; files are unchanged.
+  - Move/Copy to Vault: context menu "Move to Vault…" and "Copy to Vault…"; select-mode menu "Move to Vault…" / "Copy to Vault…" (see "Bar menus"; context menu items `browser.contextMenu.moveToVault`, `browser.contextMenu.copyToVault`; the "To Vault" button and its sheet are gone, device test 2026-11-16); → the vault picker; its target → `transfer(items, from: current store, to: target store, removingOriginals:)` with progress "Moving…" / "Copying…" (N of M); then the target is closed (`closeTransferTarget`, not for the unencrypted vault) and the grid reloads; `.limitReached` → the paywall; any failed → "N of M failed"; other errors → their message. One transfer at a time.
+  - VaultPickerViewModel: "Unencrypted Vault" row only when the open vault is encrypted (→ `unencryptedVault`); password field and "Use Vault" (→ `openTransferTarget`); empty ignored; busy; `.wrongPassword` → "Incorrect password"; `.sameVault` → "These items are already in this vault."; other errors → their message; Cancel → no target. Identifiers `vaultPicker.unencryptedRow`, `vaultPicker.passwordField`, `vaultPicker.useButton`, `vaultPicker.cancelButton`, `vaultPicker.errorLabel`. The password field sets no password `textContentType` (`nil`): iOS never offers to save or suggest a vault password (decided 2026-11-11).
   - Sort: current option flips direction; another option → ascending; saved in Preferences; reload.
   - Open: folder → push a browser; `.rtf` → editor; other files → viewer with the folder's non-folder items starting at the tapped one.
   - New Folder / New Document: names trimmed; empty ignored; through the store (New Document opens the editor on the created item).
-  - Select mode: toggle, "Select Items" / "N Selected", Cancel clears; bulk Delete (confirm "Delete N items?"), Move (picker), Copy (into the current folder), Export; bulk results report "N of M failed" when any fail.
+  - Select mode: toggle, "Select Items" / "N Selected", Cancel clears; bulk Delete (confirm "Delete N items?"), Move (picker), Copy (into the current folder), Export; bulk results report "N of M failed" when any fail. Bulk Delete sends the items to the store's batch `moveToTrash(_:)` in batches of at most 256 (one call per batch; cancellation stops between batches); "N of M failed" counts the items in the returned errors and shows the first item's error (in selection order), as before (large trash, 2026-11-13). A cancelled bulk Move or Copy (the store throws `CancellationError`) stops before the remaining items and is not counted as a failure: no failure alert; select mode ends and the grid reloads as after any bulk action (coverage triage, 2026-11-16).
   - Move: one pending move at a time; cancelling the picker clears it; the picker's choice moves exactly the pending items.
   - Context menu: Export, Move, Copy, Rename (prefilled), Delete (confirm; message mentions Recently Deleted).
   - Drag a cell onto a folder cell → move; onto a file cell → not a drop target; drops from other apps ignored.
-  - A drag stays inside the app when `lockMode != .none`, `pendingMigration` is set, or the item `isEncrypted`; only a no-lock vault with no migration pending can drag items out (the on-disk file of an encrypted item is ciphertext). This rule lives in a tested view model, with a test for each case and an unknown drag item (stays in).
-  - Refresh after restore, import, editor close and unlock.
+  - A drag stays inside the app when the open vault's store `isEncrypted` or the item `isEncrypted` (feature multiple-vaults-duress-password; was `lockMode` and `pendingMigration`); only items of the unencrypted vault can be dragged out (the on-disk file of an encrypted item is ciphertext). This rule lives in a tested view model, with a test for each case and an unknown drag item (stays in).
+  - Refresh after restore, import, editor close and unlock; and every time a browser comes back on screen after it first appeared (popping back to it from a subfolder, closing the viewer or the editor, dismissing any sheet or full-screen screen over it), it reloads its folder, so a change made deeper in the stack or from the viewer (an item moved or copied into this folder or an ancestor, a subfolder deleted, renamed or moved out, an `.rtf` edited from the viewer) shows when the user returns. This reload is quiet like the unlock refresh: no new alert for a load error while the vault is locked (device retest 2026-11-13, refresh review).
   - FolderPickerViewModel: lists subfolders of the current folder in the saved sort (as today), starting at the root; excludes the items being moved (and so their subfolders); "Move Here" returns the current folder; the picker's title is the current folder's name, as the browser's title (fixed in verify, app review B5); load error shown.
   - FileCellModel: name, size text (`ByteCountFormatter` file style; empty for folders), icon from `FileIconMapping`, thumbnail requested and cancelled on reuse, and ignored if the cell now shows another item.
-  - Views: identifiers `fileGrid`, `settingsButton`, `sortButton`, `newFolderButton`, `newDocumentButton`, `importButton`, `selectButton`, `bulkDeleteButton`, `bulkMoveButton`, `bulkExportButton`, `bulkCopyButton`, `fileCell_<name>`, `emptyStateLabel`, `folderPickerMoveHere`, `folderPickerCancel`. (Views.)
+  - Views: identifiers `fileGrid`, `settingsButton`, `selectButton`, `browser.actionsMenuButton`, `browser.selectActionsMenuButton` and the `browser.menu.*` entries (see "Bar menus"; the separate sort, new-folder, new-document, import and bulk buttons are gone, device test 2026-11-16), `fileCell_<name>`, `emptyStateLabel`, `folderPickerMoveHere`, `folderPickerCancel`. (Views.)
+- Changes (multiple-vaults-duress-password): FileBrowserViewModel.swift, Views/FileBrowserViewController.swift, Views/FileCell.swift (device test 2026-11-16: bar menus, no long press in select mode, no flicker, one folder size)
 - Contract: see `docs/api/Browser.md` (generated; do not edit by hand)
 
 ## App shell
@@ -860,8 +1138,34 @@ extension matching ignores case.
 - App shell tests: PostUnlockMaintenanceTests.swift, LaunchTemporaryFilesTests.swift, .swiftlint.yml, premiumTesting.storekit
 - Shell responsibilities: `AppDependencies` builds every live service once (real Keychain, UserDefaults.standard, Documents root; in `-uiTesting` mode the in-memory and temporary ones and the seeds); SceneDelegate wires `AppLockCoordinator`, the root browser, purges expired trash and sweeps orphans after unlock (never while a migration is pending: the sweep would delete encrypted copies not yet indexed; the post-unlock steps live in a small unit-tested shell helper), resumes a pending migration after unlock, and clears the thumbnail cache when the app goes to the background with a lock set (presenting the Migration screen).
 - Shell clean-ups (verify, app review 2026-11-04): the root's storage bundle is `AppStorage` (was `LegacyStorage`; no "legacy" wording left in the shell); the test-only launch paths (`-uiTesting`, `-unitTestHost`, the `UITEST_*` seeds, `SlowMigrationVaultStore`, the in-memory services and `InertProUnlock` as the shell uses them) compile only in Debug (`#if DEBUG`; unit and UI tests build Debug), so a Release build has none of them; each launch gives the vault store its own temp folder (`<tmp>/StoreTemporaryFiles/<UUID>`); at launch the earlier launches' folders (and `<tmp>/VaultStore`, where builds before this one kept decrypted temp copies) are listed on the main thread and deleted on a background task, so the first frame never waits and files created after launch are never touched; the lock's wipe on background is unchanged; the asset catalog has no unused sets (`Color`, `Image` removed) and `AccentColor` is a valid colour set with no colour, so the app keeps today's system tint ( `koalaT.png` moves to its own image set `koalaT`, unused).
+- Shell changes (feature multiple-vaults-duress-password; done after the last module's units, before verify, by a code-writer brief naming the
+  shell files, with PostUnlockMaintenanceTests updated by the test-writer): `AppStorage` adds the `Vaults/` folder
+  (`Application Support/Vaults`; in `-uiTesting` mode next to the temporary vault) and builds no single key store or
+  cipher any more; `AppDependencies` builds the vault lock with the factories (a `LiveMasterKeyStore` per blob account,
+  a `LiveFileCipher` over it, a `LiveVaultStore` per vault with its own temp folder under this launch's temp root) and,
+  for each vault that becomes `current`, that vault's services (thumbnails, import and export presenters, viewer,
+  settings and browser factories); the composition root keeps no vault-specific service beyond the current one's.
+  SceneDelegate: at connect, `upgradeIfNeeded` (a failure shows "Couldn't finish updating your vaults. Restart the app
+  to try again." over the lock screen and the app carries on), then the root browser for `current` with the lock screen
+  over it (`AppLockCoordinator` built with the `VaultsScreenFactory` and the paywall for `onNeedsPro`; the browser's
+  `onLock` and Settings' vault-deleted callback call its `lock()`), then the unencrypted vault's trash purge; on each `currentUpdates` change: dismiss everything presented, clear the old vault's thumbnail cache, cancel a
+  leftover encryption, build the new vault's services and replace the window's root browser; for an encrypted vault,
+  then the post-open housekeeping (`PostUnlockMaintenance.run(vaultStore:now:)`: purge expired trash, then sweep orphans
+  — no pending-migration check any more), then, if `hasUnencryptedFiles()`, the Migration screen with
+  `encryptLeftovers(in:)`. On return to the foreground the unencrypted vault's trash is purged. The setup wizard, launch
+  recovery, `onUnlocked` and the resume of a pending migration go. Debug seeds per the Constraints section;
+  `SlowMigrationVaultStore` keeps only the encrypt step's delay.
+- Shell changes (minors clean-up 2026-11-11, feature multiple-vaults-duress-password): `AppDependencies` passes the vault
+  lock its decoy key-store factory (a `LiveMasterKeyStore` over a private in-memory Keychain, in Release too, so the
+  in-memory Keychain type is no longer Debug-only or a second, minimal one is added); the `UITEST_LEGACY_LOCK` seed no
+  longer writes `hasCompletedSetup`.
 
 ## Known issues
+- Import predicts the store's clash name (" 1") for a queued file and copies the naming rule imperfectly ("a 1.txt" clashing → predicted "a 1 1.txt", stored "a 2.txt"), so a duplicate picked before the batch is sent may be imported again; nothing is lost or wrongly skipped. Simplest fix: drop the prediction (flush records the real names). Also: one batch test pins exact sizes [64, 32]; no test for cancellation flushing (same path as the tested failures) — LiveVaultImporter.swift, LiveVaultImporterBatchTests.swift — open, minor (Import unit 1 review)
+- The root's "< 🔒" Lock image is pre-rendered with `chevron.left`, so in a right-to-left language the chevron points the wrong way (use `chevron.backward` or flip for RTL); its size beside the gear to be checked on device; two bar-layout tests are looser than needed (minimal back button accepted on either controller; template rendering not asserted) — FileBrowserViewController.swift, FileBrowserViewControllerTests.swift — superseded 2026-11-13 (title row replaces the bar Lock button) (Browser unit 2 review, design tweaks)
+- The root's "< 🔒" Lock item leaves the gear's glass bubble via `hidesSharedBackground` only (iOS 26+): the gap between "[⚙]" and "< 🔒" is unverified (add a fixed space if tight on device); the iOS 26 bar tests skip on the iOS 18.6 gate simulator (run on 26.5 by hand); `lockItemNotGroupedWithGear` adds little over the hidesSharedBackground test — FileBrowserViewController.swift, FileBrowserBarLayoutTests.swift — superseded 2026-11-13 (title row replaces bar buttons) (Browser unit 2 review, lock button placement 2026-11-13)
+- Title row: the pop-gesture delegate restore (system delegate back after the last browser leaves; hand-over on pop) has no test; an unproven edge case (a cancelled swipe in [A, B], then the stack replaced by the lock screen) could leave the delegate nil; the select-mode arrow's non-interactive/VoiceOver-hidden state is not asserted directly; the iOS 26.5 simulator fails "Choosing Move or Copy to Vault in the sheet presents the vault picker" (pre-existing, not on the 18.6 gate simulator) — FileBrowserViewController.swift, FileBrowserTitleRowTests.swift — open, minor (Browser unit 2 review, title row 2026-11-13)
+- Move/Copy to Vault adds files one at a time (`addFile`), so moving a folder of thousands of files into an encrypted vault is slow (the target folder's index is rewritten after each file); memory stays flat (the store releases it per operation). Fix: batch with `addFiles` per target folder — LiveVaultTransfer.swift — open, minor (device test 2026-11-12)
 - Case-only rename of a plaintext item ("a.txt" → "A.txt"): the tests pass in both modes, but `rename`'s conflict check calls `fileExists` on a case-insensitive volume, which by reading should give "A 1.txt"; why the tests pass is unexplained. Check on device (verify) and, if it misnumbers, apply the case-insensitive self-match fix — VaultFileOperations.swift (rename) — open, VaultStore
 - Folder names, sizes and structure are plaintext on disk in an encrypted vault — FileSystem.swift:418-422 — feature encrypt-folder-names
 - No way back in when the password blob is missing — AuthService.swift:48, LockScreen.swift:~158 — feature password-recovery
@@ -905,8 +1209,24 @@ extension matching ignores case.
 
 - A cached grid thumbnail now arrives one main-actor turn after the cell is configured (async `ThumbnailProviding`), so a cell may flash its kind icon while scrolling — Browser/Views/FileCell.swift — open, cosmetic; a fix needs a sync cache accessor (contract change)
 - Once, after an earlier crashed lock-change run, subfolders showed empty while the main screen listed them (files intact; decrypting showed them); not reproduced after a completed run. Suspected: a listing that throws `.locked` is hidden by the browser while no lock screen shows — FileBrowserViewModel.swift, LiveVaultLock.swift — open, watch for it on device
+- `setUsesBiometrics(true)` interrupted by a close or switch while the Keychain write runs, when another vault held Face ID: that vault's biometric item is already replaced and can't be restored, so its next Face ID open ends in `.biometricChanged` (Face ID forgotten; password still works) — LiveVaultLock.swift:284-288 — open, rare (VaultLock unit 1 review, feature multiple-vaults-duress-password)
+- `setUsesBiometrics(true)` whose key is wiped by a close mid-write reports `.io` instead of `.notOpen` — LiveVaultLock.swift:284, 298 — open, minor
+- An overlapping `changePassword` and `createVault` (or two `changePassword`s) could leave two vaults sharing a password; only `createVault` calls are serialized. Needs two password sheets at once, which the UI doesn't allow — LiveVaultLock.swift:185-270 — open, minor
+- Dropping several dragged cells starts one task per item, each resolving the drop target from the shown items; correct today only because the first task suspends before any reload lands. Fix: resolve the target folder once before the tasks — FileBrowserViewController.swift:860-867 — open, minor (refresh review 2026-11-13)
+- A cancelled or `.locked` newer load drops an older load's result without updating the items (latent: no caller cancels a load today); the reload-on-appear refresh covers it — FileBrowserViewModel.swift:134-159 — open, minor (refresh review 2026-11-13)
+- The browser's `isEditorPresented` flag and its `editorClosed()` branch in `viewWillAppear` now do the same as the reappear `load()` (redundant); if the editor were ever a page sheet the flag would stay set, still harmless — FileBrowserViewController.swift:146-158, 380 — open, minor (refresh review 2026-11-13)
+- A reappear reload goes through `load()`, which alerts for non-locked errors, so a cancelled swipe-back while the store keeps failing shows the error again — FileBrowserViewModel.swift:140-156 — open, minor (refresh review 2026-11-13)
+- Encrypting k plaintext trash items (`migrateToEncrypted` on trash items, run by `encryptLeftovers` after unlock) still corrects the whole trash map per item (`prepareTrashEncryption` → `correctedTrashMap`), O(k·n) header probes; a vault with thousands of plaintext trash items would migrate slowly. Fix: probe only the item's own file, as restore does (changes migration strictness; needs a decision) — VaultMigrationSteps.swift:497 — open, minor (large-trash review 2026-11-13)
+- Batch `moveToTrash`: the same id twice in one call reports an error for an item that was trashed (callers never send duplicates); `relativePath` is worked out per item rather than per source folder; later `hasUnreadableTrash` batches don't re-run `keyMatchesVault` (harmless: `clearUnreadableTrash` re-checks); a batch of 256 trashed folders with deep trees is one long step — VaultTrash.swift, VaultUnreadableTrash.swift — open, minor (large-trash review 2026-11-13)
+- The `.trash`-replaced-by-symlink test moves the real trash beside it inside the vault root (removed with the root by the fixture's clean-up, unverified) — HousekeepingTrashBatchTests.swift — open, minor
+- Recently Deleted: no test asserts that a local row change drops a reload already in flight (the generation bump in `replaceRows`), nor that an overtaken reload's failure shows no alert; after the last row is removed locally (or Empty Trash) the screen is blank until the reload returns (spec-compliant; a flicker at most) — RecentlyDeletedViewModel.swift:206-212 — open, minor (review 2026-11-13)
+- Browser bulk-Delete tests: `cancelledBulkDeleteStops`'s bounded wait checks `!task.isCancelled` needlessly; `GatedVaultStore`'s `cancelAfterHold` / `firstMoveToTrash` may now be unused test support — FileBrowserViewModelBulkTests.swift, FileBrowserTestSupport.swift — fixed 2026-11-16 (coverage triage) (large-trash review 2026-11-16)
+- Folder thumbnails are now requested at the icon area's size (~0.3–0.5 MB each at 3x, was ~19 KB); `ThumbnailCache` is unbounded (cleared only on lock, no memory-warning eviction) and its key ignores size, so a vault with thousands of folders could hold hundreds of MB, and a width change keeps the old-size image. Fix: cost/count-limited cache or eviction on memory warning; optionally key by size — LiveThumbnailProvider.swift:121, FileCell.swift:103 — open, minor (Browser unit 2 review, device test notes 2026-11-16)
+- `folderThumbnailSize()` lays out only when `thumbnailView.bounds` is empty, so a reused cell after a width change (rotation, iPad split) can request the old width — FileCell.swift:119-123 — open, minor (same review)
+- FileBrowserViewController.swift is exactly 900 lines, the SwiftLint file_length limit; the next edit must move an extension (Prompts or context menu) to its own file — open, minor (same review)
 ## Features
 <!-- Accepted features, oldest first. -->
+- 2026-11-16: multiple-vaults-duress-password (Multiple vaults / duress password): an always-there unencrypted vault plus named encrypted vaults opened by their password on the Vaults screen (any vault can be a decoy); the app-wide lock removed; Face ID opens one chosen vault; Move/Copy to Vault; delete a vault by password; free 1 encrypted vault and 100 files per vault, Pro more; 1.2 vaults upgraded once. Device-test fixes folded in: open-vault housekeeping and large-folder speed-ups, large-folder import memory, large trash, title row with back arrow, design tweaks, bar menus. Brief: docs/features/multiple-vaults-duress-password.md
 
 ## Decisions log
 - 2026-10-24: Every adopted screen stays `UI: UIKit`, logic in tested view models — adoption keeps behavior; changing UI technology at the same time doubles the risk — approved by the human (discussion)
@@ -998,3 +1318,37 @@ extension matching ignores case.
 - 2026-11-09: Device test after the memory fix: re-encrypting 17,700 files (23 GB) completed, but slowly: in a 9,090-file folder each file re-read, decrypted, checked and rewrote the whole folder index (~850 KB), about one file per second and slowing (quadratic in folder size; the trash has the same pattern via `correctedTrashMap`). Once, after an earlier crashed run, subfolders showed empty with the main screen listing them (files intact; decrypting showed them); not reproduced after the completed run. Suspected: a listing that throws `.locked` is silently skipped by the browser while no lock screen shows. Watch for it — orchestrator, recorded
 - 2026-11-09: The slow migration in large folders is left as it is for now and queued as a feature (batching or index caching, to be chosen then) — decided by the human
 - 2026-11-09: Adoption finished and the app accepted (checkpoints `adopted` and `app-accepted`): all 14 modules adopted, no legacy code left, journeys and the device test pass. Memo cleaned: per-module `Legacy files` / `Legacy tests` / `Callers to repoint` lines removed, `## Legacy code` reduced to `## App shell` (shell files, shell tests, shell responsibilities), `## Known issues` keeps only open items — decided by the human
+- 2026-11-10: Feature multiple-vaults-duress-password (multiple vaults / duress password): one always-there unencrypted vault the app opens to, plus named encrypted vaults opened by typing their password on the Vaults screen (the password finds its vault, so any vault can be a decoy); the app-wide lock (setup wizard, lock screen, Lock Mode, encrypt/decrypt-everything) is removed; backgrounding closes an encrypted vault and returns to the unencrypted root with no lock screen; Face ID can open one chosen vault (iOS can't tell faces apart); free: one encrypted vault and 100 files per vault, Pro: more of both; the paywall on Create New Vault may reveal that a vault exists (accepted); vaults can be deleted (by password) but not renamed; Move/Copy to Vault replaces encrypting an existing vault; a 1.2 vault is upgraded once (locked → "My Vault", unlocked → the unencrypted vault) — decided by the human
+- 2026-11-10: Feature multiple-vaults-duress-password design: encrypted vaults live in `Application Support/Vaults/<id>/` (outside Documents, so the unencrypted vault never sees them), each with its own blob account (the upgraded vault keeps the old one, so no Keychain item is rewritten) and an encrypted `.vault_info` name; no list of vaults is stored; the Face ID vault is named by a plain Keychain marker; one `VaultStoring` per vault with its mode fixed (VaultStore drops Preferences); VaultLock becomes the vault registry; LockMigration only encrypts an upgraded vault's leftovers, with no persisted record; new module VaultTransfer; Settings, Browser and the other screen modules are built per vault by the shell, so Import, Export, Media and Viewer don't change — orchestrator, approved with the memo
+- 2026-11-10: Feature multiple-vaults-duress-password transition: the skeleton applies the final contracts at once. Code in modules not yet rebuilt that calls a removed member becomes a loud "Not implemented" stub, and the unit tests that reach it are disabled with `.disabled("feature multiple-vaults-duress-password: rebuilt in <Module> unit <n>")`; each rebuilt unit's test-writer replaces them. The app doesn't run end to end from the skeleton until the shell step after Browser; previews (mocks) work throughout. VaultLock's new unit 2 is built before its reopened unit 1 — orchestrator, approved with the memo
+- 2026-11-10: Later-features item "Harden no sweep while a migration is pending" dropped: lock changes and their pending record are gone with feature multiple-vaults-duress-password — orchestrator, approved with the memo
+- 2026-11-10: Feature multiple-vaults-duress-password, prototype revision: a lock screen comes back, because opening straight into the unencrypted vault could confuse users. It is the Vaults screen made full-screen: password, Open, Use Face ID (tapped, never automatic, so it can't open the real vault under duress), "Open Unencrypted Vault", "Create New Vault"; it shows at launch, on every return from the background (in any vault) and after Delete This Vault; the browser's Vaults button becomes a Lock button (every vault's root) and the Vaults sheet and Close Vault go. Contract changes: `AppLockCoordinating.lock()`, `VaultsScreenFactory.makeLockScreen(onDone:onNeedsPro:)` replaces `makeVaults(onNeedsPro:)`; Browser drops its LockScreens dependency; VaultLock unchanged — decided by the human
+- 2026-11-10: VaultStore `remove`: a failed file delete after the index write puts the entry back, best-effort, so the item stays findable (reviewer finding, VaultStore unit 1 of feature multiple-vaults-duress-password) — orchestrator
+- 2026-11-10: VaultStore `remove` on an encrypted file whose index entry is already gone deletes the file (no error) — decided by the human (VaultStore coverage triage, feature multiple-vaults-duress-password)
+- 2026-11-10: VaultCatalog removes a blobless vault folder at launch only when it is empty, so an upgraded vault whose Keychain blob is missing (e.g. after a restore) never has its files deleted (reviewer finding, VaultLock unit 2) — orchestrator
+- 2026-11-10: VaultLock races: a close/background/switch during a password check drops the check's result and wipes its key (opens and management calls throw `.notOpen`); createVault runs one at a time; setUsesBiometrics(false) in the unencrypted vault is a no-op (reviewer findings, VaultLock unit 1) — orchestrator
+- 2026-11-10: LockMigration: only a listing failure gives `.failed(names: [])`; `finishEncryption` failing is logged and the run completes (the "closing-step failure" wording was left from the decrypt flow) — test-writer note, LockMigration unit 1 — orchestrator
+- 2026-11-10: LockMigration: an `encryptLeftovers` during a cancelled run's last file waits for it, and a second cancel drops the waiting call; the store is held only while a run exists; a non-encrypted store sets `.idle` (reviewer findings, LockMigration unit 1) — orchestrator
+- 2026-11-10: Settings' Views identifier line corrected to the names the code and journey tests use (2026-11-03 naming; the prototype's new `settings.*` identifiers); no behavior change — orchestrator
+- 2026-11-11: vault password fields (lock screen, Create Vault, vault picker; Settings' alert fields already set none) set no password `textContentType`, so iOS never offers to save or suggest a vault password; Create Vault clears its password fields on success too — decided by the human (LockScreens unit 3 review, feature multiple-vaults-duress-password)
+- 2026-11-11 (verify): Create Vault asks for the password and confirmation in a "Set Password" alert after Create, with
+  only the name on the screen. On one screen, iOS Strong Password autofill took over the password fields despite no
+  content type, so a new vault got a password the user never typed (5 journey tests); an experiment showed the
+  alert avoids it, as the 1.2 setup wizard did. `.oneTimeCode` rejected (misdescribes the field). No contract change;
+  LockScreens unit 3 reopened — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-11 (verify, review minors): (1) a password search with no encrypted vault runs one decoy PBKDF2 derivation, so
+  a wrong password no longer reveals "no encrypted vaults" by its speed (VaultLock + shell; counting vaults by timing stays
+  out of scope); (2) `.vault_info` written with complete file protection; (3) Preferences contract clean-up:
+  `hasCompletedSetup` removed, `PendingMigration`/`MigrationKind`/`pendingMigration` replaced by
+  `hasPendingEncryptMigration` + `clearPendingMigration()` (contract change approved); (4) lock-screen vault listing and
+  Keychain reads on the main actor accepted as they are — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-12: Device test: folders stayed empty for 15–20 s after opening an encrypted vault (the human's 23 GB vault): after each open the shell runs `sweepOrphans` then `hasUnencryptedFiles`, each walking the whole vault (the second reads every file's header) in one actor step, so the browser's listings waited behind them. Fix now: both work one folder at a time and let other store operations run between folders; `hasUnencryptedFiles` stops at the first plaintext file. No contract change; VaultStore unit 2 reopened — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-12: Device retest: very large folders (~9,000 files) still took seconds to show. Simulator timing (scratch branch `scratch/large-folder-timing`): a 9,000-file listing ~1.2 s (per-item root-relative path ~650 ms, per-file stat ~265 ms, sort ~245 ms; index decrypt 17 ms); `hasUnencryptedFiles` on that folder ~3 s in one step. Fix now, VaultStore internals only: per-folder work once per listing, prefetched attributes, precomputed sort keys; housekeeping breadth-first, the check in batches of 256 files. Files appearing as they load (contract + Browser change) only if still needed after a retest — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-12: Device retest passed (large folders fast). Design tweaks folded into the feature before acceptance: (1) the lock screen logo gets the rounded corners it was meant to have (the frame was full-width, so its rounded corners fell outside the logo) — LockScreens unit 3; (2) the folder's name at the left of the bar right after the back button, the back button just "<", and on a vault's root the Lock button looks like "< 🔒" after the gear (gear unchanged) — Browser unit 2; (3) Settings: Delete This Vault in its own section at the bottom, and "Note: only one vault can use <Face ID>." under the switch — Settings units 1 and 2. Dark mode dropped (the app already follows the phone). No contract change — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-12 (device test): importing a 9,000-JPG folder from Files crashed part-way (memory). Cause: per file the import listed the whole destination (`findItem`) and the store read, re-listed and rewrote the whole folder index, and the import's one long task never released the temporary memory. Fix now: every store operation releases its memory; `findItem` looks up one name; new `VaultStoring.addFiles(_:to:)` writes the index once per batch (contract change, approved with this memo); Import lists the destination once and adds in batches of 64. Move/Copy to Vault stays per file (known issue) — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-13: Device retest: the "< 🔒" Lock button still sat in the bar's button group beside the gear; it moves out of that group, with no button background, right before the vault's name; the gear stays at the far left (chosen over moving the gear right or drawing the lock into the title). View-only change in Browser unit 2; no contract change — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-13: Device retest: the Lock button still sat in the navigation bar; the human wants the arrow beside the folder's name, not in the bar: a title row under the bar with a back arrow left of the name ("<" up one folder; "< 🔒" from a vault's root to the lock screen); the system back button and the bar's Lock button go; gear stays on the root's bar. Supersedes the two earlier bar-layout rules (the orchestrator had misread the design note as restyling the bar button). View-only change in Browser unit 2; journeys that tap the bar's back button follow (verify); no contract change — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-13: Device retest 3 passed. The human reported folder views sometimes not refreshing after a move or delete; a review found parent browsers never reload when popped back to, and the grid doesn't reload after editing an `.rtf` from the viewer. Fix: a browser reloads quietly every time it reappears (Browser unit 2, view only; no contract change) — requested by the human (feature multiple-vaults-duress-password)
+- 2026-11-13: Device retest: Recently Deleted with thousands of items is slow (minutes to open; a row stays until the whole trash is re-read; a stale row's action fails "no longer exists"; a listing error shows an empty trash). Cause: every trash listing opened, copied and checked each trashed file; restore did the same; the unreadable-trash check and the housekeeping trash check were one long step each; trashing many items rewrote the whole trash index per item. Fix now: the listing reads stored flags in one prefetched pass; restore checks only its own file; trash checks in batches of 256; Recently Deleted removes a row at once and never shows an error as empty; a missing file on Restore/Delete just removes the row; batch `moveToTrash(_:)` (contract change, approved with this memo) used by Browser's bulk Delete — decided by the human (feature multiple-vaults-duress-password)
+- 2026-11-16: Bulk Move/Copy cancellation (existing behavior since the 2026-11-03 Browser review, untested once bulk Delete moved to the batch call) written into the Browser spec: a cancelled Move or Copy stops and is not a failure — decided by the human (feature multiple-vaults-duress-password, large-trash coverage triage)
+- 2026-11-16: Device test notes (docs/Notes.rtf): folders were drawn larger before their thumbnail loaded and flickered in select mode → one folder size (the larger), and selection no longer reloads the grid; no long-press menu in select mode; the empty `FileIconMapping.swift` is deleted (SharedUI); the bar's right-side buttons become a named menu that always opens (Select stays a button), and in select mode all actions, Move/Copy to Vault included, are in a ☰ menu (the "To Vault" button never appeared on the human's phone). Browser unit 2 and SharedUI unit 1 reopened; view only; no contract change; journeys that tap the old bar buttons are updated in verify — decided by the human (feature multiple-vaults-duress-password)

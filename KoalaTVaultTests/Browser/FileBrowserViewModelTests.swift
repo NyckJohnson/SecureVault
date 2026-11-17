@@ -329,13 +329,16 @@ import Testing
     // MARK: - Context menu
 
     @Test(
-        "The context menu offers Export, Move, Copy, Rename and Delete",
+        "The context menu offers Export, Move, Copy, Rename, Delete, then Move to Vault and Copy to Vault",
         arguments: ["Beach.jpg", "Photos"])
     func contextActions(name: String) async throws {
         let rig = try makeRig()
         await rig.viewModel.load()
         let target = try item(name, in: rig.store)
-        #expect(rig.viewModel.contextActions(for: target) == [.export, .move, .copy, .rename, .delete])
+        let expected: [FileBrowserViewModel.ContextAction] = [
+            .export, .move, .copy, .rename, .delete, .moveToVault, .copyToVault,
+        ]
+        #expect(rig.viewModel.contextActions(for: target) == expected)
     }
 
     @Test("Rename is prefilled with the item's current name")
@@ -421,49 +424,28 @@ import Testing
         #expect(rig.alerts.alerts.isEmpty)
     }
 
-    @Test(
-        "Dragging out is allowed only for a plain item in a no-lock vault with no migration pending")
+    @Test("Dragging out is allowed for an unencrypted item of the unencrypted vault")
     func dragOutAllowed() async throws {
-        let rig = try makeRig(lockMode: .none, pendingMigration: nil)
+        let rig = try makeRig(encryptedStore: false)
         #expect(rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))
     }
 
-    @Test(
-        "Dragging out is refused when the vault has a password lock",
-        arguments: [LockMode.password, .passwordAndBiometrics])
-    func dragOutRefusedWithLock(mode: LockMode) async throws {
-        let rig = try makeRig(lockMode: mode)
+    @Test("Dragging out is refused in an encrypted vault")
+    func dragOutRefusedInEncryptedStore() async throws {
+        let rig = try makeRig(encryptedStore: true, vaultName: "Work")
         #expect(!rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))
     }
 
-    @Test(
-        "Dragging out is refused while a migration is pending",
-        arguments: [MigrationKind.encrypt, .decrypt])
-    func dragOutRefusedWithMigration(kind: MigrationKind) async throws {
-        let rig = try makeRig(
-            lockMode: .none, pendingMigration: PendingMigration(kind: kind, targetLockMode: nil))
-        #expect(!rig.viewModel.canDragOut(try item("Beach.jpg", in: rig.store)))
-    }
-
-    @Test("Dragging out is refused for an encrypted item even with no lock")
+    @Test("Dragging out is refused for an encrypted item")
     func dragOutRefusedForEncryptedItem() async throws {
-        let rig = try makeRig(lockMode: .none, pendingMigration: nil)
+        let rig = try makeRig(encryptedStore: false)
         #expect(!rig.viewModel.canDragOut(ghost("Secret.txt", store: rig.store, encrypted: true)))
     }
 
     @Test("An unknown drag item stays in the app")
     func dragOutRefusedForUnknownItem() async throws {
-        let rig = try makeRig(lockMode: .none, pendingMigration: nil)
+        let rig = try makeRig(encryptedStore: false)
         #expect(!rig.viewModel.canDragOut(nil))
-    }
-
-    @Test("The drag-out rule follows the current lock mode")
-    func dragOutFollowsLockModeChanges() async throws {
-        let rig = try makeRig()
-        let beach = try item("Beach.jpg", in: rig.store)
-        #expect(rig.viewModel.canDragOut(beach))
-        rig.preferences.lockMode = .password
-        #expect(!rig.viewModel.canDragOut(beach))
     }
 
     // MARK: - Refresh triggers
@@ -542,7 +524,8 @@ import Testing
         let alerts = MockAlertPresenting()
         let viewModel = FileBrowserViewModel(
             directory: gated.root, store: gated, preferences: MockPreferencesStoring(),
-            exporter: MockVaultExporting(), alerts: alerts)
+            exporter: MockVaultExporting(), alerts: alerts,
+            lock: MockVaultLocking(), transfer: MockVaultTransferring())
         let older = Task { await viewModel.load() }
         while gated.waitingCount == 0 { await Task.yield() }
         _ = try await mock.createFolder(named: "Newer", in: mock.root)

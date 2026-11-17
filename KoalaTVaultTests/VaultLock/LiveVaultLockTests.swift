@@ -3,815 +3,467 @@ import Testing
 
 @testable import KoalaTVault
 
-/// Assumes this initializer on `@MainActor final class LiveVaultLock: VaultLocking` in LiveVaultLock.swift:
-/// `init(masterKeys: any MasterKeyStoring, keychain: any KeychainAccessing, preferences: any PreferencesStoring,
-///       store: any VaultStoring, biometricInfo: BiometricInfo,
-///       vaultHoldsEncryptedData: @escaping @Sendable () async -> Bool)`
-/// `vaultHoldsEncryptedData` answers "does the vault hold any encrypted data (index, encrypted file or trash entry)".
-/// `lockMode` reads the preferences; the initial state is `.open` for none, else `.locked`.
-private let legacyAccount = "com.KoalaTVault.password"
-private let secret = "correct horse"
-private let otherSecret = "battery staple"
-
-// MARK: - Launch and state
-
-@MainActor
-@Suite struct LiveVaultLockLaunchTests {
-    @Test("With no lock the vault starts open")
-    func startsOpenWithNoLock() async throws {
-        let harness = try await VaultLockHarness(lockMode: .none)
-        #expect(harness.lock.state == .open)
-        #expect(harness.lock.lockMode == .none)
-    }
-
-    @Test("With a lock the vault starts locked", arguments: [LockMode.password, .passwordAndBiometrics])
-    func startsLockedWithLock(mode: LockMode) async throws {
-        let harness = try await VaultLockHarness(lockMode: mode, blobPassword: secret)
-        #expect(harness.lock.state == .locked)
-        #expect(harness.lock.lockMode == mode)
-    }
-
-    @Test("Biometric kind and availability come from the injected probe")
-    func biometricInfoFromProbe() async throws {
-        let harness = try await VaultLockHarness(biometricKind: .touchID, biometricsEnabled: true)
-        #expect(harness.lock.biometricKind == .touchID)
-        #expect(harness.lock.biometricsAvailable)
-        let none = try await VaultLockHarness(biometricKind: .none, biometricsEnabled: false)
-        #expect(none.lock.biometricKind == .none)
-        #expect(!none.lock.biometricsAvailable)
-    }
+struct BiometricFailureCase: Sendable {
+    let crypto: VaultCryptoError
+    let expected: VaultLockError
 }
 
-// MARK: - setUp
-
+/// The vault registry: launch state, opening (password and Face ID), creating and closing vaults.
+/// Management of an open vault (password, Face ID, delete, transfer, upgrade) is in the extension file.
 @MainActor
-@Suite struct LiveVaultLockSetUpTests {
-    @Test("Setting up no lock writes none and touches no key or Keychain item")
-    func setUpNone() async throws {
-        let harness = try await VaultLockHarness(lockMode: .none)
-        try await harness.lock.setUp(mode: .none, password: nil)
-        #expect(harness.prefs.lockMode == .none)
-        #expect(harness.lock.state == .open)
-        #expect(harness.log.events.filter { !$0.hasPrefix("lockMode=") }.isEmpty)
-        #expect(harness.keychain.calls.isEmpty)
-    }
+@Suite struct LiveVaultLockTests {
+    static let alpha = SeedVault(id: "aaaa-1", name: "Alpha", password: "alpha pw")
+    static let bravo = SeedVault(id: "bbbb-2", name: "Bravo", password: "bravo pw")
 
-    @Test("Setting up a password lock with no blob creates the key then writes the lock mode and ends unlocked")
-    func setUpPasswordNoBlob() async throws {
-        let harness = try await VaultLockHarness()
-        try await harness.lock.setUp(mode: .password, password: secret)
-        let create = try #require(harness.log.index(of: "createMasterKey"))
-        let write = try #require(harness.log.index(of: "lockMode=password"))
-        #expect(create < write)
-        #expect(!harness.log.events.contains("storeBiometricKey"))
-        #expect(harness.keys.password == secret)
-        #expect(harness.keys.isKeyLoaded)
-        #expect(harness.lock.lockMode == .password)
-        #expect(harness.lock.state == .unlocked)
-    }
+    // MARK: Launch and publishing
 
-    @Test("Setting up password plus biometrics stores the biometric item before writing the lock mode")
-    func setUpBiometricOrder() async throws {
-        let harness = try await VaultLockHarness()
-        try await harness.lock.setUp(mode: .passwordAndBiometrics, password: secret)
-        let create = try #require(harness.log.index(of: "createMasterKey"))
-        let store = try #require(harness.log.index(of: "storeBiometricKey"))
-        let write = try #require(harness.log.index(of: "lockMode=passwordAndBiometrics"))
-        #expect(create < store)
-        #expect(store < write)
-        #expect(harness.keys.hasBiometricKey)
-        #expect(harness.lock.state == .unlocked)
-    }
-
-    @Test("An empty password is rejected before anything is created", arguments: [String?.some(""), nil])
-    func setUpEmptyPassword(password: String?) async throws {
-        let harness = try await VaultLockHarness()
-        await #expect(throws: VaultLockError.emptyPassword) {
-            try await harness.lock.setUp(mode: .password, password: password)
+    @MainActor @Suite struct Launch {
+        @Test("At launch the unencrypted vault is current, named KoalaTVault, over the injected plaintext store")
+        func launchesInUnencryptedVault() throws {
+            let fixture = try VaultLockFixture()
+            let current = fixture.lock.current
+            #expect(current.id == "unencrypted")
+            #expect(current.name == "KoalaTVault")
+            #expect(!current.isEncrypted)
+            #expect((current.store as? MockVaultStoring) === fixture.unencryptedStore)
         }
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.lock.state == .open)
-    }
 
-    @Test("Biometric mode without biometrics throws biometricsUnavailable and creates nothing")
-    func setUpBiometricsUnavailable() async throws {
-        let harness = try await VaultLockHarness(biometricKind: .none, biometricsEnabled: false)
-        await #expect(throws: VaultLockError.biometricsUnavailable) {
-            try await harness.lock.setUp(mode: .passwordAndBiometrics, password: secret)
+        @Test("unencryptedVault is the same vault as the launch state and stays after opening another vault")
+        func unencryptedVaultAlwaysThere() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            #expect(fixture.lock.unencryptedVault.id == "unencrypted")
+            #expect((fixture.lock.unencryptedVault.store as? MockVaultStoring) === fixture.unencryptedStore)
+            try await fixture.lock.open(password: "alpha pw")
+            #expect(fixture.lock.unencryptedVault.id == "unencrypted")
+            #expect(!fixture.lock.unencryptedVault.isEncrypted)
         }
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(harness.keys.password == nil)
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-    }
 
-    @Test("A stale blob in an empty vault is deleted with its biometric item and a new key is created")
-    func staleBlobReplacedWhenVaultEmpty() async throws {
-        let harness = try await VaultLockHarness(
-            blobPassword: otherSecret, hasBiometricKey: true, vaultHasEncryptedData: false)
-        try await harness.lock.setUp(mode: .password, password: secret)
-        let deleteBlob = try #require(harness.log.index(of: "deleteMasterKeyBlob"))
-        let deleteBiometric = try #require(harness.log.index(of: "deleteBiometricKey"))
-        let create = try #require(harness.log.index(of: "createMasterKey"))
-        #expect(deleteBlob < create)
-        #expect(deleteBiometric < create)
-        #expect(harness.keys.password == secret)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(harness.lock.state == .unlocked)
-        #expect(harness.lock.lockMode == .password)
-    }
-
-    @Test("An existing blob over encrypted data is unlocked with the given password, not replaced")
-    func existingBlobWithRightPassword() async throws {
-        let harness = try await VaultLockHarness(blobPassword: secret, vaultHasEncryptedData: true)
-        try await harness.lock.setUp(mode: .password, password: secret)
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(!harness.log.events.contains("deleteMasterKeyBlob"))
-        #expect(harness.keys.password == secret)
-        #expect(harness.lock.state == .unlocked)
-        #expect(harness.lock.lockMode == .password)
-    }
-
-    @Test("An existing blob over encrypted data with a wrong password throws existingPasswordRequired and is kept")
-    func existingBlobWithWrongPassword() async throws {
-        let harness = try await VaultLockHarness(blobPassword: secret, vaultHasEncryptedData: true)
-        await #expect(throws: VaultLockError.existingPasswordRequired) {
-            try await harness.lock.setUp(mode: .password, password: otherSecret)
+        @Test("Biometric kind and availability come from the injected info")
+        func biometricInfoFromProbe() throws {
+            let touch = try VaultLockFixture(canEvaluate: true, biometricKind: .touchID)
+            #expect(touch.lock.biometricKind == .touchID)
+            #expect(touch.lock.biometricsAvailable)
+            let none = try VaultLockFixture(canEvaluate: false, biometricKind: .none)
+            #expect(none.lock.biometricKind == BiometricKind.none)
+            #expect(!none.lock.biometricsAvailable)
         }
-        #expect(harness.keys.password == secret)
-        #expect(!harness.log.events.contains("deleteMasterKeyBlob"))
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .open)
-    }
 
-    @Test("A Keychain error while checking for a blob is thrown and nothing is created")
-    func blobCheckErrorIsThrown() async throws {
-        let harness = try await VaultLockHarness()
-        harness.keys.failures = ["hasMasterKeyBlob": .keychain(-25308)]
-        await #expect(throws: VaultLockError.keychain(-25308)) {
-            try await harness.lock.setUp(mode: .password, password: secret)
+        @Test("currentUpdates publishes nothing until current changes")
+        func noInitialValue() async throws {
+            let fixture = try VaultLockFixture()
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            await collector.settle()
+            #expect(collector.ids.isEmpty)
         }
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-    }
 
-    @Test("A failure storing the biometric item rolls back: blob and item deleted, key wiped, lock mode unchanged")
-    func rollbackAfterBiometricFailure() async throws {
-        let harness = try await VaultLockHarness()
-        harness.keys.failures = ["storeBiometricKey": .keychain(-25293)]
-        await #expect(throws: VaultLockError.keychain(-25293)) {
-            try await harness.lock.setUp(mode: .passwordAndBiometrics, password: secret)
+        @Test("currentUpdates publishes each change of current once, in order")
+        func publishesEachChangeOnce() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha, LiveVaultLockTests.bravo])
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            try await fixture.lock.open(password: "alpha pw")
+            try await fixture.lock.open(password: "bravo pw")
+            fixture.lock.close()
+            await collector.settle()
+            #expect(collector.ids == ["aaaa-1", "bbbb-2", "unencrypted"])
         }
-        let events = harness.log.events
-        let create = try #require(events.firstIndex(of: "createMasterKey"))
-        let rollbackDelete = try #require(events.lastIndex(of: "deleteMasterKeyBlob"))
-        #expect(rollbackDelete > create)
-        #expect(events.suffix(from: create).contains("deleteBiometricKey"))
-        #expect(events.suffix(from: create).contains("wipeKey"))
-        #expect(harness.keys.password == nil)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.prefs.lockMode == .none)
-        #expect(harness.lock.state == .open)
-    }
 
-    @Test("After a rolled-back setup a retry succeeds instead of failing with a leftover key")
-    func retryAfterRollbackSucceeds() async throws {
-        let harness = try await VaultLockHarness()
-        harness.keys.failures = ["storeBiometricKey": .keychain(-25293)]
-        await #expect(throws: VaultLockError.keychain(-25293)) {
-            try await harness.lock.setUp(mode: .passwordAndBiometrics, password: secret)
-        }
-        harness.keys.failures = [:]
-        try await harness.lock.setUp(mode: .passwordAndBiometrics, password: secret)
-        #expect(harness.lock.state == .unlocked)
-        #expect(harness.lock.lockMode == .passwordAndBiometrics)
-    }
-}
-
-// MARK: - unlock
-
-@MainActor
-@Suite struct LiveVaultLockUnlockTests {
-    @Test("The right password loads the key and unlocks")
-    func rightPassword() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        try await harness.lock.unlock(password: secret)
-        #expect(harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .unlocked)
-    }
-
-    @Test("A wrong password throws wrongPassword and stays locked")
-    func wrongPassword() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        await #expect(throws: VaultLockError.wrongPassword) {
-            try await harness.lock.unlock(password: otherSecret)
-        }
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .locked)
-    }
-
-    @Test("An empty password throws emptyPassword")
-    func emptyPassword() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        await #expect(throws: VaultLockError.emptyPassword) {
-            try await harness.lock.unlock(password: "")
-        }
-        #expect(harness.lock.state == .locked)
-    }
-
-    @Test("With no blob unlocking throws passwordMissing")
-    func noBlob() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: nil)
-        await #expect(throws: VaultLockError.passwordMissing) {
-            try await harness.lock.unlock(password: secret)
-        }
-        #expect(harness.lock.state == .locked)
-    }
-
-    @Test("In biometric mode a successful unlock refreshes the biometric item")
-    func refreshesBiometricItem() async throws {
-        let harness = try await VaultLockHarness(lockMode: .passwordAndBiometrics, blobPassword: secret)
-        try await harness.lock.unlock(password: secret)
-        let unlock = try #require(harness.log.index(of: "unlock"))
-        let store = try #require(harness.log.index(of: "storeBiometricKey"))
-        #expect(unlock < store)
-        #expect(harness.keys.hasBiometricKey)
-    }
-
-    @Test("In password mode unlocking does not store a biometric item")
-    func noBiometricItemInPasswordMode() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        try await harness.lock.unlock(password: secret)
-        #expect(!harness.log.events.contains("storeBiometricKey"))
-    }
-
-    @Test("A failure refreshing the biometric item does not fail the unlock")
-    func refreshFailureIgnored() async throws {
-        let harness = try await VaultLockHarness(lockMode: .passwordAndBiometrics, blobPassword: secret)
-        harness.keys.failures = ["storeBiometricKey": .keychain(-25293)]
-        try await harness.lock.unlock(password: secret)
-        #expect(harness.lock.state == .unlocked)
-        #expect(harness.keys.isKeyLoaded)
-    }
-
-    @Test("Unlocking deletes the legacy plaintext password item and ignores a delete error")
-    func deletesLegacyItem() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        harness.keychain.errorToThrow = .keychain(-25300)
-        try await harness.lock.unlock(password: secret)
-        #expect(harness.keychain.calls.contains(.delete(account: legacyAccount)))
-        #expect(harness.lock.state == .unlocked)
-    }
-}
-
-// MARK: - unlockWithBiometrics
-
-@MainActor
-@Suite struct LiveVaultLockBiometricUnlockTests {
-    @Test("Reading the biometric item loads the key and unlocks")
-    func success() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true)
-        try await harness.lock.unlockWithBiometrics()
-        #expect(harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .unlocked)
-    }
-
-    @Test("A key that does not match the vault is wiped, the item deleted and biometricChanged thrown")
-    func keyMismatch() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true,
-            keyMatchesVault: false)
-        await #expect(throws: VaultLockError.biometricChanged) {
-            try await harness.lock.unlockWithBiometrics()
-        }
-        #expect(harness.store.calls.contains(.keyMatchesVault))
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(harness.log.events.contains("wipeKey"))
-        #expect(harness.log.events.contains("deleteBiometricKey"))
-        #expect(harness.lock.state == .locked)
-    }
-
-    // swiftlint:disable trailing_comma
-    @Test(
-        "Biometric failures map to lock errors and leave the vault locked",
-        arguments: [
-            (VaultCryptoError.biometricCancelled, VaultLockError.biometricCancelled),
-            (VaultCryptoError.biometricItemMissing, VaultLockError.biometricChanged),
-            (VaultCryptoError.biometryLockedOut, VaultLockError.biometryLockedOut),
-            (VaultCryptoError.biometryNotEnrolled, VaultLockError.biometryNotEnrolled),
-            (VaultCryptoError.passcodeNotSet, VaultLockError.passcodeNotSet),
-        ])
-    // swiftlint:enable trailing_comma
-    func errorMapping(crypto: VaultCryptoError, expected: VaultLockError) async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true)
-        harness.keys.failures = ["unlockWithBiometricKey": crypto]
-        await #expect(throws: expected) {
-            try await harness.lock.unlockWithBiometrics()
-        }
-        #expect(harness.lock.state == .locked)
-    }
-
-    @Test("A missing biometric item throws biometricChanged")
-    func missingItem() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: false)
-        await #expect(throws: VaultLockError.biometricChanged) {
-            try await harness.lock.unlockWithBiometrics()
+        @Test("currentUpdates publishes nothing when current does not change")
+        func doesNotPublishNonChanges() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            fixture.lock.close()
+            await expectLockError(.wrongPassword) { try await fixture.lock.open(password: "nope") }
+            try await fixture.lock.open(password: "alpha pw")
+            try await fixture.lock.open(password: "alpha pw")
+            await collector.settle()
+            #expect(collector.ids == ["aaaa-1"])
         }
     }
 
-    @Test(
-        "Outside biometric mode biometric unlock throws biometricsUnavailable without reading the item",
-        arguments: [LockMode.none, .password])
-    func notBiometricMode(mode: LockMode) async throws {
-        let harness = try await VaultLockHarness(lockMode: mode, blobPassword: secret, hasBiometricKey: true)
-        await #expect(throws: VaultLockError.biometricsUnavailable) {
-            try await harness.lock.unlockWithBiometrics()
+    // MARK: open(password:)
+
+    @MainActor @Suite struct Open {
+        @Test("An empty password throws emptyPassword and tries no vault")
+        func emptyPassword() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            await expectLockError(.emptyPassword) { try await fixture.lock.open(password: "") }
+            #expect(fixture.shelf.events.isEmpty)
+            #expect(fixture.lock.current.id == "unencrypted")
         }
-        #expect(!harness.log.events.contains("unlockWithBiometricKey"))
-        #expect(!harness.keys.isKeyLoaded)
-    }
-}
 
-// MARK: - Lifecycle
-
-@MainActor
-@Suite struct LiveVaultLockLifecycleTests {
-    @Test("Resigning active while unlocked asks for the privacy cover and wipes nothing")
-    func resignActiveUnlocked() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        let mark = harness.log.events.count
-        #expect(harness.lock.appWillResignActive())
-        #expect(harness.events(after: mark).isEmpty)
-        #expect(harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .unlocked)
-        #expect(!harness.store.calls.contains(.removeAllTemporaryFiles))
-    }
-
-    @Test("Resigning active while locked does not ask for the cover")
-    func resignActiveLocked() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        #expect(!harness.lock.appWillResignActive())
-    }
-
-    @Test("Resigning active with no lock does not ask for the cover")
-    func resignActiveOpen() async throws {
-        let harness = try await VaultLockHarness(lockMode: .none)
-        #expect(!harness.lock.appWillResignActive())
-    }
-
-    @Test("Entering the background with a lock wipes the key, removes temp files and locks")
-    func backgroundWithLock() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        harness.lock.appDidEnterBackground()
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.log.events.contains("wipeKey"))
-        #expect(harness.store.calls.contains(.removeAllTemporaryFiles))
-        #expect(harness.lock.state == .locked)
-    }
-
-    @Test("Entering the background with no lock does nothing")
-    func backgroundWithoutLock() async throws {
-        let harness = try await VaultLockHarness(lockMode: .none)
-        harness.lock.appDidEnterBackground()
-        #expect(!harness.log.events.contains("wipeKey"))
-        #expect(!harness.store.calls.contains(.removeAllTemporaryFiles))
-        #expect(harness.lock.state == .open)
-    }
-
-    @Test("Entering the foreground with no lock is open")
-    func foregroundWithoutLock() async throws {
-        let harness = try await VaultLockHarness(lockMode: .none)
-        harness.lock.appWillEnterForeground()
-        #expect(harness.lock.state == .open)
-    }
-
-    @Test("Entering the foreground with a lock leaves the state unchanged")
-    func foregroundWithLock() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        harness.lock.appWillEnterForeground()
-        #expect(harness.lock.state == .locked)
-        try await harness.lock.unlock(password: secret)
-        harness.lock.appWillEnterForeground()
-        #expect(harness.lock.state == .unlocked)
-    }
-
-    @Test("Entering the foreground after the lock mode became none is open")
-    func foregroundAfterLockRemoved() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        harness.prefs.lockMode = .none
-        harness.lock.appWillEnterForeground()
-        #expect(harness.lock.state == .open)
-    }
-}
-
-// MARK: - stateUpdates
-
-@MainActor
-@Suite struct LiveVaultLockStateUpdatesTests {
-    @Test("Each state change is published exactly once, in order")
-    func publishesEachChangeOnce() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        let collector = LockStateCollector(harness.lock.stateUpdates())
-        try await harness.lock.unlock(password: secret)
-        await collector.settle()
-        #expect(collector.values == [.unlocked])
-        harness.lock.appDidEnterBackground()
-        await collector.settle()
-        #expect(collector.values == [.unlocked, .locked])
-        collector.stop()
-    }
-
-    @Test("A failed unlock publishes nothing")
-    func failedUnlockPublishesNothing() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        let collector = LockStateCollector(harness.lock.stateUpdates())
-        await #expect(throws: VaultLockError.wrongPassword) {
-            try await harness.lock.unlock(password: otherSecret)
+        @Test("A wrong password throws wrongPassword, leaves the unencrypted vault current and no key loaded")
+        func wrongPassword() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha, LiveVaultLockTests.bravo])
+            await expectLockError(.wrongPassword) { try await fixture.lock.open(password: "nope") }
+            #expect(fixture.lock.current.id == "unencrypted")
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(!fixture.isLoaded("bbbb-2"))
         }
-        await collector.settle()
-        #expect(collector.values.isEmpty)
-        collector.stop()
-    }
 
-    @Test("Setting up a lock publishes unlocked once")
-    func setUpPublishes() async throws {
-        let harness = try await VaultLockHarness()
-        let collector = LockStateCollector(harness.lock.stateUpdates())
-        try await harness.lock.setUp(mode: .password, password: secret)
-        await collector.settle()
-        #expect(collector.values == [.unlocked])
-        collector.stop()
-    }
-
-    @Test("Entering the foreground without a change publishes nothing")
-    func unchangedForegroundPublishesNothing() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        let collector = LockStateCollector(harness.lock.stateUpdates())
-        harness.lock.appWillEnterForeground()
-        harness.lock.appDidEnterBackground()
-        await collector.settle()
-        #expect(collector.values.isEmpty)
-        collector.stop()
-    }
-
-    @Test("Removing the keys publishes open once")
-    func removeKeysPublishes() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        let collector = LockStateCollector(harness.lock.stateUpdates())
-        try await harness.lock.removeKeysAfterDecryption()
-        await collector.settle()
-        #expect(collector.values == [.open])
-        collector.stop()
-    }
-
-    @Test("Every subscriber receives the changes")
-    func multipleSubscribers() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        let first = LockStateCollector(harness.lock.stateUpdates())
-        let second = LockStateCollector(harness.lock.stateUpdates())
-        try await harness.lock.unlock(password: secret)
-        await first.settle()
-        #expect(first.values == [.unlocked])
-        #expect(second.values == [.unlocked])
-        first.stop()
-        second.stop()
-    }
-}
-
-// MARK: - changePassword
-
-@MainActor
-@Suite struct LiveVaultLockChangePasswordTests {
-    @Test("Changing the password rewraps the blob so the new password unlocks and the old one does not")
-    func changesPassword() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        let mark = harness.log.events.count
-        try await harness.lock.changePassword(current: secret, new: otherSecret)
-        #expect(harness.events(after: mark).contains("rewrap"))
-        #expect(!harness.events(after: mark).contains("createMasterKey"))
-        harness.lock.appDidEnterBackground()
-        await #expect(throws: VaultLockError.wrongPassword) {
-            try await harness.lock.unlock(password: secret)
+        @Test("With no encrypted vault any password throws wrongPassword")
+        func wrongPasswordWithNoVaults() async throws {
+            let fixture = try VaultLockFixture()
+            await expectLockError(.wrongPassword) { try await fixture.lock.open(password: "anything") }
+            #expect(fixture.lock.current.id == "unencrypted")
         }
-        try await harness.lock.unlock(password: otherSecret)
-        #expect(harness.lock.state == .unlocked)
-    }
 
-    @Test("A wrong current password throws wrongPassword and leaves the blob unchanged")
-    func wrongCurrent() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        let mark = harness.log.events.count
-        await #expect(throws: VaultLockError.wrongPassword) {
-            try await harness.lock.changePassword(current: "nope", new: otherSecret)
+        @Test("A password opens the vault it belongs to, with its name, encrypted, key loaded")
+        func opensTheMatchingVault() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha, LiveVaultLockTests.bravo])
+            try await fixture.lock.open(password: "bravo pw")
+            let current = fixture.lock.current
+            #expect(current.id == "bbbb-2")
+            #expect(current.name == "Bravo")
+            #expect(current.isEncrypted)
+            #expect(current.store.isEncrypted)
+            #expect(fixture.isLoaded("bbbb-2"))
+            #expect(!fixture.isLoaded("aaaa-1"))
         }
-        #expect(harness.keys.password == secret)
-        #expect(!harness.events(after: mark).contains("rewrap"))
-    }
 
-    @Test("An empty new password throws emptyPassword and leaves the blob unchanged")
-    func emptyNew() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        let mark = harness.log.events.count
-        await #expect(throws: VaultLockError.emptyPassword) {
-            try await harness.lock.changePassword(current: secret, new: "")
+        @Test("When two vaults share a password the first one found opens and later ones are not tried")
+        func firstMatchWins() async throws {
+            let first = SeedVault(id: "aaaa-1", name: "First", password: "same")
+            let second = SeedVault(id: "bbbb-2", name: "Second", password: "same")
+            let fixture = try VaultLockFixture(vaults: [second, first])
+            try await fixture.lock.open(password: "same")
+            #expect(fixture.lock.current.id == "aaaa-1")
+            #expect(!fixture.shelf.events.contains("unlock:bbbb-2"))
         }
-        #expect(harness.keys.password == secret)
-        #expect(!harness.events(after: mark).contains("rewrap"))
-    }
-}
 
-// MARK: - switchMode
-
-@MainActor
-@Suite struct LiveVaultLockSwitchModeTests {
-    @Test("Switching to password plus biometrics stores the biometric item, then writes the lock mode")
-    func enableBiometrics() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        let mark = harness.log.events.count
-        try await harness.lock.switchMode(to: .passwordAndBiometrics)
-        let events = harness.events(after: mark)
-        let store = try #require(events.firstIndex(of: "storeBiometricKey"))
-        let write = try #require(events.firstIndex(of: "lockMode=passwordAndBiometrics"))
-        #expect(store < write)
-        #expect(harness.lock.lockMode == .passwordAndBiometrics)
-        #expect(harness.keys.hasBiometricKey)
-    }
-
-    @Test("Enabling biometrics without the key loaded throws notUnlocked and changes nothing")
-    func enableBiometricsLocked() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret)
-        await #expect(throws: VaultLockError.notUnlocked) {
-            try await harness.lock.switchMode(to: .passwordAndBiometrics)
+        @Test("Opening the vault that is already open changes nothing")
+        func alreadyOpenIsNoChange() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            try await fixture.lock.open(password: "alpha pw")
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            try await fixture.lock.open(password: "alpha pw")
+            await collector.settle()
+            #expect(collector.ids.isEmpty)
+            #expect(fixture.lock.current.id == "aaaa-1")
+            #expect(fixture.isLoaded("aaaa-1"))
+            let first = try #require(fixture.shelf.instances(account: fixture.blobAccount("aaaa-1")).first)
+            #expect(first.isKeyLoaded)
+            #expect(first.wipeCalls == 0)
         }
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.lock.lockMode == .password)
-        #expect(!harness.keys.hasBiometricKey)
-    }
 
-    @Test("A failure storing the biometric item leaves the lock mode unchanged and throws")
-    func enableBiometricsFailure() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        harness.keys.failures = ["storeBiometricKey": .keychain(-25293)]
-        await #expect(throws: VaultLockError.keychain(-25293)) {
-            try await harness.lock.switchMode(to: .passwordAndBiometrics)
+        @Test("Opening another vault first closes the open one: key wiped, temp files removed")
+        func switchingClosesTheOldVaultFirst() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha, LiveVaultLockTests.bravo])
+            try await fixture.lock.open(password: "alpha pw")
+            try await fixture.lock.open(password: "bravo pw")
+            #expect(fixture.lock.current.id == "bbbb-2")
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(fixture.isLoaded("bbbb-2"))
+            #expect(fixture.registry.removedTemporaryFiles("aaaa-1"))
+            #expect(!fixture.registry.removedTemporaryFiles("bbbb-2"))
         }
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.lock.lockMode == .password)
-    }
 
-    @Test("Switching to password writes the lock mode, then deletes the biometric item")
-    func disableBiometrics() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true, unlocked: true)
-        let mark = harness.log.events.count
-        try await harness.lock.switchMode(to: .password)
-        let events = harness.events(after: mark)
-        let write = try #require(events.firstIndex(of: "lockMode=password"))
-        let delete = try #require(events.firstIndex(of: "deleteBiometricKey"))
-        #expect(write < delete)
-        #expect(harness.lock.lockMode == .password)
-        #expect(!harness.keys.hasBiometricKey)
-    }
-
-    @Test("A biometric item delete failure is thrown after the lock mode was already set")
-    func disableBiometricsDeleteFailure() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true, unlocked: true)
-        harness.keys.failures = ["deleteBiometricKey": .keychain(-25244)]
-        await #expect(throws: VaultLockError.keychain(-25244)) {
-            try await harness.lock.switchMode(to: .password)
+        @Test("A missing .vault_info shows the name My Vault and writes it")
+        func missingNameIsWritten() async throws {
+            let nameless = SeedVault(id: "cccc-3", name: nil, password: "charlie pw")
+            let fixture = try VaultLockFixture(vaults: [nameless])
+            #expect(fixture.storedName(of: "cccc-3") == nil)
+            try await fixture.lock.open(password: "charlie pw")
+            #expect(fixture.lock.current.name == "My Vault")
+            #expect(fixture.storedName(of: "cccc-3") == "My Vault")
         }
-        #expect(harness.lock.lockMode == .password)
-        #expect(harness.prefs.lockMode == .password)
-    }
 
-    // swiftlint:disable trailing_comma
-    @Test(
-        "Switching to or from none is not allowed here",
-        arguments: [
-            (LockMode.password, LockMode.none),
-            (LockMode.passwordAndBiometrics, LockMode.none),
-            (LockMode.none, LockMode.password),
-            (LockMode.none, LockMode.passwordAndBiometrics),
-        ])
-    // swiftlint:enable trailing_comma
-    func noneNotAllowed(from: LockMode, target: LockMode) async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: from, blobPassword: from == .none ? nil : secret, hasBiometricKey: from == .passwordAndBiometrics,
-            unlocked: from != .none)
-        let mark = harness.log.events.count
-        await #expect(throws: VaultLockError.notUnlocked) {
-            try await harness.lock.switchMode(to: target)
+        @Test("A vault's own name is read from its .vault_info and not overwritten")
+        func existingNameIsKept() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            try await fixture.lock.open(password: "alpha pw")
+            #expect(fixture.lock.current.name == "Alpha")
+            #expect(fixture.storedName(of: "aaaa-1") == "Alpha")
         }
-        #expect(harness.lock.lockMode == from)
-        #expect(harness.events(after: mark).isEmpty)
-    }
-}
-
-// MARK: - prepareToAddLock
-
-@MainActor
-@Suite struct LiveVaultLockPrepareToAddLockTests {
-    @Test("With no blob the key is created and the lock mode written; the lock ends unlocked")
-    func noBlob() async throws {
-        let harness = try await VaultLockHarness()
-        try await harness.lock.prepareToAddLock(mode: .password, password: secret)
-        let create = try #require(harness.log.index(of: "createMasterKey"))
-        let write = try #require(harness.log.index(of: "lockMode=password"))
-        #expect(create < write)
-        #expect(harness.lock.lockMode == .password)
-        #expect(harness.lock.state == .unlocked)
-        #expect(harness.keys.password == secret)
     }
 
-    @Test("Biometric mode stores the biometric item before writing the lock mode")
-    func biometricMode() async throws {
-        let harness = try await VaultLockHarness()
-        try await harness.lock.prepareToAddLock(mode: .passwordAndBiometrics, password: secret)
-        let store = try #require(harness.log.index(of: "storeBiometricKey"))
-        let write = try #require(harness.log.index(of: "lockMode=passwordAndBiometrics"))
-        #expect(store < write)
-        #expect(harness.lock.state == .unlocked)
-    }
+    // MARK: openWithBiometrics
 
-    @Test("A stale blob in an empty vault is replaced")
-    func staleBlobReplaced() async throws {
-        let harness = try await VaultLockHarness(
-            blobPassword: otherSecret, hasBiometricKey: true, vaultHasEncryptedData: false)
-        try await harness.lock.prepareToAddLock(mode: .password, password: secret)
-        let deleteBlob = try #require(harness.log.index(of: "deleteMasterKeyBlob"))
-        let create = try #require(harness.log.index(of: "createMasterKey"))
-        #expect(deleteBlob < create)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(harness.keys.password == secret)
-        #expect(harness.lock.state == .unlocked)
-    }
+    @MainActor @Suite struct BiometricOpen {
+        private static let faceVault = SeedVault(id: "aaaa-1", name: "Alpha", password: "alpha pw", faceID: true)
 
-    @Test("An existing blob over encrypted data is unlocked with the right password")
-    func existingBlobRightPassword() async throws {
-        let harness = try await VaultLockHarness(blobPassword: secret, vaultHasEncryptedData: true)
-        try await harness.lock.prepareToAddLock(mode: .password, password: secret)
-        #expect(!harness.log.events.contains("deleteMasterKeyBlob"))
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(harness.lock.lockMode == .password)
-        #expect(harness.lock.state == .unlocked)
-    }
-
-    @Test("An existing blob over encrypted data with a wrong password throws existingPasswordRequired")
-    func existingBlobWrongPassword() async throws {
-        let harness = try await VaultLockHarness(blobPassword: secret, vaultHasEncryptedData: true)
-        await #expect(throws: VaultLockError.existingPasswordRequired) {
-            try await harness.lock.prepareToAddLock(mode: .password, password: otherSecret)
+        @Test("With no marker it throws noBiometricVault, even when biometrics are unavailable")
+        func noMarker() async throws {
+            let fixture = try VaultLockFixture(canEvaluate: false, vaults: [LiveVaultLockTests.alpha])
+            await expectLockError(.noBiometricVault) { try await fixture.lock.openWithBiometrics() }
+            #expect(fixture.lock.current.id == "unencrypted")
         }
-        #expect(harness.keys.password == secret)
-        #expect(!harness.log.events.contains("deleteMasterKeyBlob"))
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.lock.state == .open)
-    }
 
-    @Test("A Keychain error while checking for a blob is thrown, not treated as a blob or no blob")
-    func blobCheckError() async throws {
-        let harness = try await VaultLockHarness()
-        harness.keys.failures = ["hasMasterKeyBlob": .keychain(-25308)]
-        await #expect(throws: VaultLockError.keychain(-25308)) {
-            try await harness.lock.prepareToAddLock(mode: .password, password: secret)
+        @Test("A marker naming a vault that is gone throws noBiometricVault")
+        func markerNamesMissingVault() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            try fixture.giveFaceID(to: "gone-9")
+            await expectLockError(.noBiometricVault) { try await fixture.lock.openWithBiometrics() }
         }
-        #expect(!harness.log.events.contains("createMasterKey"))
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-    }
 
-    @Test("An empty password throws emptyPassword")
-    func emptyPassword() async throws {
-        let harness = try await VaultLockHarness()
-        await #expect(throws: VaultLockError.emptyPassword) {
-            try await harness.lock.prepareToAddLock(mode: .password, password: "")
+        @Test("When biometrics are unavailable it throws biometricsUnavailable and loads no key")
+        func unavailable() async throws {
+            let fixture = try VaultLockFixture(canEvaluate: false, vaults: [Self.faceVault])
+            await expectLockError(.biometricsUnavailable) { try await fixture.lock.openWithBiometrics() }
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(fixture.lock.current.id == "unencrypted")
         }
-        #expect(!harness.log.events.contains("createMasterKey"))
-    }
 
-    @Test("A biometric item failure rolls back: blob and item deleted, key wiped, lock mode unchanged")
-    func rollback() async throws {
-        let harness = try await VaultLockHarness()
-        harness.keys.failures = ["storeBiometricKey": .keychain(-25293)]
-        await #expect(throws: VaultLockError.keychain(-25293)) {
-            try await harness.lock.prepareToAddLock(mode: .passwordAndBiometrics, password: secret)
+        @Test("Success opens the Face ID vault like open(password:), with its name and key")
+        func success() async throws {
+            let fixture = try VaultLockFixture(vaults: [Self.faceVault, LiveVaultLockTests.bravo])
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            try await fixture.lock.openWithBiometrics()
+            await collector.settle()
+            #expect(fixture.lock.current.id == "aaaa-1")
+            #expect(fixture.lock.current.name == "Alpha")
+            #expect(fixture.lock.current.isEncrypted)
+            #expect(fixture.isLoaded("aaaa-1"))
+            #expect(collector.ids == ["aaaa-1"])
+            #expect(fixture.marker == "aaaa-1")
         }
-        let events = harness.log.events
-        let create = try #require(events.firstIndex(of: "createMasterKey"))
-        #expect(events.suffix(from: create).contains("deleteMasterKeyBlob"))
-        #expect(events.suffix(from: create).contains("deleteBiometricKey"))
-        #expect(events.suffix(from: create).contains("wipeKey"))
-        #expect(harness.keys.password == nil)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.lock.lockMode == .none)
-        #expect(harness.lock.state == .open)
-    }
-}
 
-// MARK: - removeKeysAfterDecryption
-
-@MainActor
-@Suite struct LiveVaultLockRemoveKeysTests {
-    @Test("Keys are removed in order: biometric item, lock mode none, blob, key wipe; the lock ends open")
-    func removesInOrder() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true, unlocked: true)
-        let mark = harness.log.events.count
-        try await harness.lock.removeKeysAfterDecryption()
-        let steps = harness.events(after: mark).filter {
-            ["deleteBiometricKey", "lockMode=none", "deleteMasterKeyBlob", "wipeKey"].contains($0)
+        @Test("Success while another vault is open closes that vault first")
+        func successClosesOpenVault() async throws {
+            let fixture = try VaultLockFixture(vaults: [Self.faceVault, LiveVaultLockTests.bravo])
+            try await fixture.lock.open(password: "bravo pw")
+            try await fixture.lock.openWithBiometrics()
+            #expect(fixture.lock.current.id == "aaaa-1")
+            #expect(!fixture.isLoaded("bbbb-2"))
+            #expect(fixture.registry.removedTemporaryFiles("bbbb-2"))
         }
-        #expect(steps == ["deleteBiometricKey", "lockMode=none", "deleteMasterKeyBlob", "wipeKey"])
-        #expect(harness.keys.password == nil)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.lock.lockMode == .none)
-        #expect(harness.lock.state == .open)
-    }
 
-    @Test("The legacy plaintext password item is deleted")
-    func deletesLegacyItem() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        try await harness.lock.removeKeysAfterDecryption()
-        #expect(harness.keychain.calls.contains(.delete(account: legacyAccount)))
-    }
-
-    @Test("A legacy item delete error is ignored")
-    func legacyDeleteErrorIgnored() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        harness.keychain.errorToThrow = .keychain(-25300)
-        try await harness.lock.removeKeysAfterDecryption()
-        #expect(harness.lock.state == .open)
-        #expect(harness.keys.password == nil)
-    }
-
-    @Test("Running it again after completion succeeds and changes nothing")
-    func repeatable() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, unlocked: true)
-        try await harness.lock.removeKeysAfterDecryption()
-        try await harness.lock.removeKeysAfterDecryption()
-        #expect(harness.lock.lockMode == .none)
-        #expect(harness.lock.state == .open)
-        #expect(harness.keys.password == nil)
-    }
-
-    @Test("It also works when the vault was left locked")
-    func fromLockedState() async throws {
-        let harness = try await VaultLockHarness(lockMode: .password, blobPassword: secret, hasBiometricKey: true)
-        try await harness.lock.removeKeysAfterDecryption()
-        #expect(harness.keys.password == nil)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(harness.lock.state == .open)
-    }
-
-    @Test("A biometric item delete failure throws and leaves the later steps for the next call")
-    func biometricDeleteFailureStops() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true, unlocked: true)
-        harness.keys.failures = ["deleteBiometricKey": .keychain(-25244)]
-        await #expect(throws: VaultLockError.keychain(-25244)) {
-            try await harness.lock.removeKeysAfterDecryption()
+        @Test("A key that does not open the vault wipes it, deletes the item and marker, throws biometricChanged")
+        func keyDoesNotMatchVault() async throws {
+            let fixture = try VaultLockFixture(vaults: [Self.faceVault])
+            fixture.registry.keyDoesNotMatch("aaaa-1")
+            await expectLockError(.biometricChanged) { try await fixture.lock.openWithBiometrics() }
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(fixture.biometricItem == nil)
+            #expect(fixture.marker == nil)
+            #expect(fixture.lock.current.id == "unencrypted")
+            #expect(!fixture.lock.hasBiometricVault)
         }
-        #expect(harness.prefs.lockModeWrites.isEmpty)
-        #expect(harness.keys.password == secret)
-        #expect(harness.keys.isKeyLoaded)
 
-        harness.keys.failures = [:]
-        try await harness.lock.removeKeysAfterDecryption()
-        #expect(harness.lock.lockMode == .none)
-        #expect(harness.keys.password == nil)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .open)
+        @Test("A missing biometric item deletes the marker and throws biometricChanged")
+        func itemMissing() async throws {
+            let fixture = try VaultLockFixture(vaults: [Self.faceVault])
+            try fixture.keychain.delete(account: KeyShelf.biometricAccount)
+            await expectLockError(.biometricChanged) { try await fixture.lock.openWithBiometrics() }
+            #expect(fixture.marker == nil)
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(fixture.lock.current.id == "unencrypted")
+        }
+
+        static let failureCases = [
+            BiometricFailureCase(crypto: .biometricCancelled, expected: .biometricCancelled),
+            BiometricFailureCase(crypto: .biometryLockedOut, expected: .biometryLockedOut),
+            BiometricFailureCase(crypto: .biometryNotEnrolled, expected: .biometryNotEnrolled),
+            BiometricFailureCase(crypto: .passcodeNotSet, expected: .passcodeNotSet),
+        ]
+
+        @Test("Cancel, lockout, not enrolled and no passcode map to their own errors and keep the Face ID setup")
+        func mappedFailures() async throws {
+            for failure in Self.failureCases {
+                let fixture = try VaultLockFixture(vaults: [Self.faceVault])
+                fixture.shelf.fail("unlockWithBiometricKey", with: failure.crypto)
+                await expectLockError(failure.expected) { try await fixture.lock.openWithBiometrics() }
+                #expect(fixture.marker == "aaaa-1")
+                #expect(fixture.biometricItem != nil)
+                #expect(fixture.lock.current.id == "unencrypted")
+            }
+        }
     }
 
-    @Test("A blob delete failure throws after the lock mode was cleared; the next call finishes")
-    func blobDeleteFailureResumes() async throws {
-        let harness = try await VaultLockHarness(
-            lockMode: .passwordAndBiometrics, blobPassword: secret, hasBiometricKey: true, unlocked: true)
-        harness.keys.failures = ["deleteMasterKeyBlob": .keychain(-25244)]
-        await #expect(throws: VaultLockError.keychain(-25244)) {
-            try await harness.lock.removeKeysAfterDecryption()
-        }
-        #expect(harness.prefs.lockMode == .none)
-        #expect(!harness.keys.hasBiometricKey)
-        #expect(harness.keys.password == secret)
-        #expect(harness.keys.isKeyLoaded)
+    // MARK: canCreateVault and createVault
 
-        harness.keys.failures = [:]
-        try await harness.lock.removeKeysAfterDecryption()
-        #expect(harness.keys.password == nil)
-        #expect(!harness.keys.isKeyLoaded)
-        #expect(harness.lock.state == .open)
+    @MainActor @Suite struct Create {
+        @Test("With no encrypted vault a free user can create one")
+        func canCreateFirstVault() async throws {
+            let fixture = try VaultLockFixture(pro: false)
+            #expect(await fixture.lock.canCreateVault())
+        }
+
+        @Test("A free user with an encrypted vault cannot create another")
+        func freeUserLimit() async throws {
+            let fixture = try VaultLockFixture(pro: false, vaults: [LiveVaultLockTests.alpha])
+            #expect(await !fixture.lock.canCreateVault())
+        }
+
+        @Test("A Pro user can create more vaults")
+        func proUserCanCreateMore() async throws {
+            let fixture = try VaultLockFixture(pro: true, vaults: [LiveVaultLockTests.alpha])
+            #expect(await fixture.lock.canCreateVault())
+        }
+
+        @Test("An empty or whitespace-only name throws emptyName and creates nothing")
+        func emptyName() async throws {
+            let fixture = try VaultLockFixture()
+            await expectLockError(.emptyName) { try await fixture.lock.createVault(name: "", password: "pw") }
+            await expectLockError(.emptyName) { try await fixture.lock.createVault(name: " \n ", password: "pw") }
+            #expect(fixture.vaultFolderNames.isEmpty)
+            #expect(fixture.keychain.items.isEmpty)
+        }
+
+        @Test("The name is checked before the password")
+        func emptyNameBeforeEmptyPassword() async throws {
+            let fixture = try VaultLockFixture()
+            await expectLockError(.emptyName) { try await fixture.lock.createVault(name: "", password: "") }
+        }
+
+        @Test("An empty password throws emptyPassword and creates nothing")
+        func emptyPassword() async throws {
+            let fixture = try VaultLockFixture()
+            await expectLockError(.emptyPassword) { try await fixture.lock.createVault(name: "Work", password: "") }
+            #expect(fixture.vaultFolderNames.isEmpty)
+            #expect(fixture.keychain.items.isEmpty)
+        }
+
+        @Test("A free user with a vault gets vaultLimitReached and nothing is created")
+        func limitReached() async throws {
+            let fixture = try VaultLockFixture(pro: false, vaults: [LiveVaultLockTests.alpha])
+            await expectLockError(.vaultLimitReached) { try await fixture.lock.createVault(name: "Two", password: "x") }
+            #expect(fixture.vaultFolderNames == ["aaaa-1"])
+            #expect(fixture.lock.current.id == "unencrypted")
+        }
+
+        @Test("A password that opens an existing vault throws passwordInUse and creates nothing")
+        func passwordInUse() async throws {
+            let fixture = try VaultLockFixture(pro: true, vaults: [LiveVaultLockTests.alpha])
+            await expectLockError(.passwordInUse) {
+                try await fixture.lock.createVault(name: "Two", password: "alpha pw")
+            }
+            #expect(fixture.vaultFolderNames == ["aaaa-1"])
+            #expect(fixture.lock.current.id == "unencrypted")
+        }
+
+        @Test("Creating makes a UUID folder, its blob account and .vault_info, and opens it as current")
+        func createsAndOpensTheVault() async throws {
+            let fixture = try VaultLockFixture()
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            try await fixture.lock.createVault(name: "  Work  ", password: "work pw")
+            await collector.settle()
+            let names = fixture.vaultFolderNames
+            let id = try #require(names.first)
+            #expect(names.count == 1)
+            #expect(UUID(uuidString: id) != nil)
+            #expect(fixture.keychain.items["com.KoalaTVault.masterKeyBlob.\(id)"] != nil)
+            #expect(fixture.storedName(of: id) == "Work")
+            let current = fixture.lock.current
+            #expect(current.id == id)
+            #expect(current.name == "Work")
+            #expect(current.isEncrypted)
+            #expect(fixture.isLoaded(id))
+            #expect(collector.ids == [id])
+        }
+
+        @Test("The new vault opens again by its password after closing")
+        func newVaultOpensByPassword() async throws {
+            let fixture = try VaultLockFixture()
+            try await fixture.lock.createVault(name: "Work", password: "work pw")
+            let id = fixture.lock.current.id
+            fixture.lock.close()
+            try await fixture.lock.open(password: "work pw")
+            #expect(fixture.lock.current.id == id)
+        }
+
+        @Test("A Pro user's second vault gets its own folder and blob, and the first vault is closed")
+        func secondVault() async throws {
+            let fixture = try VaultLockFixture(pro: true, vaults: [LiveVaultLockTests.alpha])
+            try await fixture.lock.open(password: "alpha pw")
+            try await fixture.lock.createVault(name: "Two", password: "two pw")
+            #expect(fixture.vaultFolderNames.count == 2)
+            #expect(fixture.lock.current.id != "aaaa-1")
+            #expect(fixture.lock.current.name == "Two")
+            #expect(!fixture.isLoaded("aaaa-1"))
+        }
+
+        @Test("A failure after the folder and blob exist removes both and rethrows")
+        func failureCleansUp() async throws {
+            let fixture = try VaultLockFixture()
+            fixture.failCiphers(with: .encryptionFailed)
+            var thrown = false
+            do {
+                try await fixture.lock.createVault(name: "Work", password: "work pw")
+            } catch {
+                thrown = true
+            }
+            #expect(thrown)
+            #expect(fixture.vaultFolderNames.isEmpty)
+            #expect(fixture.keychain.items.isEmpty)
+            #expect(fixture.lock.current.id == "unencrypted")
+        }
+
+        @Test("A key creation failure throws its error and leaves no folder and no blob")
+        func keyCreationFailure() async throws {
+            let fixture = try VaultLockFixture()
+            fixture.shelf.fail("createMasterKey", with: .keychain(-25299))
+            await expectLockError(.keychain(-25299)) { try await fixture.lock.createVault(name: "W", password: "pw") }
+            #expect(fixture.vaultFolderNames.isEmpty)
+            #expect(fixture.keychain.items.isEmpty)
+            #expect(fixture.lock.current.id == "unencrypted")
+        }
+    }
+
+    // MARK: close and backgrounding
+
+    @MainActor @Suite struct Close {
+        @Test("Closing an open encrypted vault wipes its key, removes its temp files and returns to unencrypted")
+        func closeEncrypted() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            try await fixture.lock.open(password: "alpha pw")
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            fixture.lock.close()
+            await collector.settle()
+            #expect(fixture.lock.current.id == "unencrypted")
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(fixture.registry.removedTemporaryFiles("aaaa-1"))
+            #expect(collector.ids == ["unencrypted"])
+        }
+
+        @Test("Closing while the unencrypted vault is current does nothing")
+        func closeUnencrypted() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            let collector = CurrentCollector(fixture.lock.currentUpdates())
+            fixture.lock.close()
+            await collector.settle()
+            #expect(fixture.lock.current.id == "unencrypted")
+            #expect(collector.ids.isEmpty)
+            #expect(fixture.shelf.events.isEmpty)
+            #expect(fixture.unencryptedStore.calls.isEmpty)
+        }
+
+        @Test("Closing also closes an open transfer target")
+        func closeClosesTransferTarget() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha, LiveVaultLockTests.bravo])
+            try await fixture.lock.open(password: "alpha pw")
+            _ = try await fixture.lock.openTransferTarget(password: "bravo pw")
+            #expect(fixture.isLoaded("bbbb-2"))
+            fixture.lock.close()
+            #expect(!fixture.isLoaded("bbbb-2"))
+            #expect(fixture.registry.removedTemporaryFiles("bbbb-2"))
+            #expect(!fixture.isLoaded("aaaa-1"))
+        }
+
+        @Test("appWillResignActive asks for the privacy cover only while an encrypted vault is open")
+        func resignActive() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            #expect(!fixture.lock.appWillResignActive())
+            try await fixture.lock.open(password: "alpha pw")
+            #expect(fixture.lock.appWillResignActive())
+            #expect(fixture.lock.current.id == "aaaa-1")
+        }
+
+        @Test("appDidEnterBackground closes an open encrypted vault like close()")
+        func backgroundCloses() async throws {
+            let fixture = try VaultLockFixture(vaults: [LiveVaultLockTests.alpha])
+            try await fixture.lock.open(password: "alpha pw")
+            fixture.lock.appDidEnterBackground()
+            #expect(fixture.lock.current.id == "unencrypted")
+            #expect(!fixture.isLoaded("aaaa-1"))
+            #expect(fixture.registry.removedTemporaryFiles("aaaa-1"))
+        }
+
+        @Test("appDidEnterBackground with the unencrypted vault current changes nothing")
+        func backgroundOnUnencrypted() async throws {
+            let fixture = try VaultLockFixture()
+            fixture.lock.appDidEnterBackground()
+            #expect(fixture.lock.current.id == "unencrypted")
+            #expect(fixture.shelf.events.isEmpty)
+        }
     }
 }

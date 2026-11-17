@@ -8,16 +8,28 @@
 import UIKit
 import os
 
+/// Runs the app's one scene: the one-time vault upgrade at connect, the root browser of the vault that is `current`
+/// (swapped on every change of vault) with the lock screen over it, the housekeeping after an encrypted vault opens,
+/// the unencrypted vault's trash purge, and the scene's lifecycle events for the lock coordinator (privacy cover,
+/// closing the vault and the lock screen on background).
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    /// Shown when `upgradeIfNeeded` fails (journey 12).
+    static let upgradeFailedMessage = "Couldn't finish updating your vaults. Restart the app to try again."
+
     var window: UIWindow?
-    /// Follows the vault lock's state to run the housekeeping on every change to `.unlocked`.
-    private var lockStateObservation: Task<Void, Never>?
-    /// Follows the lock migration's phase to reload the browsers when a migration completes.
-    private var migrationObservation: Task<Void, Never>?
-    /// The latest post-unlock housekeeping; a pending migration waits for it.
-    private var maintenance: Task<Void, Never>?
-    /// Set on a genuine backgrounding, so a return (not the cold launch) purges the trash with no lock.
-    private var didEnterBackground = false
+    /// The window's root, holding the current vault's root browser; the lock screen is presented over it.
+    private let root = VaultRootViewController()
+    /// The connect sequence (upgrade, then the browser and the lock screen).
+    private var startTask: Task<Void, Never>?
+    /// Follows `currentUpdates` once the scene has started.
+    private var vaultChangesTask: Task<Void, Never>?
+    /// The housekeeping after an encrypted vault opened; cancelled when the vault changes again.
+    private var postOpenTask: Task<Void, Never>?
+    /// The leftover encryption started from the Migration screen.
+    private var encryptionTask: Task<Void, Never>?
+    /// Whether the connect sequence has finished; until then a return to the foreground purges nothing (the
+    /// upgrade may still be moving the unencrypted vault's files).
+    private var hasStarted = false
     private let logger = Logger(subsystem: "com.KoalaTVault", category: "SceneDelegate")
 
     /// The composition root, built once by `AppDelegate`.
@@ -29,170 +41,207 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         return appDelegate.dependencies
     }
 
-    /// The app's one vault store.
-    private var vaultStore: any VaultStoring { dependencies.vaultStore }
-    /// The app's one vault lock.
-    private var vaultLock: any VaultLocking { dependencies.vaultLock }
-    /// Presents the setup wizard, the lock screen and the privacy cover.
-    private var lockCoordinator: any AppLockCoordinating { dependencies.lockCoordinator }
-    /// The app's one lock migration.
-    private var lockMigrator: any LockMigrating { dependencies.lockMigrator }
-    /// Makes the root browser and reloads the browsers on screen.
-    private var browserFactory: any BrowserFactory { dependencies.browserFactory }
-
-    deinit {
-        lockStateObservation?.cancel()
-        migrationObservation?.cancel()
-    }
-
     // MARK: - UIWindowSceneDelegate
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         let window = UIWindow(windowScene: windowScene)
-        window.rootViewController = browserFactory.makeRootBrowser()
+        window.rootViewController = root
         window.makeKeyAndVisible()
         self.window = window
 
-        // Subscribe before anything can unlock, so no change is missed.
-        observeLockState()
-        observeMigrationPhase()
-        lockCoordinator.onUnlocked = { [weak self] in self?.lockScreenDidUnlock() }
-        let needsSetup = !dependencies.preferences.hasCompletedSetup
-        // Runs the launch recovery of a pending encrypt first, so `resumeIfPending` (in the post-unlock
-        // steps, which never run before this) sees the record it left.
-        lockCoordinator.sceneDidConnect(window: window, needsSetup: needsSetup)
-        // The stream yields changes only: a vault that is already usable (no lock) runs the steps now. A
-        // pending encrypt that outlived the recovery is waiting for the password on the lock screen.
-        if !needsSetup && vaultLock.state != .locked
-            && dependencies.preferences.pendingMigration?.kind != .encrypt {
-            startMaintenance()
-            presentPendingMigrationAfterMaintenance()
-        }
-
         // Listed now, deleted in the background: the first frame doesn't wait for a large leftover.
         dependencies.removeTemporaryFilesOfEarlierLaunches()
-    }
-
-    func sceneDidBecomeActive(_ scene: UIScene) {
-        lockCoordinator.sceneDidBecomeActive()
-    }
-
-    func sceneWillEnterForeground(_ scene: UIScene) {
-        // With no lock there is no unlock on a return from background, so purge here. Not on the cold
-        // launch, where the post-unlock steps already purged.
-        guard didEnterBackground else { return }
-        didEnterBackground = false
-        guard vaultLock.lockMode == .none else { return }
-        Task { await purgeExpiredTrashIfUnlocked() }
-    }
-
-    func sceneWillResignActive(_ scene: UIScene) {
-        lockCoordinator.sceneWillResignActive()
-    }
-
-    func sceneDidEnterBackground(_ scene: UIScene) {
-        didEnterBackground = true
-        // With a lock: the key is wiped and the store's temporary files removed; the thumbnails go too.
-        lockCoordinator.sceneDidEnterBackground()
-        if vaultLock.lockMode != .none {
-            dependencies.thumbnails.clearCache()
-        }
+        startTask = Task { [weak self] in await self?.start(in: window) }
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
-        lockStateObservation?.cancel()
-        lockStateObservation = nil
-        migrationObservation?.cancel()
-        migrationObservation = nil
+        startTask?.cancel()
+        vaultChangesTask?.cancel()
+        postOpenTask?.cancel()
+        encryptionTask?.cancel()
     }
 
-    // MARK: - Vault Unlock
+    func sceneWillResignActive(_ scene: UIScene) {
+        dependencies.lockCoordinator.sceneWillResignActive()
+    }
 
-    /// Runs the housekeeping on every change to `.unlocked`, whatever caused it: the lock screen, the setup
-    /// wizard's password, or adding a lock in Settings.
-    private func observeLockState() {
-        guard lockStateObservation == nil else { return }
-        let updates = vaultLock.stateUpdates()
-        lockStateObservation = Task { [weak self] in
-            for await state in updates where state == .unlocked {
-                self?.startMaintenance()
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        dependencies.lockCoordinator.sceneDidEnterBackground()
+    }
+
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        // The first foreground of a launch comes before the connect sequence has finished; that one purges itself.
+        guard hasStarted else { return }
+        purgeUnencryptedTrash()
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        dependencies.lockCoordinator.sceneDidBecomeActive()
+    }
+
+    // MARK: - Connect
+
+    /// The one-time upgrade (its failure reported over the lock screen; the app carries on), then the root browser
+    /// of `current` with the lock screen over it, then following vault changes and purging the unencrypted vault's
+    /// expired trash.
+    private func start(in window: UIWindow) async {
+        let dependencies = dependencies
+        var upgradeFailed = false
+        do {
+            try await dependencies.vaultLock.upgradeIfNeeded()
+        } catch {
+            // Not logged in detail: an I/O message can name the user's files. The next launch carries on.
+            logger.error("The vault upgrade failed")
+            upgradeFailed = true
+        }
+        #if DEBUG
+        await dependencies.seedTestVaultIfRequested()
+        #endif
+        guard !Task.isCancelled else { return }
+
+        let services = dependencies.openServices(for: dependencies.vaultLock.current)
+        root.show(services.browserFactory.makeRootBrowser())
+        dependencies.lockCoordinator.sceneDidConnect(window: window)
+        observeVaultChanges()
+        hasStarted = true
+        purgeUnencryptedTrash()
+        if upgradeFailed {
+            let alert = UIAlertController(title: nil, message: Self.upgradeFailedMessage, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            topmostController.present(alert, animated: true)
+        }
+    }
+
+    // MARK: - Vault changes
+
+    private func observeVaultChanges() {
+        let updates = dependencies.vaultLock.currentUpdates()
+        vaultChangesTask = Task { [weak self] in
+            for await vault in updates {
+                self?.vaultDidChange(to: vault)
             }
         }
     }
 
-    /// Reloads the browsers when a lock migration completes (adding or removing a lock in Settings, or a
-    /// resumed one): their items still describe the files as they were before (`isEncrypted`, URL), so
-    /// opening one would fail until the grid lists the folder again.
-    private func observeMigrationPhase() {
-        guard migrationObservation == nil else { return }
-        let updates = lockMigrator.phaseUpdates()
-        migrationObservation = Task { [weak self] in
-            for await phase in updates {
-                if case .completed = phase {
-                    self?.browserFactory.reloadAll()
-                }
-            }
+    /// Another vault is `current`: dismisses what is presented over the browser (unless the lock screen is up, which
+    /// stays), clears the old vault's thumbnails, stops a leftover encryption, builds the new vault's services and
+    /// swaps the root browser; for an encrypted vault, then the housekeeping and the leftover encryption.
+    private func vaultDidChange(to vault: OpenVault) {
+        let dependencies = dependencies
+        postOpenTask?.cancel()
+        postOpenTask = nil
+        dependencies.lockScreens.cancelPendingAction()
+
+        if !dependencies.lockScreens.isLockScreenUp, root.presentedViewController != nil {
+            root.dismiss(animated: false)
         }
+        dependencies.lockMigrator.cancel()
+        encryptionTask?.cancel()
+        encryptionTask = nil
+        let services = dependencies.openServices(for: vault)
+        root.show(services.browserFactory.makeRootBrowser())
+
+        guard vault.isEncrypted else { return }
+        postOpenTask = Task { [weak self] in await self?.afterOpening(vault) }
     }
 
-    private func startMaintenance() {
-        // After unlock, so the key is loaded and the folder indexes can be read.
-        maintenance = Task { [vaultStore, preferences = dependencies.preferences] in
-            await PostUnlockMaintenance.run(vaultStore: vaultStore, preferences: preferences, now: Date())
-        }
-    }
-
-    /// The lock screen has gone: anything presented from here on stays on screen.
-    private func lockScreenDidUnlock() {
-        reloadFileBrowser()
-        presentPendingMigrationAfterMaintenance()
-    }
-
-    private func reloadFileBrowser() {
-        browserFactory.reloadAll()
-    }
-
-    /// Presents a pending migration once the housekeeping has finished. If the vault locked again in the
-    /// meantime, the next unlock does it, so nothing is presented over the lock screen.
-    private func presentPendingMigrationAfterMaintenance() {
-        // Queued behind the state update of the same unlock, which started the housekeeping.
-        Task { [weak self] in
-            await self?.maintenance?.value
-            guard let self, self.vaultLock.state != .locked else { return }
-            self.presentPendingMigration()
-        }
-    }
-
-    /// Resumes a pending migration: presents the Migration screen and resumes it once shown, or, when one is already
-    /// showing (a migration paused under the lock screen), resumes it under that screen.
-    private func presentPendingMigration() {
-        let lockMigrator = lockMigrator
-        guard lockMigrator.pending != nil,
-              let root = window?.rootViewController else { return }
-        // Check the whole presentation stack, not just its top.
-        let stack = sequence(first: root, next: \.presentedViewController)
-        guard !stack.contains(where: { $0 is MigrationViewController }) else {
-            Task { await lockMigrator.resumeIfPending() }
+    /// The housekeeping after `vault` opened (purge expired trash, sweep orphans), then, if it has files left
+    /// unencrypted, the Migration screen once the lock screen has gone.
+    private func afterOpening(_ vault: OpenVault) async {
+        await PostUnlockMaintenance.run(vaultStore: vault.store, now: Date())
+        guard !Task.isCancelled else { return }
+        let hasUnencryptedFiles: Bool
+        do {
+            hasUnencryptedFiles = try await vault.store.hasUnencryptedFiles()
+        } catch {
+            // The check runs again the next time the vault opens.
+            logger.error("Checking the open vault for unencrypted files failed")
             return
         }
-        let topVC = root.topmostPresentedController
-        // The migrator finishes the lock and keys itself; nothing is left to do when the screen closes.
-        let migration = dependencies.settingsFactory.makeMigration(onFinish: { [logger] completedFully in
-            logger.info("Resumed migration closed (completed fully: \(completedFully, privacy: .public))")
-        })
-        // Resumed once the screen is up, as the screen used to do on first appearing.
-        topVC.present(migration, animated: true) {
-            Task { await lockMigrator.resumeIfPending() }
+        guard hasUnencryptedFiles, !Task.isCancelled, isCurrent(vault) else { return }
+        dependencies.lockScreens.whenLockScreenGone { [weak self] in
+            self?.presentMigration(for: vault)
         }
     }
 
-    /// Removes trash items older than 30 days. Only with no lock, or with the key loaded:
-    /// while locked the encrypted trash map can't be read. A failure (e.g. an unreadable trash
-    /// map, which is never overwritten) is ignored: the purge runs again after the next unlock.
-    private func purgeExpiredTrashIfUnlocked() async {
-        guard vaultLock.state != .locked else { return }
-        _ = try? await vaultStore.purgeExpiredTrash(now: Date())
+    /// Shows the Migration screen and, once it shows, encrypts `vault`'s leftover files; the browser reloads when it
+    /// finishes.
+    private func presentMigration(for vault: OpenVault) {
+        let dependencies = dependencies
+        guard isCurrent(vault), let services = dependencies.currentServices else { return }
+        let browserFactory = services.browserFactory
+        let migration = services.settingsFactory.makeMigration(onFinish: { [weak browserFactory] _ in
+            browserFactory?.reloadAll()
+        })
+        let migrator = dependencies.lockMigrator
+        topmostController.present(migration, animated: true) { [weak self] in
+            guard let self, self.isCurrent(vault) else { return }
+            self.encryptionTask = Task { await migrator.encryptLeftovers(in: vault.store) }
+        }
     }
+
+    // MARK: - Helpers
+
+    /// Whether `vault` is still the open vault.
+    private func isCurrent(_ vault: OpenVault) -> Bool {
+        dependencies.vaultLock.current.id == vault.id
+    }
+
+    /// Purges the unencrypted vault's trash items older than 30 days (at launch and on each return to the
+    /// foreground). A failure is logged and the purge runs again next time.
+    private func purgeUnencryptedTrash() {
+        let store = dependencies.vaultLock.unencryptedVault.store
+        let logger = logger
+        Task {
+            do {
+                _ = try await store.purgeExpiredTrash(now: Date())
+            } catch {
+                logger.error("Purging the unencrypted vault's expired trash failed")
+            }
+        }
+    }
+
+    /// The controller at the top of the presentation chain over the root.
+    private var topmostController: UIViewController {
+        var controller: UIViewController = root
+        while let presented = controller.presentedViewController, !presented.isBeingDismissed {
+            controller = presented
+        }
+        return controller
+    }
+}
+
+// MARK: - Root container
+
+/// The window's root: holds the current vault's root browser as its one child, so the browser can be swapped on a
+/// vault change while the lock screen stays presented over the root.
+private final class VaultRootViewController: UIViewController {
+    private var browser: UIViewController?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+    }
+
+    /// Replaces the shown browser with `browser`.
+    func show(_ browser: UIViewController) {
+        if let old = self.browser {
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+        }
+        addChild(browser)
+        browser.view.frame = view.bounds
+        browser.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(browser.view)
+        browser.didMove(toParent: self)
+        self.browser = browser
+        setNeedsStatusBarAppearanceUpdate()
+    }
+
+    override var childForStatusBarStyle: UIViewController? { browser }
+    override var childForStatusBarHidden: UIViewController? { browser }
+    override var childForHomeIndicatorAutoHidden: UIViewController? { browser }
 }

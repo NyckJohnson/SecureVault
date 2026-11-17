@@ -52,20 +52,6 @@ enum SettingsTestSupport {
         for _ in 0..<50 { await Task.yield() }
         try? await Task.sleep(for: .milliseconds(20))
     }
-
-    /// Whether the lock was asked to change anything.
-    @MainActor
-    static func changedLock(_ lock: MockVaultLocking) -> Bool {
-        lock.calls.contains { call in
-            switch call {
-            case .stateUpdates, .unlock, .unlockWithBiometrics, .appWillResignActive,
-                .appDidEnterBackground, .appWillEnterForeground:
-                false
-            default:
-                true
-            }
-        }
-    }
 }
 
 /// A controllable stand-in for `Task.sleep`: every sleep suspends until `advance()` (or cancellation).
@@ -121,44 +107,62 @@ struct SettingsStubFailure: LocalizedError {
     var errorDescription: String? { "The disk is full." }
 }
 
-/// Wraps a `MockVaultLocking` and adds what the mock cannot do: throw a chosen error from
-/// `changePassword` / `prepareToAddLock`, and hold `changePassword` open until the test releases it.
+/// Wraps a `MockVaultLocking` and adds what the mock cannot do: throw any error (not only a `VaultLockError`) from
+/// `changePassword`, `setUsesBiometrics` and `deleteCurrentVault`, and hold those calls open until released.
 @MainActor
 final class SettingsScriptedLock: VaultLocking {
     let inner: MockVaultLocking
     var changePasswordError: (any Error)?
-    var prepareToAddLockError: (any Error)?
-    var holdsChangePassword = false
-    let changePasswordGate = SettingsGate()
+    var setUsesBiometricsError: (any Error)?
+    var deleteError: (any Error)?
+    var holdsCalls = false
+    let gate = SettingsGate()
+    private(set) var deletedPasswords: [String] = []
 
     init(inner: MockVaultLocking) {
         self.inner = inner
     }
 
-    var state: LockState { inner.state }
-    var lockMode: LockMode { inner.lockMode }
+    var current: OpenVault { inner.current }
+    var unencryptedVault: OpenVault { inner.unencryptedVault }
     var biometricKind: BiometricKind { inner.biometricKind }
     var biometricsAvailable: Bool { inner.biometricsAvailable }
+    var hasBiometricVault: Bool { inner.hasBiometricVault }
+    var currentUsesBiometrics: Bool { inner.currentUsesBiometrics }
 
-    func stateUpdates() -> AsyncStream<LockState> { inner.stateUpdates() }
-    func setUp(mode: LockMode, password: String?) async throws { try await inner.setUp(mode: mode, password: password) }
-    func unlock(password: String) async throws { try await inner.unlock(password: password) }
-    func unlockWithBiometrics() async throws { try await inner.unlockWithBiometrics() }
+    func currentUpdates() -> AsyncStream<OpenVault> { inner.currentUpdates() }
+    func upgradeIfNeeded() async throws { try await inner.upgradeIfNeeded() }
+    func canCreateVault() async -> Bool { await inner.canCreateVault() }
+    func createVault(name: String, password: String) async throws {
+        try await inner.createVault(name: name, password: password)
+    }
+    func open(password: String) async throws { try await inner.open(password: password) }
+    func openWithBiometrics() async throws { try await inner.openWithBiometrics() }
+    func close() { inner.close() }
     func appWillResignActive() -> Bool { inner.appWillResignActive() }
     func appDidEnterBackground() { inner.appDidEnterBackground() }
-    func appWillEnterForeground() { inner.appWillEnterForeground() }
-    func switchMode(to mode: LockMode) async throws { try await inner.switchMode(to: mode) }
-    func removeKeysAfterDecryption() async throws { try await inner.removeKeysAfterDecryption() }
+    func openTransferTarget(password: String) async throws -> OpenVault {
+        try await inner.openTransferTarget(password: password)
+    }
+    func closeTransferTarget(_ vault: OpenVault) { inner.closeTransferTarget(vault) }
 
     func changePassword(current: String, new: String) async throws {
-        if holdsChangePassword { await changePasswordGate.wait() }
+        if holdsCalls { await gate.wait() }
         if let changePasswordError { throw changePasswordError }
         try await inner.changePassword(current: current, new: new)
     }
 
-    func prepareToAddLock(mode: LockMode, password: String) async throws {
-        if let prepareToAddLockError { throw prepareToAddLockError }
-        try await inner.prepareToAddLock(mode: mode, password: password)
+    func setUsesBiometrics(_ enabled: Bool) async throws {
+        if holdsCalls { await gate.wait() }
+        if let setUsesBiometricsError { throw setUsesBiometricsError }
+        try await inner.setUsesBiometrics(enabled)
+    }
+
+    func deleteCurrentVault(password: String) async throws {
+        deletedPasswords.append(password)
+        if holdsCalls { await gate.wait() }
+        if let deleteError { throw deleteError }
+        try await inner.deleteCurrentVault(password: password)
     }
 }
 
@@ -200,16 +204,15 @@ final class SettingsScriptedPro: ProUnlocking {
 final class SettingsScriptedMigrator: LockMigrating {
     enum Call: Equatable {
         case phaseUpdates
-        case start(MigrationKind, LockMode?)
-        case resumeIfPending
         case retryFailed
         case skipFailed
         case clearUnreadableTrash
+        case encryptLeftovers
+        case cancel
     }
 
     private(set) var calls: [Call] = []
     private(set) var phase: MigrationPhase
-    var pending: PendingMigration?
     /// The phase sent when `retryFailed()` is called, if any.
     var phaseAfterRetry: MigrationPhase?
     /// The phase sent when `skipFailed()` is called, if any.
@@ -234,12 +237,12 @@ final class SettingsScriptedMigrator: LockMigrating {
         }
     }
 
-    func start(_ kind: MigrationKind, target: LockMode?) async {
-        calls.append(.start(kind, target))
+    func encryptLeftovers(in store: any VaultStoring) async {
+        calls.append(.encryptLeftovers)
     }
 
-    func resumeIfPending() async {
-        calls.append(.resumeIfPending)
+    func cancel() {
+        calls.append(.cancel)
     }
 
     func retryFailed() async {

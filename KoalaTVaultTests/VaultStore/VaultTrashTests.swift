@@ -184,23 +184,23 @@ import Testing
 
     @Test("A plaintext trash map is read once a lock is on")
     func plaintextTrashMapReadableInEncryptedMode() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let item = try await vault.add("old.txt", "old")
         try await vault.store.moveToTrash(item)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         let trashed = try await vault.store.trashContents()
         #expect(trashed.map(\.name) == ["old.txt"])
     }
 
     @Test("A plaintext trash map is rewritten encrypted by the next trash write, keeping the earlier entry")
     func plaintextTrashMapResealedOnNextWrite() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let old = try await vault.add("old.txt", "old")
         try await vault.store.moveToTrash(old)
         #expect(vault.trashMapIsPlaintextJSON())
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         let fresh = try await vault.add("fresh.txt", "fresh")
         try await vault.store.moveToTrash(fresh)
         #expect(!vault.trashMapIsPlaintextJSON())
@@ -619,11 +619,9 @@ struct RestoreAttack: Sendable, CustomTestStringConvertible {
         #expect(try await vault.openedContent(restored) == "fine content")
         #expect(try await vault.store.trashContents().map(\.name) == ["broken.txt"])
 
-        let toEncrypt = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: true) }
-        let toDecrypt = await caught { _ = try await vault.store.itemsToMigrate(toEncrypted: false) }
-        let finish = await caught { try await vault.store.finishDecryption() }
-        #expect(toEncrypt != nil)
-        #expect(toDecrypt != nil)
-        #expect(finish != nil)
+        if storedFlag {
+            let toEncrypt = await caught { _ = try await vault.store.itemsToEncrypt() }
+            #expect(toEncrypt != nil)
+        }
     }
 }

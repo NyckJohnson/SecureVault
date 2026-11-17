@@ -2,17 +2,29 @@ import UIKit
 
 // coverage-exempt-file: declarations only
 
-/// Presents the setup wizard, the lock screen and the privacy cover over the scene's window.
+/// Shows the privacy cover over the scene's window and closes the open vault when the app goes to the background.
 @MainActor
 protocol AppLockCoordinating: AnyObject {
-    /// Called when the scene connects; shows the wizard or the lock screen as needed.
-    func sceneDidConnect(window: UIWindow, needsSetup: Bool)
-    /// Shows the privacy cover when unlocked with a lock.
+    /// Called when the scene connects.
+    func sceneDidConnect(window: UIWindow)
+    /// Shows the privacy cover when an encrypted vault is open.
     func sceneWillResignActive()
-    /// Locks the vault when a lock is set.
+    /// Closes the open vault.
     func sceneDidEnterBackground()
-    /// Shows the lock screen when locked, else hides the cover.
+    /// Hides the privacy cover.
     func sceneDidBecomeActive()
-    /// Called after the user unlocks.
-    var onUnlocked: (() -> Void)? { get set }
+    /// Closes the open vault and shows the lock screen (the browser's Lock button, a deleted vault).
+    func lock()
+}
+
+/// Builds the lock screen.
+@MainActor
+protocol VaultsScreenFactory: AnyObject {
+    /// The lock screen in its navigation controller. `onDone` is called when a vault is open (by password, Face ID,
+    /// a new vault, or the unencrypted vault). `onNeedsPro` is called with the screen to present the paywall from
+    /// (Create New Vault without Pro, an encrypted vault already there).
+    func makeLockScreen(
+        onDone: @escaping () -> Void,
+        onNeedsPro: @escaping (UIViewController) -> Void
+    ) -> UIViewController
 }

@@ -59,8 +59,8 @@ private struct BigFileVault {
         for url in [rootURL, tempRoot] { try manager.createDirectory(at: url, withIntermediateDirectories: true) }
         let keys = MockMasterKeyStoring(password: "pw", keyLoaded: true)
         store = LiveVaultStore(
-            root: rootURL, keyStore: keys, cipher: LiveFileCipher(keyStore: keys),
-            preferences: MockPreferencesStoring(lockMode: .password), temporaryRoot: tempRoot)
+            root: rootURL, name: "KoalaTVault", isEncrypted: true, keyStore: keys,
+            cipher: LiveFileCipher(keyStore: keys), temporaryRoot: tempRoot)
     }
 
     func cleanUp() { try? FileManager.default.removeItem(at: base) }
@@ -99,7 +99,7 @@ private struct BigFileVault {
         let vault = try BigFileVault()
         defer { vault.cleanUp() }
         try vault.writeBigFile(at: vault.plainURL)
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
 
         let growth = try await vault.peakGrowth { try await vault.store.migrateToEncrypted(item) }
 
@@ -115,11 +115,11 @@ private struct BigFileVault {
         let backup = vault.base.appendingPathComponent("backup.bin")
         try vault.writeBigFile(at: vault.plainURL)
         try FileManager.default.copyItem(at: vault.plainURL, to: backup)
-        let first = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let first = try #require(try await vault.store.itemsToEncrypt().first)
         try await vault.store.migrateToEncrypted(first)
         // An earlier run killed before removing the plaintext: the plaintext is back next to its indexed copy.
         try FileManager.default.copyItem(at: backup, to: vault.plainURL)
-        let rerun = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let rerun = try #require(try await vault.store.itemsToEncrypt().first)
 
         let growth = try await vault.peakGrowth { try await vault.store.migrateToEncrypted(rerun) }
 

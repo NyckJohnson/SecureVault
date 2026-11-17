@@ -14,11 +14,16 @@ final class MockVaultStoring: VaultStoring {
         case createFolder(String, parent: String)
         case createDocument(String, parent: String)
         case addFile(String, destination: String)
+        /// The names of the files, in order.
+        case addFiles([String], destination: String)
         case findItem(String, parent: String)
         case move(String, destination: String)
         case copy(String, destination: String)
         case rename(String, newName: String)
         case moveToTrash(String)
+        /// One batch `moveToTrash(_:)` call: the ids of its items, in order.
+        case moveToTrashItems([String])
+        case remove(String)
         case trashContents
         case restore(String)
         case deletePermanently(String)
@@ -27,10 +32,8 @@ final class MockVaultStoring: VaultStoring {
         case hasUnreadableTrash
         case clearUnreadableTrash
         case countFiles
-        case itemsToMigrate(toEncrypted: Bool)
+        case itemsToEncrypt
         case migrateToEncrypted(String)
-        case migrateToDecrypted(String)
-        case finishDecryption
         case finishEncryption
         case hasUnencryptedFiles
         case keyMatchesVault
@@ -48,18 +51,22 @@ final class MockVaultStoring: VaultStoring {
         var tempDirectories: [URL] = []
         var calls: [Call] = []
         var errorToThrow: VaultStoreError?
+        var trashErrors: [String: VaultStoreError] = [:]
         var keyMatches = true
         var unreadableTrash = false
     }
 
     let root: VaultDirectory
+    let isEncrypted: Bool
     private let state: OSAllocatedUnfairLock<State>
 
-    /// A vault holding the sample content (`withSampleContent`) or empty.
-    init(withSampleContent: Bool = true) {
+    /// A vault holding the sample content (`withSampleContent`) or empty; `name` is the root's display name
+    /// and `isEncrypted` the store's fixed mode (the unencrypted vault "KoalaTVault" unless stated).
+    init(withSampleContent: Bool = true, name: String = "KoalaTVault", isEncrypted: Bool = false) {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("MockVault", isDirectory: true)
-        root = VaultDirectory(name: "KoalaTVault", diskURL: rootURL, rootURL: rootURL)
+        root = VaultDirectory(name: name, diskURL: rootURL, rootURL: rootURL)
+        self.isEncrypted = isEncrypted
         let (items, trash) = withSampleContent ? Self.sampleContent(rootURL: rootURL) : ([], [])
         state = OSAllocatedUnfairLock(initialState: State(items: items, trash: trash))
     }
@@ -74,6 +81,22 @@ final class MockVaultStoring: VaultStoring {
     var errorToThrow: VaultStoreError? {
         get { state.withLock { $0.errorToThrow } }
         set { state.withLock { $0.errorToThrow = newValue } }
+    }
+
+    /// Errors the batch `moveToTrash(_:)` returns for these item ids; those items stay where they are.
+    var trashErrors: [String: VaultStoreError] {
+        get { state.withLock { $0.trashErrors } }
+        set { state.withLock { $0.trashErrors = newValue } }
+    }
+
+    /// Every batch `moveToTrash(_:)` call so far: the ids of its items, in order.
+    var trashBatches: [[String]] {
+        state.withLock { state in
+            state.calls.compactMap { call in
+                if case .moveToTrashItems(let ids) = call { return ids }
+                return nil
+            }
+        }
     }
 
     /// What `keyMatchesVault()` returns.
@@ -149,6 +172,21 @@ final class MockVaultStoring: VaultStoring {
         }
     }
 
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        let sizes = files.map { (try? $0.source.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+        return try record(.addFiles(files.map(\.name), destination: relativeID(directory.diskURL))) { state in
+            var added: [VaultItem] = []
+            for (file, size) in zip(files, sizes) {
+                try Self.validate(file.name)
+                let unique = Self.uniqueName(file.name, in: directory.diskURL, among: state.items)
+                let item = self.makeItem(named: unique, in: directory.diskURL, isDirectory: false, fileSize: size)
+                state.items.append(item)
+                added.append(item)
+            }
+            return added
+        }
+    }
+
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
         try record(.findItem(name, parent: relativeID(directory.diskURL))) { state in
             state.items.first { $0.name == name && Self.isChild($0.diskURL, of: directory.diskURL) }
@@ -209,16 +247,49 @@ final class MockVaultStoring: VaultStoring {
 
     func moveToTrash(_ item: VaultItem) async throws {
         try record(.moveToTrash(item.id)) { state in
-            guard state.items.contains(where: { $0.id == item.id }) else { throw VaultStoreError.notFound }
-            let trashURL = self.root.rootURL.appendingPathComponent(
-                ".trash/\(UUID().uuidString)", isDirectory: item.isDirectory)
-            let trashed = Self.modified(item) { fields in
-                fields.diskURL = trashURL
-                fields.deletedAt = Date()
+            try self.trash(item, in: &state)
+        }
+    }
+
+    /// Trashes each item as the single call does; an item with a scripted `trashErrors` entry, or any item while
+    /// `errorToThrow` is set, stays and gets that error; an unknown item gets `.notFound`.
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        state.withLock { state in
+            state.calls.append(.moveToTrashItems(items.map(\.id)))
+            var errors: [VaultItem.ID: VaultStoreError] = [:]
+            for item in items {
+                if let error = state.errorToThrow ?? state.trashErrors[item.id] {
+                    errors[item.id] = error
+                    continue
+                }
+                do throws(VaultStoreError) {
+                    try trash(item, in: &state)
+                } catch {
+                    errors[item.id] = error
+                }
             }
+            return errors
+        }
+    }
+
+    private func trash(_ item: VaultItem, in state: inout State) throws(VaultStoreError) {
+        guard state.items.contains(where: { $0.id == item.id }) else { throw VaultStoreError.notFound }
+        let trashURL = root.rootURL.appendingPathComponent(
+            ".trash/\(UUID().uuidString)", isDirectory: item.isDirectory)
+        let trashed = Self.modified(item) { fields in
+            fields.diskURL = trashURL
+            fields.deletedAt = Date()
+        }
+        state.items.removeAll { Self.isSameOrDescendant($0.diskURL, of: item.diskURL) }
+        state.trash.append(trashed)
+        state.trashOrigins[trashed.id] = item.diskURL.deletingLastPathComponent()
+    }
+
+    func remove(_ item: VaultItem) async throws {
+        try record(.remove(item.id)) { state in
+            if state.trash.contains(where: { $0.id == item.id }) { throw VaultStoreError.notFound }
+            guard state.items.contains(where: { $0.id == item.id }) else { throw VaultStoreError.notFound }
             state.items.removeAll { Self.isSameOrDescendant($0.diskURL, of: item.diskURL) }
-            state.trash.append(trashed)
-            state.trashOrigins[trashed.id] = item.diskURL.deletingLastPathComponent()
         }
     }
 
@@ -287,25 +358,14 @@ final class MockVaultStoring: VaultStoring {
         try record(.countFiles) { state in state.items.filter { !$0.isDirectory }.count }
     }
 
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] {
-        try record(.itemsToMigrate(toEncrypted: toEncrypted)) { state in
-            (state.items + state.trash).filter { !$0.isDirectory && $0.isEncrypted != toEncrypted }
+    func itemsToEncrypt() async throws -> [VaultItem] {
+        try record(.itemsToEncrypt) { state in
+            (state.items + state.trash).filter { !$0.isDirectory && !$0.isEncrypted }
         }
     }
 
     func migrateToEncrypted(_ item: VaultItem) async throws {
         try record(.migrateToEncrypted(item.id)) { state in try self.setEncrypted(true, item, in: &state) }
-    }
-
-    func migrateToDecrypted(_ item: VaultItem) async throws {
-        try record(.migrateToDecrypted(item.id)) { state in try self.setEncrypted(false, item, in: &state) }
-    }
-
-    func finishDecryption() async throws {
-        try record(.finishDecryption) { state in
-            let count = (state.items + state.trash).filter(\.isEncrypted).count
-            if count > 0 { throw VaultStoreError.stillEncrypted(count: count) }
-        }
     }
 
     func finishEncryption() async throws {

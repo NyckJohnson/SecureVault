@@ -8,8 +8,9 @@ import UIKit
 final class PaywallViewModel: ObservableObject {
     /// The paywall's title.
     let title = "Unlock Pro"
-    /// What Pro gives.
-    let message = "Store more than \(ProUnlock.freeFileLimit) files."
+    /// What Pro gives: both free limits lifted.
+    let message =
+        "Store more than \(ProUnlock.freeFileLimit) files in a vault and keep more than one encrypted vault."
     /// The price; a blank line until it loads, so the layout doesn't move.
     @Published private(set) var priceText = " "
     /// True while a purchase or restore is in progress.

@@ -28,11 +28,11 @@ import Testing
 
     // MARK: - Strings and price
 
-    @Test("The paywall is titled Unlock Pro and says Store more than 100 files.")
+    @Test("The paywall is titled Unlock Pro and mentions both Pro limits")
     func strings() {
         let viewModel = makeRig().viewModel
         #expect(viewModel.title == "Unlock Pro")
-        #expect(viewModel.message == "Store more than 100 files.")
+        #expect(viewModel.message == "Store more than 100 files in a vault and keep more than one encrypted vault.")
     }
 
     @Test("The price shown is the store's display price")

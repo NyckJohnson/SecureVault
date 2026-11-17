@@ -6,32 +6,7 @@ import Testing
 // Assumed: `LiveVaultImporter(store: any VaultStoring, proUnlock: any ProUnlocking)`, conforming to `VaultImporting`.
 @MainActor
 @Suite struct LiveVaultImporterTests {
-    @MainActor
-    private struct Fixture {
-        let store: DiskBackedVaultStore
-        let source: SourceFolder
-        let importer: LiveVaultImporter
-
-        init(
-            existingFiles: Int = 0, isPro: Bool = false, encrypted: Bool = false,
-            scopedAccess: (any ScopedResourceAccessing)? = nil
-        ) throws {
-            store = try DiskBackedVaultStore(extraFileCount: existingFiles, encrypted: encrypted)
-            source = try SourceFolder()
-            let unlock = MockProUnlocking(isUnlocked: isPro)
-            if let scopedAccess {
-                importer = LiveVaultImporter(store: store, proUnlock: unlock, scopedAccess: scopedAccess)
-            } else {
-                importer = LiveVaultImporter(store: store, proUnlock: unlock)
-            }
-        }
-
-        func cleanup() { store.cleanup(); source.cleanup() }
-
-        func importItems(_ urls: [URL], progress: ProgressRecorder = ProgressRecorder()) async throws -> ImportResult {
-            try await importer.importItems(urls, into: store.root, progress: { progress.record($0) })
-        }
-    }
+    private typealias Fixture = ImporterTestFixture
 
     /// A photo whose loader writes a fresh file alone in its own store temp folder and records what happened.
     private final class PhotoProbe: @unchecked Sendable {
@@ -90,15 +65,15 @@ import Testing
 
     // MARK: importItems
 
-    @Test("Importing files adds each one through the store with its own name")
-    func importsFilesThroughAddFile() async throws {
+    @Test("Importing files adds each one through addFiles with its own name, in order")
+    func importsFilesThroughAddFiles() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let firstItem = try fixture.source.file("a.txt", content: "A")
         let secondItem = try fixture.source.file("b.txt", content: "B")
         let result = try await fixture.importItems([firstItem, secondItem])
         #expect(result == ImportResult(imported: 2, skippedDuplicates: 0, failed: 0))
-        #expect(Set(fixture.store.addCalls.map(\.name)) == ["a.txt", "b.txt"])
+        #expect(fixture.store.addedNames == ["a.txt", "b.txt"])
         #expect(fixture.store.readString("a.txt") == "A")
         #expect(fixture.store.readString("b.txt") == "B")
     }
@@ -240,7 +215,7 @@ import Testing
         await #expect(throws: ImportError.fileLimitReached(limit: 100)) {
             _ = try await fixture.importItems(urls)
         }
-        #expect(fixture.store.addCalls.isEmpty)
+        #expect(fixture.store.addFilesCalls.isEmpty)
         #expect(fixture.store.allPaths().isEmpty)
     }
 
@@ -255,7 +230,7 @@ import Testing
         await #expect(throws: ImportError.fileLimitReached(limit: 100)) {
             _ = try await fixture.importItems([fixture.source.url.appendingPathComponent("Trip")])
         }
-        #expect(fixture.store.addCalls.isEmpty)
+        #expect(fixture.store.addFilesCalls.isEmpty)
     }
 
     @Test("A free import reaching exactly 100 files succeeds")
@@ -423,7 +398,7 @@ import Testing
         let url = try fixture.source.file(picked, content: "X")
         let result = try await fixture.importItems([url])
         #expect(result == ImportResult(imported: 1, skippedDuplicates: 0, failed: 0))
-        #expect(fixture.store.addCalls.map(\.name) == [stored])
+        #expect(fixture.store.addedNames == [stored])
         #expect(fixture.store.readString(stored) == "X")
     }
 
@@ -470,7 +445,7 @@ import Testing
         await #expect(throws: ImportError.fileLimitReached(limit: 100)) {
             _ = try await fixture.importItems([url, okItem])
         }
-        #expect(fixture.store.addCalls.isEmpty)
+        #expect(fixture.store.addFilesCalls.isEmpty)
     }
 
     @Test("A picked name made only of dots counts as failed and imports nothing")
@@ -501,7 +476,7 @@ import Testing
         #expect(!paths.contains { $0.contains(".DS_Store") || $0.contains(".hidden") || $0.contains(".secret") })
         #expect(!paths.contains { $0.contains("inner.txt") })
         #expect(
-            !fixture.store.addCalls.map(\.name).contains { $0.hasPrefix(".") || $0 == "inner.txt" || $0 == "secret" })
+            !fixture.store.addedNames.contains { $0.hasPrefix(".") || $0 == "inner.txt" || $0 == "secret" })
     }
 
     @Test("Hidden items inside a picked folder are not counted toward the limit")

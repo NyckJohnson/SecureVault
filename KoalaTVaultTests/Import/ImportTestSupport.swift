@@ -11,7 +11,15 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
         var directoryPath: String
     }
 
+    /// One `addFiles` call: the names it was asked to add (in order) and the folder they go to.
+    struct AddBatch: Equatable, Sendable {
+        var names: [String]
+        var directoryPath: String
+    }
+
     let root: VaultDirectory
+    // feature multiple-vaults-duress-password: signature updated
+    var isEncrypted: Bool { encrypted }
     /// Files counted by `countFiles()` in addition to those on disk.
     let extraFileCount: Int
     /// Items listed by this store are flagged encrypted and `open` hands out a decrypted temp copy.
@@ -19,9 +27,13 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     private let lock = NSLock()
     private var _addCalls: [AddCall] = []
+    private var _addBatches: [AddBatch] = []
+    private var _findItemNames: [String] = []
+    private var _contentsPaths: [String] = []
     private var _failNames: Set<String> = []
     private var _tempDirectories: [URL] = []
     private var _findItemError: (any Error)?
+    private var _contentsErrors: [String: any Error] = [:]
     private var _countFilesError: (any Error)?
     private var _openOverride: URL?
     private var _createFolderReturnsFile = false
@@ -43,13 +55,44 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     // MARK: Test controls
 
+    /// Direct `addFile` calls only (photos); files added through `addFiles` are in `addFilesBatches`.
     var addCalls: [AddCall] { lock.withLock { _addCalls } }
+
+    /// Every `addFiles` call, in order, with the names asked for (also when it failed part-way).
+    var addFilesBatches: [AddBatch] { lock.withLock { _addBatches } }
+
+    /// The names of every `addFiles` call, in call order.
+    var addFilesCalls: [[String]] { addFilesBatches.map(\.names) }
+
+    /// Every name asked for through `addFiles`, in call order.
+    var addedNames: [String] { addFilesBatches.flatMap(\.names) }
+
+    /// Every name asked for through `addFiles` into one folder (its path relative to the root, "" for the root).
+    func addedNames(in directoryPath: String) -> [String] {
+        addFilesBatches.filter { $0.directoryPath == directoryPath }.flatMap(\.names)
+    }
+
+    /// The batches sent to one folder (its path relative to the root, "" for the root).
+    func batches(in directoryPath: String) -> [[String]] {
+        addFilesBatches.filter { $0.directoryPath == directoryPath }.map(\.names)
+    }
+
+    /// Names passed to `findItem`, in call order.
+    var findItemNames: [String] { lock.withLock { _findItemNames } }
+
+    /// Folder paths (relative to the root, "" for the root) passed to `contents`, in call order.
+    var contentsPaths: [String] { lock.withLock { _contentsPaths } }
 
     /// `addFile` throws `.io("boom")` for these names.
     func failAdding(_ name: String) { lock.withLock { _ = _failNames.insert(name) } }
 
     /// `findItem` throws this error from now on.
     func failFindItem(with error: any Error) { lock.withLock { _findItemError = error } }
+
+    /// `contents` throws this error for the folder at this path (relative to the root, "" for the root).
+    func failContents(ofPath path: String, with error: any Error) {
+        lock.withLock { _contentsErrors[path] = error }
+    }
 
     /// `open` hands out this URL for every item from now on.
     func overrideOpen(with url: URL) { lock.withLock { _openOverride = url } }
@@ -123,10 +166,12 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func addFile(from source: URL, named name: String, to directory: VaultDirectory) async throws -> VaultItem {
-        let shouldFail = lock.withLock {
-            _addCalls.append(AddCall(name: name, directoryPath: relativePath(directory.diskURL)))
-            return _failNames.contains(name)
-        }
+        lock.withLock { _addCalls.append(AddCall(name: name, directoryPath: relativePath(directory.diskURL))) }
+        return try addOne(from: source, named: name, to: directory)
+    }
+
+    private func addOne(from source: URL, named name: String, to directory: VaultDirectory) throws -> VaultItem {
+        let shouldFail = lock.withLock { _failNames.contains(name) }
         if shouldFail { throw VaultStoreError.io("boom") }
         if name.isEmpty || name.contains("/") { throw VaultStoreError.invalidName }
         let unique = uniqueName(name, in: directory.diskURL)
@@ -137,6 +182,18 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
             throw VaultStoreError.io(error.localizedDescription)
         }
         return item(at: target)
+    }
+
+    // feature multiple-vaults-duress-password: addFiles requirement added (large-folder import)
+    /// Records the call in `addFilesBatches`, then adds the files in order, stopping at the first failure
+    /// (the files before it are kept), as the real store does. Not recorded in `addCalls`.
+    func addFiles(_ files: [VaultFileToAdd], to directory: VaultDirectory) async throws -> [VaultItem] {
+        lock.withLock {
+            _addBatches.append(AddBatch(names: files.map(\.name), directoryPath: relativePath(directory.diskURL)))
+        }
+        var added: [VaultItem] = []
+        for file in files { added.append(try addOne(from: file.source, named: file.name, to: directory)) }
+        return added
     }
 
     func createFolder(named name: String, in directory: VaultDirectory) async throws -> VaultItem {
@@ -153,15 +210,21 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     }
 
     func findItem(named name: String, in directory: VaultDirectory) async throws -> VaultItem? {
+        lock.withLock { _findItemNames.append(name) }
         if let error = lock.withLock({ _findItemError }) { throw error }
-        let target = directory.diskURL.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: target.path) else { return nil }
+        let listed =
+            (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
+        // Exact, case-sensitive match against the listing, as the real store does ("A.TXT" never finds "a.txt").
+        guard let target = listed.first(where: { $0.lastPathComponent == name }) else { return nil }
         return item(at: target)
     }
 
     func contents(
         of directory: VaultDirectory, sortedBy option: SortOption, _ direction: SortDirection
     ) async throws -> [VaultItem] {
+        let path = relativePath(directory.diskURL)
+        lock.withLock { _contentsPaths.append(path) }
+        if let error = lock.withLock({ _contentsErrors[path] }) { throw error }
         let urls =
             (try? FileManager.default.contentsOfDirectory(at: directory.diskURL, includingPropertiesForKeys: nil)) ?? []
         return urls.map { item(at: $0) }.sorted { $0.name < $1.name }
@@ -205,6 +268,12 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func copy(_ item: VaultItem, to directory: VaultDirectory) async throws -> VaultItem { throw unsupported }
     func rename(_ item: VaultItem, to name: String) async throws -> VaultItem { throw unsupported }
     func moveToTrash(_ item: VaultItem) async throws { throw unsupported }
+    // feature multiple-vaults-duress-password: batch moveToTrash requirement added (large trash)
+    func moveToTrash(_ items: [VaultItem]) async -> [VaultItem.ID: VaultStoreError] {
+        Dictionary(items.map { ($0.id, unsupported) }, uniquingKeysWith: { first, _ in first })
+    }
+    // feature multiple-vaults-duress-password: signature updated
+    func remove(_ item: VaultItem) async throws { throw unsupported }
     func trashContents() async throws -> [VaultItem] { throw unsupported }
     func restore(_ trashed: VaultItem) async throws -> VaultItem { throw unsupported }
     func deletePermanently(_ trashed: VaultItem) async throws { throw unsupported }
@@ -212,10 +281,9 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
     func purgeExpiredTrash(now: Date) async throws -> Int { throw unsupported }
     func hasUnreadableTrash() async -> Bool { false }
     func clearUnreadableTrash() async throws { throw unsupported }
-    func itemsToMigrate(toEncrypted: Bool) async throws -> [VaultItem] { throw unsupported }
+    // feature multiple-vaults-duress-password: signature updated
+    func itemsToEncrypt() async throws -> [VaultItem] { throw unsupported }
     func migrateToEncrypted(_ item: VaultItem) async throws { throw unsupported }
-    func migrateToDecrypted(_ item: VaultItem) async throws { throw unsupported }
-    func finishDecryption() async throws { throw unsupported }
     func finishEncryption() async throws { throw unsupported }
     func hasUnencryptedFiles() async throws -> Bool { throw unsupported }
     func keyMatchesVault() async -> Bool { true }
@@ -232,7 +300,10 @@ final class DiskBackedVaultStore: VaultStoring, @unchecked Sendable {
 
     private func uniqueName(_ name: String, in directory: URL) -> String {
         func taken(_ candidate: String) -> Bool {
-            FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path)
+            // The host disk may ignore case, so a name differing only in case cannot sit beside the old one:
+            // the fake stores it under the next free name (the importer still asked for the name it gave).
+            let listed = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            return listed.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
         }
         guard taken(name) else { return name }
         let base = (name as NSString).deletingPathExtension
@@ -320,5 +391,33 @@ final class RecordingScopedAccess: ScopedResourceAccessing, @unchecked Sendable 
     func stopCount(_ url: URL) -> Int {
         let path = url.standardizedFileURL.path
         return stopped.filter { $0.standardizedFileURL.path == path }.count
+    }
+}
+
+/// Shared fixture for the `LiveVaultImporter` suites: a disk-backed store, a source folder and the importer.
+@MainActor
+struct ImporterTestFixture {
+    let store: DiskBackedVaultStore
+    let source: SourceFolder
+    let importer: LiveVaultImporter
+
+    init(
+        existingFiles: Int = 0, isPro: Bool = false, encrypted: Bool = false,
+        scopedAccess: (any ScopedResourceAccessing)? = nil
+    ) throws {
+        store = try DiskBackedVaultStore(extraFileCount: existingFiles, encrypted: encrypted)
+        source = try SourceFolder()
+        let unlock = MockProUnlocking(isUnlocked: isPro)
+        if let scopedAccess {
+            importer = LiveVaultImporter(store: store, proUnlock: unlock, scopedAccess: scopedAccess)
+        } else {
+            importer = LiveVaultImporter(store: store, proUnlock: unlock)
+        }
+    }
+
+    func cleanup() { store.cleanup(); source.cleanup() }
+
+    func importItems(_ urls: [URL], progress: ProgressRecorder = ProgressRecorder()) async throws -> ImportResult {
+        try await importer.importItems(urls, into: store.root, progress: { progress.record($0) })
     }
 }

@@ -46,44 +46,34 @@ extension UIAlertController {
     }
 }
 
-/// The security settings screen: binds `SecuritySettingsViewModel` to its table and prompts, and presents the
-/// paywall, the migration screen and Recently Deleted.
+/// The security settings screen for the open vault: binds `SecuritySettingsViewModel` to its table and
+/// prompts, and presents the paywall and Recently Deleted.
 final class SecuritySettingsViewController: UIViewController, AlertPresenting {
-    private enum Section: Int, CaseIterable {
-        case pro, lockMode, password, storage
-    }
-
-    private enum LockModeRow: Int {
-        case none, password, biometric, reencrypt
-    }
-
     private let lock: any VaultLocking
-    private let migrator: any LockMigrating
     private let store: any VaultStoring
     private let pro: any ProUnlocking
     private let onRestore: @MainActor () -> Void
 
     private lazy var viewModel = SecuritySettingsViewModel(
-        lock: lock, migrator: migrator, store: store, pro: pro, alerts: self,
-        onShowMigration: { [weak self] in self?.showMigration() })
+        lock: lock, pro: pro, alerts: self,
+        onVaultDeleted: { [weak self] in self?.closeAfterDeletingVault() })
     private var subscriptions = Set<AnyCancellable>()
     private var proObservation: Task<Void, Never>?
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let busyIndicator = UIActivityIndicatorView(style: .large)
+    private let biometricSwitch = UISwitch()
 
     /// - Parameters:
-    ///   - lock: the app's vault lock.
-    ///   - migrator: the app's one lock migration.
-    ///   - store: the vault store (unencrypted-file check, trash).
+    ///   - lock: the vaults; Settings is for `lock.current`.
+    ///   - store: the open vault's store (Recently Deleted).
     ///   - pro: the "Unlock Pro" entitlement.
     ///   - onRestore: called after Recently Deleted restores an item, to refresh the browser.
     init(
-        lock: any VaultLocking, migrator: any LockMigrating, store: any VaultStoring, pro: any ProUnlocking,
+        lock: any VaultLocking, store: any VaultStoring, pro: any ProUnlocking,
         onRestore: @escaping @MainActor () -> Void = {}
     ) {
         self.lock = lock
-        self.migrator = migrator
         self.store = store
         self.pro = pro
         self.onRestore = onRestore
@@ -102,6 +92,7 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
         title = "Security"
         view.backgroundColor = .systemBackground
         configureDoneButton()
+        configureBiometricSwitch()
         configureTable()
         configureBusyIndicator()
         bindViewModel()
@@ -110,7 +101,7 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        Task { [viewModel] in await viewModel.reload() }
+        viewModel.reload()
     }
 
     /// A "Done" button at the top right closes Settings: it dismisses the navigation controller Settings is
@@ -127,6 +118,24 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
         presented.presentingViewController?.dismiss(animated: true)
     }
 
+    /// The vault is gone: Settings is done. The shell's vault change also replaces the browser; closing
+    /// here does nothing if that already took Settings away.
+    private func closeAfterDeletingVault() {
+        let presented: UIViewController = navigationController ?? self
+        guard presented.presentingViewController != nil, !presented.isBeingDismissed else { return }
+        presented.presentingViewController?.dismiss(animated: true)
+    }
+
+    private func configureBiometricSwitch() {
+        biometricSwitch.accessibilityIdentifier = "settings.biometricSwitch"
+        biometricSwitch.addTarget(self, action: #selector(biometricSwitchChanged), for: .valueChanged)
+    }
+
+    @objc private func biometricSwitchChanged() {
+        let enabled = biometricSwitch.isOn
+        Task { [viewModel] in await viewModel.setUsesBiometrics(enabled) }
+    }
+
     private func configureTable() {
         tableView.frame = view.bounds
         tableView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -139,6 +148,7 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
     private func configureBusyIndicator() {
         busyIndicator.hidesWhenStopped = true
+        busyIndicator.accessibilityIdentifier = "settings.busyIndicator"
         busyIndicator.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(busyIndicator)
         var constraints: [NSLayoutConstraint] = []
@@ -172,7 +182,7 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
     private func showBusy(_ isBusy: Bool) {
         view.isUserInteractionEnabled = !isBusy
-        // Closing Settings mid-operation would drop its result alert or the migration screen.
+        // Closing Settings mid-operation would drop its result alert.
         navigationItem.rightBarButtonItem?.isEnabled = !isBusy
         if isBusy {
             view.bringSubviewToFront(busyIndicator)
@@ -180,6 +190,20 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
         } else {
             busyIndicator.stopAnimating()
         }
+    }
+
+    // MARK: - Layout of the table
+
+    // The sections and Vault rows come from the view model, which owns the layout rules.
+
+    private func section(at index: Int) -> SecuritySettingsSection? {
+        let sections = viewModel.sections
+        return sections.indices.contains(index) ? sections[index] : nil
+    }
+
+    private func vaultRow(at index: Int) -> SecuritySettingsVaultRow? {
+        let rows = viewModel.vaultRows
+        return rows.indices.contains(index) ? rows[index] : nil
     }
 
     // MARK: - Navigation
@@ -195,63 +219,29 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
         navigationController?.pushViewController(controller, animated: true)
     }
 
-    /// Makes the migration screen (and so its view model) at once: the view model starts the migration
-    /// as soon as this returns.
-    private func showMigration() {
-        let migration = MigrationViewController(
-            kind: viewModel.migrationKind, migrator: migrator, waitsForNewRun: true,
-            onFinish: { [weak self] completedFully in
-                guard let viewModel = self?.viewModel else { return }
-                Task { await viewModel.migrationFinished(completedFully: completedFully) }
-            })
-        presentFromSettings(migration, animated: true)
-    }
-
     // MARK: - Prompts
 
     private func present(_ prompt: SecuritySettingsPrompt) {
-        let alert: UIAlertController
         switch prompt {
-        case .removeLock:
-            alert = UIAlertController(
-                title: SecuritySettingsViewModel.removeLockTitle, message: SecuritySettingsViewModel.removeLockMessage,
+        case .deleteVault:
+            let alert = UIAlertController(
+                title: SecuritySettingsViewModel.deleteVaultTitle, message: viewModel.deleteVaultMessage,
                 preferredStyle: .alert)
-            addCancelAction(to: alert)
-            alert.addClosingAction(title: "Remove", style: .destructive) { [viewModel] in
-                Task { await viewModel.confirmRemoveLock() }
+            addSecureField(to: alert, placeholder: "Password", identifier: "settings.deleteVaultPasswordField")
+            alert.addClosingAction(title: "Cancel", style: .cancel) { [viewModel] in viewModel.cancelPrompt() }
+            alert.addClosingAction(title: "Delete", style: .destructive) { [viewModel, weak alert] in
+                let password = alert?.textFields?.first?.text ?? ""
+                Task { await viewModel.confirmDeleteVault(password: password) }
             }
-        case .newPassword:
-            alert = UIAlertController(title: "Set Password", message: nil, preferredStyle: .alert)
-            addSecureField(to: alert, placeholder: "Password", identifier: "settings.passwordField")
-            addSecureField(to: alert, placeholder: "Confirm password", identifier: "settings.confirmPasswordField")
-            addCancelAction(to: alert)
-            alert.addClosingAction(title: "Set", style: .default) { [viewModel, weak alert] in
-                let password = alert?.textFields?[0].text ?? ""
-                let confirm = alert?.textFields?[1].text ?? ""
-                Task { await viewModel.submitNewPassword(password, confirm: confirm) }
-            }
-        case .existingPassword:
-            alert = UIAlertController(
-                title: "Enter Existing Password", message: VaultLockError.existingPasswordRequired.localizedDescription,
-                preferredStyle: .alert)
-            addSecureField(to: alert, placeholder: "Existing password", identifier: "settings.existingPasswordField")
-            addCancelAction(to: alert)
-            alert.addClosingAction(title: "Continue", style: .default) { [viewModel, weak alert] in
-                let password = alert?.textFields?[0].text ?? ""
-                Task { await viewModel.submitExistingPassword(password) }
-            }
+            presentFromSettings(alert, animated: false)
         }
-        presentFromSettings(alert, animated: false)
-    }
-
-    private func addCancelAction(to alert: UIAlertController) {
-        alert.addClosingAction(title: "Cancel", style: .cancel) { [viewModel] in viewModel.cancelPrompt() }
     }
 
     private func addSecureField(to alert: UIAlertController, placeholder: String, identifier: String) {
         alert.addTextField { field in
             field.placeholder = placeholder
             field.isSecureTextEntry = true
+            field.accessibilityLabel = placeholder
             field.accessibilityIdentifier = identifier
         }
     }
@@ -276,47 +266,55 @@ final class SecuritySettingsViewController: UIViewController, AlertPresenting {
 
 extension SecuritySettingsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
-        Section.allCases.count
+        viewModel.sections.count
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch Section(rawValue: section) {
-        case .pro, .storage: 1
-        case .lockMode: viewModel.showsReencrypt ? 4 : 3
-        case .password: viewModel.showsChangePassword ? 1 : 0
+        switch self.section(at: section) {
+        case .pro, .storage, .deleteVault: 1
+        case .vault: viewModel.vaultRows.count
         case nil: 0
         }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        switch Section(rawValue: section) {
-        case .lockMode: "Lock Mode"
-        case .password: viewModel.showsChangePassword ? "Password" : nil
+        switch self.section(at: section) {
+        case .vault: viewModel.vaultSectionTitle
         case .storage: "Storage"
-        case .pro, nil: nil
+        case .pro, .deleteVault, nil: nil
+        }
+    }
+
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        switch self.section(at: section) {
+        case .vault: viewModel.biometricNote
+        case .pro, .storage, .deleteVault, nil: nil
         }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath)
         cell.accessoryType = .none
+        cell.accessoryView = nil
         cell.selectionStyle = .default
-        cell.isUserInteractionEnabled = true
         cell.accessibilityTraits = .button
         cell.textLabel?.textColor = .label
-        switch Section(rawValue: indexPath.section) {
+        cell.textLabel?.font = .preferredFont(forTextStyle: .body)
+        cell.textLabel?.adjustsFontForContentSizeCategory = true
+        cell.textLabel?.numberOfLines = 0
+        switch section(at: indexPath.section) {
         case .pro:
             configureProCell(cell)
-        case .lockMode:
-            configureLockModeCell(cell, row: LockModeRow(rawValue: indexPath.row))
-        case .password:
-            cell.textLabel?.text = "Change Password"
-            cell.textLabel?.textColor = .systemBlue
-            cell.accessibilityIdentifier = "settings.changePasswordRow"
+        case .vault:
+            configureVaultCell(cell, row: vaultRow(at: indexPath.row))
         case .storage:
             cell.textLabel?.text = "Recently Deleted"
             cell.accessoryType = .disclosureIndicator
             cell.accessibilityIdentifier = "settings.recentlyDeletedRow"
+        case .deleteVault:
+            cell.textLabel?.text = "Delete This Vault"
+            cell.textLabel?.textColor = .systemRed
+            cell.accessibilityIdentifier = "settings.deleteVaultRow"
         case nil:
             break
         }
@@ -330,39 +328,29 @@ extension SecuritySettingsViewController: UITableViewDataSource {
             cell.textLabel?.textColor = .secondaryLabel
             cell.accessoryType = .checkmark
             cell.selectionStyle = .none
+            cell.accessibilityTraits = .staticText
         } else {
             cell.textLabel?.textColor = .systemBlue
             cell.accessoryType = .disclosureIndicator
         }
     }
 
-    private func configureLockModeCell(_ cell: UITableViewCell, row: LockModeRow?) {
-        let mode: LockMode
+    private func configureVaultCell(_ cell: UITableViewCell, row: SecuritySettingsVaultRow?) {
         switch row {
-        case .none?:
-            mode = .none
-            cell.accessibilityIdentifier = "settings.lockMode.noLockRow"
-        case .password?:
-            mode = .password
-            cell.accessibilityIdentifier = "settings.lockMode.passwordRow"
-        case .biometric?:
-            mode = .passwordAndBiometrics
-            cell.accessibilityIdentifier = "settings.lockMode.biometricRow"
-        case .reencrypt?:
-            cell.textLabel?.text = "Re-encrypt Everything"
+        case .changePassword?:
+            cell.textLabel?.text = "Change Password"
             cell.textLabel?.textColor = .systemBlue
-            cell.accessibilityIdentifier = "settings.lockMode.reEncryptRow"
-            return
-        case nil:
-            return
-        }
-        cell.textLabel?.text = viewModel.title(for: mode)
-        cell.accessoryType = viewModel.currentMode == mode ? .checkmark : .none
-        if !viewModel.isEnabled(mode) {
-            cell.textLabel?.textColor = .secondaryLabel
+            cell.accessibilityIdentifier = "settings.changePasswordRow"
+        case .biometricSwitch?:
+            cell.textLabel?.text = viewModel.biometricTitle
             cell.selectionStyle = .none
-            cell.isUserInteractionEnabled = false
-            cell.accessibilityTraits = [.button, .notEnabled]
+            cell.accessibilityTraits = .none
+            biometricSwitch.isOn = viewModel.usesBiometrics
+            biometricSwitch.accessibilityLabel = viewModel.biometricTitle
+            cell.accessoryView = biometricSwitch
+            cell.accessibilityIdentifier = "settings.biometricRow"
+        case nil:
+            break
         }
     }
 }
@@ -372,28 +360,154 @@ extension SecuritySettingsViewController: UITableViewDataSource {
 extension SecuritySettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        switch Section(rawValue: indexPath.section) {
+        switch section(at: indexPath.section) {
         case .pro:
             guard !viewModel.isProUnlocked else { return }
             showPaywall()
-        case .lockMode:
-            switch LockModeRow(rawValue: indexPath.row) {
-            case .none?: select(LockMode.none)
-            case .password?: select(.password)
-            case .biometric?: select(.passwordAndBiometrics)
-            case .reencrypt?: Task { [viewModel] in await viewModel.reencryptEverything() }
-            case nil: break
+        case .vault:
+            switch vaultRow(at: indexPath.row) {
+            case .changePassword?: promptChangePassword()
+            case .biometricSwitch?, nil: break
             }
-        case .password:
-            promptChangePassword()
         case .storage:
             showRecentlyDeleted()
+        case .deleteVault:
+            viewModel.requestDeleteVault()
         case nil:
             break
         }
     }
-
-    private func select(_ mode: LockMode) {
-        Task { [viewModel] in await viewModel.select(mode) }
-    }
 }
+
+#if DEBUG
+    /// Shows Settings once `prepare` has run (e.g. opening a vault on the mock), since Settings reads the open
+    /// vault when it is made. Previews only.
+    @MainActor
+    private final class SettingsPreviewHost: UIViewController {
+        private let prepare: @MainActor () async -> Void
+        private let makeContent: @MainActor () -> UIViewController
+
+        init(prepare: @escaping @MainActor () async -> Void, content: @escaping @MainActor () -> UIViewController) {
+            self.prepare = prepare
+            makeContent = content
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = .systemBackground
+            Task {
+                await prepare()
+                let content = makeContent()
+                addChild(content)
+                content.view.frame = view.bounds
+                content.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                view.addSubview(content.view)
+                content.didMove(toParent: self)
+            }
+        }
+    }
+
+    /// Settings for the given mocks, in its navigation controller.
+    @MainActor
+    private func settingsPreview(
+        lock: MockVaultLocking, pro: MockProUnlocking = MockProUnlocking(isUnlocked: false),
+        openVault: Bool, afterShowing: @escaping @MainActor (SecuritySettingsViewController) -> Void = { _ in }
+    ) -> UIViewController {
+        SettingsPreviewHost(
+            prepare: {
+                if openVault { try? await lock.open(password: "correct horse") }
+            },
+            content: {
+                let settings = SecuritySettingsViewController(lock: lock, store: lock.current.store, pro: pro)
+                let navigation = UINavigationController(rootViewController: settings)
+                Task { @MainActor in afterShowing(settings) }
+                return navigation
+            })
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Settings: unencrypted vault (no Vault section)") {
+        settingsPreview(lock: MockVaultLocking(), openVault: false)
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Settings: encrypted vault, Face ID on") {
+        settingsPreview(lock: MockVaultLocking(biometricVaultID: "primary"), openVault: true)
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Settings: encrypted vault, Pro unlocked") {
+        settingsPreview(
+            lock: MockVaultLocking(), pro: MockProUnlocking(isUnlocked: true), openVault: true)
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Settings: encrypted vault, no biometrics") {
+        settingsPreview(lock: MockVaultLocking(biometricKind: .none, biometricsAvailable: false), openVault: true)
+    }
+
+    @available(iOS 17.0, *)
+    #Preview("Settings: busy (deleting the vault)") {
+        let lock = MockVaultLocking()
+        return settingsPreview(lock: lock, openVault: true) { settings in
+            // Swaps in a lock whose calls never return, after the vault is open, so Settings stays busy.
+            settings.previewStartBusy(lock: PreviewStalledLock(wrapping: lock))
+        }
+    }
+
+    extension SecuritySettingsViewController {
+        /// Previews only: runs a deletion on a lock that never answers, so the busy state stays on screen.
+        fileprivate func previewStartBusy(lock stalled: PreviewStalledLock) {
+            let busyModel = SecuritySettingsViewModel(lock: stalled, pro: pro, alerts: self, onVaultDeleted: {})
+            busyModel.$isBusy
+                .removeDuplicates()
+                .sink { [weak self] isBusy in self?.showBusy(isBusy) }
+                .store(in: &subscriptions)
+            busyModel.requestDeleteVault()
+            Task { await busyModel.confirmDeleteVault(password: "correct horse") }
+        }
+    }
+
+    /// A lock that forwards to a `MockVaultLocking` but never finishes deleting a vault. Previews only.
+    @MainActor
+    private final class PreviewStalledLock: VaultLocking {
+        private let base: MockVaultLocking
+
+        init(wrapping base: MockVaultLocking) {
+            self.base = base
+        }
+
+        var current: OpenVault { base.current }
+        var unencryptedVault: OpenVault { base.unencryptedVault }
+        var biometricKind: BiometricKind { base.biometricKind }
+        var biometricsAvailable: Bool { base.biometricsAvailable }
+        var hasBiometricVault: Bool { base.hasBiometricVault }
+        var currentUsesBiometrics: Bool { base.currentUsesBiometrics }
+        func currentUpdates() -> AsyncStream<OpenVault> { base.currentUpdates() }
+        func upgradeIfNeeded() async throws { try await base.upgradeIfNeeded() }
+        func canCreateVault() async -> Bool { await base.canCreateVault() }
+        func createVault(name: String, password: String) async throws {
+            try await base.createVault(name: name, password: password)
+        }
+        func open(password: String) async throws { try await base.open(password: password) }
+        func openWithBiometrics() async throws { try await base.openWithBiometrics() }
+        func close() { base.close() }
+        func appWillResignActive() -> Bool { base.appWillResignActive() }
+        func appDidEnterBackground() { base.appDidEnterBackground() }
+        func changePassword(current: String, new: String) async throws {
+            try await base.changePassword(current: current, new: new)
+        }
+        func setUsesBiometrics(_ enabled: Bool) async throws { try await base.setUsesBiometrics(enabled) }
+        func deleteCurrentVault(password: String) async throws {
+            try await Task.sleep(for: .seconds(3600))
+        }
+        func openTransferTarget(password: String) async throws -> OpenVault {
+            try await base.openTransferTarget(password: password)
+        }
+        func closeTransferTarget(_ vault: OpenVault) { base.closeTransferTarget(vault) }
+    }
+#endif

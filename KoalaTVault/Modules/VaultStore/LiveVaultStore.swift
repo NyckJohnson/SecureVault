@@ -6,43 +6,46 @@ import Foundation
 /// work synchronously, without suspending, so concurrent imports, moves and migration steps never
 /// interleave and never lose an index entry.
 ///
-/// Encrypted mode is `lockMode != .none`, read from preferences at the start of each operation (never
-/// "a key happens to be loaded"). In encrypted mode with no key, operations throw `.locked` before
-/// changing anything, and nothing is ever written in plaintext instead.
+/// One store per vault: the root's display name and whether the vault is encrypted are fixed at init
+/// (never "a key happens to be loaded"). Each operation checks for the key once at its start; in encrypted
+/// mode with no key, operations throw `.locked` before changing anything, and nothing is ever written in
+/// plaintext instead.
 actor LiveVaultStore: VaultStoring {
     nonisolated let root: VaultDirectory
 
+    nonisolated let isEncrypted: Bool
+
     let keyStore: any MasterKeyStoring
     let cipher: any FileCipher
-    let preferences: any PreferencesStoring
     /// The folder the store's own temporary folder is created in (the app's temp folder in the app).
     nonisolated let temporaryRoot: URL
     /// The per-folder index reader and writer.
     let index: VaultIndex
 
-    /// A store over the vault folder `root`, writing temporary files under `temporaryRoot`.
+    /// A store over the vault folder `root`, named `name` (the root's display name), encrypted or not
+    /// for its whole life as `isEncrypted` says, writing temporary files under `temporaryRoot`.
     init(
         root: URL,
+        name: String,
+        isEncrypted: Bool,
         keyStore: any MasterKeyStoring,
         cipher: any FileCipher,
-        preferences: any PreferencesStoring,
         temporaryRoot: URL
     ) {
-        let directory = VaultDirectory(name: "KoalaTVault", diskURL: root, rootURL: root)
+        let directory = VaultDirectory(name: name, diskURL: root, rootURL: root)
         self.root = directory
+        self.isEncrypted = isEncrypted
         self.keyStore = keyStore
         self.cipher = cipher
-        self.preferences = preferences
         self.temporaryRoot = temporaryRoot
         self.index = VaultIndex(cipher: cipher, rootURL: root, rootName: directory.name)
     }
 
     // MARK: - Operation mode
 
-    /// Reads the lock mode and checks for the key once, at the start of an operation.
+    /// Checks for the key once, at the start of an operation, with the store's fixed encryption flag.
     /// - Throws: `.locked` in encrypted mode with no key loaded.
     func beginOperation() throws -> VaultOperationMode {
-        let isEncrypted = preferences.lockMode != .none
         let keyLoaded = keyStore.isKeyLoaded
         if isEncrypted, !keyLoaded { throw VaultStoreError.locked }
         return VaultOperationMode(isEncrypted: isEncrypted, keyLoaded: keyLoaded)
@@ -55,27 +58,97 @@ actor LiveVaultStore: VaultStoring {
         sortedBy option: SortOption,
         _ direction: SortDirection
     ) throws -> [VaultItem] {
-        let mode = try beginOperation()
-        let items = try listing(of: directory, mode: mode)
-        return items.sorted { lhs, rhs in Self.precedes(lhs, rhs, by: option, direction) }
+        try autoreleasepool {
+            let mode = try beginOperation()
+            let items = try listing(of: directory, mode: mode)
+            return Self.sorted(items, by: option, direction)
+        }
     }
 
+    /// Looks the one name up instead of listing the folder: first an index entry with that display name
+    /// (whose file exists), then a non-hidden disk entry of that exact name that the index doesn't map.
+    /// The item found is the one the listing would show under that name, with the same fields: when
+    /// several index entries share the display name, the one with the smallest disk name wins. Index
+    /// entries with a hidden disk name (starting with ".") are never found, as the listing never shows
+    /// them. An unmapped file is returned under its on-disk spelling of the name (which may differ from
+    /// `name` in Unicode normalization).
+    /// - Throws: what a listing of the folder throws (`.locked`, `.indexUnreadable`, `.notFound` / `.io`
+    ///   when the folder can't be read).
     func findItem(named name: String, in directory: VaultDirectory) throws -> VaultItem? {
-        let mode = try beginOperation()
-        return try listing(of: directory, mode: mode).first { $0.name == name }
+        try autoreleasepool {
+            let mode = try beginOperation()
+            try requireFolder(directory.diskURL)
+            let entries = try index.read(in: directory.diskURL, mode: mode)
+            let mapped = entries.filter { $0.value.originalName == name }.keys.sorted()
+            for diskName in mapped where !diskName.hasPrefix(".") {
+                let item = try existingItem(diskName: diskName, in: directory, displayName: name, isEncrypted: true)
+                if let item { return item }
+            }
+            guard entries[name] == nil, !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return nil }
+            return try existingItem(diskName: name, in: directory, displayName: nil, isEncrypted: false)
+        }
     }
+
+    /// The item for `diskName` in `directory` as a listing shows it, or nil when nothing is on disk under
+    /// exactly that name (letter case included, as a listing reads names). The item uses the name as
+    /// the disk spells it, which can differ from `diskName` in Unicode normalization; `displayName` nil
+    /// means the item is shown under that on-disk name too.
+    private func existingItem(
+        diskName: String, in directory: VaultDirectory, displayName: String?, isEncrypted: Bool
+    ) throws -> VaultItem? {
+        let url = directory.diskURL.appendingPathComponent(diskName)
+        guard let values = try? url.resourceValues(forKeys: Set(Self.itemResourceKeys + [.nameKey])),
+            let onDiskName = values.name, onDiskName == diskName
+        else { return nil }
+        return makeItem(
+            diskName: onDiskName, in: directory, folderPath: index.relativePath(of: directory.diskURL),
+            displayName: displayName ?? onDiskName, isEncrypted: isEncrypted, values: values)
+    }
+
+    /// Throws as listing `folder` would when it isn't a readable folder: `.notFound` when it is missing,
+    /// `.io` when it is something else or its entries can't be read (no read permission).
+    private func requireFolder(_ folder: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) else {
+            throw VaultStoreError.notFound
+        }
+        guard isDirectory.boolValue, FileManager.default.isReadableFile(atPath: folder.path) else {
+            throw VaultStoreError.io("The folder can't be read.")
+        }
+    }
+
+    /// The attributes a listing reads for each entry, prefetched by the directory read.
+    static let itemResourceKeys: [URLResourceKey] = [
+        .isDirectoryKey, .contentModificationDateKey, .fileSizeKey,
+    ]
 
     /// The folder's non-hidden entries, unsorted: mapped files under their original name with
     /// `isEncrypted` true, everything else under its disk name.
+    ///
+    /// Large folders: the work per item is only that item's own. The folder's root-relative path and its
+    /// index are read once per listing, and each entry's size, date and folder flag come from the
+    /// directory read itself (attributes prefetched), not a separate stat per file.
     func listing(of directory: VaultDirectory, mode: VaultOperationMode) throws -> [VaultItem] {
-        let diskNames = try visibleDiskNames(in: directory.diskURL)
+        let entryURLs: [URL]
+        do {
+            entryURLs = try FileManager.default.contentsOfDirectory(
+                at: directory.diskURL, includingPropertiesForKeys: Self.itemResourceKeys)
+        } catch {
+            throw VaultStoreError.from(error)
+        }
         let entries = try index.read(in: directory.diskURL, mode: mode)
-        // An entry that vanishes between the directory read and its stat is not listed.
-        return diskNames.compactMap { diskName in
+        let folderPath = index.relativePath(of: directory.diskURL)
+        let keys = Set(Self.itemResourceKeys)
+        return entryURLs.compactMap { url in
+            let diskName = url.lastPathComponent
+            guard !diskName.hasPrefix(".") else { return nil }
+            // Prefetched values are served from the URL's cache. An entry that vanished before its
+            // attributes were read has none cached; fetching them again fails, and it is not listed.
+            guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
             let entry = entries[diskName]
-            return try? makeItem(
-                diskName: diskName, in: directory, displayName: entry?.originalName ?? diskName,
-                isEncrypted: entry != nil)
+            return makeItem(
+                diskName: diskName, in: directory, folderPath: folderPath,
+                displayName: entry?.originalName ?? diskName, isEncrypted: entry != nil, values: values)
         }
     }
 
@@ -99,19 +172,31 @@ actor LiveVaultStore: VaultStoring {
         return names
     }
 
-    /// The item for `diskName` in `directory`, with its size and date from disk.
+    /// The item for `diskName` in `directory`, with its size and date from disk (one stat, and the
+    /// folder's root-relative path worked out here). Listings use the overload that takes both.
+    /// - Throws: `.notFound` when nothing is at that name; `.io` for other file-system errors.
     func makeItem(
         diskName: String, in directory: VaultDirectory, displayName: String, isEncrypted: Bool
     ) throws -> VaultItem {
         let url = directory.diskURL.appendingPathComponent(diskName)
         let values: URLResourceValues
         do {
-            values = try url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey])
+            values = try url.resourceValues(forKeys: Set(Self.itemResourceKeys))
         } catch {
             throw VaultStoreError.from(error)
         }
+        return makeItem(
+            diskName: diskName, in: directory, folderPath: index.relativePath(of: directory.diskURL),
+            displayName: displayName, isEncrypted: isEncrypted, values: values)
+    }
+
+    /// The item for `diskName` in `directory` from attributes already read (`values`) and the folder's
+    /// root-relative path (`folderPath`, "" for the root), so a listing works both out once.
+    func makeItem(
+        diskName: String, in directory: VaultDirectory, folderPath: String, displayName: String,
+        isEncrypted: Bool, values: URLResourceValues
+    ) -> VaultItem {
         let isDirectory = values.isDirectory ?? false
-        let folderPath = index.relativePath(of: directory.diskURL)
         return VaultItem(
             id: folderPath.isEmpty ? diskName : folderPath + "/" + diskName,
             name: displayName,
@@ -119,7 +204,7 @@ actor LiveVaultStore: VaultStoring {
             dateModified: values.contentModificationDate ?? Date(),
             fileSize: isDirectory ? nil : (values.fileSize ?? 0),
             deletedAt: nil,
-            diskURL: isDirectory ? directory.diskURL.appendingPathComponent(diskName, isDirectory: true) : url,
+            diskURL: directory.diskURL.appendingPathComponent(diskName, isDirectory: isDirectory),
             rootURL: directory.rootURL,
             isEncrypted: isEncrypted)
     }
@@ -127,10 +212,6 @@ actor LiveVaultStore: VaultStoring {
     /// Throws `.notFound` unless something exists at `url`.
     func requireExists(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { throw VaultStoreError.notFound }
-    }
-
-    private func visibleDiskNames(in folder: URL) throws -> [String] {
-        try diskNamesThrowing(in: folder).filter { !$0.hasPrefix(".") }
     }
 
     private func diskNamesThrowing(in folder: URL) throws -> [String] {
@@ -141,35 +222,65 @@ actor LiveVaultStore: VaultStoring {
         }
     }
 
-    /// Folders first; then by `option` (name: case-insensitive, numbers in order; type: extension then
-    /// name; date modified), reversed for descending. Ties fall back to the id so the order is stable.
+    /// An item with the values its sort compares, each worked out once per listing instead of on every
+    /// comparison: the name, lowercased extension and id as `NSString`, so comparing them never bridges.
+    private struct SortKey {
+        let item: VaultItem
+        let name: NSString
+        let fileExtension: NSString
+        let id: NSString
+
+        init(_ item: VaultItem) {
+            self.item = item
+            let name = item.name as NSString
+            self.name = name
+            fileExtension = name.pathExtension.lowercased() as NSString
+            id = item.id as NSString
+        }
+    }
+
+    /// `items` with folders first; then by `option` (name: case-insensitive, numbers in order; type:
+    /// extension then name; date modified), reversed for descending. Ties fall back to the id so the
+    /// order is stable. Comparisons use `localizedStandardCompare` and `compare` on precomputed keys.
+    private static func sorted(
+        _ items: [VaultItem], by option: SortOption, _ direction: SortDirection
+    ) -> [VaultItem] {
+        items.map(SortKey.init)
+            .sorted { lhs, rhs in precedes(lhs, rhs, by: option, direction) }
+            .map(\.item)
+    }
+
     private static func precedes(
-        _ lhs: VaultItem, _ rhs: VaultItem, by option: SortOption, _ direction: SortDirection
+        _ lhs: SortKey, _ rhs: SortKey, by option: SortOption, _ direction: SortDirection
     ) -> Bool {
-        if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+        if lhs.item.isDirectory != rhs.item.isDirectory { return lhs.item.isDirectory }
         var order: ComparisonResult
         switch option {
         case .name:
-            order = lhs.name.localizedStandardCompare(rhs.name)
+            order = lhs.name.localizedStandardCompare(rhs.name as String)
         case .type:
-            let lhsExtension = (lhs.name as NSString).pathExtension.lowercased()
-            let rhsExtension = (rhs.name as NSString).pathExtension.lowercased()
-            order = lhsExtension.localizedStandardCompare(rhsExtension)
-            if order == .orderedSame { order = lhs.name.localizedStandardCompare(rhs.name) }
+            order = lhs.fileExtension.localizedStandardCompare(rhs.fileExtension as String)
+            if order == .orderedSame { order = lhs.name.localizedStandardCompare(rhs.name as String) }
         case .dateModified:
-            if lhs.dateModified == rhs.dateModified {
+            let lhsDate = lhs.item.dateModified
+            let rhsDate = rhs.item.dateModified
+            if lhsDate == rhsDate {
                 order = .orderedSame
             } else {
-                order = lhs.dateModified < rhs.dateModified ? .orderedAscending : .orderedDescending
+                order = lhsDate < rhsDate ? .orderedAscending : .orderedDescending
             }
         }
-        if order == .orderedSame { order = lhs.id.compare(rhs.id) }
+        if order == .orderedSame { order = lhs.id.compare(rhs.id as String) }
         return direction == .ascending ? order == .orderedAscending : order == .orderedDescending
     }
 
     // MARK: - Open and write
 
     func open(_ item: VaultItem) throws -> URL {
+        try autoreleasepool { try unpooledOpen(item) }
+    }
+
+    private func unpooledOpen(_ item: VaultItem) throws -> URL {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         guard item.isEncrypted else { return item.diskURL }
@@ -187,6 +298,10 @@ actor LiveVaultStore: VaultStoring {
     }
 
     func write(_ data: Data, to item: VaultItem) throws {
+        try autoreleasepool { try unpooledWrite(data, to: item) }
+    }
+
+    private func unpooledWrite(_ data: Data, to item: VaultItem) throws {
         let mode = try beginOperation()
         try requireExists(item.diskURL)
         guard !item.isDirectory else { throw VaultStoreError.io("A folder has no content to write.") }

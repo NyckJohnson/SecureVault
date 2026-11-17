@@ -38,58 +38,52 @@ import Testing
         #expect(try await vault.store.countFiles() == 0)
     }
 
-    // MARK: - itemsToMigrate
+    // MARK: - itemsToEncrypt
 
-    @Test("itemsToMigrate(toEncrypted: true) lists every plaintext file under the root and in the trash")
+    @Test("itemsToEncrypt lists every plaintext file under the root and in the trash")
     func itemsToEncryptListsPlaintext() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let docs = try vault.folder("Docs")
         try await vault.add("a.txt")
         try await vault.add("b.txt", to: docs)
         let trashedSource = try await vault.add("c.txt")
         try await vault.store.moveToTrash(trashedSource)
+        vault.reopen(encrypted: true)
 
-        let items = try await vault.store.itemsToMigrate(toEncrypted: true)
+        let items = try await vault.store.itemsToEncrypt()
         #expect(Set(items.map(\.name)) == ["a.txt", "b.txt", "c.txt"])
         #expect(items.allSatisfy { !$0.isDirectory && !$0.isEncrypted })
         #expect(items.first { $0.name == "b.txt" }?.id == "Docs/b.txt")
         #expect(items.first { $0.name == "c.txt" }?.id.hasPrefix(".trash/") == true)
     }
 
-    @Test("itemsToMigrate(toEncrypted: true) skips files already encrypted but keeps leftover plaintext")
+    @Test("itemsToEncrypt is empty for a plaintext store, whatever files it holds")
+    func itemsToEncryptEmptyForPlaintextStore() async throws {
+        let vault = try VaultStoreFixture(lockMode: .none)
+        defer { vault.cleanUp() }
+        try await vault.add("a.txt")
+        let trashedSource = try await vault.add("b.txt")
+        try await vault.store.moveToTrash(trashedSource)
+        try vault.diskFile("left.txt", "left")
+        #expect(try await vault.store.itemsToEncrypt().isEmpty)
+    }
+
+    @Test("itemsToEncrypt() skips files already encrypted but keeps leftover plaintext")
     func itemsToEncryptSkipsEncrypted() async throws {
         let vault = try VaultStoreFixture(lockMode: .password)
         defer { vault.cleanUp() }
         try await vault.add("done.txt")
         try vault.diskFile("left.txt", "left")
-        let items = try await vault.store.itemsToMigrate(toEncrypted: true)
+        let items = try await vault.store.itemsToEncrypt()
         #expect(items.map(\.name) == ["left.txt"])
     }
 
-    @Test("itemsToMigrate(toEncrypted: false) lists every encrypted file under the root and in the trash")
-    func itemsToDecryptListsEncrypted() async throws {
+    @Test("itemsToEncrypt is empty for an empty encrypted vault")
+    func itemsToEncryptEmpty() async throws {
         let vault = try VaultStoreFixture(lockMode: .password)
         defer { vault.cleanUp() }
-        let docs = try vault.folder("Docs")
-        try await vault.add("a.txt")
-        try await vault.add("b.txt", to: docs)
-        let trashedSource = try await vault.add("c.txt")
-        try await vault.store.moveToTrash(trashedSource)
-        try vault.diskFile("plain.txt", "plain")
-
-        let items = try await vault.store.itemsToMigrate(toEncrypted: false)
-        #expect(Set(items.map(\.name)) == ["a.txt", "b.txt", "c.txt"])
-        #expect(items.allSatisfy { $0.isEncrypted && !$0.isDirectory })
-        #expect(items.first { $0.name == "c.txt" }?.id.hasPrefix(".trash/") == true)
-    }
-
-    @Test("itemsToMigrate is empty for an empty vault in both directions")
-    func itemsToMigrateEmpty() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: true).isEmpty)
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: false).isEmpty)
+        #expect(try await vault.store.itemsToEncrypt().isEmpty)
     }
 
     // MARK: - migrateToEncrypted
@@ -100,7 +94,7 @@ import Testing
         defer { vault.cleanUp() }
         let docs = try vault.folder("Docs")
         try vault.diskFile("secret.txt", "secret", in: docs)
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
         try await vault.store.migrateToEncrypted(item)
 
         let names = try vault.diskNames(in: docs)
@@ -113,7 +107,7 @@ import Testing
         #expect(listed.map(\.name) == ["secret.txt"])
         #expect(listed.first?.isEncrypted == true)
         #expect(try await vault.openedContent(try #require(listed.first)) == "secret")
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: true).isEmpty)
+        #expect(try await vault.store.itemsToEncrypt().isEmpty)
     }
 
     @Test("Migrating every plaintext file in order encrypts all of them")
@@ -124,7 +118,7 @@ import Testing
         try vault.diskFile("a.txt", "A")
         try vault.diskFile("b.txt", "B", in: docs)
         try vault.diskFile("c.txt", "C", in: docs)
-        for item in try await vault.store.itemsToMigrate(toEncrypted: true) {
+        for item in try await vault.store.itemsToEncrypt() {
             try await vault.store.migrateToEncrypted(item)
         }
         #expect(try await vault.names() == ["Docs", "a.txt"])
@@ -140,7 +134,7 @@ import Testing
         let existing = try await vault.add("a.txt", "same")
         let indexBefore = vault.indexEntries()
         try vault.diskFile("a.txt", "same")
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
         try await vault.store.migrateToEncrypted(item)
 
         #expect(try await vault.names() == ["a.txt"])
@@ -156,7 +150,7 @@ import Testing
         defer { vault.cleanUp() }
         let existing = try await vault.add("a.txt", "encrypted version")
         try vault.diskFile("a.txt", "plaintext version")
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
         try await vault.store.migrateToEncrypted(item)
 
         let listed = try await vault.list()
@@ -170,13 +164,13 @@ import Testing
 
     @Test("migrateToEncrypted re-encrypts a trash item in place and updates its entry")
     func migrateToEncryptedTrashItem() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let item = try await vault.add("old.txt", "old content")
         try await vault.store.moveToTrash(item)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
 
-        let pending = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let pending = try #require(try await vault.store.itemsToEncrypt().first)
         try await vault.store.migrateToEncrypted(pending)
 
         let trashed = try await vault.store.trashContents()
@@ -187,7 +181,7 @@ import Testing
         #expect(entry["isEncrypted"] as? Bool == true)
         #expect(vault.trashMapContext() == ".trash_map")
         #expect(vault.cipher.calls.contains(where: isEncryptFile))
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: true).isEmpty)
+        #expect(try await vault.store.itemsToEncrypt().isEmpty)
 
         let restored = try await vault.store.restore(try #require(trashed.first))
         #expect(restored.isEncrypted)
@@ -199,164 +193,13 @@ import Testing
         let vault = try VaultStoreFixture(lockMode: .password)
         defer { vault.cleanUp() }
         try vault.diskFile("a.txt", "keep me")
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: true).first)
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
         let before = try vault.snapshot()
         vault.cipher.errorToThrow = .encryptionFailed
         let error = await caught { try await vault.store.migrateToEncrypted(item) }
         #expect(error != nil)
         #expect(try vault.snapshot() == before)
         #expect(try vault.content(item.diskURL) == "keep me")
-    }
-
-    // MARK: - migrateToDecrypted
-
-    @Test("migrateToDecrypted writes the plaintext under its original name, drops the entry and the encrypted file")
-    func migrateToDecryptedBasic() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        let docs = try vault.folder("Docs")
-        let added = try await vault.add("report.pdf", "pdf bytes", to: docs)
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: false).first)
-        try await vault.store.migrateToDecrypted(item)
-
-        let names = try vault.diskNames(in: docs)
-        #expect(names.contains("report.pdf"))
-        #expect(!names.contains((added.id as NSString).lastPathComponent))
-        #expect(try vault.content(docs.diskURL.appendingPathComponent("report.pdf")) == "pdf bytes")
-        #expect(vault.indexEntries(in: docs)?.isEmpty ?? true)
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: false).isEmpty)
-        #expect(try await vault.store.hasUnencryptedFiles())
-    }
-
-    @Test("migrateToDecrypted resolves a name conflict with ' 1'")
-    func migrateToDecryptedConflict() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        try await vault.add("a.txt", "encrypted")
-        try vault.diskFile("a.txt", "already here")
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: false).first)
-        try await vault.store.migrateToDecrypted(item)
-
-        #expect(try vault.content(vault.rootURL.appendingPathComponent("a.txt")) == "already here")
-        #expect(try vault.content(vault.rootURL.appendingPathComponent("a 1.txt")) == "encrypted")
-        #expect(vault.indexEntries()?.isEmpty ?? true)
-    }
-
-    @Test("Migrating every encrypted file in order decrypts all of them")
-    func migrateToDecryptedAll() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        let docs = try vault.folder("Docs")
-        try await vault.add("a.txt", "A")
-        try await vault.add("b.txt", "B", to: docs)
-        try await vault.add("c.txt", "C", to: docs)
-        for item in try await vault.store.itemsToMigrate(toEncrypted: false) {
-            try await vault.store.migrateToDecrypted(item)
-        }
-        #expect(try vault.diskNames().filter { $0 != ".vault_map" } == ["Docs", "a.txt"])
-        #expect(try vault.diskNames(in: docs).filter { $0 != ".vault_map" } == ["b.txt", "c.txt"])
-        #expect(try vault.content(vault.rootURL.appendingPathComponent("a.txt")) == "A")
-        #expect(try vault.content(docs.diskURL.appendingPathComponent("c.txt")) == "C")
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: false).isEmpty)
-    }
-
-    @Test("A decrypt failure leaves the encrypted file and its entry")
-    func migrateToDecryptedFailure() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        try await vault.add("a.txt", "keep me")
-        let item = try #require(try await vault.store.itemsToMigrate(toEncrypted: false).first)
-        let before = try vault.snapshot()
-        vault.cipher.errorToThrow = .decryptionFailed
-        let error = await caught { try await vault.store.migrateToDecrypted(item) }
-        #expect(error != nil)
-        #expect(try vault.snapshot() == before)
-        vault.cipher.errorToThrow = nil
-        #expect(try await vault.names() == ["a.txt"])
-        #expect(try await vault.openedContent(item) == "keep me")
-    }
-
-    @Test("migrateToDecrypted decrypts a trash item so it restores as plaintext")
-    func migrateToDecryptedTrashItem() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        let item = try await vault.add("old.txt", "old content")
-        try await vault.store.moveToTrash(item)
-        let pending = try #require(try await vault.store.itemsToMigrate(toEncrypted: false).first)
-        try await vault.store.migrateToDecrypted(pending)
-
-        #expect(try await vault.store.itemsToMigrate(toEncrypted: false).isEmpty)
-        let trashed = try await vault.store.trashContents()
-        #expect(trashed.map(\.name) == ["old.txt"])
-        #expect(trashed.first?.isEncrypted == false)
-        #expect(vault.trashEntries()?.values.first?["isEncrypted"] as? Bool == false)
-    }
-
-    // MARK: - finishDecryption
-
-    @Test("finishDecryption with an encrypted file left throws stillEncrypted with the count and changes nothing")
-    func finishDecryptionStillEncrypted() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        let docs = try vault.folder("Docs")
-        try await vault.add("a.txt")
-        try await vault.add("b.txt", to: docs)
-        try await vault.add("c.txt", to: docs)
-        let before = try vault.snapshot()
-        let error = await caught { try await vault.store.finishDecryption() }
-        #expect(error as? VaultStoreError == .stillEncrypted(count: 3))
-        #expect(try vault.snapshot() == before)
-    }
-
-    @Test("finishDecryption counts a leftover encrypted file in the trash")
-    func finishDecryptionCountsTrash() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        let item = try await vault.add("a.txt")
-        try await vault.store.moveToTrash(item)
-        let error = await caught { try await vault.store.finishDecryption() }
-        #expect(error as? VaultStoreError == .stillEncrypted(count: 1))
-    }
-
-    @Test("finishDecryption deletes every .vault_map, rewrites .trash_map as plaintext and the vault lists with no key")
-    func finishDecryptionCleansUp() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        let docs = try vault.folder("Docs")
-        let inner = try vault.folder("Inner", in: docs)
-        try await vault.add("a.txt", "A")
-        try await vault.add("b.txt", "B", to: docs)
-        try await vault.add("c.txt", "C", to: inner)
-        let trashedSource = try await vault.add("t.txt", "T")
-        try await vault.store.moveToTrash(trashedSource)
-        for item in try await vault.store.itemsToMigrate(toEncrypted: false) {
-            try await vault.store.migrateToDecrypted(item)
-        }
-        try await vault.store.finishDecryption()
-
-        #expect(vault.indexFilePaths().isEmpty)
-        #expect(vault.trashMapIsPlaintextJSON())
-        #expect(vault.trashEntries()?.count == 1)
-
-        vault.prefs.lockMode = .none
-        vault.keys.wipeKey()
-        #expect(try await vault.names() == ["Docs", "a.txt"])
-        #expect(try await vault.names(docs) == ["Inner", "b.txt"])
-        #expect(try await vault.names(inner) == ["c.txt"])
-        let trashed = try await vault.store.trashContents()
-        #expect(trashed.map(\.name) == ["t.txt"])
-        #expect(trashed.first?.isEncrypted == false)
-        let restored = try await vault.store.restore(try #require(trashed.first))
-        #expect(try vault.content(restored.diskURL) == "T")
-    }
-
-    @Test("finishDecryption on a vault with no indexes succeeds")
-    func finishDecryptionNothingToDo() async throws {
-        let vault = try VaultStoreFixture(lockMode: .password)
-        defer { vault.cleanUp() }
-        try vault.diskFile("plain.txt", "p")
-        try await vault.store.finishDecryption()
-        #expect(try vault.content(vault.rootURL.appendingPathComponent("plain.txt")) == "p")
     }
 
     // MARK: - finishEncryption
@@ -401,13 +244,13 @@ import Testing
 
     @Test("finishEncryption seals a plaintext .trash_map with the .trash_map context and the same entries")
     func finishEncryptionSealsTrashMap() async throws {
-        let vault = try VaultStoreFixture(lockMode: .none)
+        var vault = try VaultStoreFixture(lockMode: .none)
         defer { vault.cleanUp() }
         let first = try await vault.add("one.txt", "1")
         let second = try await vault.add("two.txt", "2")
         try await vault.store.moveToTrash(first)
         try await vault.store.moveToTrash(second)
-        vault.prefs.lockMode = .password
+        vault.reopen(encrypted: true)
         #expect(vault.trashMapIsPlaintextJSON())
         let before = try #require(vault.trashEntries())
         #expect(before.count == 2)
@@ -566,6 +409,170 @@ import Testing
         #expect(try await vault.store.hasUnencryptedFiles() == false)
     }
 
+    @Test(
+        "hasUnencryptedFiles is true for a plaintext file deep in nested subfolders",
+        arguments: [LockMode.none, .password])
+    func hasUnencryptedDeepInSubfolder(mode: LockMode) async throws {
+        let vault = try VaultStoreFixture(lockMode: mode)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let inner = try vault.folder("Inner", in: docs)
+        let deepest = try vault.folder("Deepest", in: inner)
+        if mode != .none { try await vault.add("a.txt", to: docs) }
+        try vault.diskFile("plain.txt", "p", in: deepest)
+        #expect(try await vault.store.hasUnencryptedFiles())
+    }
+
+    @Test("hasUnencryptedFiles is false when nested folders and the trash hold only encrypted files")
+    func hasUnencryptedFalseWithNestedFolders() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        let docs = try vault.folder("Docs")
+        let inner = try vault.folder("Inner", in: docs)
+        try await vault.add("a.txt")
+        try await vault.add("b.txt", to: docs)
+        try await vault.add("c.txt", to: inner)
+        let trashed = try await vault.add("d.txt", to: inner)
+        try await vault.store.moveToTrash(trashed)
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
+    }
+
+    @Test("hasUnencryptedFiles stops at the first plaintext file instead of walking the whole vault")
+    func hasUnencryptedStopsAtFirstPlaintextFile() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password)
+        defer { vault.cleanUp() }
+        try await vault.add("r.txt")
+        try vault.diskFile("plain.txt", "p")
+        let folderCount = 30
+        for index in 0..<folderCount {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+        }
+        let callsBefore = vault.cipher.calls.count
+
+        #expect(try await vault.store.hasUnencryptedFiles())
+        // A full walk reads at least every folder's index; stopping early leaves most folders untouched.
+        #expect(vault.cipher.calls.count - callsBefore < folderCount)
+    }
+
+    @Test("A listing asked for while hasUnencryptedFiles runs finishes before it does, and the answer is unchanged")
+    func listingRunsBetweenUnencryptedCheckSteps() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        try await vault.add("r.txt")
+        var folders: [VaultDirectory] = []
+        for index in 0..<40 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+            folders.append(folder)
+        }
+        let gate = HousekeepingGate()
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let store = vault.store
+        let target = folders[0]
+        let log = EventLog()
+        let aboutToList = Signal()
+
+        let check = Task {
+            let answer = try await store.hasUnencryptedFiles()
+            log.add("check")
+            return answer
+        }
+        #expect(await gate.waitUntilEntered())
+        let listing = Task {
+            aboutToList.raise()
+            let items = try await store.contents(of: target, sortedBy: .name, .ascending)
+            log.add("listing")
+            return items.map(\.name)
+        }
+        #expect(await aboutToList.waitUntilRaised())
+        gate.release()
+        let listed = try await listing.value
+        let answer = try await check.value
+
+        #expect(log.events == ["listing", "check"])
+        #expect(listed == ["a.txt"])
+        #expect(answer == false)
+    }
+
+    @Test("hasUnencryptedFiles skips a folder removed while it runs and does not throw")
+    func hasUnencryptedSkipsFoldersRemovedBetweenSteps() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        try await vault.add("r.txt")
+        var doomed: [URL] = []
+        for index in 0..<10 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+            doomed.append(folder.diskURL)
+        }
+        let removed = doomed
+        // The root step lists the subfolders (queuing them), then checks the root's file form, which reads its
+        // stream info. Removing the folders there leaves them queued but gone before their own steps run.
+        let gate = HousekeepingGate(waits: false) {
+            for url in removed { try? FileManager.default.removeItem(at: url) }
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
+        #expect(removed.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    private func manyFolderVault() async throws -> VaultStoreFixture {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true, selective: true)
+        try await vault.add("r.txt")
+        for index in 0..<10 {
+            let folder = try vault.folder("F\(index)")
+            try await vault.add("a.txt", to: folder)
+        }
+        return vault
+    }
+
+    @Test("hasUnencryptedFiles throws locked when the vault locks mid-walk")
+    func hasUnencryptedThrowsLockedMidWalk() async throws {
+        let vault = try await manyFolderVault()
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let keys = vault.keys
+        let gate = HousekeepingGate(waits: false) { keys.wipeKey() }
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+
+        let error = await caught { _ = try await vault.store.hasUnencryptedFiles() }
+        #expect(error as? VaultStoreError == .locked)
+    }
+
+    @Test("hasUnencryptedFiles throws CancellationError when its task is cancelled mid-walk")
+    func hasUnencryptedThrowsWhenCancelledMidWalk() async throws {
+        let vault = try await manyFolderVault()
+        defer { vault.cleanUp() }
+        let failing = try #require(vault.failing)
+        let gate = HousekeepingGate()
+        failing.decryptErrorFor = { _ in
+            gate.pass()
+            return nil
+        }
+        failing.onFirstStreamInfo = { _ in gate.pass() }
+        let store = vault.store
+
+        let check = Task { try await store.hasUnencryptedFiles() }
+        #expect(await gate.waitUntilEntered())
+        check.cancel()
+        gate.release()
+        let error = await caught { _ = try await check.value }
+
+        #expect(error is CancellationError)
+    }
+
     // MARK: - keyMatchesVault
 
     @Test("keyMatchesVault is true when the key decrypts the root index")
@@ -604,8 +611,7 @@ import Testing
     // MARK: - Locked
 
     enum LockedMigrationOperation: String, CaseIterable, Sendable {
-        case itemsToEncrypt, itemsToDecrypt, migrateToEncrypted, migrateToDecrypted
-        case finishDecryption, hasUnencryptedFiles
+        case itemsToEncrypt, migrateToEncrypted, finishEncryption, hasUnencryptedFiles
     }
 
     @Test(
@@ -614,7 +620,7 @@ import Testing
     func lockedMigrationOperations(operation: LockedMigrationOperation, mode: LockMode) async throws {
         let vault = try VaultStoreFixture(lockMode: mode)
         defer { vault.cleanUp() }
-        let encrypted = try await vault.add("secret.txt", "secret")
+        try await vault.add("secret.txt", "secret")
         let plain = try vault.diskFile("plain.txt", "plain")
         let plainItem = VaultItem(
             id: "plain.txt", name: "plain.txt", isDirectory: false, dateModified: Date(), fileSize: 5, deletedAt: nil,
@@ -624,15 +630,31 @@ import Testing
 
         let error = await caught {
             switch operation {
-            case .itemsToEncrypt: _ = try await vault.store.itemsToMigrate(toEncrypted: true)
-            case .itemsToDecrypt: _ = try await vault.store.itemsToMigrate(toEncrypted: false)
+            case .itemsToEncrypt: _ = try await vault.store.itemsToEncrypt()
             case .migrateToEncrypted: try await vault.store.migrateToEncrypted(plainItem)
-            case .migrateToDecrypted: try await vault.store.migrateToDecrypted(encrypted)
-            case .finishDecryption: try await vault.store.finishDecryption()
+            case .finishEncryption: try await vault.store.finishEncryption()
             case .hasUnencryptedFiles: _ = try await vault.store.hasUnencryptedFiles()
             }
         }
         #expect(error as? VaultStoreError == .locked)
         #expect(try vault.snapshot() == before)
+    }
+
+    @Test("migrateToEncrypted with a same-name copy of a different length keeps both, the new one as ' 1'")
+    func migrateToEncryptedDifferentLength() async throws {
+        let vault = try VaultStoreFixture(lockMode: .password, headerAware: true)
+        defer { vault.cleanUp() }
+        let existing = try await vault.add("a.txt", "short")
+        try vault.diskFile("a.txt", "a much longer plaintext version")
+        let item = try #require(try await vault.store.itemsToEncrypt().first)
+        try await vault.store.migrateToEncrypted(item)
+
+        let listed = try await vault.list()
+        #expect(listed.map(\.name) == ["a 1.txt", "a.txt"])
+        #expect(!FileManager.default.fileExists(atPath: item.diskURL.path))
+        let renamed = try #require(listed.first { $0.name == "a 1.txt" })
+        #expect(try await vault.openedContent(renamed) == "a much longer plaintext version")
+        #expect(try await vault.openedContent(existing) == "short")
+        #expect(try await vault.store.hasUnencryptedFiles() == false)
     }
 }

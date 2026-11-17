@@ -34,7 +34,6 @@ struct MigrationProgress: Sendable, Equatable {
     }
 
     var running: MigrationPhase { .running(done: done, total: total) }
-    var paused: MigrationPhase { .paused(done: done, total: total) }
     var failedPhase: MigrationPhase { .failed(names: failed.map(\.name)) }
 }
 

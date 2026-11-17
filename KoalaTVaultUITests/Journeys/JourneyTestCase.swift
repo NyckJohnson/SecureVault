@@ -7,6 +7,7 @@
 //
 
 import XCTest
+import StoreKitTest
 
 @MainActor
 class JourneyTestCase: XCTestCase {
@@ -41,13 +42,71 @@ class JourneyTestCase: XCTestCase {
 
     // MARK: - Screens
 
-    /// Finishes the first-launch wizard with No Lock if it is showing, then waits for the browser.
-    func completeSetupWithNoLockIfShown() {
-        let wizardTitle = app.staticTexts["setupWizard.titleLabel"]
-        if wizardTitle.waitForExistence(timeout: 5) {
-            app.buttons["continueButton"].tap()
-        }
-        waitForBrowser()
+    /// Waits for the lock screen (shown at every launch, return from the background and after Lock).
+    @discardableResult
+    func waitForLockScreen(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let field = app.secureTextFields["vaults.passwordField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "The lock screen did not appear", file: file, line: line)
+        return field
+    }
+
+    /// From the lock screen, taps "Open Unencrypted Vault" and waits for the browser.
+    func openUnencryptedVault(file: StaticString = #filePath, line: UInt = #line) {
+        waitForLockScreen(file: file, line: line)
+        let button = app.buttons["vaults.unencryptedButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "Open Unencrypted Vault missing", file: file, line: line)
+        button.tap()
+        waitForBrowser(file: file, line: line)
+    }
+
+    /// Types `password` on the lock screen and taps Open, without waiting for anything after.
+    func attemptOpen(with password: String, file: StaticString = #filePath, line: UInt = #line) {
+        type(password, into: waitForLockScreen(file: file, line: line), file: file, line: line)
+        app.buttons["vaults.openButton"].tap()
+    }
+
+    /// The "< lock" arrow in the browser root's title row -> the lock screen.
+    func lockApp(file: StaticString = #filePath, line: UInt = #line) {
+        let lock = app.buttons["lockButton"]
+        XCTAssertTrue(lock.waitForExistence(timeout: 5), "The root's title row has no Lock arrow", file: file, line: line)
+        lock.tap()
+        waitForLockScreen(file: file, line: line)
+    }
+
+    /// The browser's title row text (the folder, vault, "Select Items" or "N Selected" label under the bar).
+    func browserTitle(_ text: String) -> XCUIElement {
+        app.staticTexts.matching(identifier: "browser.titleLabel").matching(NSPredicate(format: "label == %@", text)).firstMatch
+    }
+
+    /// Moves the file `name` from the open vault to the encrypted vault with `password` through the vault picker,
+    /// and waits for the item to leave the grid (a move). Leaves the browser in the current vault.
+    func moveToVault(_ name: String, password: String = JourneyTestCase.password,
+                     file: StaticString = #filePath, line: UInt = #line) {
+        longPressCell(name, file: file, line: line)
+        tapMenuAction("browser.contextMenu.moveToVault", title: "Move to Vault…", file: file, line: line)
+        usePickedVault(password: password, file: file, line: line)
+        XCTAssertTrue(cell(name).waitForNonExistence(timeout: 15), "\(name) should have left the grid",
+                      file: file, line: line)
+    }
+
+    /// In the vault picker: types `password` and taps Use Vault.
+    func usePickedVault(password: String, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.secureTextFields["vaultPicker.passwordField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "The vault picker did not appear", file: file, line: line)
+        type(password, into: field, file: file, line: line)
+        app.buttons["vaultPicker.useButton"].tap()
+    }
+
+    /// Launch environment for a journey that works in the encrypted "Test Vault": seed `fileName` (plaintext, in the
+    /// unencrypted vault) is moved into it. Call after `launch` (the lock screen showing): opens the unencrypted vault,
+    /// moves the seed file to Test Vault, locks, and opens Test Vault with the password.
+    func openTestVaultHolding(_ fileName: String, file: StaticString = #filePath, line: UInt = #line) {
+        openUnencryptedVault(file: file, line: line)
+        moveToVault(fileName, file: file, line: line)
+        lockApp(file: file, line: line)
+        unlockWithPassword(file: file, line: line)
+        XCTAssertTrue(cell(fileName).waitForExistence(timeout: 10), "\(fileName) should be in Test Vault",
+                      file: file, line: line)
     }
 
     func waitForBrowser(file: StaticString = #filePath, line: UInt = #line) {
@@ -103,6 +162,42 @@ class JourneyTestCase: XCTestCase {
                 file: file, line: line)
     }
 
+
+    // MARK: - Bar menus (device test 2026-11-16)
+
+    /// Opens a bar menu button (identifier) and taps the entry found by identifier, then by title.
+    private func tapMenuEntry(menuButton: String, identifier: String, title: String,
+                              file: StaticString, line: UInt) {
+        let menu = app.buttons[menuButton]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "\(menuButton) missing", file: file, line: line)
+        menu.tap()
+        let candidates: [XCUIElement] = [
+            app.buttons[identifier], app.menuItems[identifier],
+            app.buttons[title], app.menuItems[title]
+        ]
+        for candidate in candidates where candidate.waitForExistence(timeout: 2) {
+            candidate.tap()
+            return
+        }
+        XCTFail("No menu entry \(identifier) / \(title). UI: \(app.debugDescription)", file: file, line: line)
+    }
+
+    /// Opens the ☰ Actions menu (outside select mode) and taps an entry: New Folder, New Document, Import, Sort.
+    func tapActionsMenuEntry(_ identifier: String, title: String,
+                             file: StaticString = #filePath, line: UInt = #line) {
+        tapMenuEntry(menuButton: "browser.actionsMenuButton", identifier: identifier, title: title, file: file, line: line)
+    }
+
+    /// Opens the select-mode ☰ Actions menu and taps an entry (Move, Copy, Export, Move/Copy to Vault…, Delete).
+    func tapSelectActionsMenuEntry(_ identifier: String, title: String,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        tapMenuEntry(menuButton: "browser.selectActionsMenuButton", identifier: identifier, title: title, file: file, line: line)
+    }
+
+    func tapNewDocumentMenuEntry(file: StaticString = #filePath, line: UInt = #line) {
+        tapActionsMenuEntry("browser.menu.newDocument", title: "New Document", file: file, line: line)
+    }
+
     // MARK: - Alerts
 
     /// Taps a `UIAlertAction` button (found by label; alert actions cannot take identifiers).
@@ -148,9 +243,7 @@ class JourneyTestCase: XCTestCase {
 
     /// Creates a document through New Document and closes the editor with Done. Returns once the cell shows.
     func createDocument(named name: String, text: String? = nil, file: StaticString = #filePath, line: UInt = #line) {
-        let button = app.navigationBars.buttons["browser.newDocumentButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "New Document button missing", file: file, line: line)
-        button.tap()
+        tapNewDocumentMenuEntry(file: file, line: line)
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Document alert missing", file: file, line: line)
         type(name, into: alert.textFields["browser.newDocumentNameField"], file: file, line: line)
@@ -218,8 +311,7 @@ class JourneyTestCase: XCTestCase {
     /// Unlocks the lock screen with `password` and waits for the browser (journeys seeded with `UITEST_PASSWORD`).
     func unlockWithPassword(_ password: String = JourneyTestCase.password,
                             file: StaticString = #filePath, line: UInt = #line) {
-        type(password, into: app.secureTextFields["passwordField"], file: file, line: line)
-        app.buttons["unlockButton"].tap()
+        attemptOpen(with: password, file: file, line: line)
         waitForBrowser(file: file, line: line)
     }
 
@@ -229,9 +321,7 @@ class JourneyTestCase: XCTestCase {
     /// `resultingFileName`, optionally types `text`, taps Done and waits for that cell.
     func createDocument(named name: String, resultingFileName: String, text: String? = nil,
                         file: StaticString = #filePath, line: UInt = #line) {
-        let button = app.navigationBars.buttons["browser.newDocumentButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "New Document button missing", file: file, line: line)
-        button.tap()
+        tapNewDocumentMenuEntry(file: file, line: line)
         let alert = app.alerts["New Document"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Document alert missing", file: file, line: line)
         type(name, into: alert.textFields["browser.newDocumentNameField"], file: file, line: line)
@@ -250,11 +340,96 @@ class JourneyTestCase: XCTestCase {
 
     /// Creates a folder through New Folder (the button may be in the overflow menu).
     func createFolderViaBar(named name: String, file: StaticString = #filePath, line: UInt = #line) {
-        tapBarButton("newFolderButton", fallbackLabel: "New Folder", file: file, line: line)
+        tapActionsMenuEntry("browser.menu.newFolder", title: "New Folder", file: file, line: line)
         let alert = app.alerts["New Folder"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "New Folder alert missing", file: file, line: line)
         type(name, into: alert.textFields["browser.newFolderNameField"], file: file, line: line)
         tapAlertButton("Create", in: alert, file: file, line: line)
         XCTAssertTrue(cell(name).waitForExistence(timeout: 5), "Folder \(name) missing from grid", file: file, line: line)
+    }
+}
+
+// MARK: - StoreKit
+
+/// Base for journeys that buy Pro: runs against premiumTesting.storekit through an in-process `SKTestSession`
+/// (dialogs disabled). Journeys launch the app themselves (`launchesInSetUp` is false).
+class StoreKitJourneyTestCase: JourneyTestCase {
+
+    var session: SKTestSession!
+    let productID = "nej.KoalaTVault.unlockpro"
+
+    override var launchesInSetUp: Bool { false }
+
+    override func setUp() async throws {
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(forResource: "premiumTesting", withExtension: "storekit"),
+            "premiumTesting.storekit is not in the KoalaTVaultUITests bundle")
+        session = try SKTestSession(contentsOf: url)
+        session.resetToDefaultState()
+        session.clearTransactions()
+        session.disableDialogs = true
+        try await super.setUp()
+    }
+
+    override func tearDown() async throws {
+        session?.clearTransactions()
+        session?.resetToDefaultState()
+        try await super.tearDown()
+    }
+
+    /// Settings gear -> Upgrade to Pro -> Unlock; waits for "Pro Unlocked", then closes Settings.
+    func buyProThroughSettings(file: StaticString = #filePath, line: UInt = #line) {
+        openSettings(file: file, line: line)
+        let pro = app.cells["upgradeToProCell"]
+        XCTAssertTrue(pro.waitForExistence(timeout: 5), "Pro row missing", file: file, line: line)
+        pro.tap()
+        let unlock = app.buttons["paywallUnlockButton"]
+        XCTAssertTrue(unlock.waitForExistence(timeout: 5), "Paywall did not open", file: file, line: line)
+        unlock.tap()
+        XCTAssertTrue(unlock.waitForNonExistence(timeout: 15), "Paywall did not close after the purchase",
+                      file: file, line: line)
+        XCTAssertTrue(app.staticTexts["Pro Unlocked"].waitForExistence(timeout: 10),
+                      "Settings should show \"Pro Unlocked\"", file: file, line: line)
+        dismissSettingsSheet(file: file, line: line)
+    }
+
+    /// Lock screen -> Create New Vault -> fills the form and taps Create (does not wait for the result).
+    func createVault(name: String, password: String, confirm: String? = nil,
+                     file: StaticString = #filePath, line: UInt = #line) {
+        waitForLockScreen(file: file, line: line)
+        app.buttons["vaults.createButton"].tap()
+        fillCreateVaultForm(name: name, password: password, confirm: confirm, file: file, line: line)
+    }
+
+    /// On the Create Vault screen: types the name, taps Create, and (for a non-blank name) fills the
+    /// "Set Password" alert and taps its Create button. A blank name opens no alert.
+    func fillCreateVaultForm(name: String, password: String, confirm: String? = nil,
+                             file: StaticString = #filePath, line: UInt = #line) {
+        let nameField = app.textFields["createVault.nameField"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "The Create Vault screen did not appear",
+                      file: file, line: line)
+        if !name.isEmpty { type(name, into: nameField, file: file, line: line) }
+        app.buttons["createVault.createButton"].tap()
+        guard !name.isEmpty else { return }
+        let alert = openedPasswordAlert(file: file, line: line)
+        if !password.isEmpty {
+            type(password, into: alert.secureTextFields["createVault.alertPasswordField"], file: file, line: line)
+        }
+        let confirmation = confirm ?? password
+        if !confirmation.isEmpty {
+            type(confirmation, into: alert.secureTextFields["createVault.alertConfirmField"], file: file, line: line)
+        }
+        let create = alert.buttons["createVault.alertCreateButton"].exists
+            ? alert.buttons["createVault.alertCreateButton"] : alert.buttons["Create"]
+        create.tap()
+    }
+
+    /// Waits for the "Set Password" alert of Create Vault and returns it.
+    @discardableResult
+    func openedPasswordAlert(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+        let alert = app.alerts["Set Password"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "The Set Password alert did not appear",
+                      file: file, line: line)
+        return alert
     }
 }

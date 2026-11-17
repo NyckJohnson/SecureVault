@@ -58,7 +58,10 @@ import UIKit
     @Test("An empty trash shows No recently deleted files and disables Empty Trash")
     func emptyState() async throws {
         let rig = try await makeRig(trashing: [])
-        await SettingsTestSupport.waitUntil { rig.host.element("recentlyDeleted.emptyStateLabel") != nil }
+        await SettingsTestSupport.waitUntil {
+            (rig.host.element("recentlyDeleted.emptyStateLabel") as? UILabel)?.isHidden == false
+                && rig.host.isEnabled("recentlyDeleted.emptyTrashButton") == false
+        }
         let label = try #require(rig.host.element("recentlyDeleted.emptyStateLabel") as? UILabel)
         #expect(label.text == "No recently deleted files")
         #expect(label.isHidden == false)
